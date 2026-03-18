@@ -1,5 +1,7 @@
 ﻿# Discord 音樂與伺服器管理機器人（Java）
 
+- [重點功能與指令教學](./重點功能與指令教學.md)
+
 這是一個使用 `JDA 6` + `LavaPlayer` 的 Discord Bot，功能包含：
 - 音樂播放（YouTube 關鍵字/URL、Spotify 連結轉播）
 - 互動式音樂控制面板（按鈕）
@@ -190,9 +192,6 @@ java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.0.0-all.jar
   - `音樂自動離開啟用 (music.autoLeaveEnabled)`
   - `音樂 Autoplay 啟用 (music.autoplayEnabled)`
   - `私人包廂啟用 (privateRoom.enabled)`
-- 顯示格式統一為：
-  - `⚙️ 項目名稱`
-  - `> 狀態: 開啟✅ / 關閉❌`
 
 補充：
 - `/settings info` 已改為下拉式分頁面板，可切換 `總覽 / 通知 / 模板 / 日誌 / 音樂 / 私人包廂 / 模組`。
