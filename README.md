@@ -1,4 +1,4 @@
-﻿﻿# NoRule Bot (Discord 音樂與伺服器管理機器人)
+# NoRule Bot (Discord 音樂與伺服器管理機器人)
 
 NoRule Bot 是一個以 **Java 17 + JDA 6 + LavaPlayer** 開發的 Discord Bot，整合音樂播放、通知模板、日誌、私人包廂與多語系管理。
 
