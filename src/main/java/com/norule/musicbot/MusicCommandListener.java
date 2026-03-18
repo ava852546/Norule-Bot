@@ -110,6 +110,10 @@ public class MusicCommandListener extends ListenerAdapter {
     private final Map<String, MenuRequest> musicMenuRequests = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private volatile JDA jda;
+    private final Map<Long, Long> panelLastRefreshAt = new ConcurrentHashMap<>();
+    private final Map<Long, String> panelLastSignature = new ConcurrentHashMap<>();
+    private final Set<Long> panelRefreshingGuilds = ConcurrentHashMap.newKeySet();
+    private static final long PANEL_PERIODIC_REFRESH_MS = 30000L;
 
     public MusicCommandListener(MusicPlayerService musicService, BotConfig config, GuildSettingsService settingsService) {
         this.musicService = musicService;
@@ -117,7 +121,7 @@ public class MusicCommandListener extends ListenerAdapter {
         this.settingsService = settingsService;
         this.i18n = I18nService.load(java.nio.file.Path.of(config.getLanguageDir()), config.getDefaultLanguage());
         this.musicService.setAutoplayEnabledChecker(guildId -> settingsService.getMusic(guildId).isAutoplayEnabled());
-        this.scheduler.scheduleAtFixedRate(this::refreshAllPanelsSafely, 5, 5, TimeUnit.SECONDS);
+        this.scheduler.scheduleAtFixedRate(this::refreshAllPanelsSafely, 5, 30, TimeUnit.SECONDS);
     }
 
     public void reloadRuntimeConfig(BotConfig newConfig) {
@@ -133,30 +137,15 @@ public class MusicCommandListener extends ListenerAdapter {
     public void onReady(ReadyEvent event) {
         this.jda = event.getJDA();
         List<CommandData> commands = buildCommands();
-        Long commandGuildId = config.getCommandGuildId();
-        if (commandGuildId != null) {
-            Guild guild = event.getJDA().getGuildById(commandGuildId);
-            if (guild != null) {
-                updateGuildCommandsAndPermissions(guild, commands);
-                return;
-            }
-        }
-        List<Guild> guilds = event.getJDA().getGuilds();
-        if (!guilds.isEmpty()) {
-            for (Guild guild : guilds) {
-                updateGuildCommandsAndPermissions(guild, commands);
-            }
-            return;
-        }
-        event.getJDA().updateCommands().addCommands(commands).queue();
+        event.getJDA().updateCommands().addCommands(commands).queue(
+                success -> System.out.println("[NoRule] Registered global slash commands: " + success.size()),
+                failure -> System.out.println("[NoRule] Failed to register global slash commands: " + failure.getMessage())
+        );
     }
 
     @Override
     public void onGuildJoin(GuildJoinEvent event) {
-        if (config.getCommandGuildId() != null) {
-            return;
-        }
-        updateGuildCommandsAndPermissions(event.getGuild(), buildCommands());
+        // Global command registration is handled in onReady/syncCommands.
     }
 
     private void syncCommands() {
@@ -165,29 +154,34 @@ public class MusicCommandListener extends ListenerAdapter {
             return;
         }
         List<CommandData> commands = buildCommands();
-        Long commandGuildId = config.getCommandGuildId();
-        if (commandGuildId != null) {
-            Guild guild = current.getGuildById(commandGuildId);
-            if (guild != null) {
-                updateGuildCommandsAndPermissions(guild, commands);
+        current.updateCommands().addCommands(commands).queue(
+                success -> System.out.println("[NoRule] Synced global slash commands: " + success.size()),
+                failure -> System.out.println("[NoRule] Failed to sync global slash commands: " + failure.getMessage())
+        );
+    }
+
+    private void clearGlobalCommands(JDA jda) {
+        jda.retrieveCommands().queue(globalCommands -> {
+            if (globalCommands == null || globalCommands.isEmpty()) {
                 return;
             }
-        }
-        List<Guild> guilds = current.getGuilds();
-        if (!guilds.isEmpty()) {
-            for (Guild guild : guilds) {
-                updateGuildCommandsAndPermissions(guild, commands);
-            }
-            return;
-        }
-        current.updateCommands().addCommands(commands).queue();
+            // Use guild commands as source of truth; clear stale global commands.
+            jda.updateCommands().queue(
+                    success -> System.out.println("[NoRule] Cleared stale global slash commands: " + globalCommands.size()),
+                    error -> System.out.println("[NoRule] Failed to clear global slash commands: " + error.getMessage())
+            );
+        }, error -> System.out.println("[NoRule] Failed to retrieve global commands: " + error.getMessage()));
     }
 
     private void updateGuildCommandsAndPermissions(Guild guild, List<CommandData> commands) {
         guild.updateCommands().addCommands(commands).queue(
-                success -> enforceCommandPermissions(guild),
-                failure -> {
-                }
+                success -> {
+                    System.out.println("[NoRule] Registered slash commands for guild " + guild.getId() + ": " + success.size());
+                    // Default permissions are already set during command build.
+                    // Skip per-command edit calls to avoid unnecessary Missing Access noise.
+                },
+                failure -> System.out.println("[NoRule] Failed to register slash commands for guild "
+                        + guild.getId() + ": " + failure.getMessage())
         );
     }
 
@@ -214,13 +208,13 @@ public class MusicCommandListener extends ListenerAdapter {
                     command.editCommand().setDefaultPermissions(target).queue(
                             ignored -> {
                             },
-                            error -> {
-                            }
+                            error -> System.out.println("[NoRule] Failed to set command permissions for "
+                                    + command.getName() + " in guild " + guild.getId() + ": " + error.getMessage())
                     );
                 }
             }
-        }, error -> {
-        });
+        }, error -> System.out.println("[NoRule] Failed to retrieve guild commands for permission sync in guild "
+                + guild.getId() + ": " + error.getMessage()));
     }
 
     @Override
@@ -2519,16 +2513,40 @@ public class MusicCommandListener extends ListenerAdapter {
                 .setComponents(panelRows(lang, guild.getIdLong()))
                 .queue(message -> {
                     panelByGuild.put(guild.getIdLong(), new PanelRef(channel.getIdLong(), message.getIdLong()));
+                    panelLastSignature.put(guild.getIdLong(), panelSignature(guild));
+                    panelLastRefreshAt.put(guild.getIdLong(), System.currentTimeMillis());
                     musicService.setGuildStateListener(guild.getIdLong(), () -> refreshPanel(guild.getIdLong()));
                     onSuccess.run();
                 }, error -> onError.accept(error.getMessage()));
     }
 
     private void refreshPanel(long guildId) {
+        refreshPanelInternal(guildId, true);
+    }
+
+    private void refreshPanelPeriodic(long guildId) {
+        refreshPanelInternal(guildId, false);
+    }
+
+    private void refreshPanelInternal(long guildId, boolean force) {
         PanelRef ref = panelByGuild.get(guildId);
         if (ref == null || jda == null) {
             return;
         }
+        if (!panelRefreshingGuilds.add(guildId)) {
+            return;
+        }
+        try {
+            if (!force) {
+                if (musicService.getCurrentTitle(jda.getGuildById(guildId)) == null) {
+                    return;
+                }
+                long now = System.currentTimeMillis();
+                long last = panelLastRefreshAt.getOrDefault(guildId, 0L);
+                if (now - last < PANEL_PERIODIC_REFRESH_MS) {
+                    return;
+                }
+            }
         Guild guild = jda.getGuildById(guildId);
         if (guild == null) {
             panelByGuild.remove(guildId);
@@ -2539,24 +2557,44 @@ public class MusicCommandListener extends ListenerAdapter {
             panelByGuild.remove(guildId);
             return;
         }
+        String signature = panelSignature(guild);
+        if (signature.equals(panelLastSignature.get(guildId))) {
+            return;
+        }
         String lang = lang(guildId);
         channel.editMessageEmbedsById(ref.messageId, panelEmbed(guild, lang).build())
                 .setComponents(panelRows(lang, guildId))
                 .queue(success -> {
+                    panelLastSignature.put(guildId, signature);
+                    panelLastRefreshAt.put(guildId, System.currentTimeMillis());
                 }, error -> {
                     panelByGuild.remove(guildId);
+                    panelLastSignature.remove(guildId);
+                    panelLastRefreshAt.remove(guildId);
                 });
+        } finally {
+            panelRefreshingGuilds.remove(guildId);
+        }
     }
 
     private void refreshPanelMessage(Guild guild, TextChannel channel, long messageId) {
+        long guildId = guild.getIdLong();
+        String signature = panelSignature(guild);
+        if (signature.equals(panelLastSignature.get(guildId))) {
+            return;
+        }
         String lang = lang(guild.getIdLong());
         channel.editMessageEmbedsById(messageId, panelEmbed(guild, lang).build())
                 .setComponents(panelRows(lang, guild.getIdLong()))
                 .queue(success -> {
+                    panelLastSignature.put(guildId, signature);
+                    panelLastRefreshAt.put(guildId, System.currentTimeMillis());
                 }, error -> {
                     PanelRef ref = panelByGuild.get(guild.getIdLong());
                     if (ref != null && ref.messageId == messageId) {
                         panelByGuild.remove(guild.getIdLong());
+                        panelLastSignature.remove(guildId);
+                        panelLastRefreshAt.remove(guildId);
                     }
                 });
     }
@@ -2907,10 +2945,39 @@ public class MusicCommandListener extends ListenerAdapter {
         try {
             List<Long> guildIds = new ArrayList<>(panelByGuild.keySet());
             for (Long guildId : guildIds) {
-                refreshPanel(guildId);
+                refreshPanelPeriodic(guildId);
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private String panelSignature(Guild guild) {
+        String current = musicService.getCurrentTitle(guild);
+        long duration = musicService.getCurrentDurationMillis(guild);
+        long position = musicService.getCurrentPositionMillis(guild);
+        long positionBucket = Math.max(0L, position / PANEL_PERIODIC_REFRESH_MS);
+        String state = current == null ? "IDLE" : (musicService.isPaused(guild) ? "PAUSED" : "PLAYING");
+        String repeat = musicService.getRepeatMode(guild);
+        List<AudioTrack> queue = musicService.getQueueSnapshot(guild);
+        String queueHead = queue.isEmpty() ? "-" : safe(queue.get(0).getInfo().title, 40);
+        String connected = guild.getAudioManager().getConnectedChannel() == null
+                ? "-"
+                : guild.getAudioManager().getConnectedChannel().getId();
+        String source = musicService.getCurrentSource(guild);
+        String autoplayNotice = musicService.getAutoplayNotice(guild.getIdLong());
+        return String.join("|",
+                safe(current, 60),
+                String.valueOf(duration),
+                String.valueOf(positionBucket),
+                state,
+                safe(repeat, 12),
+                String.valueOf(queue.size()),
+                queueHead,
+                connected,
+                safe(source, 20),
+                safe(autoplayNotice, 50),
+                String.valueOf(isAutoplayEnabled(guild.getIdLong()))
+        );
     }
 
     private long acquireCooldown(long userId) {

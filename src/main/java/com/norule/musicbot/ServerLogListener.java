@@ -141,10 +141,18 @@ public class ServerLogListener extends ListenerAdapter {
             return;
         }
         TextChannel channel = guild.getTextChannelById(channelId);
-        if (channel != null) {
+        if (channel == null) {
+            return;
+        }
+        var selfMember = guild.getSelfMember();
+        if (selfMember == null || !selfMember.hasAccess(channel) || !channel.canTalk(selfMember)) {
+            return;
+        }
+        try {
             channel.sendMessageEmbeds(eb.build()).queue(success -> {
             }, error -> {
             });
+        } catch (RuntimeException ignored) {
         }
     }
 
