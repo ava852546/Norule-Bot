@@ -118,7 +118,10 @@ public class BotConfig {
             }
 
             if (!Files.exists(configPath)) {
-                writeYaml(configPath, defaultConfig);
+                writeResourceIfMissing("defaults/config.yml", configPath);
+                if (!Files.exists(configPath)) {
+                    writeYaml(configPath, defaultConfig);
+                }
             }
 
             Map<String, Object> currentConfig = readYamlMap(configPath);
