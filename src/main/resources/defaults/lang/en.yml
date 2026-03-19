@@ -1,6 +1,4 @@
-﻿language:
-  name: "English"
-
+﻿lang: "English"
 general:
   only_guild: "This command can only be used in a server."
   no_permission: "You do not have permission to use this command."
@@ -231,6 +229,8 @@ settings:
   template_modal_color_label: "Embed Color (Hex)"
   template_menu_title: "Notification Template Settings"
   template_menu_desc: "Choose which template to edit from the dropdown menu."
+  template_member_placeholders_guide: "Available placeholders: `{user}` user mention, `{username}` username, `{guild}` guild name, `{id}` user id, `{tag}` user tag, `{isBot}` is bot, `{createdAt}` account created time, `{accountAgeDays}` account age in days."
+  template_member_placeholders_short: "{user} {username} {guild} {id} {tag} {isBot} {createdAt} {accountAgeDays}"
   template_menu_placeholder: "Choose template type"
   template_menu_expired: "Template menu expired. Run `/settings template` again."
   template_color_invalid: "Invalid color. Use #RRGGBB or RRGGBB."
@@ -333,6 +333,7 @@ room_settings:
   rename_placeholder: "Current: {name}"
   rename_invalid: "Name cannot be empty and must be 1-10 characters."
   rename_saved: "Room name updated to: {name}"
+  default_room_suffix: "Room"
 
 delete:
   processing: "Deleting messages, please wait..."
@@ -366,6 +367,42 @@ logs:
   user_kicked: "User Kicked"
   target: "Target"
   moderator: "Moderator"
+
+notifications:
+  embed:
+    member_join_title: "Member Joined"
+    member_leave_title: "Member Left"
+    user_field: "User"
+    account_created_field: "Account Created"
+    join_notify_time_field: "Join Notify Time"
+    leave_notify_time_field: "Leave Notify Time"
+  template:
+    default:
+      member_join: "{user} joined the server. Account created: {createdAt} ({accountAgeDays} days ago). ID: {id}"
+      member_leave: "{user} left the server. Account created: {createdAt} ({accountAgeDays} days ago). ID: {id}"
+      voice_join: "{user} joined voice channel {channel}."
+      voice_leave: "{user} left voice channel {channel}."
+      voice_move: "{user} moved voice channel from {from} to {to}."
+
+message_logs:
+  edit:
+    title: "Message Edited"
+    user: "User"
+    channel: "Channel"
+    message_id: "Message ID"
+    before: "Before"
+    before_attachments: "Before Attachments"
+    after: "After"
+    after_attachments: "After Attachments"
+  delete:
+    title: "Message Deleted"
+    author: "Author"
+    channel: "Channel"
+    message_id: "Message ID"
+    content: "Content"
+    attachments: "Attachments"
+
+
 
 
 

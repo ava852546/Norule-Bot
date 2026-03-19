@@ -1,0 +1,408 @@
+﻿lang: "简体中文"
+general:
+  only_guild: "此指令只能在服务器使用。"
+  no_permission: "你没有权限使用此指令。"
+  missing_permissions: "缺少必要权限：{permissions}"
+  unknown_command: "未知指令。"
+  command_cooldown: "指令冷却中，请在 {seconds} 秒后再试。"
+  settings_saved: "设置已更新：{key} = {value}"
+  invalid_channel: "频道无效。"
+  invalid_user: "用户无效。"
+
+system:
+  startup: "✅ 机器人已开机并上线。"
+  shutdown: "🛑 机器人正在关机。"
+
+music:
+  join_first: "请先加入语音频道。"
+  joined: "已加入 {channel}。"
+  left: "已离开语音频道。"
+  left_by_operator: "👋 {user} 操作了离开按钮，机器人已离开语音频道。"
+  auto_leave_idle_notice: "🕒 因长时间闲置未播放，机器人已自动离开语音频道。"
+  queue_added: "已加入队列：`{title}`"
+  queue_empty: "队列当前为空。"
+  skipped: "已跳过当前歌曲。"
+  stopped: "已停止播放并清空队列。"
+  load_failed: "加载歌曲失败：{error}"
+  not_found: "找不到结果：`{query}`"
+  search_title: "搜索结果"
+  search_desc: "请从前 10 项结果选择 1 首歌。菜单会在 {seconds} 秒后自动失效。"
+  search_timeout: "搜索菜单已在 30 秒后失效。"
+  search_expired: "此搜索菜单已失效，请重新执行 /play。"
+  panel_title: "音乐控制面板"
+  panel_current: "当前播放"
+  panel_channel: "频道"
+  panel_queue: "队列"
+  panel_repeat: "循環模式"
+  panel_state: "播放状态"
+  panel_paused: "暂停"
+  panel_playing: "播放中"
+  panel_idle: "闲置"
+  panel_source: "来源"
+  panel_requester: "点歌者"
+  panel_progress: "播放进度"
+  panel_autoplay_notice: "Autoplay 提示"
+  panel_none: "（无）"
+  repeat_off: "关闭"
+  repeat_single: "单曲循環"
+  repeat_all: "队列循環"
+  autoplay_on: "开启"
+  autoplay_off: "关闭"
+  autoplay_notice_no_match: "找不到可推荐的下一首歌曲。"
+  autoplay_notice_load_failed: "自动推荐加载失败：{error}"
+  btn_play_pause: "播放/暂停"
+  btn_skip: "跳过"
+  btn_stop: "停止"
+  btn_leave: "离开"
+  btn_repeat_single: "单曲循環"
+  btn_repeat_all: "队列循環"
+  btn_repeat_off: "取消循環"
+  btn_autoplay_on: "Autoplay：开"
+  btn_autoplay_off: "Autoplay：关"
+  panel_stale: "这个音乐面板已过期，请使用 /music-panel 创建新的面板。"
+  command_channel_restricted: "此音乐指令只能在设置的音乐指令频道使用。"
+  panel_same_voice_only: "只有与机器人在同一语音频道的成员可以操作面板。"
+  not_same_voice_channel: "你必须先加入机器人所在的语音频道。"
+  join_bot_voice_channel: "机器人当前在 {channel}，请先加入该语音频道后再播放。"
+  not_connected: "机器人当前未连接任何语音频道。"
+
+help:
+  title: "机器人说明"
+  intro: "欢迎使用 NoRule 机器人。可使用下方「下拉菜单」或「按钮」切换分类。"
+  select_placeholder: "选择分类"
+  category_music: "音乐"
+  category_settings: "设置"
+  category_moderation: "管理"
+  category_private_room: "私人包厢"
+  category_general: "一般"
+  content_music: |
+    🎧 快速开始
+    `/join` 让 Bot 进入你所在语音频道
+    `/play query:<关键词或网址>` 开始搜索或播放
+    `/music-panel` 创建交互控制面板
+
+    🎮 播放控制
+    `/skip` 跳过当前歌曲
+    `/stop` 停止播放并清空队列
+    `/leave` 让 Bot 离开语音频道
+    `/repeat mode:<off|single|all>` 切换循環模式
+
+    📌 使用建议
+    先用 `/settings music` 开启菜单，设置「音乐指令频道」方便集中管理。
+  content_settings: |
+    ⚙️ 基本管理
+    `/settings info` 查看当前生效设置
+    `/settings reload` 重新加载服务器设置
+    `/settings language code:<en|zh-TW>` 切换语言
+    `/settings reset` 开启重置菜单（含二次确认）
+
+    🧩 通知模板
+    `/settings template`
+    以「下拉菜单」选择要编辑的模板，再开启表单输入
+
+    📢 通知与日志频道
+    `/settings logs`
+    先用下拉菜单选择要设置的日志类型，再用频道选择器挑选文字频道
+
+    🎵 音乐与包厢
+    `/settings music`
+    以「下拉菜单」设置：
+    - 自动离开开关
+    - 自动离开分钟（1-60）
+    - Autoplay 开关
+    - 音乐指令频道
+    - 私人包厢触发频道
+
+    🧱 模块开关
+    `/settings module`
+    以「下拉菜单」快速切换各模块开关
+
+    🏠 私人包厢快捷
+    `/private-room-settings` 或 `/包厢设置`
+    可上锁、调整人数上限、修改包厢名称
+  content_moderation: "● `/delete-messages channel amount` 批次删除频道消息\n● `/delete-messages user amount` 删除指定用户消息\n● `/删除消息` 为中文別名\n● 有确认按钮，可避免误删"
+  content_private_room: |
+    🏠 触发设置
+    `/settings music`
+    开启音乐设置菜单后，选择「私人包厢触发频道」即可设置。
+
+    🛠️ 包厢管理
+    `/private-room-settings` 或 `/包厢设置`
+    可对自己包厢进行：
+    - 上锁频道
+    - 设置人数上限（1-99，留空=无上限）
+    - 更改名称（最多 10 字）
+
+    ♻️ 自动清理
+    私人包厢无人时会自动删除，避免频道累积。
+  content_general: "● `/help` 开启此说明面板\n● 可搭配 `/settings language` 切换语言"
+  tip_title: "快速使用"
+  tip_body: "点击下方分类按钮可立即切换页面。"
+
+settings:
+  reload_done: "服务器设置已重新加载。"
+  language_invalid: "不支持的语言：{language}"
+  language_updated: "语言已更改为 {language}。"
+  validation_expected_text_channel: "请选择「文字频道」。"
+  validation_expected_voice_channel: "请选择「语音频道」或 Stage 频道。"
+  validation_private_room_category_missing: "找不到可用的分类频道。请选择一个分类或帶有分类的频道。"
+  info_title: "当前服务器设置"
+  info_desc: "下方每项显示：当前生效值 与 默认值。"
+  info_language: "语言"
+  info_notifications: "通知设置"
+  info_notification_templates: "通知模板"
+  info_message_logs: "消息日志"
+  info_music: "音乐设置"
+  info_private_room: "私人包厢"
+  info_module: "模块"
+  info_select_placeholder: "选择设置页签"
+  info_section_overview: "总览"
+  info_channels_none: "未设置"
+  info_bool_on: "开启✅"
+  info_bool_off: "关闭❌"
+  info_compare_format: "{effective}\n> 默认：{default}"
+  info_default_prefix: "默认"
+  info_key_enabled: "启用"
+  info_key_member_channel: "成员进出频道通知"
+  info_key_member_channel_mode: "成员通知频道模式"
+  info_key_member_join_channel: "成员加入通知频道（分开）"
+  info_key_member_leave_channel: "成员离开通知频道（分开）"
+  info_key_member_join_enabled: "成员加入通知启用"
+  info_key_member_leave_enabled: "成员离开通知启用"
+  info_key_voice_log_enabled: "语音日志启用"
+  info_key_voice_channel: "语音通知频道"
+  info_key_member_join_template: "成员加入模板"
+  info_key_member_join_color: "成员加入 Embed 颜色"
+  info_key_member_leave_template: "成员离开模板"
+  info_key_member_leave_color: "成员离开 Embed 颜色"
+  info_key_voice_join_template: "语音加入模板"
+  info_key_voice_leave_template: "语音离开模板"
+  info_key_voice_move_template: "语音移动模板"
+  info_key_log_channel: "默认日志频道"
+  info_key_message_log_channel: "消息编辑/删除日志频道"
+  info_key_log_role_channel: "身分組变更日志频道"
+  info_key_log_moderation_channel: "封禁/踢出管理日志频道"
+  info_key_log_command_channel: "指令使用日志频道"
+  info_key_log_channel_events_channel: "频道事件日志频道"
+  info_key_log_role: "身分組变更日志"
+  info_key_log_channel_lifecycle: "频道创建/删除日志"
+  info_key_log_moderation: "封禁/踢出管理日志"
+  info_key_log_command_usage: "指令使用日志"
+  info_key_auto_leave_enabled: "自动离开启用"
+  info_key_auto_leave_minutes: "自动离开分钟"
+  info_key_autoplay_enabled: "Autoplay 推荐启用"
+  info_key_default_repeat_mode: "默认循環模式"
+  info_key_music_command_channel: "音乐指令频道"
+  info_key_trigger_channel: "触发语音频道"
+  info_key_category: "包厢分类"
+  info_key_category_auto: "包厢分类（自动依触发频道）"
+  info_key_user_limit: "人数限制"
+  key_notifications_enabled: "通知启用"
+  key_notifications_memberChannelId: "成员进出频道通知"
+  key_notifications_voiceChannelId: "语音通知频道"
+  key_notifications_memberJoinEnabled: "成员加入通知启用"
+  key_notifications_memberLeaveEnabled: "成员离开通知启用"
+  key_notifications_voiceLogEnabled: "语音日志启用"
+  member_channel_mode_same: "进入/离开在同一个频道"
+  member_channel_mode_split: "进入/离开不在同一个频道"
+  key_messageLogs_enabled: "消息日志启用"
+  key_messageLogs_channelId: "默认日志频道"
+  key_messageLogs_messageLogChannelId: "消息编辑/删除日志频道"
+  key_messageLogs_roleLogChannelId: "身分組变更日志频道"
+  key_messageLogs_moderationLogChannelId: "封禁/踢出管理日志频道"
+  key_messageLogs_commandUsageChannelId: "指令使用日志频道"
+  key_messageLogs_channelLifecycleChannelId: "频道事件日志频道"
+  key_music_autoLeaveEnabled: "音乐自动离开启用"
+  key_music_autoLeaveMinutes: "音乐自动离开分钟"
+  key_music_autoplayEnabled: "音乐 Autoplay 启用"
+  key_music_commandChannelId: "音乐指令频道"
+  key_privateRoom_enabled: "私人包厢启用"
+  key_privateRoom_triggerVoiceChannelId: "私人包厢触发频道"
+  key_privateRoom_userLimit: "私人包厢人数上限"
+  template_modal_title: "模板表单"
+  template_modal_label: "模板內容"
+  template_modal_color_label: "Embed 颜色 (Hex)"
+  template_menu_title: "通知模板设置"
+  template_menu_desc: "请先用下拉菜单选择要编辑的模板类型。"
+  template_member_placeholders_guide: "可用占位符：`{user}` 用户标记、`{username}` 用户名称、`{guild}` 服务器名称、`{id}` 用户ID、`{tag}` 用户Tag、`{isBot}` 是否为机器人、`{createdAt}` 账号创建时间、`{accountAgeDays}` 账号天数。"
+  template_member_placeholders_short: "{user} {username} {guild} {id} {tag} {isBot} {createdAt} {accountAgeDays}"
+  template_menu_placeholder: "选择模板类型"
+  template_menu_expired: "模板菜单已过期，请重新执行 `/settings template`。"
+  template_color_invalid: "颜色格式错误，请使用 #RRGGBB 或 RRGGBB。"
+  template_preview_title: "模板预览"
+  template_updated: "已更新设置"
+  module_menu_title: "模块开关设置"
+  module_menu_desc: "从下拉菜单切换模块开关，选取一次即切换一次。"
+  module_menu_placeholder: "选择要切换的模块"
+  module_menu_expired: "模块菜单已过期，请重新执行 `/settings module`。"
+  status_label: "状态"
+  value_label: "数值"
+  logs_menu_title: "日志频道设置"
+  logs_menu_desc: "先选择日志类型，再选择要输出的文字频道。未设置独立频道时，会使用「默认日志频道」。"
+  logs_menu_placeholder: "选择要设置的日志类型"
+  logs_menu_expired: "日志菜单已过期，请重新执行 `/settings logs`。"
+  logs_menu_channel_placeholder: "选择文字频道"
+  logs_menu_pick_channel_title: "选择日志输出频道"
+  logs_menu_pick_channel_desc: "请为「{target}」选择一个文字频道。"
+  logs_menu_status_format: "{module} | {channel}"
+  logs_menu_module_default: "模块：默认"
+  logs_member_mode_title: "成员进出频道通知模式"
+  logs_member_mode_desc: "请先选择要使用同一个频道，或分开设置加入/离开频道。"
+  logs_member_mode_placeholder: "选择成员通知频道模式"
+  logs_member_mode_shared: "进入/离开 在同一个频道"
+  logs_member_mode_split: "进入/离开 不在同一个频道"
+  logs_member_split_title: "分开设置成员进出通知频道"
+  logs_member_split_desc: "请选择要设置「加入」或「离开」通知频道。"
+  logs_member_split_placeholder: "选择要设置的通知频道"
+  logs_member_split_join: "设置加入通知频道"
+  logs_member_split_leave: "设置离开通知频道"
+  logs_menu_module_none: "模块：無"
+  logs_menu_module_state: "模块：{state}"
+  logs_menu_module_member_state: "模块：加入 {join} / 离开 {leave}"
+  logs_menu_channel_state: "频道：{state}"
+  logs_menu_channel_member_split: "频道：加入 {join} / 离开 {leave}"
+  logs_menu_channel_set: "已设置"
+  logs_menu_channel_unset: "未设置"
+  logs_default_required: "请先到 `/settings logs` 设置「默认日志频道」，再启用日志模块。"
+  music_menu_title: "音乐设置"
+  music_menu_desc: "请用下拉菜单调整音乐与私人包厢触发相关设置。"
+  music_menu_placeholder: "选择要调整的音乐设置"
+  music_menu_expired: "音乐设置菜单已过期，请重新执行 `/settings music`。"
+  music_menu_current: "当前：{value}"
+  music_menu_pick_channel_title: "选择音乐设置频道"
+  music_menu_pick_channel_desc: "请为「{target}」选择一个频道。"
+  music_menu_channel_placeholder: "选择频道"
+  music_menu_minutes_title: "设置自动离开分钟"
+  music_menu_minutes_hint: "请输入 1-60 分钟"
+  music_menu_minutes_label: "分钟数"
+  music_menu_minutes_invalid: "分钟数仅能输入 1 到 60 的整数。"
+  private_room_auto_enabled_notice: "已自动启用私人包厢模块。"
+  private_room_category_deprecated: "现在会自动依据触发语音频道的类别创建包厢，不需要手动设置类别。"
+  reset_title: "重置服务器设置"
+  reset_desc: "请从下拉菜单选择要重置的区块。"
+  reset_placeholder: "选择重置项目"
+  reset_option_language: "语言"
+  reset_option_notifications: "通知设置"
+  reset_option_message_logs: "消息日志"
+  reset_option_music: "音乐设置"
+  reset_option_private_room: "私人包厢"
+  reset_option_all: "全部重置"
+  reset_target_language: "语言"
+  reset_target_notifications: "通知设置"
+  reset_target_message-logs: "消息日志"
+  reset_target_music: "音乐设置"
+  reset_target_private-room: "私人包厢"
+  reset_target_all: "全部设置"
+  reset_done: "已重置：{target}"
+  reset_expired: "重置菜单已过期，请重新执行 `/settings reset`。"
+  reset_confirm_title: "确认重置"
+  reset_confirm_desc: "你即将重置：{target}\n此操作会覆盖当前服务器设置，是否继续？"
+  reset_confirm_button: "确认重置"
+  reset_cancel_button: "取消"
+  reset_cancelled: "已取消重置。"
+
+room_settings:
+  title: "私人包厢设置"
+  desc: "使用下拉菜单管理你当前的私人包厢。"
+  select_placeholder: "选择要操作的项目"
+  option_lock: "上锁/解鎖频道"
+  option_limit: "设置人数"
+  option_rename: "更改名称"
+  field_channel: "当前频道"
+  field_name: "频道名称"
+  field_limit: "人数上限"
+  field_lock: "上锁状态"
+  unlimited: "无上限"
+  must_join_private_room: "请先加入你的私人包厢再使用此指令。"
+  expired: "此包厢设置菜单已失效，请重新执行 `/private-room-settings`。"
+  room_not_found: "找不到可操作的私人包厢。"
+  already_locked: "此包厢已上锁。"
+  action_failed: "操作失败，请检查 Bot 权限后重试。"
+  limit_title: "设置包厢人数"
+  limit_label: "请输入 1-99，留空代表不限制"
+  limit_placeholder: "例如：8（留空=无上限）"
+  limit_invalid: "人数上限仅能输入 1-99，或留空代表无上限。"
+  limit_saved: "包厢人数上限已更新为：{limit}"
+  rename_title: "更改包厢名称"
+  rename_label: "新频道名称（最多 10 字）"
+  rename_placeholder: "当前：{name}"
+  rename_invalid: "名称不可为空，且长度必须在 1 到 10 字。"
+  rename_saved: "包厢名称已更新为：{name}"
+  default_room_suffix: "的包厢"
+
+delete:
+  processing: "正在删除消息中，请稍候..."
+  confirm_title: "删除确认"
+  confirm_body: "确定要在 {scope} 删除 {count} 则消息吗？"
+  confirm_warning: "只能删除 14 天內的消息。"
+  confirm_button: "确认"
+  cancel_button: "取消"
+  cancelled: "已取消删除。"
+  processed: "已删除 {count} 則消息。"
+  no_target: "找不到可删除的目标消息。"
+  amount_range: "数量限制为 1 到 99。"
+  default_amount_notice: "未输入数量，已使用系統可删除上限：{count}。"
+  default_channel_notice: "未指定频道，已使用当前频道：{channel}"
+  only_requester: "只有发起者可使用这些按钮。"
+  failed: "删除失败，请稍后再试。"
+
+logs:
+  command_title: "🧭 指令使用日志"
+  command_user: "用户"
+  command_channel: "频道"
+  user: "用户"
+  role_added: "身分組新增"
+  role_removed: "身分組移除"
+  roles: "身分組"
+  channel_created: "频道已创建"
+  channel_deleted: "频道已删除"
+  channel: "频道"
+  user_banned: "成员封禁"
+  user_unbanned: "成员解除封禁"
+  user_kicked: "成员踢出"
+  target: "目标"
+  moderator: "管理员"
+
+notifications:
+  embed:
+    member_join_title: "成员加入通知"
+    member_leave_title: "成员离开通知"
+    user_field: "用户"
+    account_created_field: "账号创建时间"
+    join_notify_time_field: "加入通知时间"
+    leave_notify_time_field: "离开通知时间"
+  template:
+    default:
+      member_join: "{user} 加入了服务器。账号创建：{createdAt}（{accountAgeDays} 天前）。ID：{id}"
+      member_leave: "{user} 离开了服务器。账号创建：{createdAt}（{accountAgeDays} 天前）。ID：{id}"
+      voice_join: "{user} 加入语音频道 {channel}。"
+      voice_leave: "{user} 离开语音频道 {channel}。"
+      voice_move: "{user} 从 {from} 移动到 {to}。"
+
+message_logs:
+  edit:
+    title: "消息编辑紀錄"
+    user: "用户"
+    channel: "频道"
+    message_id: "消息 ID"
+    before: "修改前內容"
+    before_attachments: "修改前附件"
+    after: "修改后內容"
+    after_attachments: "修改后附件"
+  delete:
+    title: "消息删除紀錄"
+    author: "作者"
+    channel: "频道"
+    message_id: "消息 ID"
+    content: "內容"
+    attachments: "附件"
+
+
+
+
+
+
+
+
+
+

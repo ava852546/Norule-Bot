@@ -15,12 +15,14 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class PrivateRoomListener extends ListenerAdapter {
     private final GuildSettingsService settingsService;
+    private final I18nService i18n;
     private final Map<Long, Set<Long>> privateChannelsByGuild = new ConcurrentHashMap<>();
     private static final Map<Long, Set<Long>> PRIVATE_CHANNELS = new ConcurrentHashMap<>();
     private static final Map<Long, Map<Long, Long>> ROOM_OWNERS = new ConcurrentHashMap<>();
 
-    public PrivateRoomListener(GuildSettingsService settingsService) {
+    public PrivateRoomListener(GuildSettingsService settingsService, I18nService i18n) {
         this.settingsService = settingsService;
+        this.i18n = i18n;
     }
 
     @Override
@@ -154,11 +156,12 @@ public class PrivateRoomListener extends ListenerAdapter {
     }
 
     private String buildRoomName(Member member) {
+        String lang = settingsService.getLanguage(member.getGuild().getIdLong());
         String base = member.getEffectiveName();
         if (base == null || base.isBlank()) {
             base = member.getUser().getName();
         }
-        String roomName = base + " 的包廂";
+        String roomName = base + " " + i18n.t(lang, "room_settings.default_room_suffix");
         return roomName.length() > 100 ? roomName.substring(0, 100) : roomName;
     }
 }

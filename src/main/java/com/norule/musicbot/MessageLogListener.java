@@ -34,10 +34,12 @@ public class MessageLogListener extends ListenerAdapter {
     }
 
     private final GuildSettingsService settingsService;
+    private final I18nService i18n;
     private final Map<Long, CachedMessage> cache = new ConcurrentHashMap<>();
 
-    public MessageLogListener(GuildSettingsService settingsService) {
+    public MessageLogListener(GuildSettingsService settingsService, I18nService i18n) {
         this.settingsService = settingsService;
+        this.i18n = i18n;
     }
 
     @Override
@@ -85,14 +87,14 @@ public class MessageLogListener extends ListenerAdapter {
 
         sendLog(event.getGuild(), resolveMessageLogChannelId(event.getGuild(), cfg), new EmbedBuilder()
                 .setColor(new Color(241, 196, 15))
-                .setTitle(isZhTw(lang) ? "訊息編輯紀錄" : "Message Edited")
-                .addField(isZhTw(lang) ? "使用者" : "User", event.getAuthor().getAsMention() + " (`" + event.getAuthor().getAsTag() + "`)", false)
-                .addField(isZhTw(lang) ? "頻道" : "Channel", "<#" + event.getChannel().getId() + ">", true)
-                .addField(isZhTw(lang) ? "訊息 ID" : "Message ID", event.getMessageId(), true)
-                .addField(isZhTw(lang) ? "修改前內容" : "Before", before, false)
-                .addField(isZhTw(lang) ? "修改前附件" : "Before Attachments", beforeAttachments, false)
-                .addField(isZhTw(lang) ? "修改後內容" : "After", after, false)
-                .addField(isZhTw(lang) ? "修改後附件" : "After Attachments", afterAttachments, false)
+                .setTitle(i18n.t(lang, "message_logs.edit.title"))
+                .addField(i18n.t(lang, "message_logs.edit.user"), event.getAuthor().getAsMention() + " (`" + event.getAuthor().getAsTag() + "`)", false)
+                .addField(i18n.t(lang, "message_logs.edit.channel"), "<#" + event.getChannel().getId() + ">", true)
+                .addField(i18n.t(lang, "message_logs.edit.message_id"), event.getMessageId(), true)
+                .addField(i18n.t(lang, "message_logs.edit.before"), before, false)
+                .addField(i18n.t(lang, "message_logs.edit.before_attachments"), beforeAttachments, false)
+                .addField(i18n.t(lang, "message_logs.edit.after"), after, false)
+                .addField(i18n.t(lang, "message_logs.edit.after_attachments"), afterAttachments, false)
                 .setTimestamp(Instant.now())
         );
     }
@@ -123,12 +125,12 @@ public class MessageLogListener extends ListenerAdapter {
 
         sendLog(event.getGuild(), resolveMessageLogChannelId(event.getGuild(), cfg), new EmbedBuilder()
                 .setColor(new Color(231, 76, 60))
-                .setTitle(isZhTw(lang) ? "訊息刪除紀錄" : "Message Deleted")
-                .addField(isZhTw(lang) ? "作者" : "Author", author, false)
-                .addField(isZhTw(lang) ? "頻道" : "Channel", "<#" + channelId + ">", true)
-                .addField(isZhTw(lang) ? "訊息 ID" : "Message ID", event.getMessageId(), true)
-                .addField(isZhTw(lang) ? "內容" : "Content", content, false)
-                .addField(isZhTw(lang) ? "附件" : "Attachments", attachments, false)
+                .setTitle(i18n.t(lang, "message_logs.delete.title"))
+                .addField(i18n.t(lang, "message_logs.delete.author"), author, false)
+                .addField(i18n.t(lang, "message_logs.delete.channel"), "<#" + channelId + ">", true)
+                .addField(i18n.t(lang, "message_logs.delete.message_id"), event.getMessageId(), true)
+                .addField(i18n.t(lang, "message_logs.delete.content"), content, false)
+                .addField(i18n.t(lang, "message_logs.delete.attachments"), attachments, false)
                 .setTimestamp(Instant.now())
         );
     }
@@ -166,10 +168,6 @@ public class MessageLogListener extends ListenerAdapter {
             sb.append("...");
         }
         return sb.toString().trim();
-    }
-
-    private boolean isZhTw(String lang) {
-        return lang != null && lang.equalsIgnoreCase("zh-TW");
     }
 
     private String fileExtension(String fileName) {

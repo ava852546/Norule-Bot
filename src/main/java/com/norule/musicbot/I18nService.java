@@ -34,12 +34,22 @@ public class I18nService {
                         String fileName = path.getFileName().toString();
                         int dot = fileName.lastIndexOf('.');
                         String language = dot > 0 ? fileName.substring(0, dot) : fileName;
-                        bundles.put(normalize(language), readBundle(path));
+                        Map<String, String> bundle = readBundle(path);
+                        if (!bundle.isEmpty()) {
+                            bundles.put(normalize(language), bundle);
+                        }
                     });
         } catch (IOException ignored) {
         }
-        if (!bundles.containsKey("en")) {
-            bundles.put("en", Map.of());
+        if (!bundles.containsKey("zh-TW") || bundles.get("zh-TW").isEmpty()) {
+            Map<String, String> zhFallback = readBundleResource("defaults/lang/zh-TW.yml");
+            if (!zhFallback.isEmpty()) {
+                bundles.put("zh-TW", zhFallback);
+            }
+        }
+        if (!bundles.containsKey("en") || bundles.get("en").isEmpty()) {
+            Map<String, String> enFallback = readBundleResource("defaults/lang/en.yml");
+            bundles.put("en", enFallback.isEmpty() ? Map.of() : enFallback);
         }
         return new I18nService(defaultLanguage, bundles);
     }
@@ -49,12 +59,17 @@ public class I18nService {
     }
 
     public boolean hasLanguage(String language) {
-        return bundles.containsKey(normalize(language));
+        String normalized = normalize(language);
+        return isBotLanguage(normalized) && bundles.containsKey(normalized);
     }
 
     public String t(String language, String key) {
         String normalized = normalize(language);
         String value = lookup(normalized, key);
+        if (value != null) {
+            return value;
+        }
+        value = lookup("zh-TW", key);
         if (value != null) {
             return value;
         }
@@ -75,17 +90,37 @@ public class I18nService {
     }
 
     public Map<String, String> getAvailableLanguages() {
-        return bundles.keySet().stream().sorted().collect(Collectors.toMap(
-                lang -> lang,
-                lang -> t(lang, "language.name"),
-                (a, b) -> a,
-                LinkedHashMap::new
-        ));
+        return bundles.keySet().stream()
+                .sorted()
+                .filter(I18nService::isBotLanguage)
+                .collect(Collectors.toMap(
+                        lang -> lang,
+                        this::resolveLanguageDisplayName,
+                        (a, b) -> a,
+                        LinkedHashMap::new
+                ));
     }
 
     @SuppressWarnings("unchecked")
     private static Map<String, String> readBundle(Path file) {
         try (InputStream in = Files.newInputStream(file)) {
+            Object root = new Yaml().load(in);
+            if (root instanceof Map<?, ?> rootMap) {
+                Map<String, String> values = new HashMap<>();
+                flatten("", (Map<String, Object>) rootMap, values);
+                return values;
+            }
+        } catch (Exception ignored) {
+        }
+        return Map.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, String> readBundleResource(String resourcePath) {
+        try (InputStream in = I18nService.class.getClassLoader().getResourceAsStream(resourcePath)) {
+            if (in == null) {
+                return Map.of();
+            }
             Object root = new Yaml().load(in);
             if (root instanceof Map<?, ?> rootMap) {
                 Map<String, String> values = new HashMap<>();
@@ -115,10 +150,30 @@ public class I18nService {
         return bundle == null ? null : bundle.get(key);
     }
 
+    private String resolveLanguageDisplayName(String language) {
+        Map<String, String> bundle = bundles.get(language);
+        if (bundle == null || bundle.isEmpty()) {
+            return language;
+        }
+        String byLang = bundle.get("lang");
+        if (byLang != null && !byLang.isBlank()) {
+            return byLang;
+        }
+        String byNested = bundle.get("language.name");
+        if (byNested != null && !byNested.isBlank()) {
+            return byNested;
+        }
+        return language;
+    }
+
     private static String normalize(String language) {
         if (language == null || language.isBlank()) {
             return "en";
         }
         return language.trim();
+    }
+
+    private static boolean isBotLanguage(String language) {
+        return !language.toLowerCase().startsWith("web-");
     }
 }

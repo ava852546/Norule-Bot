@@ -1,6 +1,4 @@
-﻿language:
-  name: "繁體中文"
-
+﻿lang: "繁體中文"
 general:
   only_guild: "此指令只能在伺服器使用。"
   no_permission: "你沒有權限使用此指令。"
@@ -226,6 +224,8 @@ settings:
   template_modal_color_label: "Embed 顏色 (Hex)"
   template_menu_title: "通知模板設定"
   template_menu_desc: "請先用下拉選單選擇要編輯的模板類型。"
+  template_member_placeholders_guide: "可用佔位符：`{user}` 使用者標記、`{username}` 使用者名稱、`{guild}` 伺服器名稱、`{id}` 使用者ID、`{tag}` 使用者Tag、`{isBot}` 是否為機器人、`{createdAt}` 帳號建立時間、`{accountAgeDays}` 帳號天數。"
+  template_member_placeholders_short: "{user} {username} {guild} {id} {tag} {isBot} {createdAt} {accountAgeDays}"
   template_menu_placeholder: "選擇模板類型"
   template_menu_expired: "模板選單已過期，請重新執行 `/settings template`。"
   template_color_invalid: "顏色格式錯誤，請使用 #RRGGBB 或 RRGGBB。"
@@ -328,6 +328,7 @@ room_settings:
   rename_placeholder: "目前：{name}"
   rename_invalid: "名稱不可為空，且長度必須在 1 到 10 字。"
   rename_saved: "包廂名稱已更新為：{name}"
+  default_room_suffix: "的包廂"
 
 delete:
   processing: "正在刪除訊息中，請稍候..."
@@ -361,6 +362,42 @@ logs:
   user_kicked: "成員踢出"
   target: "目標"
   moderator: "管理員"
+
+notifications:
+  embed:
+    member_join_title: "成員加入通知"
+    member_leave_title: "成員離開通知"
+    user_field: "使用者"
+    account_created_field: "帳號建立時間"
+    join_notify_time_field: "加入通知時間"
+    leave_notify_time_field: "離開通知時間"
+  template:
+    default:
+      member_join: "{user} 加入了伺服器。帳號建立：{createdAt}（{accountAgeDays} 天前）。ID：{id}"
+      member_leave: "{user} 離開了伺服器。帳號建立：{createdAt}（{accountAgeDays} 天前）。ID：{id}"
+      voice_join: "{user} 加入語音頻道 {channel}。"
+      voice_leave: "{user} 離開語音頻道 {channel}。"
+      voice_move: "{user} 從 {from} 移動到 {to}。"
+
+message_logs:
+  edit:
+    title: "訊息編輯紀錄"
+    user: "使用者"
+    channel: "頻道"
+    message_id: "訊息 ID"
+    before: "修改前內容"
+    before_attachments: "修改前附件"
+    after: "修改後內容"
+    after_attachments: "修改後附件"
+  delete:
+    title: "訊息刪除紀錄"
+    author: "作者"
+    channel: "頻道"
+    message_id: "訊息 ID"
+    content: "內容"
+    attachments: "附件"
+
+
 
 
 

@@ -31,6 +31,7 @@ public class BotConfig {
     private final MessageLogs messageLogs;
     private final Music music;
     private final PrivateRoom privateRoom;
+    private final Web web;
 
     private BotConfig(String token,
                       String prefix,
@@ -44,7 +45,8 @@ public class BotConfig {
                       Notifications notifications,
                       MessageLogs messageLogs,
                       Music music,
-                      PrivateRoom privateRoom) {
+                      PrivateRoom privateRoom,
+                      Web web) {
         this.token = token;
         this.prefix = prefix;
         this.commandGuildId = commandGuildId;
@@ -58,6 +60,7 @@ public class BotConfig {
         this.messageLogs = messageLogs;
         this.music = music;
         this.privateRoom = privateRoom;
+        this.web = web;
     }
 
     public static BotConfig load(Path path) {
@@ -90,10 +93,11 @@ public class BotConfig {
             MessageLogs messageLogs = MessageLogs.fromMap(asMap(root.get("messageLogs")), null);
             Music music = Music.fromMap(asMap(root.get("music")), null);
             PrivateRoom privateRoom = PrivateRoom.fromMap(asMap(root.get("privateRoom")), null);
+            Web web = Web.fromMap(asMap(root.get("web")), null);
 
             return new BotConfig(token, prefix, commandGuildId, guildSettingsDir, languageDir, defaultLanguage, commandCooldownSeconds, botProfile,
                     commandDescriptions,
-                    notifications, messageLogs, music, privateRoom);
+                    notifications, messageLogs, music, privateRoom, web);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read config.yml: " + path.toAbsolutePath(), e);
         }
@@ -127,6 +131,7 @@ public class BotConfig {
             Path baseDir = parent == null ? Path.of(".") : parent;
             ensureDefaultLanguageFiles(baseDir.resolve(languageDir));
             mergeLanguageDefaults(baseDir.resolve(languageDir));
+            ensureWebCertificateDirectory(baseDir, currentConfig, defaultConfig);
 
             Map<String, Object> merged = deepMerge(defaultConfig, currentConfig);
             if (!merged.equals(currentConfig)) {
@@ -161,8 +166,14 @@ public class BotConfig {
     private static void ensureDefaultLanguageFiles(Path languageDir) {
         try {
             Files.createDirectories(languageDir);
+            Files.createDirectories(languageDir.resolve("web"));
             writeResourceIfMissing("defaults/lang/zh-TW.yml", languageDir.resolve("zh-TW.yml"));
+            writeResourceIfMissing("defaults/lang/zh-CN.yml", languageDir.resolve("zh-CN.yml"));
             writeResourceIfMissing("defaults/lang/en.yml", languageDir.resolve("en.yml"));
+            migrateLegacyWebLanguageFiles(languageDir);
+            writeResourceIfMissing("defaults/lang/web/web-zh-TW.yml", languageDir.resolve("web").resolve("web-zh-TW.yml"));
+            writeResourceIfMissing("defaults/lang/web/web-zh-CN.yml", languageDir.resolve("web").resolve("web-zh-CN.yml"));
+            writeResourceIfMissing("defaults/lang/web/web-en.yml", languageDir.resolve("web").resolve("web-en.yml"));
         } catch (Exception ignored) {
         }
     }
@@ -170,9 +181,58 @@ public class BotConfig {
     private static void mergeLanguageDefaults(Path languageDir) {
         try {
             mergeLanguageFile(languageDir.resolve("zh-TW.yml"), "defaults/lang/zh-TW.yml");
+            mergeLanguageFile(languageDir.resolve("zh-CN.yml"), "defaults/lang/zh-CN.yml");
             mergeLanguageFile(languageDir.resolve("en.yml"), "defaults/lang/en.yml");
+            mergeLanguageFile(languageDir.resolve("web").resolve("web-zh-TW.yml"), "defaults/lang/web/web-zh-TW.yml");
+            mergeLanguageFile(languageDir.resolve("web").resolve("web-zh-CN.yml"), "defaults/lang/web/web-zh-CN.yml");
+            mergeLanguageFile(languageDir.resolve("web").resolve("web-en.yml"), "defaults/lang/web/web-en.yml");
         } catch (Exception ignored) {
         }
+    }
+
+    private static void migrateLegacyWebLanguageFiles(Path languageDir) {
+        migrateLegacyWebLanguageFile(languageDir, "web-zh-TW.yml");
+        migrateLegacyWebLanguageFile(languageDir, "web-zh-CN.yml");
+        migrateLegacyWebLanguageFile(languageDir, "web-en.yml");
+    }
+
+    private static void migrateLegacyWebLanguageFile(Path languageDir, String fileName) {
+        Path legacy = languageDir.resolve(fileName);
+        Path target = languageDir.resolve("web").resolve(fileName);
+        try {
+            if (!Files.exists(legacy) || Files.exists(target)) {
+                return;
+            }
+            Files.move(legacy, target, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void ensureWebCertificateDirectory(Path baseDir, Map<String, Object> currentConfig, Map<String, Object> defaultConfig) {
+        try {
+            Map<String, Object> currentWeb = asMap(currentConfig.get("web"));
+            Map<String, Object> defaultWeb = asMap(defaultConfig.get("web"));
+            Map<String, Object> currentSsl = asMap(currentWeb.get("ssl"));
+            Map<String, Object> defaultSsl = asMap(defaultWeb.get("ssl"));
+            String certDirRaw = getString(currentSsl, "certDir", getString(defaultSsl, "certDir", "certs"));
+            if (certDirRaw.isBlank()) {
+                certDirRaw = "certs";
+            }
+            Path certDir = resolvePath(baseDir, certDirRaw);
+            Files.createDirectories(certDir);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static Path resolvePath(Path baseDir, String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) {
+            return baseDir.resolve("certs").normalize();
+        }
+        Path path = Path.of(rawPath);
+        if (path.isAbsolute()) {
+            return path.normalize();
+        }
+        return baseDir.resolve(path).normalize();
     }
 
     private static void mergeLanguageFile(Path targetFile, String resourcePath) {
@@ -180,7 +240,13 @@ public class BotConfig {
         if (defaults.isEmpty()) {
             return;
         }
-        Map<String, Object> existing = readYamlMap(targetFile);
+        YamlReadResult existingResult = readYamlMapWithStatus(targetFile);
+        if (existingResult.parseError) {
+            backupCorruptedLanguageFile(targetFile);
+            writeQuietly(targetFile, defaults);
+            return;
+        }
+        Map<String, Object> existing = existingResult.map;
         if (existing == null || existing.isEmpty()) {
             writeQuietly(targetFile, defaults);
             return;
@@ -188,6 +254,25 @@ public class BotConfig {
         Map<String, Object> merged = deepMerge(defaults, existing);
         if (!merged.equals(existing)) {
             writeQuietly(targetFile, merged);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static YamlReadResult readYamlMapWithStatus(Path file) {
+        if (file == null || !Files.exists(file)) {
+            return new YamlReadResult(Map.of(), false);
+        }
+        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            Object obj = new Yaml().load(reader);
+            if (obj == null) {
+                return new YamlReadResult(Map.of(), false);
+            }
+            if (obj instanceof Map<?, ?> map) {
+                return new YamlReadResult((Map<String, Object>) map, false);
+            }
+            return new YamlReadResult(Map.of(), true);
+        } catch (Exception ignored) {
+            return new YamlReadResult(Map.of(), true);
         }
     }
 
@@ -268,6 +353,33 @@ public class BotConfig {
         }
     }
 
+    private static void backupCorruptedLanguageFile(Path path) {
+        if (path == null || !Files.exists(path)) {
+            return;
+        }
+        try {
+            String fileName = path.getFileName().toString();
+            int dot = fileName.lastIndexOf('.');
+            String base = dot > 0 ? fileName.substring(0, dot) : fileName;
+            String ext = dot > 0 ? fileName.substring(dot) : "";
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            Path backup = path.resolveSibling(base + ".corrupt-" + timestamp + ext + ".bak");
+            Files.copy(path, backup, StandardCopyOption.REPLACE_EXISTING);
+            System.out.println("[NoRule] Corrupted language file backed up: " + backup.getFileName());
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static class YamlReadResult {
+        private final Map<String, Object> map;
+        private final boolean parseError;
+
+        private YamlReadResult(Map<String, Object> map, boolean parseError) {
+            this.map = map == null ? Map.of() : map;
+            this.parseError = parseError;
+        }
+    }
+
     private static void writeYaml(Path file, Map<String, Object> root) throws IOException {
         DumperOptions options = new DumperOptions();
         options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
@@ -333,6 +445,10 @@ public class BotConfig {
 
     public PrivateRoom getPrivateRoom() {
         return privateRoom;
+    }
+
+    public Web getWeb() {
+        return web;
     }
 
     public static class Notifications {
@@ -868,7 +984,7 @@ public class BotConfig {
         }
 
         public static BotProfile defaultValues() {
-            return new BotProfile("NoRule 多功能機器人", "ONLINE", "PLAYING", "/help");
+            return new BotProfile("NoRule Bot", "ONLINE", "PLAYING", "/help");
         }
 
         public String getDescription() {
@@ -885,6 +1001,191 @@ public class BotConfig {
 
         public String getActivityText() {
             return activityText;
+        }
+    }
+
+    public static class Web {
+        private final boolean enabled;
+        private final String host;
+        private final int port;
+        private final String baseUrl;
+        private final int sessionExpireMinutes;
+        private final String discordClientId;
+        private final String discordClientSecret;
+        private final String discordRedirectUri;
+        private final Ssl ssl;
+
+        private Web(boolean enabled,
+                    String host,
+                    int port,
+                    String baseUrl,
+                    int sessionExpireMinutes,
+                    String discordClientId,
+                    String discordClientSecret,
+                    String discordRedirectUri,
+                    Ssl ssl) {
+            this.enabled = enabled;
+            this.host = host;
+            this.port = Math.max(1, port);
+            this.baseUrl = baseUrl;
+            this.sessionExpireMinutes = Math.max(5, sessionExpireMinutes);
+            this.discordClientId = discordClientId;
+            this.discordClientSecret = discordClientSecret;
+            this.discordRedirectUri = discordRedirectUri;
+            this.ssl = ssl == null ? Ssl.defaultValues() : ssl;
+        }
+
+        public static Web fromMap(Map<String, Object> map, Web fallback) {
+            Web defaults = fallback == null ? defaultValues() : fallback;
+            return new Web(
+                    getBoolean(map, "enabled", defaults.isEnabled()),
+                    getString(map, "host", defaults.getHost()),
+                    getInt(map, "port", defaults.getPort()),
+                    getString(map, "baseUrl", defaults.getBaseUrl()),
+                    getInt(map, "sessionExpireMinutes", defaults.getSessionExpireMinutes()),
+                    getString(map, "discordClientId", defaults.getDiscordClientId()),
+                    getString(map, "discordClientSecret", defaults.getDiscordClientSecret()),
+                    getString(map, "discordRedirectUri", defaults.getDiscordRedirectUri()),
+                    Ssl.fromMap(asMap(map.get("ssl")), defaults.getSsl())
+            );
+        }
+
+        public static Web defaultValues() {
+            return new Web(
+                    false,
+                    "0.0.0.0",
+                    60000,
+                    "http://localhost:60000",
+                    720,
+                    "",
+                    "",
+                    "http://localhost:60000/auth/callback",
+                    Ssl.defaultValues()
+            );
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public String getHost() {
+            return host;
+        }
+
+        public int getPort() {
+            return port;
+        }
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public int getSessionExpireMinutes() {
+            return sessionExpireMinutes;
+        }
+
+        public String getDiscordClientId() {
+            return discordClientId;
+        }
+
+        public String getDiscordClientSecret() {
+            return discordClientSecret;
+        }
+
+        public String getDiscordRedirectUri() {
+            return discordRedirectUri;
+        }
+
+        public Ssl getSsl() {
+            return ssl;
+        }
+
+        public static class Ssl {
+            private final boolean enabled;
+            private final String certDir;
+            private final String privateKeyFile;
+            private final String fullChainFile;
+            private final String keyStoreFile;
+            private final String keyStorePassword;
+            private final String keyStoreType;
+            private final String keyPassword;
+
+            private Ssl(boolean enabled,
+                        String certDir,
+                        String privateKeyFile,
+                        String fullChainFile,
+                        String keyStoreFile,
+                        String keyStorePassword,
+                        String keyStoreType,
+                        String keyPassword) {
+                this.enabled = enabled;
+                this.certDir = certDir;
+                this.privateKeyFile = privateKeyFile;
+                this.fullChainFile = fullChainFile;
+                this.keyStoreFile = keyStoreFile;
+                this.keyStorePassword = keyStorePassword;
+                this.keyStoreType = keyStoreType;
+                this.keyPassword = keyPassword;
+            }
+
+            public static Ssl fromMap(Map<String, Object> map, Ssl fallback) {
+                Ssl defaults = fallback == null ? defaultValues() : fallback;
+                return new Ssl(
+                        getBoolean(map, "enabled", defaults.isEnabled()),
+                        getString(map, "certDir", defaults.getCertDir()),
+                        getString(map, "privateKeyFile", defaults.getPrivateKeyFile()),
+                        getString(map, "fullChainFile", defaults.getFullChainFile()),
+                        getString(map, "keyStoreFile", defaults.getKeyStoreFile()),
+                        getString(map, "keyStorePassword", defaults.getKeyStorePassword()),
+                        getString(map, "keyStoreType", defaults.getKeyStoreType()),
+                        getString(map, "keyPassword", defaults.getKeyPassword())
+                );
+            }
+
+            public static Ssl defaultValues() {
+                return new Ssl(
+                        false,
+                        "certs",
+                        "privkey.pem",
+                        "fullchain.pem",
+                        "web-keystore.p12",
+                        "",
+                        "PKCS12",
+                        ""
+                );
+            }
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public String getCertDir() {
+                return certDir;
+            }
+
+            public String getPrivateKeyFile() {
+                return privateKeyFile;
+            }
+
+            public String getFullChainFile() {
+                return fullChainFile;
+            }
+
+            public String getKeyStoreFile() {
+                return keyStoreFile;
+            }
+
+            public String getKeyStorePassword() {
+                return keyStorePassword;
+            }
+
+            public String getKeyStoreType() {
+                return keyStoreType;
+            }
+
+            public String getKeyPassword() {
+                return keyPassword;
+            }
         }
     }
 

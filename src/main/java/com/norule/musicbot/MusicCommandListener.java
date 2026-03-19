@@ -16,6 +16,7 @@ import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
+import net.dv8tion.jda.api.events.interaction.command.CommandAutoCompleteInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.EntitySelectInteractionEvent;
@@ -49,6 +50,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -342,6 +344,31 @@ public class MusicCommandListener extends ListenerAdapter {
             case CMD_DELETE_ZH, "delete-messages" -> handleDeleteSlash(event, lang);
             default -> event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
         }
+    }
+
+    @Override
+    public void onCommandAutoCompleteInteraction(CommandAutoCompleteInteractionEvent event) {
+        if (!"settings".equals(event.getName())
+                || !"language".equals(event.getSubcommandName())
+                || !"code".equals(event.getFocusedOption().getName())) {
+            return;
+        }
+        String focused = event.getFocusedOption().getValue().toLowerCase(Locale.ROOT).trim();
+        List<Command.Choice> choices = new ArrayList<>();
+        for (Map.Entry<String, String> entry : i18n.getAvailableLanguages().entrySet()) {
+            String code = entry.getKey();
+            String display = entry.getValue() == null || entry.getValue().isBlank() ? code : entry.getValue();
+            String label = code + " - " + display;
+            String haystack = (label + " " + code + " " + display).toLowerCase(Locale.ROOT);
+            if (!focused.isBlank() && !haystack.contains(focused)) {
+                continue;
+            }
+            choices.add(new Command.Choice(label, code));
+            if (choices.size() >= 25) {
+                break;
+            }
+        }
+        event.replyChoices(choices).queue();
     }
 
     @Override
@@ -717,7 +744,9 @@ public class MusicCommandListener extends ListenerAdapter {
         event.replyEmbeds(new EmbedBuilder()
                         .setColor(new Color(46, 204, 113))
                         .setTitle(i18n.t(lang, "settings.template_menu_title"))
-                        .setDescription(i18n.t(lang, "settings.template_menu_desc"))
+                        .setDescription(i18n.t(lang, "settings.template_menu_desc")
+                                + "\n\n"
+                                + i18n.t(lang, "settings.template_member_placeholders_guide"))
                         .build())
                 .addComponents(ActionRow.of(settingsTemplateMenu(token, lang)))
                 .setEphemeral(true)
@@ -757,14 +786,14 @@ public class MusicCommandListener extends ListenerAdapter {
         switch (type) {
             case "member-join" -> event.replyModal(buildTemplateModal(
                     "member-join",
-                    "{user} {username} {guild} {id} {tag} {isBot} {createdAt} {accountAgeDays}",
+                    i18n.t(lang, "settings.template_member_placeholders_short"),
                     true,
                     settingsService.getNotifications(event.getGuild().getIdLong()).getMemberJoinColor(),
                     lang
             )).queue();
             case "member-leave" -> event.replyModal(buildTemplateModal(
                     "member-leave",
-                    "{user} {username} {guild} {id} {tag} {isBot} {createdAt} {accountAgeDays}",
+                    i18n.t(lang, "settings.template_member_placeholders_short"),
                     true,
                     settingsService.getNotifications(event.getGuild().getIdLong()).getMemberLeaveColor(),
                     lang
@@ -2813,7 +2842,8 @@ public class MusicCommandListener extends ListenerAdapter {
                         new SubcommandData("logs", cd("settings.logs", "Open logs channel menu")),
                         new SubcommandData("music", cd("settings.music", "Open music settings menu")),
                         new SubcommandData("language", cd("settings.language", "Set language"))
-                                .addOption(OptionType.STRING, "code", cd("settings.language.code", "en or zh-TW"), true));
+                                .addOptions(new OptionData(OptionType.STRING, "code", cd("settings.language.code", "Language code"), true)
+                                        .setAutoComplete(true)));
     }
 
     private String cd(String key, String fallback) {
@@ -3210,7 +3240,7 @@ public class MusicCommandListener extends ListenerAdapter {
         String effectiveText = localizeTemplateForDisplay(lang, trimTemplate(effective));
         String defaultText = localizeTemplateForDisplay(lang, trimTemplate(defaults));
         return "**" + i18n.t(lang, titleKey) + "**\n`" + effectiveText + "`\n"
-                + "> " + i18n.t(lang, "settings.info_default_prefix") + "：`" + defaultText + "`";
+                + "> " + i18n.t(lang, "settings.info_default_prefix") + ": `" + defaultText + "`";
     }
 
     private String localizeTemplateForDisplay(String lang, String template) {

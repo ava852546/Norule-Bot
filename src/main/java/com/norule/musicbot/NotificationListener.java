@@ -15,9 +15,11 @@ import java.time.temporal.ChronoUnit;
 
 public class NotificationListener extends ListenerAdapter {
     private final GuildSettingsService guildSettingsService;
+    private final I18nService i18n;
 
-    public NotificationListener(GuildSettingsService guildSettingsService) {
+    public NotificationListener(GuildSettingsService guildSettingsService, I18nService i18n) {
         this.guildSettingsService = guildSettingsService;
+        this.i18n = i18n;
     }
 
     @Override
@@ -111,17 +113,16 @@ public class NotificationListener extends ListenerAdapter {
         if (channel != null) {
             EmbedBuilder eb = new EmbedBuilder()
                     .setColor(new Color(color & 0xFFFFFF))
-                    .setTitle(joinEvent
-                            ? (isZhTw(lang) ? "成員加入通知" : "Member Joined")
-                            : (isZhTw(lang) ? "成員離開通知" : "Member Left"))
+                    .setTitle(i18n.t(lang, joinEvent
+                            ? "notifications.embed.member_join_title"
+                            : "notifications.embed.member_leave_title"))
                     .setDescription(message)
-                    .addField(isZhTw(lang) ? "使用者" : "User", user.getAsMention() + " (`" + user.getAsTag() + "`)", false)
+                    .addField(i18n.t(lang, "notifications.embed.user_field"), user.getAsMention() + " (`" + user.getAsTag() + "`)", false)
                     .addField("ID", user.getId(), true)
-                    .addField(isZhTw(lang) ? "帳號建立時間" : "Account Created", discordCreatedAt(createdAt), true)
-                    .addField(
-                            joinEvent
-                                    ? (isZhTw(lang) ? "加入通知時間" : "Join Notify Time")
-                                    : (isZhTw(lang) ? "離開通知時間" : "Leave Notify Time"),
+                    .addField(i18n.t(lang, "notifications.embed.account_created_field"), discordCreatedAt(createdAt), true)
+                    .addField(i18n.t(lang, joinEvent
+                                    ? "notifications.embed.join_notify_time_field"
+                                    : "notifications.embed.leave_notify_time_field"),
                             discordTimestamp(now),
                             false
                     )
@@ -184,13 +185,13 @@ public class NotificationListener extends ListenerAdapter {
         BotConfig.Notifications defaults = BotConfig.Notifications.defaultValues();
         return switch (type) {
             case "join" -> template.equals(defaults.getVoiceJoinMessage())
-                    ? "{user} 加入語音頻道 {channel}。"
+                    ? i18n.t(lang, "notifications.template.default.voice_join")
                     : template;
             case "leave" -> template.equals(defaults.getVoiceLeaveMessage())
-                    ? "{user} 離開語音頻道 {channel}。"
+                    ? i18n.t(lang, "notifications.template.default.voice_leave")
                     : template;
             case "move" -> template.equals(defaults.getVoiceMoveMessage())
-                    ? "{user} 從 {from} 移動到 {to}。"
+                    ? i18n.t(lang, "notifications.template.default.voice_move")
                     : template;
             default -> template;
         };
@@ -203,12 +204,12 @@ public class NotificationListener extends ListenerAdapter {
         BotConfig.Notifications defaults = BotConfig.Notifications.defaultValues();
         if (join) {
             if (template.equals(defaults.getMemberJoinMessage())) {
-                return "{user} 加入了伺服器。帳號建立：{createdAt}。ID：{id}";
+                return i18n.t(lang, "notifications.template.default.member_join");
             }
             return template;
         }
         if (template.equals(defaults.getMemberLeaveMessage())) {
-            return "{user} 離開了伺服器。帳號建立：{createdAt}。ID：{id}";
+            return i18n.t(lang, "notifications.template.default.member_leave");
         }
         return template;
     }
