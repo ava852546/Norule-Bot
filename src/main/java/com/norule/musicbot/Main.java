@@ -37,6 +37,7 @@ public class Main {
     private static final AtomicReference<BotConfig> RUNTIME_CONFIG = new AtomicReference<>();
     private static final AtomicReference<WebControlServer> WEB_SERVER = new AtomicReference<>();
     private static final AtomicReference<I18nService> I18N_SERVICE = new AtomicReference<>();
+    private record ActivityTemplate(String type, String text) {}
 
     public static void main(String[] args) {
         Path configPath = resolveConfigPath();
@@ -70,7 +71,7 @@ public class Main {
                 .setAudioModuleConfig(audioConfig)
                 .disableCache(CacheFlag.EMOJI, CacheFlag.STICKER, CacheFlag.SCHEDULED_EVENTS)
                 .setStatus(parseOnlineStatus(config.getBotProfile().getPresenceStatus()))
-                .setActivity(buildActivity(config.getBotProfile().getActivityType(), config.getBotProfile().getActivityText()))
+                .setActivity(null)
                 .addEventListeners(
                         musicCommandListener,
                         new NotificationListener(guildSettingsService, i18nService),
@@ -121,6 +122,77 @@ public class Main {
         };
     }
 
+    private static List<ActivityTemplate> resolveActivityTemplates(BotConfig.BotProfile profile) {
+        List<ActivityTemplate> templates = new ArrayList<>();
+
+        List<String> configuredList = profile.getActivities();
+        if (configuredList != null && !configuredList.isEmpty()) {
+            for (String entry : configuredList) {
+                addActivityTemplatesFromEntry(templates, profile.getActivityType(), entry);
+            }
+        }
+
+        if (!templates.isEmpty()) {
+            return templates;
+        }
+
+        String raw = profile.getActivityText();
+        if (raw == null || raw.isBlank()) {
+            return templates;
+        }
+        addActivityTemplatesFromEntry(templates, profile.getActivityType(), raw);
+        return templates;
+    }
+
+    private static void addActivityTemplatesFromEntry(List<ActivityTemplate> templates, String defaultType, String rawEntry) {
+        if (rawEntry == null || rawEntry.isBlank()) {
+            return;
+        }
+        for (String part : rawEntry.split("\\|\\|")) {
+            String entry = part.trim();
+            if (entry.isBlank()) {
+                continue;
+            }
+            String type = defaultType;
+            String text = entry;
+            int sep = entry.indexOf('|');
+            if (sep > 0 && sep < entry.length() - 1) {
+                type = entry.substring(0, sep).trim();
+                text = entry.substring(sep + 1).trim();
+            }
+            if (!text.isBlank()) {
+                templates.add(new ActivityTemplate(type, text));
+            }
+        }
+    }
+
+    private static Activity buildActivityFromTemplate(JDA jda, ActivityTemplate template) {
+        if (template == null) {
+            return null;
+        }
+        String resolvedText = applyPresencePlaceholders(jda, template.text());
+        return buildActivity(template.type(), resolvedText);
+    }
+
+    private static String applyPresencePlaceholders(JDA jda, String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        int guildCount = 0;
+        long totalMemberCount = 0L;
+        if (jda != null) {
+            guildCount = jda.getGuilds().size();
+            for (var guild : jda.getGuilds()) {
+                totalMemberCount += Math.max(0, guild.getMemberCount());
+            }
+        }
+        return text
+                .replace("{guildCount}", String.valueOf(guildCount))
+                .replace("{serverCount}", String.valueOf(guildCount))
+                .replace("{memberCount}", String.valueOf(totalMemberCount))
+                .replace("{totalMemberCount}", String.valueOf(totalMemberCount));
+    }
+
     private static void startActivityRotation(JDA jda, BotConfig.BotProfile profile) {
         ScheduledExecutorService existing = PRESENCE_ROTATION.getAndSet(null);
         if (existing != null) {
@@ -128,44 +200,14 @@ public class Main {
         }
 
         jda.getPresence().setStatus(parseOnlineStatus(profile.getPresenceStatus()));
-        String raw = profile.getActivityText();
-        if (raw == null || raw.isBlank()) {
+        List<ActivityTemplate> templates = resolveActivityTemplates(profile);
+
+        if (templates.isEmpty()) {
             jda.getPresence().setActivity(null);
             return;
         }
-
-        List<Activity> activities = new ArrayList<>();
-        if (raw.contains("||")) {
-            for (String part : raw.split("\\|\\|")) {
-                String entry = part.trim();
-                if (entry.isBlank()) {
-                    continue;
-                }
-                String type = profile.getActivityType();
-                String text = entry;
-                int sep = entry.indexOf('|');
-                if (sep > 0 && sep < entry.length() - 1) {
-                    type = entry.substring(0, sep).trim();
-                    text = entry.substring(sep + 1).trim();
-                }
-                Activity activity = buildActivity(type, text);
-                if (activity != null) {
-                    activities.add(activity);
-                }
-            }
-        } else {
-            Activity activity = buildActivity(profile.getActivityType(), raw);
-            if (activity != null) {
-                activities.add(activity);
-            }
-        }
-
-        if (activities.isEmpty()) {
-            jda.getPresence().setActivity(null);
-            return;
-        }
-        jda.getPresence().setActivity(activities.get(0));
-        if (activities.size() < 2) {
+        jda.getPresence().setActivity(buildActivityFromTemplate(jda, templates.get(0)));
+        if (templates.size() < 2) {
             return;
         }
 
@@ -175,18 +217,20 @@ public class Main {
             return t;
         });
         PRESENCE_ROTATION.set(rotation);
+        int rotationSeconds = Math.max(5, profile.getActivityRotationSeconds());
         rotation.scheduleAtFixedRate(new Runnable() {
             private int index = 1;
 
             @Override
             public void run() {
                 try {
-                    jda.getPresence().setActivity(activities.get(index));
-                    index = (index + 1) % activities.size();
+                    Activity activity = buildActivityFromTemplate(jda, templates.get(index));
+                    jda.getPresence().setActivity(activity);
+                    index = (index + 1) % templates.size();
                 } catch (Exception ignored) {
                 }
             }
-        }, 20, 20, TimeUnit.SECONDS);
+        }, rotationSeconds, rotationSeconds, TimeUnit.SECONDS);
     }
 
     private static void installConsoleShutdownListener(JDA jda,

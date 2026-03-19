@@ -14,7 +14,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 public class BotConfig {
@@ -965,12 +967,21 @@ public class BotConfig {
         private final String presenceStatus;
         private final String activityType;
         private final String activityText;
+        private final int activityRotationSeconds;
+        private final List<String> activities;
 
-        private BotProfile(String description, String presenceStatus, String activityType, String activityText) {
+        private BotProfile(String description,
+                           String presenceStatus,
+                           String activityType,
+                           String activityText,
+                           int activityRotationSeconds,
+                           List<String> activities) {
             this.description = description;
             this.presenceStatus = presenceStatus;
             this.activityType = activityType;
             this.activityText = activityText;
+            this.activityRotationSeconds = Math.max(5, activityRotationSeconds);
+            this.activities = activities == null ? List.of() : List.copyOf(activities);
         }
 
         public static BotProfile fromMap(Map<String, Object> map, BotProfile fallback) {
@@ -979,12 +990,15 @@ public class BotConfig {
                     getString(map, "description", defaults.getDescription()),
                     getString(map, "presenceStatus", defaults.getPresenceStatus()),
                     getString(map, "activityType", defaults.getActivityType()),
-                    getString(map, "activityText", defaults.getActivityText())
+                    getString(map, "activityText", defaults.getActivityText()),
+                    Math.max(5, getInt(map, "rotationSeconds",
+                            getInt(map, "activityRotationSeconds", defaults.getActivityRotationSeconds()))),
+                    getStringList(map, "activities", defaults.getActivities())
             );
         }
 
         public static BotProfile defaultValues() {
-            return new BotProfile("NoRule Bot", "ONLINE", "PLAYING", "/help");
+            return new BotProfile("NoRule Bot", "ONLINE", "PLAYING", "/help", 20, List.of());
         }
 
         public String getDescription() {
@@ -1001,6 +1015,14 @@ public class BotConfig {
 
         public String getActivityText() {
             return activityText;
+        }
+
+        public int getActivityRotationSeconds() {
+            return activityRotationSeconds;
+        }
+
+        public List<String> getActivities() {
+            return activities;
         }
     }
 
@@ -1229,6 +1251,34 @@ public class BotConfig {
         } catch (Exception ignored) {
             return defaultValue;
         }
+    }
+
+    private static List<String> getStringList(Map<String, Object> map, String key, List<String> defaultValue) {
+        if (!map.containsKey(key)) {
+            return defaultValue == null ? List.of() : defaultValue;
+        }
+        Object value = map.get(key);
+        if (value == null) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>();
+        if (value instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (item == null) {
+                    continue;
+                }
+                String text = String.valueOf(item).trim();
+                if (!text.isBlank()) {
+                    result.add(text);
+                }
+            }
+        } else {
+            String text = String.valueOf(value).trim();
+            if (!text.isBlank()) {
+                result.add(text);
+            }
+        }
+        return result;
     }
 
     private static Long toLong(Object value) {
