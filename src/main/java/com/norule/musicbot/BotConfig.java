@@ -15,9 +15,12 @@ import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public class BotConfig {
     private final String token;
@@ -33,6 +36,7 @@ public class BotConfig {
     private final MessageLogs messageLogs;
     private final Music music;
     private final PrivateRoom privateRoom;
+    private final Ticket ticket;
     private final Web web;
 
     private BotConfig(String token,
@@ -48,6 +52,7 @@ public class BotConfig {
                       MessageLogs messageLogs,
                       Music music,
                       PrivateRoom privateRoom,
+                      Ticket ticket,
                       Web web) {
         this.token = token;
         this.prefix = prefix;
@@ -62,6 +67,7 @@ public class BotConfig {
         this.messageLogs = messageLogs;
         this.music = music;
         this.privateRoom = privateRoom;
+        this.ticket = ticket;
         this.web = web;
     }
 
@@ -95,11 +101,12 @@ public class BotConfig {
             MessageLogs messageLogs = MessageLogs.fromMap(asMap(root.get("messageLogs")), null);
             Music music = Music.fromMap(asMap(root.get("music")), null);
             PrivateRoom privateRoom = PrivateRoom.fromMap(asMap(root.get("privateRoom")), null);
+            Ticket ticket = Ticket.fromMap(asMap(root.get("ticket")), null);
             Web web = Web.fromMap(asMap(root.get("web")), null);
 
             return new BotConfig(token, prefix, commandGuildId, guildSettingsDir, languageDir, defaultLanguage, commandCooldownSeconds, botProfile,
                     commandDescriptions,
-                    notifications, messageLogs, music, privateRoom, web);
+                    notifications, messageLogs, music, privateRoom, ticket, web);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read config.yml: " + path.toAbsolutePath(), e);
         }
@@ -450,6 +457,10 @@ public class BotConfig {
 
     public PrivateRoom getPrivateRoom() {
         return privateRoom;
+    }
+
+    public Ticket getTicket() {
+        return ticket;
     }
 
     public Web getWeb() {
@@ -1029,7 +1040,544 @@ public class BotConfig {
         }
     }
 
-    public static class Web {
+    public static class Ticket {
+        public enum OpenUiMode {
+            SELECT,
+            BUTTONS;
+
+            public static OpenUiMode parse(String raw, OpenUiMode fallback) {
+                if (raw == null || raw.isBlank()) {
+                    return fallback == null ? BUTTONS : fallback;
+                }
+                try {
+                    return OpenUiMode.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+                } catch (Exception ignored) {
+                    return fallback == null ? BUTTONS : fallback;
+                }
+            }
+        }
+
+        public static class TicketOption {
+            private final String id;
+            private final String label;
+            private final String panelTitle;
+            private final String panelDescription;
+            private final String panelButtonStyle;
+            private final String welcomeMessage;
+            private final boolean preOpenFormEnabled;
+            private final String preOpenFormTitle;
+            private final String preOpenFormLabel;
+            private final String preOpenFormPlaceholder;
+
+            public TicketOption(String id,
+                                String label,
+                                String panelTitle,
+                                String panelDescription,
+                                String panelButtonStyle,
+                                String welcomeMessage,
+                                boolean preOpenFormEnabled,
+                                String preOpenFormTitle,
+                                String preOpenFormLabel,
+                                String preOpenFormPlaceholder) {
+                String normalizedId = sanitizeOptionId(id);
+                String normalizedLabel = trimMax(label, 80);
+                this.id = normalizedId.isBlank() ? "general" : normalizedId;
+                this.label = normalizedLabel.isBlank() ? "General" : normalizedLabel;
+                this.panelTitle = trimMax(panelTitle, 80);
+                this.panelDescription = trimMax(panelDescription, 2000);
+                this.panelButtonStyle = normalizeButtonStyle(panelButtonStyle);
+                this.welcomeMessage = welcomeMessage == null ? "" : welcomeMessage.trim();
+                this.preOpenFormEnabled = preOpenFormEnabled;
+                this.preOpenFormTitle = trimMax(preOpenFormTitle, 45);
+                this.preOpenFormLabel = trimMax(preOpenFormLabel, 45);
+                this.preOpenFormPlaceholder = trimMax(preOpenFormPlaceholder, 100);
+            }
+
+            public static TicketOption fromMap(Map<String, Object> map, TicketOption fallback) {
+                TicketOption defaults = fallback == null ? defaultValues() : fallback;
+                return new TicketOption(
+                        getString(map, "id", defaults.getId()),
+                        getString(map, "label", defaults.getLabel()),
+                        getString(map, "panelTitle", defaults.getPanelTitle()),
+                        getString(map, "panelDescription", defaults.getPanelDescription()),
+                        getString(map, "panelButtonStyle", defaults.getPanelButtonStyle()),
+                        getString(map, "welcomeMessage", defaults.getWelcomeMessage()),
+                        getBoolean(map, "preOpenFormEnabled", defaults.isPreOpenFormEnabled()),
+                        getString(map, "preOpenFormTitle", defaults.getPreOpenFormTitle()),
+                        getString(map, "preOpenFormLabel", defaults.getPreOpenFormLabel()),
+                        getString(map, "preOpenFormPlaceholder", defaults.getPreOpenFormPlaceholder())
+                );
+            }
+
+            public static TicketOption defaultValues() {
+                return new TicketOption(
+                        "general",
+                        "General",
+                        "",
+                        "",
+                        "PRIMARY",
+                        "",
+                        false,
+                        "",
+                        "",
+                        ""
+                );
+            }
+
+            public String getId() {
+                return id;
+            }
+
+            public String getLabel() {
+                return label;
+            }
+
+            public String getPanelTitle() {
+                return panelTitle;
+            }
+
+            public String getPanelDescription() {
+                return panelDescription;
+            }
+
+            public String getPanelButtonStyle() {
+                return panelButtonStyle;
+            }
+
+            public String getWelcomeMessage() {
+                return welcomeMessage;
+            }
+
+            public boolean isPreOpenFormEnabled() {
+                return preOpenFormEnabled;
+            }
+
+            public String getPreOpenFormTitle() {
+                return preOpenFormTitle;
+            }
+
+            public String getPreOpenFormLabel() {
+                return preOpenFormLabel;
+            }
+
+            public String getPreOpenFormPlaceholder() {
+                return preOpenFormPlaceholder;
+            }
+        }
+
+        private final boolean enabled;
+        private final Long panelChannelId;
+        private final Long openCategoryId;
+        private final Long closedCategoryId;
+        private final int autoCloseDays;
+        private final int maxOpenPerUser;
+        private final OpenUiMode openUiMode;
+        private final String panelTitle;
+        private final String panelDescription;
+        private final int panelColor;
+        private final String panelButtonStyle;
+        private final int panelButtonLimit;
+        private final String welcomeMessage;
+        private final boolean preOpenFormEnabled;
+        private final String preOpenFormTitle;
+        private final String preOpenFormLabel;
+        private final String preOpenFormPlaceholder;
+        private final List<String> optionLabels;
+        private final List<TicketOption> options;
+        private final List<Long> supportRoleIds;
+        private final List<Long> blacklistedUserIds;
+
+        private Ticket(boolean enabled,
+                       Long panelChannelId,
+                       Long openCategoryId,
+                       Long closedCategoryId,
+                       int autoCloseDays,
+                       int maxOpenPerUser,
+                       OpenUiMode openUiMode,
+                       String panelTitle,
+                       String panelDescription,
+                       int panelColor,
+                       String panelButtonStyle,
+                       int panelButtonLimit,
+                       String welcomeMessage,
+                       boolean preOpenFormEnabled,
+                       String preOpenFormTitle,
+                       String preOpenFormLabel,
+                       String preOpenFormPlaceholder,
+                       List<String> optionLabels,
+                       List<TicketOption> options,
+                       List<Long> supportRoleIds,
+                       List<Long> blacklistedUserIds) {
+            this.enabled = enabled;
+            this.panelChannelId = panelChannelId;
+            this.openCategoryId = openCategoryId;
+            this.closedCategoryId = closedCategoryId;
+            this.autoCloseDays = Math.max(1, autoCloseDays);
+            this.maxOpenPerUser = Math.max(1, Math.min(20, maxOpenPerUser));
+            this.openUiMode = openUiMode == null ? OpenUiMode.BUTTONS : openUiMode;
+            this.panelTitle = trimMax(panelTitle, 80);
+            this.panelDescription = trimMax(panelDescription, 2000);
+            this.panelColor = panelColor & 0xFFFFFF;
+            this.panelButtonStyle = normalizeButtonStyle(panelButtonStyle);
+            this.panelButtonLimit = Math.max(1, Math.min(25, panelButtonLimit));
+            this.welcomeMessage = welcomeMessage == null ? "" : welcomeMessage.trim();
+            this.preOpenFormTitle = trimMax(preOpenFormTitle, 45);
+            this.preOpenFormLabel = trimMax(preOpenFormLabel, 45);
+            this.preOpenFormPlaceholder = trimMax(preOpenFormPlaceholder, 100);
+            List<String> labels = optionLabels == null ? List.of() : optionLabels.stream()
+                    .map(v -> v == null ? "" : v.trim())
+                    .filter(v -> !v.isBlank())
+                    .toList();
+            this.optionLabels = labels.isEmpty() ? List.of("General") : labels;
+            List<TicketOption> parsedOptions = normalizeOptions(options);
+            if (parsedOptions.isEmpty()) {
+                List<TicketOption> migrated = new ArrayList<>();
+                int index = 0;
+                for (String optionLabel : this.optionLabels) {
+                    migrated.add(new TicketOption(
+                            "option-" + index,
+                            optionLabel,
+                            this.panelTitle,
+                            this.panelDescription,
+                            this.panelButtonStyle,
+                            this.welcomeMessage,
+                            preOpenFormEnabled,
+                            this.preOpenFormTitle,
+                            this.preOpenFormLabel,
+                            this.preOpenFormPlaceholder
+                    ));
+                    index++;
+                }
+                parsedOptions = migrated;
+            }
+            this.options = parsedOptions;
+            this.supportRoleIds = supportRoleIds == null ? List.of() : supportRoleIds.stream()
+                    .filter(v -> v != null && v > 0L)
+                    .distinct()
+                    .toList();
+            this.blacklistedUserIds = blacklistedUserIds == null ? List.of() : blacklistedUserIds.stream()
+                    .filter(v -> v != null && v > 0L)
+                    .distinct()
+                    .toList();
+            this.preOpenFormEnabled = preOpenFormEnabled;
+        }
+
+        public static Ticket fromMap(Map<String, Object> map, Ticket fallback) {
+            Ticket defaults = fallback == null ? defaultValues() : fallback;
+            return new Ticket(
+                    getBoolean(map, "enabled", defaults.isEnabled()),
+                    getLong(map, "panelChannelId", defaults.getPanelChannelId()),
+                    getLong(map, "openCategoryId", defaults.getOpenCategoryId()),
+                    getLong(map, "closedCategoryId", defaults.getClosedCategoryId()),
+                    getInt(map, "autoCloseDays", defaults.getAutoCloseDays()),
+                    getInt(map, "maxOpenPerUser", defaults.getMaxOpenPerUser()),
+                    OpenUiMode.parse(getString(map, "openUiMode", defaults.getOpenUiMode().name()), defaults.getOpenUiMode()),
+                    getString(map, "panelTitle", defaults.getPanelTitle()),
+                    getString(map, "panelDescription", defaults.getPanelDescription()),
+                    getInt(map, "panelColor", defaults.getPanelColor()),
+                    getString(map, "panelButtonStyle", defaults.getPanelButtonStyle()),
+                    getInt(map, "panelButtonLimit", defaults.getPanelButtonLimit()),
+                    getString(map, "welcomeMessage", defaults.getWelcomeMessage()),
+                    getBoolean(map, "preOpenFormEnabled", defaults.isPreOpenFormEnabled()),
+                    getString(map, "preOpenFormTitle", defaults.getPreOpenFormTitle()),
+                    getString(map, "preOpenFormLabel", defaults.getPreOpenFormLabel()),
+                    getString(map, "preOpenFormPlaceholder", defaults.getPreOpenFormPlaceholder()),
+                    getStringList(map, "optionLabels", defaults.getOptionLabels()),
+                    getTicketOptionList(map, defaults),
+                    getLongList(map, "supportRoleIds", defaults.getSupportRoleIds()),
+                    getLongList(map, "blacklistedUserIds", defaults.getBlacklistedUserIds())
+            );
+        }
+
+        public static Ticket defaultValues() {
+            return new Ticket(
+                    false,
+                    null,
+                    null,
+                    null,
+                    3,
+                    1,
+                    OpenUiMode.BUTTONS,
+                    "",
+                    "",
+                    0x5865F2,
+                    "PRIMARY",
+                    3,
+                    "",
+                    false,
+                    "",
+                    "",
+                    "",
+                    List.of("General"),
+                    List.of(TicketOption.defaultValues()),
+                    List.of(),
+                    List.of()
+            );
+        }
+
+        public Ticket withEnabled(boolean enabled) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withPanelChannelId(Long panelChannelId) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withOpenCategoryId(Long openCategoryId) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withClosedCategoryId(Long closedCategoryId) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withAutoCloseDays(int autoCloseDays) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withMaxOpenPerUser(int maxOpenPerUser) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withOpenUiMode(OpenUiMode openUiMode) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withPanelTitle(String panelTitle) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withPanelDescription(String panelDescription) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withPanelColor(int panelColor) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withPanelButtonStyle(String panelButtonStyle) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withPanelButtonLimit(int panelButtonLimit) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withWelcomeMessage(String welcomeMessage) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withPreOpenFormEnabled(boolean preOpenFormEnabled) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withPreOpenFormTitle(String preOpenFormTitle) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withPreOpenFormLabel(String preOpenFormLabel) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withPreOpenFormPlaceholder(String preOpenFormPlaceholder) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withOptionLabels(List<String> optionLabels) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withOptions(List<TicketOption> options) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withSupportRoleIds(List<Long> supportRoleIds) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public Ticket withBlacklistedUserIds(List<Long> blacklistedUserIds) {
+            return new Ticket(enabled, panelChannelId, openCategoryId, closedCategoryId, autoCloseDays, maxOpenPerUser, openUiMode, panelTitle, panelDescription, panelColor, panelButtonStyle, panelButtonLimit, welcomeMessage, preOpenFormEnabled, preOpenFormTitle, preOpenFormLabel, preOpenFormPlaceholder, optionLabels, options, supportRoleIds, blacklistedUserIds);
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public Long getPanelChannelId() {
+            return panelChannelId;
+        }
+
+        public Long getOpenCategoryId() {
+            return openCategoryId;
+        }
+
+        public Long getClosedCategoryId() {
+            return closedCategoryId;
+        }
+
+        public int getAutoCloseDays() {
+            return autoCloseDays;
+        }
+
+        public int getMaxOpenPerUser() {
+            return maxOpenPerUser;
+        }
+
+        public OpenUiMode getOpenUiMode() {
+            return openUiMode;
+        }
+
+        public String getPanelTitle() {
+            return panelTitle;
+        }
+
+        public String getPanelDescription() {
+            return panelDescription;
+        }
+
+        public int getPanelColor() {
+            return panelColor;
+        }
+
+        public String getPanelButtonStyle() {
+            return panelButtonStyle;
+        }
+
+        public int getPanelButtonLimit() {
+            return panelButtonLimit;
+        }
+
+        public String getWelcomeMessage() {
+            return welcomeMessage;
+        }
+
+        public boolean isPreOpenFormEnabled() {
+            return preOpenFormEnabled;
+        }
+
+        public String getPreOpenFormTitle() {
+            return preOpenFormTitle;
+        }
+
+        public String getPreOpenFormLabel() {
+            return preOpenFormLabel;
+        }
+
+        public String getPreOpenFormPlaceholder() {
+            return preOpenFormPlaceholder;
+        }
+
+        public List<String> getOptionLabels() {
+            return optionLabels;
+        }
+
+        public List<TicketOption> getOptions() {
+            return options;
+        }
+
+        public List<Long> getSupportRoleIds() {
+            return supportRoleIds;
+        }
+
+        public List<Long> getBlacklistedUserIds() {
+            return blacklistedUserIds;
+        }
+
+        private static String trimMax(String value, int max) {
+            if (value == null) {
+                return "";
+            }
+            String trimmed = value.trim();
+            if (trimmed.length() <= max) {
+                return trimmed;
+            }
+            return trimmed.substring(0, max);
+        }
+
+        private static String normalizeButtonStyle(String style) {
+            if (style == null) {
+                return "PRIMARY";
+            }
+            String normalized = style.trim().toUpperCase(Locale.ROOT);
+            return switch (normalized) {
+                case "SECONDARY", "SUCCESS", "DANGER" -> normalized;
+                default -> "PRIMARY";
+            };
+        }
+
+        private static List<TicketOption> normalizeOptions(List<TicketOption> source) {
+            if (source == null || source.isEmpty()) {
+                return List.of();
+            }
+            List<TicketOption> normalized = new ArrayList<>();
+            Set<String> ids = new LinkedHashSet<>();
+            for (TicketOption option : source) {
+                if (option == null) {
+                    continue;
+                }
+                String id = sanitizeOptionId(option.getId());
+                if (id.isBlank()) {
+                    id = "option-" + normalized.size();
+                }
+                if (!ids.add(id)) {
+                    continue;
+                }
+                normalized.add(new TicketOption(
+                        id,
+                        option.getLabel(),
+                        option.getPanelTitle(),
+                        option.getPanelDescription(),
+                        option.getPanelButtonStyle(),
+                        option.getWelcomeMessage(),
+                        option.isPreOpenFormEnabled(),
+                        option.getPreOpenFormTitle(),
+                        option.getPreOpenFormLabel(),
+                        option.getPreOpenFormPlaceholder()
+                ));
+            }
+            return normalized;
+        }
+
+        private static String sanitizeOptionId(String value) {
+            if (value == null) {
+                return "";
+            }
+            String normalized = value.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]", "-");
+            normalized = normalized.replaceAll("-{2,}", "-");
+            if (normalized.startsWith("-")) {
+                normalized = normalized.substring(1);
+            }
+            if (normalized.endsWith("-")) {
+                normalized = normalized.substring(0, normalized.length() - 1);
+            }
+            return normalized;
+        }
+
+        private static List<TicketOption> getTicketOptionList(Map<String, Object> map, Ticket defaults) {
+            if (!map.containsKey("options")) {
+                return defaults == null ? List.of() : defaults.getOptions();
+            }
+            Object value = map.get("options");
+            if (!(value instanceof Iterable<?> iterable)) {
+                return List.of();
+            }
+            List<TicketOption> result = new ArrayList<>();
+            int index = 0;
+            for (Object item : iterable) {
+                Map<String, Object> optionMap = asMap(item);
+                if (optionMap.isEmpty()) {
+                    continue;
+                }
+                TicketOption fallback = defaults != null && defaults.getOptions().size() > index
+                        ? defaults.getOptions().get(index)
+                        : TicketOption.defaultValues();
+                result.add(TicketOption.fromMap(optionMap, fallback));
+                index++;
+            }
+            return result;
+        }
+    }
+public static class Web {
         private final boolean enabled;
         private final String host;
         private final int port;
@@ -1284,6 +1832,36 @@ public class BotConfig {
         return result;
     }
 
+    private static List<Long> getLongList(Map<String, Object> map, String key, List<Long> defaultValue) {
+        if (!map.containsKey(key)) {
+            return defaultValue == null ? List.of() : defaultValue;
+        }
+        Object value = map.get(key);
+        if (value == null) {
+            return List.of();
+        }
+        List<Long> result = new ArrayList<>();
+        if (value instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                Long parsed = toLong(item);
+                if (parsed != null && parsed > 0L) {
+                    result.add(parsed);
+                }
+            }
+        } else {
+            String text = String.valueOf(value).trim();
+            if (!text.isBlank()) {
+                for (String part : text.split("[,\\s]+")) {
+                    Long parsed = toLong(part);
+                    if (parsed != null && parsed > 0L) {
+                        result.add(parsed);
+                    }
+                }
+            }
+        }
+        return result.stream().distinct().toList();
+    }
+
     private static Long toLong(Object value) {
         if (value == null) {
             return null;
@@ -1383,7 +1961,38 @@ public class BotConfig {
         map.put("settings.language", "Set language");
         map.put("settings.language.code", "en or zh-TW");
         map.put("private-room-settings", "Manage your private room");
+        map.put("warnings", "Manage warning counts");
+        map.put("warnings.add", "Add warnings to user");
+        map.put("warnings.remove", "Remove warnings from user");
+        map.put("warnings.view", "View user warnings");
+        map.put("warnings.clear", "Clear user warnings");
+        map.put("warnings.user", "Target user");
+        map.put("warnings.amount", "Warning amount");
+        map.put("anti_duplicate", "Duplicate message detection settings");
+        map.put("anti_duplicate.enable", "Enable or disable duplicate detection");
+        map.put("anti_duplicate.status", "Show duplicate detection status");
+        map.put("anti_duplicate.value", "true or false");
+        map.put("number_chain", "Number chain settings");
+        map.put("number_chain.set_channel", "Set number chain channel");
+        map.put("number_chain.channel", "Text channel");
+        map.put("number_chain.enable", "Enable or disable number chain");
+        map.put("number_chain.value", "true or false");
+        map.put("number_chain.status", "Show number chain status");
+        map.put("number_chain.reset", "Reset number chain progress");
+        map.put("ticket", "Ticket system");
+        map.put("ticket.panel", "Send ticket panel");
+        map.put("ticket.panel.channel", "Target text channel");
+        map.put("ticket.close", "Close current ticket channel");
+        map.put("ticket.close.reason", "Close reason");
+        map.put("ticket.limit", "Set max open tickets per user");
+        map.put("ticket.limit.value", "1-20");
+        map.put("ticket.blacklist_add", "Add user to ticket blacklist");
+        map.put("ticket.blacklist_add.user", "Target user");
+        map.put("ticket.blacklist_remove", "Remove user from ticket blacklist");
+        map.put("ticket.blacklist_remove.user", "Target user");
+        map.put("ticket.blacklist_list", "Show ticket blacklist users");
         return map;
     }
 }
+
 

@@ -8,9 +8,16 @@ import com.sun.net.httpserver.HttpsServer;
 import com.sun.net.httpserver.HttpServer;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.Permission;
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
+import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
+import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.components.actionrow.ActionRow;
+import net.dv8tion.jda.api.components.buttons.Button;
+import net.dv8tion.jda.api.components.selections.SelectOption;
+import net.dv8tion.jda.api.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.utils.data.DataArray;
 import net.dv8tion.jda.api.utils.data.DataObject;
 import org.yaml.snakeyaml.Yaml;
@@ -42,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Comparator;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -62,12 +70,15 @@ public class WebControlServer {
     private static final String SESSION_COOKIE = "norule_session";
     private static final Duration OAUTH_STATE_TTL = Duration.ofMinutes(5);
     private static final int DEFAULT_TIMEOUT_SECONDS = 15;
+    private static final int TICKET_HISTORY_RETENTION_DAYS = 90;
     private static final BigInteger ADMINISTRATOR_BIT = new BigInteger("8");
     private static final BigInteger MANAGE_GUILD_BIT = new BigInteger("32");
 
     private final JDA jda;
     private final MusicPlayerService musicService;
     private final GuildSettingsService settingsService;
+    private final ModerationService moderationService;
+    private final TicketService ticketService;
     private final Supplier<BotConfig> configSupplier;
     private final I18nService i18n;
     private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(DEFAULT_TIMEOUT_SECONDS)).build();
@@ -86,11 +97,15 @@ public class WebControlServer {
     public WebControlServer(JDA jda,
                             MusicPlayerService musicService,
                             GuildSettingsService settingsService,
+                            ModerationService moderationService,
+                            TicketService ticketService,
                             Supplier<BotConfig> configSupplier,
                             I18nService i18n) {
         this.jda = jda;
         this.musicService = musicService;
         this.settingsService = settingsService;
+        this.moderationService = moderationService;
+        this.ticketService = ticketService;
         this.configSupplier = configSupplier;
         this.i18n = i18n;
         cleanupExecutor.scheduleAtFixedRate(this::cleanupExpired, 5, 5, TimeUnit.MINUTES);
@@ -598,9 +613,75 @@ public class WebControlServer {
             return;
         }
 
+            if ("ticket".equals(section)) {
+            if (segments.length < 3) {
+                sendJson(exchange, 404, DataObject.empty().put("error", "Unknown ticket action"));
+                return;
+            }
+            String action = segments[2];
+            if ("GET".equalsIgnoreCase(exchange.getRequestMethod()) && "transcripts".equals(action)) {
+                handleTicketTranscriptList(exchange, guild);
+                return;
+            }
+            if ("GET".equalsIgnoreCase(exchange.getRequestMethod()) && "transcript".equals(action)) {
+                if (segments.length < 4) {
+                    sendJson(exchange, 404, DataObject.empty().put("error", "Missing transcript name"));
+                    return;
+                }
+                handleTicketTranscriptDownload(exchange, guild, segments[3]);
+                return;
+            }
+            if ("DELETE".equalsIgnoreCase(exchange.getRequestMethod()) && "transcript".equals(action)) {
+                if (segments.length < 4) {
+                    sendJson(exchange, 404, DataObject.empty().put("error", "Missing transcript name"));
+                    return;
+                }
+                handleTicketTranscriptDelete(exchange, guild, segments[3]);
+                return;
+            }
+            if ("POST".equalsIgnoreCase(exchange.getRequestMethod()) && "panel".equals(action)) {
+                handleTicketPanelSend(exchange, guild);
+                return;
+            }
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())
+                    && !"POST".equalsIgnoreCase(exchange.getRequestMethod())
+                    && !"DELETE".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendJson(exchange, 405, DataObject.empty().put("error", "Method Not Allowed"));
+                return;
+            }
+            sendJson(exchange, 404, DataObject.empty().put("error", "Unknown ticket action"));
+            return;
+        }
+
+        if ("number-chain".equals(section)) {
+            if (segments.length < 3) {
+                sendJson(exchange, 404, DataObject.empty().put("error", "Unknown number chain action"));
+                return;
+            }
+            String action = segments[2];
+            if ("POST".equalsIgnoreCase(exchange.getRequestMethod()) && "reset".equals(action)) {
+                moderationService.resetNumberChain(guild.getIdLong());
+                sendJson(exchange, 200, DataObject.empty()
+                        .put("ok", true)
+                        .put("nextNumber", moderationService.getNumberChainNext(guild.getIdLong())));
+                return;
+            }
+            sendJson(exchange, 405, DataObject.empty().put("error", "Method Not Allowed"));
+            return;
+        }
+
         if ("channels".equals(section)) {
             if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 handleGuildChannelsGet(exchange, guild);
+                return;
+            }
+            sendJson(exchange, 405, DataObject.empty().put("error", "Method Not Allowed"));
+            return;
+        }
+
+        if ("roles".equals(section)) {
+            if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                handleGuildRolesGet(exchange, guild);
                 return;
             }
             sendJson(exchange, 405, DataObject.empty().put("error", "Method Not Allowed"));
@@ -689,12 +770,212 @@ public class WebControlServer {
         sendJson(exchange, 200, DataObject.empty().put("ok", true).put("autoplayEnabled", enabled));
     }
 
+    private void handleTicketPanelSend(HttpExchange exchange, Guild guild) throws IOException {
+        String lang = settingsService.getLanguage(guild.getIdLong());
+        BotConfig.Ticket ticket = settingsService.getTicket(guild.getIdLong());
+        if (!ticket.isEnabled()) {
+            sendJson(exchange, 400, DataObject.empty().put("error", i18n.t(lang, "ticket.disabled")));
+            return;
+        }
+        Long panelChannelId = ticket.getPanelChannelId();
+        if (panelChannelId == null || panelChannelId <= 0L) {
+            sendJson(exchange, 400, DataObject.empty().put("error", i18n.t(lang, "settings.validation_expected_text_channel")));
+            return;
+        }
+        TextChannel target = guild.getTextChannelById(panelChannelId);
+        if (target == null) {
+            sendJson(exchange, 404, DataObject.empty().put("error", i18n.t(lang, "ticket.panel_send_failed")));
+            return;
+        }
+
+        List<BotConfig.Ticket.TicketOption> options = resolveTicketOptions(ticket, lang);
+        EmbedBuilder panel = new EmbedBuilder()
+                .setColor(new java.awt.Color(ticket.getPanelColor()))
+                .setTitle(resolvePublicPanelTitle(ticket, lang))
+                .setDescription(resolvePublicPanelDescription(ticket, lang))
+                .setTimestamp(java.time.Instant.now());
+        if (options.size() > 1) {
+            for (BotConfig.Ticket.TicketOption option : options) {
+                panel.addField(option.getLabel(), resolvePanelDescription(ticket, option, lang), false);
+            }
+        }
+
+        target.sendMessageEmbeds(panel.build())
+                .setComponents(buildTicketPanelOpenComponents(ticket, lang))
+                .queue(
+                        ok -> {
+                            try {
+                                sendJson(exchange, 200, DataObject.empty()
+                                        .put("ok", true)
+                                        .put("message", i18n.t(lang, "ticket.panel_sent", Map.of("channel", target.getAsMention()))));
+                            } catch (IOException ignored) {
+                            }
+                        },
+                        err -> {
+                            try {
+                                sendJson(exchange, 500, DataObject.empty()
+                                        .put("error", i18n.t(lang, "ticket.panel_send_failed")));
+                            } catch (IOException ignored) {
+                            }
+                        }
+                );
+    }
+
+    private List<BotConfig.Ticket.TicketOption> resolveTicketOptions(BotConfig.Ticket ticket, String lang) {
+        List<BotConfig.Ticket.TicketOption> options = new ArrayList<>(ticket.getOptions());
+        if (options.isEmpty()) {
+            options = List.of(new BotConfig.Ticket.TicketOption(
+                    "general",
+                    i18n.t(lang, "ticket.default_type_label"),
+                    ticket.getPanelTitle(),
+                    ticket.getPanelDescription(),
+                    ticket.getPanelButtonStyle(),
+                    ticket.getWelcomeMessage(),
+                    ticket.isPreOpenFormEnabled(),
+                    ticket.getPreOpenFormTitle(),
+                    ticket.getPreOpenFormLabel(),
+                    ticket.getPreOpenFormPlaceholder()
+            ));
+        }
+        int limit = Math.max(1, Math.min(25, ticket.getPanelButtonLimit()));
+        if (options.size() <= limit) {
+            return options;
+        }
+        return new ArrayList<>(options.subList(0, limit));
+    }
+
+    private List<ActionRow> buildTicketPanelOpenComponents(BotConfig.Ticket ticket, String lang) {
+        List<BotConfig.Ticket.TicketOption> options = resolveTicketOptions(ticket, lang);
+        if (ticket.getOpenUiMode() == BotConfig.Ticket.OpenUiMode.SELECT) {
+            StringSelectMenu.Builder menu = StringSelectMenu.create("ticket:open:panel-select")
+                    .setPlaceholder(i18n.t(lang, "ticket.select_placeholder"));
+            for (BotConfig.Ticket.TicketOption option : options) {
+                menu.addOptions(SelectOption.of(option.getLabel(), option.getId()));
+            }
+            return List.of(ActionRow.of(menu.build()));
+        }
+
+        List<Button> buttons = new ArrayList<>();
+        if (options.size() == 1) {
+            BotConfig.Ticket.TicketOption option = options.get(0);
+            buttons.add(createOpenButton(option.getPanelButtonStyle(), "ticket:open", option.getLabel()));
+        } else {
+            for (BotConfig.Ticket.TicketOption option : options) {
+                buttons.add(createOpenButton(option.getPanelButtonStyle(), "ticket:open:option:" + option.getId(), option.getLabel()));
+            }
+        }
+        List<ActionRow> rows = new ArrayList<>();
+        for (int i = 0; i < buttons.size(); i += 5) {
+            rows.add(ActionRow.of(buttons.subList(i, Math.min(i + 5, buttons.size()))));
+        }
+        if (rows.isEmpty()) {
+            rows.add(ActionRow.of(createOpenButton(ticket.getPanelButtonStyle(), "ticket:open", i18n.t(lang, "ticket.panel_open_button"))));
+        }
+        return rows;
+    }
+
+    private String resolvePublicPanelTitle(BotConfig.Ticket ticket, String lang) {
+        String custom = ticket.getPanelTitle() == null ? "" : ticket.getPanelTitle().trim();
+        return custom.isBlank() ? i18n.t(lang, "ticket.panel_title") : custom;
+    }
+
+    private String resolvePublicPanelDescription(BotConfig.Ticket ticket, String lang) {
+        String custom = ticket.getPanelDescription() == null ? "" : ticket.getPanelDescription().trim();
+        return custom.isBlank() ? i18n.t(lang, "ticket.panel_desc") : custom;
+    }
+
+    private String resolvePanelTitle(BotConfig.Ticket ticket, BotConfig.Ticket.TicketOption option, String lang) {
+        String custom = option == null ? "" : option.getPanelTitle().trim();
+        if (custom.isBlank()) {
+            custom = ticket.getPanelTitle() == null ? "" : ticket.getPanelTitle().trim();
+        }
+        return custom.isBlank() ? i18n.t(lang, "ticket.panel_title") : custom;
+    }
+
+    private String resolvePanelDescription(BotConfig.Ticket ticket, BotConfig.Ticket.TicketOption option, String lang) {
+        String custom = option == null ? "" : option.getPanelDescription().trim();
+        if (custom.isBlank()) {
+            custom = ticket.getPanelDescription() == null ? "" : ticket.getPanelDescription().trim();
+        }
+        return custom.isBlank() ? i18n.t(lang, "ticket.panel_desc") : custom;
+    }
+
+    private Button createOpenButton(String style, String id, String label) {
+        String normalized = style == null ? "PRIMARY" : style.trim().toUpperCase();
+        return switch (normalized) {
+            case "SECONDARY" -> Button.secondary(id, label);
+            case "SUCCESS" -> Button.success(id, label);
+            case "DANGER" -> Button.danger(id, label);
+            default -> Button.primary(id, label);
+        };
+    }
+
+    private void handleTicketTranscriptList(HttpExchange exchange, Guild guild) throws IOException {
+        long guildId = guild.getIdLong();
+        int removed = ticketService.cleanupOldTranscripts(guildId, TICKET_HISTORY_RETENTION_DAYS);
+        List<TicketService.TranscriptFile> files = ticketService.listTranscripts(guildId, 500);
+
+        DataArray rows = DataArray.empty();
+        for (TicketService.TranscriptFile file : files) {
+            rows.add(DataObject.empty()
+                    .put("name", file.getFileName())
+                    .put("size", file.getSize())
+                    .put("lastModifiedAt", file.getLastModifiedAt())
+                    .put("channelId", file.getChannelId())
+                    .put("url", "/api/guild/" + guild.getId() + "/ticket/transcript/" + encode(file.getFileName())));
+        }
+
+        sendJson(exchange, 200, DataObject.empty()
+                .put("retentionDays", TICKET_HISTORY_RETENTION_DAYS)
+                .put("cleaned", removed)
+                .put("files", rows));
+    }
+
+    private void handleTicketTranscriptDownload(HttpExchange exchange, Guild guild, String encodedFileName) throws IOException {
+        String fileName = decode(encodedFileName);
+        Path file = ticketService.resolveTranscriptFile(guild.getIdLong(), fileName);
+        if (file == null || !Files.exists(file) || !Files.isRegularFile(file)) {
+            sendJson(exchange, 404, DataObject.empty().put("error", "Transcript not found"));
+            return;
+        }
+        byte[] content = Files.readAllBytes(file);
+        exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        exchange.getResponseHeaders().set("Content-Disposition", "inline; filename=\"" + file.getFileName().toString().replace("\"", "") + "\"");
+        if ("HEAD".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+            return;
+        }
+        exchange.sendResponseHeaders(200, content.length);
+        exchange.getResponseBody().write(content);
+        exchange.close();
+    }
+
+    private void handleTicketTranscriptDelete(HttpExchange exchange, Guild guild, String encodedFileName) throws IOException {
+        String lang = settingsService.getLanguage(guild.getIdLong());
+        String fileName = decode(encodedFileName);
+        if (fileName == null || fileName.isBlank()) {
+            sendJson(exchange, 404, DataObject.empty().put("error", i18n.t(lang, "ticket.history_delete_failed")));
+            return;
+        }
+        boolean deleted = ticketService.deleteTranscript(guild.getIdLong(), fileName);
+        if (!deleted) {
+            sendJson(exchange, 404, DataObject.empty().put("error", i18n.t(lang, "ticket.history_delete_failed")));
+            return;
+        }
+        sendJson(exchange, 200, DataObject.empty()
+                .put("ok", true)
+                .put("message", i18n.t(lang, "ticket.history_delete_success", Map.of("name", fileName))));
+    }
+
     private void handleSettingsGet(HttpExchange exchange, Guild guild) throws IOException {
         GuildSettingsService.GuildSettings settings = settingsService.getSettings(guild.getIdLong());
         BotConfig.Notifications n = settings.getNotifications();
         BotConfig.MessageLogs l = settings.getMessageLogs();
         BotConfig.Music m = settings.getMusic();
         BotConfig.PrivateRoom p = settings.getPrivateRoom();
+        BotConfig.Ticket t = settings.getTicket();
 
         DataObject payload = DataObject.empty()
                 .put("language", settings.getLanguage())
@@ -735,7 +1016,42 @@ public class WebControlServer {
                 .put("privateRoom", DataObject.empty()
                         .put("enabled", p.isEnabled())
                         .put("triggerVoiceChannelId", toIdText(p.getTriggerVoiceChannelId()))
-                        .put("userLimit", p.getUserLimit()));
+                        .put("userLimit", p.getUserLimit()))
+                .put("numberChain", DataObject.empty()
+                        .put("enabled", moderationService.isNumberChainEnabled(guild.getIdLong()))
+                        .put("channelId", toIdText(moderationService.getNumberChainChannelId(guild.getIdLong())))
+                        .put("nextNumber", moderationService.getNumberChainNext(guild.getIdLong())))
+                .put("ticket", DataObject.empty()
+                        .put("enabled", t.isEnabled())
+                        .put("panelChannelId", toIdText(t.getPanelChannelId()))
+                        .put("autoCloseDays", t.getAutoCloseDays())
+                        .put("maxOpenPerUser", t.getMaxOpenPerUser())
+                        .put("openUiMode", t.getOpenUiMode().name())
+                        .put("panelTitle", t.getPanelTitle())
+                        .put("panelDescription", t.getPanelDescription())
+                        .put("panelColor", String.format("#%06X", t.getPanelColor() & 0xFFFFFF))
+                        .put("panelButtonStyle", t.getPanelButtonStyle())
+                        .put("panelButtonLimit", t.getPanelButtonLimit())
+                        .put("preOpenFormEnabled", t.isPreOpenFormEnabled())
+                        .put("preOpenFormTitle", t.getPreOpenFormTitle())
+                        .put("preOpenFormLabel", t.getPreOpenFormLabel())
+                        .put("preOpenFormPlaceholder", t.getPreOpenFormPlaceholder())
+                        .put("welcomeMessage", t.getWelcomeMessage())
+                        .put("optionLabels", String.join(", ", t.getOptionLabels()))
+                        .put("options", DataArray.fromCollection(t.getOptions().stream().map(option -> DataObject.empty()
+                                .put("id", option.getId())
+                                .put("label", option.getLabel())
+                                .put("panelTitle", option.getPanelTitle())
+                                .put("panelDescription", option.getPanelDescription())
+                                .put("panelButtonStyle", option.getPanelButtonStyle())
+                                .put("welcomeMessage", option.getWelcomeMessage())
+                                .put("preOpenFormEnabled", option.isPreOpenFormEnabled())
+                                .put("preOpenFormTitle", option.getPreOpenFormTitle())
+                                .put("preOpenFormLabel", option.getPreOpenFormLabel())
+                                .put("preOpenFormPlaceholder", option.getPreOpenFormPlaceholder()))
+                                .toList()))
+                        .put("supportRoleIds", t.getSupportRoleIds().stream().map(String::valueOf).toList())
+                        .put("blacklistedUserIds", t.getBlacklistedUserIds().stream().map(String::valueOf).toList()));
         sendJson(exchange, 200, payload);
     }
 
@@ -831,11 +1147,50 @@ public class WebControlServer {
                         .withUserLimit(intOrDefault(pMap, "userLimit", p.getUserLimit(), 0, 99));
             }
 
+            Map<String, Object> ncMap = asMap(root.get("numberChain"));
+            if (!ncMap.isEmpty()) {
+                moderationService.setNumberChainEnabled(
+                        guild.getIdLong(),
+                        boolOrDefault(ncMap, "enabled", moderationService.isNumberChainEnabled(guild.getIdLong()))
+                );
+                Long currentChannelId = moderationService.getNumberChainChannelId(guild.getIdLong());
+                Long nextChannelId = idOrDefault(ncMap, "channelId", currentChannelId);
+                if (!Objects.equals(currentChannelId, nextChannelId)) {
+                    moderationService.setNumberChainChannelId(guild.getIdLong(), nextChannelId);
+                }
+            }
+
+            BotConfig.Ticket t = current.getTicket();
+            Map<String, Object> tMap = asMap(root.get("ticket"));
+            if (!tMap.isEmpty()) {
+                List<BotConfig.Ticket.TicketOption> options = parseTicketOptions(tMap, t.getOptions());
+                t = t.withEnabled(boolOrDefault(tMap, "enabled", t.isEnabled()))
+                        .withPanelChannelId(idOrDefault(tMap, "panelChannelId", t.getPanelChannelId()))
+                        .withAutoCloseDays(intOrDefault(tMap, "autoCloseDays", t.getAutoCloseDays(), 1, 365))
+                        .withMaxOpenPerUser(intOrDefault(tMap, "maxOpenPerUser", t.getMaxOpenPerUser(), 1, 20))
+                        .withOpenUiMode(parseTicketOpenUiMode(stringOrDefault(tMap, "openUiMode", t.getOpenUiMode().name()), t.getOpenUiMode()))
+                        .withPanelTitle(stringOrDefault(tMap, "panelTitle", t.getPanelTitle()))
+                        .withPanelDescription(stringOrDefault(tMap, "panelDescription", t.getPanelDescription()))
+                        .withPanelColor(colorOrDefault(tMap, "panelColor", t.getPanelColor()))
+                        .withPanelButtonStyle(stringOrDefault(tMap, "panelButtonStyle", t.getPanelButtonStyle()))
+                        .withPanelButtonLimit(intOrDefault(tMap, "panelButtonLimit", t.getPanelButtonLimit(), 1, 25))
+                        .withPreOpenFormEnabled(boolOrDefault(tMap, "preOpenFormEnabled", t.isPreOpenFormEnabled()))
+                        .withPreOpenFormTitle(stringOrDefault(tMap, "preOpenFormTitle", t.getPreOpenFormTitle()))
+                        .withPreOpenFormLabel(stringOrDefault(tMap, "preOpenFormLabel", t.getPreOpenFormLabel()))
+                        .withPreOpenFormPlaceholder(stringOrDefault(tMap, "preOpenFormPlaceholder", t.getPreOpenFormPlaceholder()))
+                        .withWelcomeMessage(stringOrDefault(tMap, "welcomeMessage", t.getWelcomeMessage()))
+                        .withOptionLabels(parseCsvOrDefault(tMap, "optionLabels", t.getOptionLabels()))
+                        .withOptions(options)
+                        .withSupportRoleIds(parseLongCsvOrDefault(tMap, "supportRoleIds", t.getSupportRoleIds()))
+                        .withBlacklistedUserIds(parseLongCsvOrDefault(tMap, "blacklistedUserIds", t.getBlacklistedUserIds()));
+            }
+
             return current.withLanguage(language)
                     .withNotifications(n)
                     .withMessageLogs(l)
                     .withMusic(m)
-                    .withPrivateRoom(p);
+                    .withPrivateRoom(p)
+                    .withTicket(t);
         });
 
         sendJson(exchange, 200, DataObject.empty().put("ok", true).put("language", updated.getLanguage()));
@@ -892,6 +1247,17 @@ public class WebControlServer {
         sendJson(exchange, 200, DataObject.empty()
                 .put("textChannels", textChannels)
                 .put("voiceChannels", voiceChannels));
+    }
+
+    private void handleGuildRolesGet(HttpExchange exchange, Guild guild) throws IOException {
+        DataArray roles = DataArray.empty();
+        guild.getRoles().stream()
+                .filter(role -> !role.isPublicRole())
+                .sorted(Comparator.comparingInt(Role::getPositionRaw).reversed())
+                .forEach(role -> roles.add(DataObject.empty()
+                        .put("id", role.getId())
+                        .put("name", role.getName())));
+        sendJson(exchange, 200, DataObject.empty().put("roles", roles));
     }
 
     private String exchangeToken(BotConfig.Web web, String code) throws IOException, InterruptedException {
@@ -1300,6 +1666,99 @@ public class WebControlServer {
         }
     }
 
+    private List<String> parseCsvOrDefault(Map<String, Object> map, String key, List<String> fallback) {
+        if (!map.containsKey(key)) {
+            return fallback;
+        }
+        Object value = map.get(key);
+        if (value == null) {
+            return List.of();
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (String part : text.split(",")) {
+            String one = part == null ? "" : part.trim();
+            if (!one.isBlank()) {
+                out.add(one);
+            }
+        }
+        return out.isEmpty() ? fallback : out;
+    }
+
+    private List<Long> parseLongCsvOrDefault(Map<String, Object> map, String key, List<Long> fallback) {
+        if (!map.containsKey(key)) {
+            return fallback;
+        }
+        Object value = map.get(key);
+        if (value == null) {
+            return List.of();
+        }
+        List<Long> out = new ArrayList<>();
+
+        if (value instanceof Iterable<?> iterable) {
+            for (Object oneValue : iterable) {
+                String one = oneValue == null ? "" : String.valueOf(oneValue).trim();
+                if (one.isBlank()) {
+                    continue;
+                }
+                try {
+                    long roleId = Long.parseLong(one);
+                    if (roleId > 0L) {
+                        out.add(roleId);
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            return out.stream().distinct().toList();
+        }
+
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            return List.of();
+        }
+        for (String part : text.split(",")) {
+            String one = part == null ? "" : part.trim();
+            if (one.isBlank()) {
+                continue;
+            }
+            try {
+                long roleId = Long.parseLong(one);
+                if (roleId > 0L) {
+                    out.add(roleId);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return out.stream().distinct().toList();
+    }
+
+    private List<BotConfig.Ticket.TicketOption> parseTicketOptions(Map<String, Object> map, List<BotConfig.Ticket.TicketOption> fallback) {
+        if (!map.containsKey("options")) {
+            return fallback;
+        }
+        Object value = map.get("options");
+        if (!(value instanceof Iterable<?> iterable)) {
+            return List.of();
+        }
+        List<BotConfig.Ticket.TicketOption> out = new ArrayList<>();
+        int index = 0;
+        for (Object item : iterable) {
+            Map<String, Object> optionMap = asMap(item);
+            if (optionMap.isEmpty()) {
+                continue;
+            }
+            BotConfig.Ticket.TicketOption defaultOption = fallback != null && fallback.size() > index
+                    ? fallback.get(index)
+                    : BotConfig.Ticket.TicketOption.defaultValues();
+            out.add(BotConfig.Ticket.TicketOption.fromMap(optionMap, defaultOption));
+            index++;
+        }
+        return out;
+    }
+
     private int colorOrDefault(Map<String, Object> map, String key, int fallback) {
         if (!map.containsKey(key)) {
             return fallback;
@@ -1328,6 +1787,10 @@ public class WebControlServer {
         } catch (Exception ignored) {
             return BotConfig.Music.RepeatMode.OFF;
         }
+    }
+
+    private BotConfig.Ticket.OpenUiMode parseTicketOpenUiMode(String raw, BotConfig.Ticket.OpenUiMode fallback) {
+        return BotConfig.Ticket.OpenUiMode.parse(raw, fallback);
     }
 
     private String encode(String value) {
@@ -1373,6 +1836,11 @@ public class WebControlServer {
     private void sendJson(HttpExchange exchange, int statusCode, DataObject payload) throws IOException {
         byte[] body = payload.toString().getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+        if ("HEAD".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(statusCode, -1);
+            exchange.close();
+            return;
+        }
         exchange.sendResponseHeaders(statusCode, body.length);
         exchange.getResponseBody().write(body);
         exchange.close();
@@ -1381,6 +1849,11 @@ public class WebControlServer {
     private void sendHtml(HttpExchange exchange, int statusCode, String html) throws IOException {
         byte[] body = html.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
+        if ("HEAD".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(statusCode, -1);
+            exchange.close();
+            return;
+        }
         exchange.sendResponseHeaders(statusCode, body.length);
         exchange.getResponseBody().write(body);
         exchange.close();
@@ -1389,6 +1862,11 @@ public class WebControlServer {
     private void sendText(HttpExchange exchange, int statusCode, String text) throws IOException {
         byte[] body = text.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=UTF-8");
+        if ("HEAD".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(statusCode, -1);
+            exchange.close();
+            return;
+        }
         exchange.sendResponseHeaders(statusCode, body.length);
         exchange.getResponseBody().write(body);
         exchange.close();
@@ -1403,7 +1881,7 @@ public class WebControlServer {
                 ? "<div class=\"bot-avatar-fallback\" aria-label=\"" + escapeHtmlAttr(botName) + "\">NR</div>"
                 : "<img class=\"bot-avatar\" src=\"" + escapeHtmlAttr(botAvatarUrl) + "\" alt=\"" + escapeHtmlAttr(botName) + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\" />";
 
-        return """
+        String html = """
                 <!doctype html>
                 <html lang="en">
                 <head>
@@ -1414,48 +1892,191 @@ public class WebControlServer {
                   <link rel="apple-touch-icon" href="__FAVICON_URL__" />
                   <style>
                     :root {
-                      --bg:#0f172a;
-                      --panel:#111827;
+                      --bg:#07111f;
+                      --panel:#0f172a;
+                      --panel-2:#111c33;
+                      --panel-3:#0b1426;
                       --text:#e5e7eb;
-                      --muted:#9ca3af;
+                      --muted:#94a3b8;
                       --accent:#22c55e;
                       --accent2:#3b82f6;
                       --warn:#f59e0b;
+                      --danger:#ef4444;
+                      --danger-2:#b91c1c;
+                      --border:rgba(255,255,255,.09);
+                      --shadow:0 18px 40px rgba(0,0,0,.28);
                     }
-                    body { margin:0; background: radial-gradient(circle at 20% 10%, #1f2937, #0b1020 60%); color:var(--text); font-family:Segoe UI, sans-serif; }
-                    .wrap { max-width:1180px; margin:40px auto; padding:0 16px; }
-                    .card { background:linear-gradient(150deg, rgba(17,24,39,.95), rgba(15,23,42,.95)); border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:16px; margin-bottom:14px; }
-                    h1 { margin:0 0 8px; font-size:24px; }
-                    h2 { margin:0 0 8px; font-size:17px; }
-                    h3 { margin:12px 0 6px; font-size:14px; color:#d1d5db; }
-                    .muted { color:var(--muted); font-size:13px; }
-                    .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+                    body {
+                      margin:0;
+                      background:
+                        radial-gradient(circle at 15% 10%, rgba(59,130,246,.16), transparent 28%),
+                        radial-gradient(circle at 85% 12%, rgba(34,197,94,.10), transparent 22%),
+                        linear-gradient(180deg, #0a1221 0%, #07111f 100%);
+                      color:var(--text);
+                      font-family:Segoe UI, sans-serif;
+                    }
+                    .wrap { max-width:1220px; margin:34px auto 52px; padding:0 18px; }
+                    .card {
+                      background:linear-gradient(160deg, rgba(15,23,42,.96), rgba(11,20,38,.95));
+                      border:1px solid var(--border);
+                      border-radius:18px;
+                      padding:18px;
+                      margin-bottom:16px;
+                      box-shadow:var(--shadow);
+                      backdrop-filter:blur(10px);
+                    }
+                    h1 { margin:0 0 8px; font-size:28px; letter-spacing:.01em; }
+                    h2 { margin:0 0 8px; font-size:18px; }
+                    h3 { margin:0; font-size:15px; color:#f8fafc; letter-spacing:.01em; }
+                    .muted { color:var(--muted); font-size:13px; line-height:1.55; }
+                    .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; align-items:center; }
                     .grid2 { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:10px; }
                     .grid3 { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:10px; }
                     @media (max-width:900px){ .grid2,.grid3{ grid-template-columns:1fr; } }
-                    input,select,button,textarea{ border:1px solid rgba(255,255,255,.12); background:#111827; color:#f9fafb; border-radius:10px; padding:9px 12px; }
+                    input,select,button,textarea{
+                      border:1px solid rgba(255,255,255,.12);
+                      background:#111827;
+                      color:#f9fafb;
+                      border-radius:12px;
+                      padding:10px 12px;
+                      transition:border-color .16s ease, box-shadow .16s ease, transform .16s ease, background .16s ease, opacity .16s ease;
+                    }
                     input,select,textarea{ width:100%; box-sizing:border-box; }
-                    button{ cursor:pointer; }
+                    input:focus,select:focus,textarea:focus{
+                      outline:none;
+                      border-color:rgba(96,165,250,.65);
+                      box-shadow:0 0 0 3px rgba(59,130,246,.18);
+                    }
+                    button{
+                      cursor:pointer;
+                      font-weight:600;
+                      letter-spacing:.01em;
+                    }
+                    button:hover{ transform:translateY(-1px); }
+                    button:active{ transform:translateY(0); }
                     button.primary{ background:linear-gradient(90deg,var(--accent2),var(--accent)); border:none; }
-                    button.warn{ background:linear-gradient(90deg,#ef4444,var(--warn)); border:none; }
+                    button.warn{ background:linear-gradient(90deg,var(--danger),var(--warn)); border:none; }
+                    button.danger{
+                      background:linear-gradient(135deg, var(--danger), var(--danger-2));
+                      border:none;
+                      color:#fff;
+                    }
+                    button.reset-btn{
+                      min-width:118px;
+                      box-shadow:0 10px 24px rgba(127,29,29,.28);
+                    }
                     .hidden{display:none;}
                     .guild-grid{ margin-top:10px; display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:10px; }
-                    .guild-item{ border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:10px; background:rgba(255,255,255,.02); }
+                    .guild-item{
+                      border:1px solid rgba(255,255,255,.08);
+                      border-radius:14px;
+                      padding:12px;
+                      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.018));
+                    }
                     .guild-head{ display:flex; gap:10px; align-items:center; margin-bottom:6px; }
                     .guild-icon{ width:40px; height:40px; border-radius:10px; object-fit:cover; background:#0b1220; flex:0 0 40px; }
                     .guild-icon-fallback{ display:flex; align-items:center; justify-content:center; font-weight:700; color:#e5e7eb; border:1px solid rgba(255,255,255,.14); }
-                    .guild-name{ font-weight:600; margin-bottom:6px; }
+                    .guild-name{ font-weight:700; margin-bottom:6px; }
                     .badge{ font-size:12px; color:#d1d5db; margin-bottom:8px; }
                     .user-profile{ display:flex; align-items:center; gap:10px; margin-top:10px; }
                     .user-avatar{ width:36px; height:36px; border-radius:50%; object-fit:cover; border:1px solid rgba(255,255,255,.16); background:#0b1220; }
-                    #status{ white-space:pre-wrap; line-height:1.5; font-family:Consolas,monospace; }
-                    .tabs{ display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
-                    .tab-btn{ padding:8px 10px; width:auto; }
-                    .tab-btn.active{ background:linear-gradient(90deg,var(--accent2),var(--accent)); border:none; }
+                    #status{
+                      white-space:pre-wrap;
+                      line-height:1.6;
+                      font-family:Consolas,monospace;
+                      background:rgba(15,23,42,.72);
+                      border:1px solid rgba(255,255,255,.08);
+                      border-radius:12px;
+                      padding:10px 12px;
+                      min-height:20px;
+                    }
+                    .tabs{
+                      display:flex;
+                      gap:10px;
+                      flex-wrap:wrap;
+                      margin:14px 0 12px;
+                      padding:10px;
+                      border-radius:16px;
+                      background:rgba(255,255,255,.03);
+                      border:1px solid rgba(255,255,255,.06);
+                    }
+                    .tab-btn{
+                      padding:10px 14px;
+                      width:auto;
+                      background:rgba(255,255,255,.03);
+                      border:1px solid rgba(255,255,255,.08);
+                    }
+                    .tab-btn.active{
+                      background:linear-gradient(90deg,var(--accent2),var(--accent));
+                      border:none;
+                      box-shadow:0 12px 24px rgba(34,197,94,.15);
+                    }
                     .tab-pane{ display:none; }
-                    .tab-pane.active{ display:block; }
+                    .tab-pane.active{
+                      display:block;
+                      padding:16px;
+                      border:1px solid rgba(255,255,255,.08);
+                      border-radius:16px;
+                      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.018));
+                    }
+                    .pane-head{
+                      justify-content:space-between;
+                      align-items:center;
+                      margin-top:0;
+                      margin-bottom:14px;
+                      padding-bottom:12px;
+                      border-bottom:1px solid rgba(255,255,255,.08);
+                    }
                     .field{ display:flex; flex-direction:column; gap:6px; }
-                    .field label{ font-size:12px; color:#cbd5e1; }
+                    .field label{ font-size:12px; color:#cbd5e1; font-weight:600; letter-spacing:.01em; }
+                    .field-inline{ display:flex; gap:8px; align-items:center; }
+                    .field-inline > select,
+                    .field-inline > input,
+                    .field-inline > textarea{ flex:1 1 auto; }
+                    .field-inline > button{ width:auto; white-space:nowrap; }
+                    .settings-group{
+                      margin-top:14px;
+                      padding:14px;
+                      border:1px solid rgba(255,255,255,.08);
+                      border-radius:14px;
+                      background:linear-gradient(180deg, rgba(15,23,42,.62), rgba(15,23,42,.42));
+                    }
+                    .settings-group-title{
+                      font-size:13px;
+                      font-weight:700;
+                      color:#e2e8f0;
+                      margin-bottom:10px;
+                      letter-spacing:.02em;
+                    }
+                    .settings-group .grid2,
+                    .settings-group .grid3{ margin-top:6px; }
+                    .span-all{ grid-column:1 / -1; }
+                    .history-list{ display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+                    .history-item{
+                      display:flex; gap:10px; align-items:flex-start; justify-content:space-between;
+                      padding:12px; border:1px solid rgba(255,255,255,.08); border-radius:12px; background:rgba(15,23,42,.45);
+                    }
+                    .history-actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+                    .history-actions button{ width:auto; }
+                    .history-item a{ color:#93c5fd; text-decoration:none; word-break:break-all; }
+                    .history-item a:hover{ text-decoration:underline; }
+                    .history-meta{ color:#9ca3af; font-size:12px; margin-top:4px; }
+                    .option-card{
+                      padding:13px;
+                      border:1px solid rgba(255,255,255,.08);
+                      border-radius:14px;
+                      background:linear-gradient(180deg, rgba(15,23,42,.62), rgba(15,23,42,.45));
+                      cursor:pointer;
+                      transition:transform .15s ease, border-color .15s ease, background .15s ease;
+                    }
+                    .option-card:hover{ transform:translateY(-1px); border-color:rgba(96,165,250,.35); }
+                    .option-card.active{ border-color:rgba(34,197,94,.55); background:rgba(16,185,129,.08); }
+                    .option-card-title{ font-weight:700; color:#f8fafc; }
+                    .option-card-sub{ color:#93c5fd; font-size:12px; margin-top:4px; }
+                    .option-card-grid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 12px; margin-top:10px; }
+                    .option-card-meta{ padding:8px 10px; border-radius:10px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); }
+                    .option-card-meta span{ display:block; font-size:11px; color:#94a3b8; margin-bottom:3px; }
+                    .option-card-meta strong{ display:block; font-size:13px; color:#e2e8f0; }
                     .toggle{ display:flex; align-items:center; gap:8px; }
                     .toggle input{ width:auto; }
                     textarea{ min-height:72px; resize:vertical; }
@@ -1463,6 +2084,44 @@ public class WebControlServer {
                     .lang-switch { align-items:center; }
                     .lang-switch .lang-btn { width:auto; min-width:64px; }
                     .lang-switch .lang-btn.active { background:linear-gradient(90deg,var(--accent2),var(--accent)); border:none; }
+                    .role-field{
+                      grid-column:1 / -1;
+                      padding:12px;
+                      border:1px solid rgba(255,255,255,.08);
+                      border-radius:14px;
+                      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.02));
+                    }
+                    .role-meta{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px; }
+                    .role-count{ font-size:12px; color:#bfdbfe; background:rgba(59,130,246,.16); border:1px solid rgba(59,130,246,.35); border-radius:999px; padding:2px 10px; }
+                    select[multiple].role-multi{
+                      min-height:190px;
+                      border:1px solid rgba(96,165,250,.35);
+                      background:linear-gradient(180deg, rgba(17,24,39,.96), rgba(15,23,42,.96));
+                    }
+                    select[multiple].role-multi:focus{ outline:none; box-shadow:0 0 0 2px rgba(59,130,246,.35); }
+                    .toast-host{ position:fixed; top:18px; right:18px; z-index:9999; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
+                    .toast{
+                      min-width:220px;
+                      max-width:360px;
+                      padding:10px 12px;
+                      border-radius:10px;
+                      border:1px solid rgba(255,255,255,.18);
+                      background:rgba(17,24,39,.95);
+                      color:#f9fafb;
+                      box-shadow:0 10px 24px rgba(0,0,0,.35);
+                      transform:translateY(-8px) scale(.98);
+                      opacity:0;
+                    }
+                    .toast.show{ animation:toastInOut 2.6s ease forwards; }
+                    .toast.success{ border-color:rgba(34,197,94,.45); background:rgba(6,78,59,.92); }
+                    .toast.error{ border-color:rgba(239,68,68,.45); background:rgba(127,29,29,.92); }
+                    button.saving{ opacity:.78; cursor:progress; }
+                    @keyframes toastInOut{
+                      0%{ opacity:0; transform:translateY(-8px) scale(.98); }
+                      12%{ opacity:1; transform:translateY(0) scale(1); }
+                      85%{ opacity:1; transform:translateY(0) scale(1); }
+                      100%{ opacity:0; transform:translateY(-6px) scale(.98); }
+                    }
                     .login-hero{
                       margin-top:14px;
                       padding:14px;
@@ -1538,10 +2197,16 @@ public class WebControlServer {
                       <button class="tab-btn" data-tab="logs">Logs</button>
                       <button class="tab-btn" data-tab="music">Music</button>
                       <button class="tab-btn" data-tab="privateRoom">Private Room</button>
+                      <button class="tab-btn" data-tab="numberChain">Number Chain</button>
+                      <button class="tab-btn" data-tab="ticket">Tickets</button>
+                      <button class="tab-btn" data-tab="ticketHistory">Ticket History</button>
                     </div>
 
                     <div class="tab-pane active" data-pane="general">
-                      <h3>language</h3>
+                      <div class="row pane-head">
+                        <h3>language</h3>
+                        <button id="resetGeneralBtn" class="danger reset-btn" type="button">Reset Section</button>
+                      </div>
                       <div class="grid2">
                         <div class="field">
                           <label id="label_s_language">Language</label>
@@ -1552,7 +2217,10 @@ public class WebControlServer {
                     </div>
 
                     <div class="tab-pane" data-pane="notifications">
-                      <h3>notifications.*</h3>
+                      <div class="row pane-head">
+                        <h3>notifications.*</h3>
+                        <button id="resetNotificationsBtn" class="danger reset-btn" type="button">Reset Section</button>
+                      </div>
                       <div class="grid3">
                         <div class="toggle"><input type="checkbox" id="n_enabled"><label for="n_enabled">enabled</label></div>
                         <div class="toggle"><input type="checkbox" id="n_memberJoinEnabled"><label for="n_memberJoinEnabled">memberJoinEnabled</label></div>
@@ -1583,7 +2251,10 @@ public class WebControlServer {
                     </div>
 
                     <div class="tab-pane" data-pane="logs">
-                      <h3>messageLogs.*</h3>
+                      <div class="row pane-head">
+                        <h3>messageLogs.*</h3>
+                        <button id="resetLogsBtn" class="danger reset-btn" type="button">Reset Section</button>
+                      </div>
                       <div class="grid3">
                         <div class="toggle"><input type="checkbox" id="l_enabled"><label for="l_enabled">enabled</label></div>
                         <div class="toggle"><input type="checkbox" id="l_roleLogEnabled"><label for="l_roleLogEnabled">roleLogEnabled</label></div>
@@ -1602,7 +2273,10 @@ public class WebControlServer {
                     </div>
 
                     <div class="tab-pane" data-pane="music">
-                      <h3>music.*</h3>
+                      <div class="row pane-head">
+                        <h3>music.*</h3>
+                        <button id="resetMusicBtn" class="danger reset-btn" type="button">Reset Section</button>
+                      </div>
                       <div class="grid3">
                         <div class="toggle"><input type="checkbox" id="m_autoLeaveEnabled"><label for="m_autoLeaveEnabled">autoLeaveEnabled</label></div>
                         <div class="field"><label>autoLeaveMinutes (1-60)</label><input type="number" min="1" max="60" id="m_autoLeaveMinutes"></div>
@@ -1613,11 +2287,175 @@ public class WebControlServer {
                     </div>
 
                     <div class="tab-pane" data-pane="privateRoom">
-                      <h3>privateRoom.*</h3>
+                      <div class="row pane-head">
+                        <h3>privateRoom.*</h3>
+                        <button id="resetPrivateRoomBtn" class="danger reset-btn" type="button">Reset Section</button>
+                      </div>
                       <div class="grid3">
                         <div class="toggle"><input type="checkbox" id="p_enabled"><label for="p_enabled">enabled</label></div>
                         <div class="field"><label>triggerVoiceChannelId</label><select id="p_triggerVoiceChannelId"></select></div>
                         <div class="field"><label>userLimit (0-99)</label><input type="number" min="0" max="99" id="p_userLimit"></div>
+                      </div>
+                    </div>
+
+                    <div class="tab-pane" data-pane="numberChain">
+                      <div class="row pane-head">
+                        <h3>numberChain.*</h3>
+                        <button id="resetNumberChainBtn" class="danger reset-btn" type="button">Reset Section</button>
+                      </div>
+                      <div class="grid3">
+                        <div class="toggle"><input type="checkbox" id="nc_enabled"><label for="nc_enabled">enabled</label></div>
+                        <div class="field">
+                          <label id="label_nc_channelId">channelId</label>
+                          <select id="nc_channelId"></select>
+                        </div>
+                        <div class="field">
+                          <label id="label_nc_nextNumber">nextNumber</label>
+                          <div class="field-inline">
+                            <input type="number" id="nc_nextNumber" readonly>
+                            <button id="resetNumberChainProgressBtn" class="warn" type="button">Reset Progress</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                """;
+        html += """
+                    <div class="tab-pane" data-pane="ticket">
+                      <div class="row pane-head">
+                        <h3>ticket.*</h3>
+                        <button id="resetTicketBtn" class="danger reset-btn" type="button">Reset Section</button>
+                      </div>
+                      <div class="settings-group">
+                        <div id="ticket_group_basic_title" class="settings-group-title">Basic Settings</div>
+                        <div class="grid3">
+                          <div class="toggle"><input type="checkbox" id="t_enabled"><label for="t_enabled">enabled</label></div>
+                          <div class="field"><label>autoCloseDays (1-365)</label><input type="number" min="1" max="365" id="t_autoCloseDays"></div>
+                          <div class="field"><label>maxOpenPerUser (1-20)</label><input type="number" min="1" max="20" id="t_maxOpenPerUser"></div>
+                          <div class="field span-all">
+                            <label>openUiMode</label>
+                            <select id="t_openUiMode">
+                              <option value="BUTTONS">BUTTONS</option>
+                              <option value="SELECT">SELECT</option>
+                            </select>
+                            <div id="hint_t_openUiMode" class="keyhint">BUTTONS: display open buttons. SELECT: use dropdown menu.</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="settings-group">
+                        <div id="ticket_group_access_title" class="settings-group-title">Access & Blacklist</div>
+                        <div class="grid2">
+                          <div class="field role-field">
+                            <label>supportRoleIds</label>
+                            <div class="role-meta">
+                              <div id="hint_t_supportRoleIds" class="keyhint">Hold Ctrl/Cmd to select multiple roles.</div>
+                              <div id="t_supportRoleCount" class="role-count">0</div>
+                            </div>
+                            <select id="t_supportRoleIds" class="role-multi" multiple size="7"></select>
+                          </div>
+                          <div class="field">
+                            <label>blacklistedUserIds (comma separated)</label>
+                            <input type="text" id="t_blacklistedUserIds">
+                            <div id="hint_t_blacklistedUserIds" class="keyhint">Enter user IDs separated by commas.</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="settings-group">
+                        <div id="ticket_group_panel_title" class="settings-group-title">Panel Settings</div>
+                        <div class="grid2">
+                          <div class="field span-all">
+                            <label>panelChannelId</label>
+                            <div class="field-inline">
+                              <select id="t_panelChannelId"></select>
+                              <button id="sendTicketPanelBtn" class="warn" type="button">Send Ticket Panel</button>
+                            </div>
+                          </div>
+                          <div class="field span-all">
+                            <label id="label_t_panelTitle">panelTitle</label>
+                            <input type="text" id="t_panelTitle">
+                          </div>
+                          <div class="field span-all">
+                            <label id="label_t_panelDescription">panelDescription</label>
+                            <textarea id="t_panelDescription"></textarea>
+                          </div>
+                          <div class="field">
+                            <label id="label_t_panelColor">panelColor</label>
+                            <input type="color" id="t_panelColor">
+                          </div>
+                          <div class="field">
+                            <label>panelButtonLimit (1-25)</label>
+                            <input type="number" min="1" max="25" id="t_panelButtonLimit">
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="settings-group">
+                        <div id="ticket_group_options_title" class="settings-group-title">Ticket Types</div>
+                        <div class="row">
+                          <button id="t_addOptionBtn" class="primary" type="button">Add Ticket Type</button>
+                        </div>
+                        <div id="hint_t_optionEditor" class="keyhint">Create each ticket type separately. Each one can have its own panel text, button style, welcome message, and pre-open form.</div>
+                        <div id="ticketOptionList" class="history-list"></div>
+                        <div class="grid2">
+                          <div class="field">
+                            <label id="label_t_optionLabel">Option label</label>
+                            <input type="text" id="t_optionLabel">
+                          </div>
+                          <div class="field">
+                            <label id="label_t_optionButtonStyle">Button style</label>
+                            <select id="t_optionButtonStyle">
+                              <option value="PRIMARY">PRIMARY</option>
+                              <option value="SECONDARY">SECONDARY</option>
+                              <option value="SUCCESS">SUCCESS</option>
+                              <option value="DANGER">DANGER</option>
+                            </select>
+                          </div>
+                          <div class="field span-all">
+                            <label id="label_t_optionPanelTitle">Panel title</label>
+                            <input type="text" id="t_optionPanelTitle">
+                          </div>
+                          <div class="field span-all">
+                            <label id="label_t_optionPanelDescription">Panel description</label>
+                            <textarea id="t_optionPanelDescription"></textarea>
+                          </div>
+                          <div class="field span-all">
+                            <label id="label_t_optionWelcomeMessage">Welcome message</label>
+                            <textarea id="t_optionWelcomeMessage"></textarea>
+                            <div id="hint_t_optionWelcomeMessage" class="keyhint">Available placeholders: {user}, {type}, {summary}</div>
+                          </div>
+                          <div class="toggle"><input type="checkbox" id="t_optionPreOpenFormEnabled"><label for="t_optionPreOpenFormEnabled" id="label_t_optionPreOpenFormEnabled">Enable pre-open form</label></div>
+                          <div></div>
+                          <div class="field">
+                            <label id="label_t_optionPreOpenFormTitle">Form title</label>
+                            <input type="text" id="t_optionPreOpenFormTitle">
+                          </div>
+                          <div class="field">
+                            <label id="label_t_optionPreOpenFormLabel">Form field label</label>
+                            <input type="text" id="t_optionPreOpenFormLabel">
+                          </div>
+                          <div class="field span-all">
+                            <label id="label_t_optionPreOpenFormPlaceholder">Form placeholder</label>
+                            <input type="text" id="t_optionPreOpenFormPlaceholder">
+                          </div>
+                        </div>
+                        <div class="row">
+                          <button id="t_deleteOptionBtn" class="warn" type="button">Delete Ticket Type</button>
+                        </div>
+                      </div>
+
+                    </div>
+
+                    <div class="tab-pane" data-pane="ticketHistory">
+                      <h3>ticket.history</h3>
+                      <div class="settings-group">
+                        <div id="ticket_group_history_title" class="settings-group-title">Ticket History</div>
+                        <div class="row">
+                          <button id="loadTicketHistoryBtn" type="button">Load History</button>
+                        </div>
+                        <div id="ticketHistoryMeta" class="keyhint"></div>
+                        <div id="ticketHistoryList" class="history-list"></div>
                       </div>
                     </div>
 
@@ -1638,10 +2476,17 @@ public class WebControlServer {
                   const guildSelect = byId('guildSelect');
                   const guildList = byId('guildList');
                   let channelsCache = { textChannels: [], voiceChannels: [] };
+                  let rolesCache = [];
                   let uiLanguages = [];
                   let botLanguages = [];
                   let defaultUiLanguage = 'zh-TW';
                   let uiLang = 'zh-TW';
+                  let ticketOptionsState = [];
+                  let selectedTicketOptionId = '';
+                  let ticketHistoryFilesState = [];
+                  let pendingDeleteTranscriptName = '';
+                  let ticketHistoryRetentionDays = 90;
+                  let ticketHistoryCleanedCount = 0;
 
                   const I18N = {
                     'zh-TW': {},
@@ -1704,6 +2549,13 @@ function t(key){
                     if (label) label.textContent = t(key);
                   }
 
+                  function setSelectOptionLabel(selectId, optionValue, key){
+                    const select = byId(selectId);
+                    if (!select) return;
+                    const option = [...select.options].find(op => op.value === optionValue);
+                    if (option) option.textContent = t(key);
+                  }
+
                   function localizeLanguageOptions(){
                     const select = byId('s_language');
                     if (!select) return;
@@ -1736,12 +2588,18 @@ function t(key){
                     setTabLabel('logs', 'tabs_logs');
                     setTabLabel('music', 'tabs_music');
                     setTabLabel('privateRoom', 'tabs_privateRoom');
+                    setTabLabel('numberChain', 'tabs_numberChain');
+                    setTabLabel('ticket', 'tabs_ticket');
+                    setTabLabel('ticketHistory', 'tabs_ticket_history');
 
                     setSectionLabel('general', 'section_language');
                     setSectionLabel('notifications', 'section_notifications');
                     setSectionLabel('logs', 'section_logs');
                     setSectionLabel('music', 'section_music');
                     setSectionLabel('privateRoom', 'section_privateRoom');
+                    setSectionLabel('numberChain', 'section_numberChain');
+                    setSectionLabel('ticket', 'section_ticket');
+                    setSectionLabel('ticketHistory', 'section_ticket_history');
 
                     setCheckboxLabel('n_enabled', 'n_enabled');
                     setCheckboxLabel('n_memberJoinEnabled', 'n_memberJoinEnabled');
@@ -1781,6 +2639,137 @@ function t(key){
                     setCheckboxLabel('p_enabled', 'p_enabled');
                     setFieldLabel('p_triggerVoiceChannelId', 'p_triggerVoiceChannelId');
                     setFieldLabel('p_userLimit', 'p_userLimit');
+
+                    setCheckboxLabel('nc_enabled', 'nc_enabled');
+                    setFieldLabel('nc_channelId', 'nc_channelId');
+                    setFieldLabel('nc_nextNumber', 'nc_nextNumber');
+                    setText('resetNumberChainProgressBtn', 'resetNumberChainProgressBtn');
+
+                    setCheckboxLabel('t_enabled', 't_enabled');
+                    setText('ticket_group_basic_title', 'ticket_group_basic_title');
+                    setText('ticket_group_access_title', 'ticket_group_access_title');
+                    setText('ticket_group_panel_title', 'ticket_group_panel_title');
+                    setText('ticket_group_options_title', 'ticket_group_options_title');
+                    setText('ticket_group_history_title', 'ticket_group_history_title');
+                    setFieldLabel('t_panelChannelId', 't_panelChannelId');
+                    setFieldLabel('t_panelTitle', 't_panelTitle');
+                    setFieldLabel('t_panelDescription', 't_panelDescription');
+                    setFieldLabel('t_panelColor', 't_panelColor');
+                    setFieldLabel('t_panelButtonLimit', 't_panelButtonLimit');
+                    setFieldLabel('t_autoCloseDays', 't_autoCloseDays');
+                    setFieldLabel('t_maxOpenPerUser', 't_maxOpenPerUser');
+                    setFieldLabel('t_openUiMode', 't_openUiMode');
+                    setText('hint_t_openUiMode', 't_openUiMode_hint');
+                    setSelectOptionLabel('t_openUiMode', 'BUTTONS', 't_openUiMode_buttons');
+                    setSelectOptionLabel('t_openUiMode', 'SELECT', 't_openUiMode_select');
+                    setFieldLabel('t_supportRoleIds', 't_supportRoleIds');
+                    setText('hint_t_supportRoleIds', 't_supportRoleIds_hint');
+                    setFieldLabel('t_blacklistedUserIds', 't_blacklistedUserIds');
+                    setText('hint_t_blacklistedUserIds', 't_blacklistedUserIds_hint');
+                    setText('hint_t_optionEditor', 't_optionEditor_hint');
+                    setText('label_t_optionLabel', 't_optionLabel');
+                    setText('label_t_optionButtonStyle', 't_optionButtonStyle');
+                    setSelectOptionLabel('t_optionButtonStyle', 'PRIMARY', 't_panelButtonStyle_primary');
+                    setSelectOptionLabel('t_optionButtonStyle', 'SECONDARY', 't_panelButtonStyle_secondary');
+                    setSelectOptionLabel('t_optionButtonStyle', 'SUCCESS', 't_panelButtonStyle_success');
+                    setSelectOptionLabel('t_optionButtonStyle', 'DANGER', 't_panelButtonStyle_danger');
+                    setText('label_t_optionPanelTitle', 't_optionPanelTitle');
+                    setText('label_t_optionPanelDescription', 't_optionPanelDescription');
+                    setText('label_t_optionWelcomeMessage', 't_optionWelcomeMessage');
+                    setText('hint_t_optionWelcomeMessage', 't_welcomeMessage_hint');
+                    setText('label_t_optionPreOpenFormEnabled', 't_optionPreOpenFormEnabled');
+                    setText('label_t_optionPreOpenFormTitle', 't_optionPreOpenFormTitle');
+                    setText('label_t_optionPreOpenFormLabel', 't_optionPreOpenFormLabel');
+                    setText('label_t_optionPreOpenFormPlaceholder', 't_optionPreOpenFormPlaceholder');
+                    setText('t_addOptionBtn', 't_addOptionBtn');
+                    setText('t_deleteOptionBtn', 't_deleteOptionBtn');
+                    setText('loadTicketHistoryBtn', 'loadTicketHistoryBtn');
+                    applyNotificationTemplateDefaults();
+                    applyTicketPanelDefaultsIfEmpty();
+                    renderTicketOptions();
+                  }
+
+                  function resolveNotificationTemplateKey(controlId){
+                    const mapping = {
+                      n_memberJoinMessage: 'notifications_default_member_join',
+                      n_memberLeaveMessage: 'notifications_default_member_leave',
+                      n_voiceJoinMessage: 'notifications_default_voice_join',
+                      n_voiceLeaveMessage: 'notifications_default_voice_leave',
+                      n_voiceMoveMessage: 'notifications_default_voice_move'
+                    };
+                    return mapping[controlId] || '';
+                  }
+
+                  function getBundleTextByLanguage(code, key){
+                    const bundle = I18N[code] || {};
+                    return bundle[key] ? String(bundle[key]) : '';
+                  }
+
+                  function getNotificationTemplateDefault(templateKey){
+                    const preferredLang = getValue('s_language') || uiLang || 'zh-TW';
+                    return getBundleTextByLanguage(preferredLang, templateKey)
+                      || getBundleTextByLanguage(uiLang, templateKey)
+                      || getBundleTextByLanguage('zh-TW', templateKey)
+                      || '';
+                  }
+
+                  function isNotificationTemplateStillDefault(value, templateKey){
+                    const current = String(value || '').trim();
+                    if (!current) return true;
+                    const knownDefaults = new Set();
+                    Object.keys(I18N).forEach(code => {
+                      const text = getBundleTextByLanguage(code, templateKey);
+                      if (text) knownDefaults.add(text.trim());
+                    });
+                    return knownDefaults.has(current);
+                  }
+
+                  function applyNotificationTemplateDefaults(){
+                    [
+                      'n_memberJoinMessage',
+                      'n_memberLeaveMessage',
+                      'n_voiceJoinMessage',
+                      'n_voiceLeaveMessage',
+                      'n_voiceMoveMessage'
+                    ].forEach(controlId => {
+                      const el = byId(controlId);
+                      if (!el) return;
+                      const templateKey = resolveNotificationTemplateKey(controlId);
+                      if (!templateKey) return;
+                      if (!isNotificationTemplateStillDefault(el.value, templateKey)) return;
+                      const next = getNotificationTemplateDefault(templateKey);
+                      if (next) el.value = next;
+                    });
+                  }
+
+                  function getTicketPanelDefault(key){
+                    const preferredLang = getValue('s_language') || uiLang || 'zh-TW';
+                    return getBundleTextByLanguage(preferredLang, key)
+                      || getBundleTextByLanguage(uiLang, key)
+                      || getBundleTextByLanguage('zh-TW', key)
+                      || '';
+                  }
+
+                  function isTicketPanelTextStillDefault(value, key){
+                    const current = String(value || '').trim();
+                    if (!current) return true;
+                    const knownDefaults = new Set();
+                    Object.keys(I18N).forEach(code => {
+                      const text = getBundleTextByLanguage(code, key);
+                      if (text) knownDefaults.add(text.trim());
+                    });
+                    return knownDefaults.has(current);
+                  }
+
+                  function applyTicketPanelDefaultsIfEmpty(){
+                    const title = byId('t_panelTitle');
+                    const desc = byId('t_panelDescription');
+                    if (title && isTicketPanelTextStillDefault(title.value, 'ticket_default_panel_title')) {
+                      title.value = getTicketPanelDefault('ticket_default_panel_title');
+                    }
+                    if (desc && isTicketPanelTextStillDefault(desc.value, 'ticket_default_panel_desc')) {
+                      desc.value = getTicketPanelDefault('ticket_default_panel_desc');
+                    }
                   }
 
                   function renderUiLanguageButtons(){
@@ -1815,7 +2804,15 @@ function t(key){
                     setText('settingsSubtitle', 'settingsSubtitle');
                     setText('guildReloadBtn', 'guildReloadBtn');
                     setText('loadSettingsBtn', 'loadSettingsBtn');
+                    setText('sendTicketPanelBtn', 'sendTicketPanelBtn');
                     setText('saveSettingsBtn', 'saveSettingsBtn');
+                    setText('resetGeneralBtn', 'resetSectionBtn');
+                    setText('resetNotificationsBtn', 'resetSectionBtn');
+                    setText('resetLogsBtn', 'resetSectionBtn');
+                    setText('resetMusicBtn', 'resetSectionBtn');
+                    setText('resetPrivateRoomBtn', 'resetSectionBtn');
+                    setText('resetNumberChainBtn', 'resetSectionBtn');
+                    setText('resetTicketBtn', 'resetSectionBtn');
                     localizeSettingsForm();
                     updateMeLine();
                   }
@@ -1844,15 +2841,25 @@ function t(key){
                         uiLanguages = Object.keys(bundles).map(code => ({ code, label: code }));
                       }
                       if (botLanguages.length === 0) {
-                        botLanguages = [{ code: 'zh-TW', label: '繁體中文' }, { code: 'en', label: 'English' }];
+                        botLanguages = [{ code: 'zh-TW', label: 'Traditional Chinese' }, { code: 'en', label: 'English' }];
                       }
                     } catch (_) {
                       uiLanguages = [{ code: 'zh-TW', label: '繁中' }, { code: 'en', label: 'ENG' }];
-                      botLanguages = [{ code: 'zh-TW', label: '繁體中文' }, { code: 'en', label: 'English' }];
+                      botLanguages = [{ code: 'zh-TW', label: 'Traditional Chinese' }, { code: 'en', label: 'English' }];
                     }
                   }
 
                   function showStatus(text){ statusEl.textContent = text || ''; }
+                  function showToast(text, type = 'success'){
+                    const toastHost = byId('toastHost');
+                    if(!toastHost || !text) return;
+                    const el = document.createElement('div');
+                    el.className = `toast ${type}`;
+                    el.textContent = text;
+                    toastHost.appendChild(el);
+                    requestAnimationFrame(() => el.classList.add('show'));
+                    setTimeout(() => el.remove(), 2800);
+                  }
                   async function api(path, opt = {}) {
                     const res = await fetch(path, opt);
                     const data = await res.json().catch(() => ({}));
@@ -1882,14 +2889,209 @@ function t(key){
                     }
                   }
 
+                  function setMultiSelectOptions(selectId, list){
+                    const el = byId(selectId);
+                    if(!el) return;
+                    const currentValues = Array.from(el.selectedOptions || []).map(o => o.value);
+                    el.innerHTML = '';
+                    list.forEach(item => {
+                      const op = document.createElement('option');
+                      op.value = item.id;
+                      op.textContent = `${item.name} (${item.id})`;
+                      el.appendChild(op);
+                    });
+                    if (currentValues.length > 0) {
+                      Array.from(el.options).forEach(op => {
+                        op.selected = currentValues.includes(op.value);
+                      });
+                    }
+                    updateSupportRoleCount();
+                  }
+
+                  function setMultiSelectValues(selectId, values){
+                    const el = byId(selectId);
+                    if(!el) return;
+                    const normalized = (values || []).map(v => String(v));
+                    Array.from(el.options).forEach(op => {
+                      op.selected = normalized.includes(op.value);
+                    });
+                    updateSupportRoleCount();
+                  }
+
+                  function getMultiSelectValues(selectId){
+                    const el = byId(selectId);
+                    if(!el) return [];
+                    return Array.from(el.selectedOptions || []).map(op => op.value);
+                  }
+
+                  function updateSupportRoleCount(){
+                    const el = byId('t_supportRoleIds');
+                    const countEl = byId('t_supportRoleCount');
+                    if(!el || !countEl) return;
+                    const selected = Array.from(el.selectedOptions || []).length;
+                    const total = Array.from(el.options || []).length;
+                    countEl.textContent = `${t('t_supportRoleIds_selected')}: ${selected}/${total}`;
+                  }
+
+                  function createTicketOptionDraft(){
+                    const stamp = Date.now().toString(36);
+                    return {
+                      id: `option-${stamp}`,
+                      label: '',
+                      panelTitle: '',
+                      panelDescription: '',
+                      panelButtonStyle: 'PRIMARY',
+                      welcomeMessage: t('ticket_default_welcome_message'),
+                      preOpenFormEnabled: false,
+                      preOpenFormTitle: '',
+                      preOpenFormLabel: '',
+                      preOpenFormPlaceholder: ''
+                    };
+                  }
+
+                  function ensureSelectedTicketOption(){
+                    if (ticketOptionsState.length === 0) {
+                      const draft = createTicketOptionDraft();
+                      ticketOptionsState = [draft];
+                      selectedTicketOptionId = draft.id;
+                      return;
+                    }
+                    if (!selectedTicketOptionId || !ticketOptionsState.some(item => item.id === selectedTicketOptionId)) {
+                      selectedTicketOptionId = ticketOptionsState[0].id;
+                    }
+                  }
+
+                  function getSelectedTicketOption(){
+                    ensureSelectedTicketOption();
+                    return ticketOptionsState.find(item => item.id === selectedTicketOptionId) || null;
+                  }
+
+                  function populateTicketOptionEditor(option){
+                    const current = option || createTicketOptionDraft();
+                    setValue('t_optionLabel', current.label || '');
+                    setValue('t_optionButtonStyle', (current.panelButtonStyle || 'PRIMARY').toUpperCase());
+                    setValue('t_optionPanelTitle', current.panelTitle || '');
+                    setValue('t_optionPanelDescription', current.panelDescription || '');
+                    setValue('t_optionWelcomeMessage', current.welcomeMessage || '');
+                    setChecked('t_optionPreOpenFormEnabled', !!current.preOpenFormEnabled);
+                    setValue('t_optionPreOpenFormTitle', current.preOpenFormTitle || '');
+                    setValue('t_optionPreOpenFormLabel', current.preOpenFormLabel || '');
+                    setValue('t_optionPreOpenFormPlaceholder', current.preOpenFormPlaceholder || '');
+                  }
+
+                  function renderTicketOptions(){
+                    const root = byId('ticketOptionList');
+                    if (!root) return;
+                    ensureSelectedTicketOption();
+                    root.innerHTML = '';
+                    ticketOptionsState.forEach(option => {
+                      const card = document.createElement('div');
+                      card.className = 'option-card';
+                      if (option.id === selectedTicketOptionId) {
+                        card.classList.add('active');
+                      }
+                      const formState = option.preOpenFormEnabled ? t('enabledOption') : t('disabledOption');
+                      const styleKey = 't_panelButtonStyle_' + String(option.panelButtonStyle || 'PRIMARY').toLowerCase();
+                      const styleLabel = t(styleKey) !== styleKey ? t(styleKey) : String(option.panelButtonStyle || 'PRIMARY');
+                      const welcomeLabel = option.welcomeMessage || t('ticket_default_welcome_message');
+                      card.innerHTML = `
+                        <div class="option-card-title">${esc(option.label || t('ticket_option_unnamed'))}</div>
+                        <div class="option-card-sub">${esc(option.panelTitle || t('ticket_default_panel_title'))}</div>
+                        <div class="option-card-grid">
+                          <div class="option-card-meta"><span>${esc(t('ticket_option_meta_name'))}</span><strong>${esc(option.label || t('ticket_option_unnamed'))}</strong></div>
+                          <div class="option-card-meta"><span>${esc(t('ticket_option_meta_style'))}</span><strong>${esc(styleLabel)}</strong></div>
+                          <div class="option-card-meta"><span>${esc(t('ticket_option_meta_form'))}</span><strong>${esc(formState)}</strong></div>
+                          <div class="option-card-meta"><span>${esc(t('ticket_option_meta_welcome'))}</span><strong>${esc(welcomeLabel.length > 40 ? welcomeLabel.slice(0, 40) + '…' : welcomeLabel)}</strong></div>
+                        </div>
+                      `;
+                      card.onclick = () => {
+                        selectedTicketOptionId = option.id;
+                        populateTicketOptionEditor(option);
+                        renderTicketOptions();
+                      };
+                      root.appendChild(card);
+                    });
+                    populateTicketOptionEditor(getSelectedTicketOption());
+                  }
+
+                  function syncTicketOptionDraftFromEditor(){
+                    ensureSelectedTicketOption();
+                    const index = ticketOptionsState.findIndex(item => item.id === selectedTicketOptionId);
+                    if (index < 0) return;
+                    ticketOptionsState[index] = {
+                      id: selectedTicketOptionId,
+                      label: getValue('t_optionLabel'),
+                      panelButtonStyle: getValue('t_optionButtonStyle') || 'PRIMARY',
+                      panelTitle: getValue('t_optionPanelTitle'),
+                      panelDescription: getValue('t_optionPanelDescription'),
+                      welcomeMessage: getValue('t_optionWelcomeMessage'),
+                      preOpenFormEnabled: getChecked('t_optionPreOpenFormEnabled'),
+                      preOpenFormTitle: getValue('t_optionPreOpenFormTitle'),
+                      preOpenFormLabel: getValue('t_optionPreOpenFormLabel'),
+                      preOpenFormPlaceholder: getValue('t_optionPreOpenFormPlaceholder')
+                    };
+                  }
+
+                  function bindTicketOptionEditorAutoSync(){
+                    const ids = [
+                      't_optionLabel',
+                      't_optionButtonStyle',
+                      't_optionPanelTitle',
+                      't_optionPanelDescription',
+                      't_optionWelcomeMessage',
+                      't_optionPreOpenFormEnabled',
+                      't_optionPreOpenFormTitle',
+                      't_optionPreOpenFormLabel',
+                      't_optionPreOpenFormPlaceholder'
+                    ];
+                    ids.forEach(id => {
+                      const el = byId(id);
+                      if (!el || el.dataset.autosyncBound === '1') return;
+                      el.dataset.autosyncBound = '1';
+                      const syncOnly = () => syncTicketOptionDraftFromEditor();
+                      const syncAndRefresh = () => {
+                        syncTicketOptionDraftFromEditor();
+                        renderTicketOptions();
+                      };
+                      el.addEventListener('input', syncOnly);
+                      el.addEventListener('change', syncAndRefresh);
+                    });
+                  }
+
+                  function addTicketOption(){
+                    const draft = createTicketOptionDraft();
+                    ticketOptionsState = [...ticketOptionsState, draft];
+                    selectedTicketOptionId = draft.id;
+                    renderTicketOptions();
+                  }
+
+                  function deleteCurrentTicketOption(){
+                    if (ticketOptionsState.length <= 1) {
+                      showToast(t('ticket_option_delete_blocked'), 'error');
+                      return;
+                    }
+                    ticketOptionsState = ticketOptionsState.filter(item => item.id !== selectedTicketOptionId);
+                    selectedTicketOptionId = ticketOptionsState[0]?.id || '';
+                    renderTicketOptions();
+                    showToast(t('ticket_option_deleted'), 'success');
+                  }
+
                   async function loadChannels(){
                     const guildId = selectedGuild();
                     if(!guildId) return;
                     channelsCache = await api(`/api/guild/${guildId}/channels`);
-                    const textIds = ['n_memberChannelId','n_memberJoinChannelId','n_memberLeaveChannelId','l_channelId','l_messageLogChannelId','l_commandUsageChannelId','l_channelLifecycleChannelId','l_roleLogChannelId','l_moderationLogChannelId','m_commandChannelId'];
+                    const textIds = ['n_memberChannelId','n_memberJoinChannelId','n_memberLeaveChannelId','l_channelId','l_messageLogChannelId','l_commandUsageChannelId','l_channelLifecycleChannelId','l_roleLogChannelId','l_moderationLogChannelId','m_commandChannelId','nc_channelId','t_panelChannelId'];
                     const voiceIds = ['n_voiceChannelId','p_triggerVoiceChannelId'];
                     textIds.forEach(id => setSelectOptions(id, channelsCache.textChannels || []));
                     voiceIds.forEach(id => setSelectOptions(id, channelsCache.voiceChannels || []));
+                  }
+
+                  async function loadRoles(){
+                    const guildId = selectedGuild();
+                    if(!guildId) return;
+                    const data = await api(`/api/guild/${guildId}/roles`);
+                    rolesCache = Array.isArray(data.roles) ? data.roles : [];
+                    setMultiSelectOptions('t_supportRoleIds', rolesCache);
                   }
 
                   function setChecked(id, value){ const el = byId(id); if(el) el.checked = !!value; }
@@ -1897,6 +3099,140 @@ function t(key){
                   function getChecked(id){ return !!byId(id)?.checked; }
                   function getValue(id){ return (byId(id)?.value ?? '').trim(); }
 
+                  function defaultBotLanguageCode(){
+                    const codes = botLanguages.map(item => item.code);
+                    if (codes.includes('zh-TW')) return 'zh-TW';
+                    return codes[0] || 'zh-TW';
+                  }
+
+                  function defaultTicketOptionLabel(){
+                    const key = 'ticket_option_default_label';
+                    const translated = t(key);
+                    return translated !== key ? translated : 'General';
+                  }
+
+                  function resetGeneralSettings(){
+                    setValue('s_language', defaultBotLanguageCode());
+                    applyNotificationTemplateDefaults();
+                    applyTicketPanelDefaultsIfEmpty();
+                  }
+
+                  function resetNotificationSettings(){
+                    setChecked('n_enabled', true);
+                    setChecked('n_memberJoinEnabled', true);
+                    setChecked('n_memberLeaveEnabled', true);
+                    setChecked('n_voiceLogEnabled', true);
+                    setValue('n_memberChannelId', '');
+                    setValue('n_memberJoinChannelId', '');
+                    setValue('n_memberLeaveChannelId', '');
+                    setValue('n_voiceChannelId', '');
+                    setValue('n_memberJoinMessage', '');
+                    setValue('n_memberLeaveMessage', '');
+                    setValue('n_voiceJoinMessage', '');
+                    setValue('n_voiceLeaveMessage', '');
+                    setValue('n_voiceMoveMessage', '');
+                    setValue('n_memberJoinColor', '#2ECC71');
+                    setValue('n_memberLeaveColor', '#E74C3C');
+                    applyNotificationTemplateDefaults();
+                  }
+
+                  function resetLogSettings(){
+                    setChecked('l_enabled', true);
+                    setChecked('l_roleLogEnabled', true);
+                    setChecked('l_channelLifecycleLogEnabled', true);
+                    setChecked('l_moderationLogEnabled', true);
+                    setChecked('l_commandUsageLogEnabled', true);
+                    setValue('l_channelId', '');
+                    setValue('l_messageLogChannelId', '');
+                    setValue('l_commandUsageChannelId', '');
+                    setValue('l_channelLifecycleChannelId', '');
+                    setValue('l_roleLogChannelId', '');
+                    setValue('l_moderationLogChannelId', '');
+                  }
+
+                  function resetMusicSettings(){
+                    setChecked('m_autoLeaveEnabled', true);
+                    setValue('m_autoLeaveMinutes', '5');
+                    setChecked('m_autoplayEnabled', true);
+                    setValue('m_defaultRepeatMode', 'OFF');
+                    setValue('m_commandChannelId', '');
+                  }
+
+                  function resetPrivateRoomSettings(){
+                    setChecked('p_enabled', true);
+                    setValue('p_triggerVoiceChannelId', '');
+                    setValue('p_userLimit', '0');
+                  }
+
+                  function resetNumberChainSettings(){
+                    setChecked('nc_enabled', false);
+                    setValue('nc_channelId', '');
+                    setValue('nc_nextNumber', '1');
+                  }
+
+                  function resetTicketSettings(){
+                    setChecked('t_enabled', false);
+                    setValue('t_panelChannelId', '');
+                    setValue('t_panelTitle', '');
+                    setValue('t_panelDescription', '');
+                    setValue('t_panelColor', '#5865F2');
+                    setValue('t_panelButtonLimit', '3');
+                    setValue('t_autoCloseDays', '3');
+                    setValue('t_maxOpenPerUser', '1');
+                    setValue('t_openUiMode', 'BUTTONS');
+                    setMultiSelectValues('t_supportRoleIds', []);
+                    setValue('t_blacklistedUserIds', '');
+                    ticketOptionsState = [{
+                      id: 'general',
+                      label: defaultTicketOptionLabel(),
+                      panelTitle: '',
+                      panelDescription: '',
+                      panelButtonStyle: 'PRIMARY',
+                      welcomeMessage: '',
+                      preOpenFormEnabled: false,
+                      preOpenFormTitle: '',
+                      preOpenFormLabel: '',
+                      preOpenFormPlaceholder: ''
+                    }];
+                    selectedTicketOptionId = 'general';
+                    renderTicketOptions();
+                    applyTicketPanelDefaultsIfEmpty();
+                  }
+
+                  function resetSection(section){
+                    switch(section){
+                      case 'general':
+                        resetGeneralSettings();
+                        break;
+                      case 'notifications':
+                        resetNotificationSettings();
+                        break;
+                      case 'logs':
+                        resetLogSettings();
+                        break;
+                      case 'music':
+                        resetMusicSettings();
+                        break;
+                      case 'privateRoom':
+                        resetPrivateRoomSettings();
+                        break;
+                      case 'numberChain':
+                        resetNumberChainSettings();
+                        break;
+                      case 'ticket':
+                        resetTicketSettings();
+                        break;
+                      default:
+                        return;
+                    }
+                    const sectionName = t(`tabs_${section}`) || section;
+                    const message = t('sectionResetDone').replace('{section}', sectionName);
+                    showStatus(message);
+                    showToast(message, 'success');
+                  }
+
+                """;
+        html += """
                   function populateSettings(s){
                     setValue('s_language', s.language || 'zh-TW');
 
@@ -1916,6 +3252,7 @@ function t(key){
                     setValue('n_voiceMoveMessage', n.voiceMoveMessage || '');
                     setValue('n_memberJoinColor', n.memberJoinColor || '#2ECC71');
                     setValue('n_memberLeaveColor', n.memberLeaveColor || '#E74C3C');
+                    applyNotificationTemplateDefaults();
 
                     const l = s.messageLogs || {};
                     setChecked('l_enabled', l.enabled);
@@ -1941,9 +3278,57 @@ function t(key){
                     setChecked('p_enabled', p.enabled);
                     setValue('p_triggerVoiceChannelId', p.triggerVoiceChannelId || '');
                     setValue('p_userLimit', String(p.userLimit ?? 0));
+
+                    const nc = s.numberChain || {};
+                    setChecked('nc_enabled', nc.enabled);
+                    setValue('nc_channelId', nc.channelId || '');
+                    setValue('nc_nextNumber', String(nc.nextNumber ?? 1));
+
+                    const ticketCfg = s.ticket || {};
+                    setChecked('t_enabled', ticketCfg.enabled);
+                    setValue('t_panelChannelId', ticketCfg.panelChannelId || '');
+                    setValue('t_panelTitle', ticketCfg.panelTitle || t('ticket_default_panel_title'));
+                    setValue('t_panelDescription', ticketCfg.panelDescription || t('ticket_default_panel_desc'));
+                    setValue('t_panelColor', ticketCfg.panelColor || '#5865F2');
+                    setValue('t_panelButtonLimit', String(ticketCfg.panelButtonLimit ?? 3));
+                    setValue('t_autoCloseDays', String(ticketCfg.autoCloseDays ?? 3));
+                    setValue('t_maxOpenPerUser', String(ticketCfg.maxOpenPerUser ?? 1));
+                    setValue('t_openUiMode', (ticketCfg.openUiMode || 'BUTTONS').toUpperCase());
+                    ticketOptionsState = Array.isArray(ticketCfg.options)
+                      ? ticketCfg.options.map(item => ({
+                          id: String(item.id || `option-${Date.now().toString(36)}`),
+                          label: String(item.label || ''),
+                          panelTitle: String(item.panelTitle || ''),
+                          panelDescription: String(item.panelDescription || ''),
+                          panelButtonStyle: String(item.panelButtonStyle || 'PRIMARY').toUpperCase(),
+                          welcomeMessage: String(item.welcomeMessage || t('ticket_default_welcome_message')),
+                          preOpenFormEnabled: !!item.preOpenFormEnabled,
+                          preOpenFormTitle: String(item.preOpenFormTitle || ''),
+                          preOpenFormLabel: String(item.preOpenFormLabel || ''),
+                          preOpenFormPlaceholder: String(item.preOpenFormPlaceholder || '')
+                        }))
+                      : [];
+                    selectedTicketOptionId = ticketOptionsState[0]?.id || '';
+                    renderTicketOptions();
+                    const supportRoleIds = Array.isArray(ticketCfg.supportRoleIds)
+                      ? ticketCfg.supportRoleIds
+                      : (String(ticketCfg.supportRoleIds || '')
+                          .split(',')
+                          .map(s => s.trim())
+                          .filter(Boolean));
+                    setMultiSelectValues('t_supportRoleIds', supportRoleIds);
+                    const blacklistedUserIds = Array.isArray(ticketCfg.blacklistedUserIds)
+                      ? ticketCfg.blacklistedUserIds
+                      : (String(ticketCfg.blacklistedUserIds || '')
+                          .split(',')
+                          .map(s => s.trim())
+                          .filter(Boolean));
+                    setValue('t_blacklistedUserIds', blacklistedUserIds.join(', '));
+                    applyTicketPanelDefaultsIfEmpty();
                   }
 
                   function collectSettings(){
+                    syncTicketOptionDraftFromEditor();
                     return {
                       language: getValue('s_language') || 'zh-TW',
                       notifications: {
@@ -1987,6 +3372,35 @@ function t(key){
                         enabled: getChecked('p_enabled'),
                         triggerVoiceChannelId: getValue('p_triggerVoiceChannelId'),
                         userLimit: Number(getValue('p_userLimit') || '0')
+                      },
+                      numberChain: {
+                        enabled: getChecked('nc_enabled'),
+                        channelId: getValue('nc_channelId')
+                      },
+                      ticket: {
+                        enabled: getChecked('t_enabled'),
+                        panelChannelId: getValue('t_panelChannelId'),
+                        panelTitle: getValue('t_panelTitle'),
+                        panelDescription: getValue('t_panelDescription'),
+                        panelColor: getValue('t_panelColor') || '#5865F2',
+                        panelButtonLimit: Number(getValue('t_panelButtonLimit') || '3'),
+                        autoCloseDays: Number(getValue('t_autoCloseDays') || '3'),
+                        maxOpenPerUser: Number(getValue('t_maxOpenPerUser') || '1'),
+                        openUiMode: getValue('t_openUiMode') || 'BUTTONS',
+                        options: ticketOptionsState.map(item => ({
+                          id: item.id,
+                          label: item.label,
+                          panelTitle: item.panelTitle,
+                          panelDescription: item.panelDescription,
+                          panelButtonStyle: item.panelButtonStyle,
+                          welcomeMessage: item.welcomeMessage,
+                          preOpenFormEnabled: !!item.preOpenFormEnabled,
+                          preOpenFormTitle: item.preOpenFormTitle,
+                          preOpenFormLabel: item.preOpenFormLabel,
+                          preOpenFormPlaceholder: item.preOpenFormPlaceholder
+                        })),
+                        supportRoleIds: getMultiSelectValues('t_supportRoleIds'),
+                        blacklistedUserIds: getValue('t_blacklistedUserIds')
                       }
                     };
                   }
@@ -2003,20 +3417,164 @@ function t(key){
                     const guildId = selectedGuild();
                     if(!guildId) return;
                     const payload = collectSettings();
-                    await api(`/api/guild/${guildId}/settings`, {
-                      method:'POST',
-                      headers:{'Content-Type':'application/json'},
-                      body: JSON.stringify(payload)
+                    const saveBtn = byId('saveSettingsBtn');
+                    if (saveBtn) {
+                      saveBtn.disabled = true;
+                      saveBtn.classList.add('saving');
+                    }
+                    try {
+                      await api(`/api/guild/${guildId}/settings`, {
+                        method:'POST',
+                        headers:{'Content-Type':'application/json'},
+                        body: JSON.stringify(payload)
+                      });
+                      await loadSettings();
+                      showStatus(t('settingsSaved'));
+                      showToast(t('settingsSaved'), 'success');
+                    } catch (e) {
+                      showStatus(e.message || 'Save failed');
+                      showToast(e.message || 'Save failed', 'error');
+                      throw e;
+                    } finally {
+                      if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.classList.remove('saving');
+                      }
+                    }
+                  }
+
+                  async function sendTicketPanel(){
+                    const guildId = selectedGuild();
+                    if(!guildId) return;
+                    try {
+                      const data = await api(`/api/guild/${guildId}/ticket/panel`, { method:'POST' });
+                      showStatus(data?.message || t('ticketPanelSent'));
+                      showToast(data?.message || t('ticketPanelSent'), 'success');
+                    } catch (e) {
+                      showStatus(e.message || t('ticketPanelSendFailed'));
+                      showToast(e.message || t('ticketPanelSendFailed'), 'error');
+                    }
+                  }
+
+                  async function resetNumberChainProgress(){
+                    const guildId = selectedGuild();
+                    if(!guildId) return;
+                    try {
+                      const data = await api(`/api/guild/${guildId}/number-chain/reset`, { method:'POST' });
+                      setValue('nc_nextNumber', String(data?.nextNumber ?? 1));
+                      showStatus(t('numberChainResetSuccess'));
+                      showToast(t('numberChainResetSuccess'), 'success');
+                    } catch (e) {
+                      showStatus(e.message || t('numberChainResetFailed'));
+                      showToast(e.message || t('numberChainResetFailed'), 'error');
+                    }
+                  }
+
+                  function formatBytes(size){
+                    const n = Number(size || 0);
+                    if (n < 1024) return `${n} B`;
+                    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+                    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+                  }
+
+                  function formatDateTime(ts){
+                    const value = Number(ts || 0);
+                    if (!value) return '-';
+                    const d = new Date(value);
+                    if (Number.isNaN(d.getTime())) return '-';
+                    return d.toLocaleString();
+                  }
+
+                  async function loadTicketHistory(){
+                    const guildId = selectedGuild();
+                    if(!guildId) return;
+                    const listEl = byId('ticketHistoryList');
+                    const metaEl = byId('ticketHistoryMeta');
+                    if (listEl) listEl.innerHTML = '';
+                    if (metaEl) metaEl.textContent = t('ticket_history_loading');
+                    try {
+                      const data = await api(`/api/guild/${guildId}/ticket/transcripts`);
+                      const files = Array.isArray(data?.files) ? data.files : [];
+                      ticketHistoryFilesState = files;
+                      ticketHistoryRetentionDays = Number(data?.retentionDays || 90);
+                      ticketHistoryCleanedCount = Number(data?.cleaned || 0);
+                      if (metaEl) {
+                        metaEl.textContent = t('ticket_history_meta')
+                          .replace('{count}', String(files.length))
+                          .replace('{days}', String(ticketHistoryRetentionDays))
+                          .replace('{cleaned}', String(ticketHistoryCleanedCount));
+                      }
+                      renderTicketHistoryList();
+                    } catch (e) {
+                      if (metaEl) metaEl.textContent = e.message || t('ticket_history_load_failed');
+                    }
+                  }
+
+                  function renderTicketHistoryList(){
+                    const listEl = byId('ticketHistoryList');
+                    if (!listEl) return;
+                    listEl.innerHTML = '';
+                    const files = Array.isArray(ticketHistoryFilesState) ? ticketHistoryFilesState : [];
+                    if (files.length === 0) {
+                      const empty = document.createElement('div');
+                      empty.className = 'keyhint';
+                      empty.textContent = t('ticket_history_empty');
+                      listEl.appendChild(empty);
+                      return;
+                    }
+                    files.forEach(file => {
+                      const item = document.createElement('div');
+                      item.className = 'history-item';
+                      const mention = file.channelId && Number(file.channelId) > 0 ? `<#${file.channelId}>` : '-';
+                      const encodedName = encodeURIComponent(String(file.name || ''));
+                      const displayName = String(file.name || '');
+                      const isConfirming = pendingDeleteTranscriptName === String(file.name || '');
+                      item.innerHTML = `
+                        <div>
+                          <div><a href="${esc(file.url || '#')}" target="_blank" rel="noopener">${esc(file.name || '-')}</a></div>
+                          <div class="history-meta">${esc(t('ticket_history_channel'))}: ${esc(mention)} | ${esc(t('ticket_history_time'))}: ${esc(formatDateTime(file.lastModifiedAt))}</div>
+                        </div>
+                        <div class="history-actions">
+                          <div class="history-meta">${esc(formatBytes(file.size))}</div>
+                          ${isConfirming
+                            ? `<button type="button" class="warn" data-action="confirm-delete-transcript" data-file="${encodedName}" data-name="${encodedName}">${esc(t('ticket_history_delete_confirm'))}</button>
+                               <button type="button" data-action="cancel-delete-transcript">${esc(t('ticket_history_delete_cancel'))}</button>`
+                            : `<button type="button" class="warn" data-action="delete-transcript" data-file="${encodedName}" data-name="${encodedName}">${esc(t('ticket_history_delete'))}</button>`}
+                        </div>
+                      `;
+                      listEl.appendChild(item);
                     });
-                    await loadSettings();
-                    showStatus(t('settingsSaved'));
+                  }
+
+                  async function deleteTicketTranscript(encodedName, displayName){
+                    const guildId = selectedGuild();
+                    if(!guildId || !encodedName) return;
+                    try {
+                      const data = await api(`/api/guild/${guildId}/ticket/transcript/${encodedName}`, { method:'DELETE' });
+                      pendingDeleteTranscriptName = '';
+                      ticketHistoryFilesState = ticketHistoryFilesState.filter(item => String(item.name || '') !== String(displayName || ''));
+                      renderTicketHistoryList();
+                      const message = data?.message || t('ticket_history_delete_success').replace('{name}', String(displayName || ''));
+                      showToast(message, 'success');
+                      const metaEl = byId('ticketHistoryMeta');
+                      if (metaEl) {
+                        metaEl.textContent = t('ticket_history_meta')
+                          .replace('{count}', String(ticketHistoryFilesState.length))
+                          .replace('{days}', String(ticketHistoryRetentionDays))
+                          .replace('{cleaned}', String(ticketHistoryCleanedCount));
+                      }
+                    } catch (e) {
+                      showToast(e.message || t('ticket_history_delete_failed'), 'error');
+                    }
                   }
 
                   async function onGuildSelected(gid){
                     if (!gid) return;
                     guildSelect.value = gid;
                     await loadChannels().catch(() => {});
+                    await loadRoles().catch(() => {});
                     await loadSettings().catch(e => showStatus(e.message));
+                    await loadTicketHistory().catch(() => {});
                   }
 
                   async function loadGuilds(){
@@ -2106,13 +3664,53 @@ function t(key){
                   if (byId('logoutBtn')) byId('logoutBtn').onclick = () => location.href = '/auth/logout';
                   if (byId('guildReloadBtn')) byId('guildReloadBtn').onclick = () => onGuildSelected(guildSelect.value).catch(e => showStatus(e.message));
                   if (byId('loadSettingsBtn')) byId('loadSettingsBtn').onclick = () => loadSettings().catch(e => alert(e.message));
-                  if (byId('saveSettingsBtn')) byId('saveSettingsBtn').onclick = () => saveSettings().catch(e => alert(e.message));
+                  if (byId('resetGeneralBtn')) byId('resetGeneralBtn').onclick = () => resetSection('general');
+                  if (byId('resetNotificationsBtn')) byId('resetNotificationsBtn').onclick = () => resetSection('notifications');
+                  if (byId('resetLogsBtn')) byId('resetLogsBtn').onclick = () => resetSection('logs');
+                  if (byId('resetMusicBtn')) byId('resetMusicBtn').onclick = () => resetSection('music');
+                  if (byId('resetPrivateRoomBtn')) byId('resetPrivateRoomBtn').onclick = () => resetSection('privateRoom');
+                  if (byId('resetNumberChainBtn')) byId('resetNumberChainBtn').onclick = () => resetSection('numberChain');
+                  if (byId('resetTicketBtn')) byId('resetTicketBtn').onclick = () => resetSection('ticket');
+                  if (byId('s_language')) byId('s_language').addEventListener('change', () => {
+                    applyNotificationTemplateDefaults();
+                    applyTicketPanelDefaultsIfEmpty();
+                  });
+                  if (byId('resetNumberChainProgressBtn')) byId('resetNumberChainProgressBtn').onclick = () => resetNumberChainProgress();
+                  if (byId('sendTicketPanelBtn')) byId('sendTicketPanelBtn').onclick = () => sendTicketPanel();
+                  if (byId('t_addOptionBtn')) byId('t_addOptionBtn').onclick = () => addTicketOption();
+                  if (byId('t_deleteOptionBtn')) byId('t_deleteOptionBtn').onclick = () => deleteCurrentTicketOption();
+                  if (byId('loadTicketHistoryBtn')) byId('loadTicketHistoryBtn').onclick = () => loadTicketHistory().catch(() => {});
+                  if (byId('ticketHistoryList')) byId('ticketHistoryList').onclick = async (event) => {
+                    const btn = event.target.closest('button[data-action]');
+                    if (!btn) return;
+                    const action = btn.dataset.action || '';
+                    if (action === 'delete-transcript') {
+                      pendingDeleteTranscriptName = decodeURIComponent(btn.dataset.name || '');
+                      renderTicketHistoryList();
+                      return;
+                    }
+                    if (action === 'cancel-delete-transcript') {
+                      pendingDeleteTranscriptName = '';
+                      renderTicketHistoryList();
+                      return;
+                    }
+                    if (action === 'confirm-delete-transcript') {
+                      const encodedName = btn.dataset.file || '';
+                      const displayName = decodeURIComponent(btn.dataset.name || '');
+                      await deleteTicketTranscript(encodedName, displayName);
+                    }
+                  };
+                  if (byId('saveSettingsBtn')) byId('saveSettingsBtn').onclick = () => saveSettings().catch(() => {});
+                  if (byId('t_supportRoleIds')) byId('t_supportRoleIds').addEventListener('change', updateSupportRoleCount);
+                  bindTicketOptionEditorAutoSync();
                   guildSelect.onchange = () => onGuildSelected(guildSelect.value).catch(e => showStatus(e.message));
                   init();
                 </script>
+                <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
                 </body>
                 </html>
-                """.replace("__BOT_AVATAR_BLOCK__", botAvatarBlock)
+                """;
+        return html.replace("__BOT_AVATAR_BLOCK__", botAvatarBlock)
                 .replace("__FAVICON_URL__", escapeHtmlAttr(faviconUrl));
     }
 
@@ -2140,6 +3738,7 @@ function t(key){
         }
     }
 }
+
 
 
 

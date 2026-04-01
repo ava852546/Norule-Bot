@@ -50,11 +50,13 @@ public class PrivateRoomListener extends ListenerAdapter {
         event.getGuild().createVoiceChannel(roomName)
                 .setParent(resolveCategory(event, cfg))
                 .setUserlimit(cfg.getUserLimit())
+                .setBitrate(resolveMaxBitrate(event))
                 .addRolePermissionOverride(
                         event.getGuild().getPublicRole().getIdLong(),
                         Permission.getRaw(
                                 Permission.VIEW_CHANNEL,
                                 Permission.VOICE_CONNECT,
+                                Permission.VOICE_SPEAK,
                                 Permission.VOICE_USE_VAD
                         ),
                         0L
@@ -83,6 +85,11 @@ public class PrivateRoomListener extends ListenerAdapter {
                             .put(created.getIdLong(), member.getIdLong());
                     event.getGuild().moveVoiceMember(member, created).queue();
                 });
+    }
+
+    private int resolveMaxBitrate(GuildVoiceUpdateEvent event) {
+        int max = event.getGuild().getMaxBitrate();
+        return max > 0 ? max : 64000;
     }
 
     private void handleCleanup(GuildVoiceUpdateEvent event) {
