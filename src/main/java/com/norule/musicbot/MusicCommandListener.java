@@ -3029,21 +3029,21 @@ public class MusicCommandListener extends ListenerAdapter {
         String autoplayState = isAutoplayEnabled(guildId) ? i18n.t(lang, "music.autoplay_on") : i18n.t(lang, "music.autoplay_off");
         String autoplayNotice = musicService.getAutoplayNotice(guildId);
         String currentText = current == null ? i18n.t(lang, "music.panel_none") : ("`" + current + "`");
-        String summaryLine = "??儭?**" + i18n.t(lang, "music.panel_state") + "**: " + state
-                + "  ?? ?? **" + i18n.t(lang, "music.panel_repeat") + "**: " + mapRepeatLabel(lang, musicService.getRepeatMode(guild))
-                + "\n?? **" + i18n.t(lang, "music.panel_channel") + "**: " + connected
-                + "  ?? ?? **" + i18n.t(lang, "music.panel_queue") + "**: `" + queue.size() + "`"
-                + "  ?? ?? **Autoplay**: " + autoplayState;
+        String summaryLine = "▶️ **" + i18n.t(lang, "music.panel_state") + "**: " + state
+                + "  •  🔁 **" + i18n.t(lang, "music.panel_repeat") + "**: " + mapRepeatLabel(lang, musicService.getRepeatMode(guild))
+                + "\n📌 **" + i18n.t(lang, "music.panel_channel") + "**: " + connected
+                + "  •  📋 **" + i18n.t(lang, "music.panel_queue") + "**: `" + queue.size() + "`"
+                + "  •  🤖 **Autoplay**: " + autoplayState;
         EmbedBuilder builder = new EmbedBuilder()
                 .setColor(current == null ? new Color(99, 110, 114) : new Color(22, 160, 133))
                 .setTitle("\uD83C\uDFB5 " + i18n.t(lang, "music.panel_title"))
                 .setDescription(summaryLine)
-                .addField("? " + i18n.t(lang, "music.panel_current"), currentText, false)
-                .addField("? " + i18n.t(lang, "music.panel_requester"), requester, true)
-                .addField("?? " + i18n.t(lang, "music.panel_source"), source, true)
-                .addField("?梧? " + i18n.t(lang, "music.panel_progress"), progress, false)
-                .addField("?? " + i18n.t(lang, "music.panel_queue"), queueText, false)
-                .setFooter("??" + i18n.t(lang, "music.btn_refresh"))
+                .addField("🎵 " + i18n.t(lang, "music.panel_current"), currentText, false)
+                .addField("🙋 " + i18n.t(lang, "music.panel_requester"), requester, true)
+                .addField("🌐 " + i18n.t(lang, "music.panel_source"), source, true)
+                .addField("⏱️ " + i18n.t(lang, "music.panel_progress"), progress, false)
+                .addField("📋 " + i18n.t(lang, "music.panel_queue"), queueText, false)
+                .setFooter("🔄 " + i18n.t(lang, "music.btn_refresh"))
                 .setTimestamp(Instant.now());
         if (autoplayNotice != null && !autoplayNotice.isBlank()) {
             builder.addField(i18n.t(lang, "music.panel_autoplay_notice"), formatAutoplayNotice(lang, autoplayNotice), false);
@@ -3529,9 +3529,9 @@ public class MusicCommandListener extends ListenerAdapter {
         );
         EmbedBuilder eb = new EmbedBuilder()
                 .setColor(new Color(46, 204, 113))
-                .setTitle("1️⃣ " + i18n.t(lang, "settings.number_chain_menu_title"))
+                .setTitle("1儭 " + i18n.t(lang, "settings.number_chain_menu_title"))
                 .setDescription(i18n.t(lang, "settings.number_chain_menu_desc"))
-                .addField("1️⃣ " + i18n.t(lang, "settings.info_number_chain"), body, false);
+                .addField("1儭 " + i18n.t(lang, "settings.info_number_chain"), body, false);
         if (changedText != null && !changedText.isBlank()) {
             eb.addField(i18n.t(lang, "settings.template_updated"), changedText, false);
         }
