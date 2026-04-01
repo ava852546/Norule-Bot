@@ -8,7 +8,9 @@ import java.io.InputStream;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.UnaryOperator;
@@ -20,17 +22,20 @@ public class GuildSettingsService {
         private final BotConfig.MessageLogs messageLogs;
         private final BotConfig.Music music;
         private final BotConfig.PrivateRoom privateRoom;
+        private final BotConfig.Ticket ticket;
 
         public GuildSettings(String language,
                              BotConfig.Notifications notifications,
                              BotConfig.MessageLogs messageLogs,
                              BotConfig.Music music,
-                             BotConfig.PrivateRoom privateRoom) {
+                             BotConfig.PrivateRoom privateRoom,
+                             BotConfig.Ticket ticket) {
             this.language = language;
             this.notifications = notifications;
             this.messageLogs = messageLogs;
             this.music = music;
             this.privateRoom = privateRoom;
+            this.ticket = ticket;
         }
 
         public String getLanguage() {
@@ -53,24 +58,32 @@ public class GuildSettingsService {
             return privateRoom;
         }
 
+        public BotConfig.Ticket getTicket() {
+            return ticket;
+        }
+
         public GuildSettings withLanguage(String language) {
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom);
+            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
         }
 
         public GuildSettings withNotifications(BotConfig.Notifications notifications) {
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom);
+            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
         }
 
         public GuildSettings withMessageLogs(BotConfig.MessageLogs messageLogs) {
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom);
+            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
         }
 
         public GuildSettings withMusic(BotConfig.Music music) {
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom);
+            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
         }
 
         public GuildSettings withPrivateRoom(BotConfig.PrivateRoom privateRoom) {
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom);
+            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
+        }
+
+        public GuildSettings withTicket(BotConfig.Ticket ticket) {
+            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
         }
     }
 
@@ -85,7 +98,8 @@ public class GuildSettingsService {
                 defaultsConfig.getNotifications(),
                 defaultsConfig.getMessageLogs(),
                 defaultsConfig.getMusic(),
-                defaultsConfig.getPrivateRoom()
+                defaultsConfig.getPrivateRoom(),
+                defaultsConfig.getTicket()
         );
 
         try {
@@ -119,6 +133,10 @@ public class GuildSettingsService {
         return getSettings(guildId).getPrivateRoom();
     }
 
+    public BotConfig.Ticket getTicket(long guildId) {
+        return getSettings(guildId).getTicket();
+    }
+
     public GuildSettings updateSettings(long guildId, UnaryOperator<GuildSettings> updater) {
         GuildSettings current = getSettings(guildId);
         GuildSettings updated = updater.apply(current);
@@ -147,7 +165,8 @@ public class GuildSettingsService {
             BotConfig.MessageLogs messageLogs = BotConfig.MessageLogs.fromMap(asMap(rootMap.get("messageLogs")), defaults.getMessageLogs());
             BotConfig.Music music = BotConfig.Music.fromMap(asMap(rootMap.get("music")), defaults.getMusic());
             BotConfig.PrivateRoom privateRoom = BotConfig.PrivateRoom.fromMap(asMap(rootMap.get("privateRoom")), defaults.getPrivateRoom());
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom);
+            BotConfig.Ticket ticket = BotConfig.Ticket.fromMap(asMap(rootMap.get("ticket")), defaults.getTicket());
+            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
         } catch (Exception e) {
             return defaults;
         }
@@ -216,6 +235,45 @@ public class GuildSettingsService {
         privateRoomMap.put("triggerVoiceChannelId", toText(privateRoom.getTriggerVoiceChannelId()));
         privateRoomMap.put("userLimit", privateRoom.getUserLimit());
         root.put("privateRoom", privateRoomMap);
+
+        BotConfig.Ticket ticket = settings.getTicket();
+        Map<String, Object> ticketMap = new LinkedHashMap<>();
+        ticketMap.put("enabled", ticket.isEnabled());
+        ticketMap.put("panelChannelId", toText(ticket.getPanelChannelId()));
+        ticketMap.put("openCategoryId", toText(ticket.getOpenCategoryId()));
+        ticketMap.put("closedCategoryId", toText(ticket.getClosedCategoryId()));
+        ticketMap.put("autoCloseDays", ticket.getAutoCloseDays());
+        ticketMap.put("maxOpenPerUser", ticket.getMaxOpenPerUser());
+        ticketMap.put("openUiMode", ticket.getOpenUiMode().name());
+        ticketMap.put("panelTitle", ticket.getPanelTitle());
+        ticketMap.put("panelDescription", ticket.getPanelDescription());
+        ticketMap.put("panelButtonStyle", ticket.getPanelButtonStyle());
+        ticketMap.put("panelButtonLimit", ticket.getPanelButtonLimit());
+        ticketMap.put("welcomeMessage", ticket.getWelcomeMessage());
+        ticketMap.put("preOpenFormEnabled", ticket.isPreOpenFormEnabled());
+        ticketMap.put("preOpenFormTitle", ticket.getPreOpenFormTitle());
+        ticketMap.put("preOpenFormLabel", ticket.getPreOpenFormLabel());
+        ticketMap.put("preOpenFormPlaceholder", ticket.getPreOpenFormPlaceholder());
+        ticketMap.put("optionLabels", ticket.getOptionLabels());
+        List<Map<String, Object>> optionMaps = new ArrayList<>();
+        for (BotConfig.Ticket.TicketOption option : ticket.getOptions()) {
+            Map<String, Object> optionMap = new LinkedHashMap<>();
+            optionMap.put("id", option.getId());
+            optionMap.put("label", option.getLabel());
+            optionMap.put("panelTitle", option.getPanelTitle());
+            optionMap.put("panelDescription", option.getPanelDescription());
+            optionMap.put("panelButtonStyle", option.getPanelButtonStyle());
+            optionMap.put("welcomeMessage", option.getWelcomeMessage());
+            optionMap.put("preOpenFormEnabled", option.isPreOpenFormEnabled());
+            optionMap.put("preOpenFormTitle", option.getPreOpenFormTitle());
+            optionMap.put("preOpenFormLabel", option.getPreOpenFormLabel());
+            optionMap.put("preOpenFormPlaceholder", option.getPreOpenFormPlaceholder());
+            optionMaps.add(optionMap);
+        }
+        ticketMap.put("options", optionMaps);
+        ticketMap.put("supportRoleIds", ticket.getSupportRoleIds().stream().map(String::valueOf).toList());
+        ticketMap.put("blacklistedUserIds", ticket.getBlacklistedUserIds().stream().map(String::valueOf).toList());
+        root.put("ticket", ticketMap);
 
         DumperOptions options = new DumperOptions();
         options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);

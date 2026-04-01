@@ -8,6 +8,7 @@ import net.dv8tion.jda.api.entities.channel.Channel;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.channel.ChannelCreateEvent;
 import net.dv8tion.jda.api.events.channel.ChannelDeleteEvent;
+import net.dv8tion.jda.api.events.channel.update.ChannelUpdateNameEvent;
 import net.dv8tion.jda.api.events.guild.GuildAuditLogEntryCreateEvent;
 import net.dv8tion.jda.api.events.guild.GuildBanEvent;
 import net.dv8tion.jda.api.events.guild.GuildUnbanEvent;
@@ -35,10 +36,10 @@ public class ServerLogListener extends ListenerAdapter {
             return;
         }
         String roles = event.getRoles().stream().map(r -> r.getAsMention()).collect(Collectors.joining(", "));
-        EmbedBuilder eb = base(event.getGuild(), "🛡️ " + t(event.getGuild(), "logs.role_added"), new Color(46, 204, 113))
+        EmbedBuilder eb = base(event.getGuild(), "🏷️ " + t(event.getGuild(), "logs.role_added"), new Color(46, 204, 113))
                 .addField(t(event.getGuild(), "logs.user"), event.getMember().getAsMention(), false)
                 .addField(t(event.getGuild(), "logs.roles"), roles, false);
-        send(event.getGuild(), logs.getRoleLogChannelId(), eb);
+        sendRoleChangeToConfiguredLogs(event.getGuild(), logs, eb);
     }
 
     @Override
@@ -48,10 +49,10 @@ public class ServerLogListener extends ListenerAdapter {
             return;
         }
         String roles = event.getRoles().stream().map(r -> r.getAsMention()).collect(Collectors.joining(", "));
-        EmbedBuilder eb = base(event.getGuild(), "🛡️ " + t(event.getGuild(), "logs.role_removed"), new Color(231, 76, 60))
+        EmbedBuilder eb = base(event.getGuild(), "🏷️ " + t(event.getGuild(), "logs.role_removed"), new Color(231, 76, 60))
                 .addField(t(event.getGuild(), "logs.user"), event.getMember().getAsMention(), false)
                 .addField(t(event.getGuild(), "logs.roles"), roles, false);
-        send(event.getGuild(), logs.getRoleLogChannelId(), eb);
+        sendRoleChangeToConfiguredLogs(event.getGuild(), logs, eb);
     }
 
     @Override
@@ -81,6 +82,25 @@ public class ServerLogListener extends ListenerAdapter {
         Channel channel = event.getChannel();
         EmbedBuilder eb = base(event.getGuild(), "🗂️ " + t(event.getGuild(), "logs.channel_deleted"), new Color(231, 76, 60))
                 .addField(t(event.getGuild(), "logs.channel"), "`" + channel.getName() + "` (`" + channel.getType().name() + "`)", false);
+        send(event.getGuild(), logs.getChannelLifecycleChannelId(), eb);
+    }
+
+    @Override
+    public void onChannelUpdateName(ChannelUpdateNameEvent event) {
+        if (event.getGuild() == null) {
+            return;
+        }
+        BotConfig.MessageLogs logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        if (!logs.isEnabled() || !logs.isChannelLifecycleLogEnabled()) {
+            return;
+        }
+        Channel channel = event.getChannel();
+        String before = event.getOldValue() == null ? "-" : event.getOldValue();
+        String after = event.getNewValue() == null ? "-" : event.getNewValue();
+        EmbedBuilder eb = base(event.getGuild(), "📝 " + t(event.getGuild(), "logs.channel_renamed"), new Color(155, 89, 182))
+                .addField(t(event.getGuild(), "logs.channel"), channel.getAsMention() + " (`" + channel.getType().name() + "`)", false)
+                .addField(t(event.getGuild(), "logs.before"), "`" + before.replace("`", "") + "`", true)
+                .addField(t(event.getGuild(), "logs.after"), "`" + after.replace("`", "") + "`", true);
         send(event.getGuild(), logs.getChannelLifecycleChannelId(), eb);
     }
 
@@ -158,5 +178,23 @@ public class ServerLogListener extends ListenerAdapter {
 
     private String t(Guild guild, String key) {
         return i18n.t(settingsService.getLanguage(guild.getIdLong()), key);
+    }
+
+    private void sendRoleChangeToConfiguredLogs(Guild guild, BotConfig.MessageLogs logs, EmbedBuilder eb) {
+        Long roleTarget = resolveTargetChannelId(logs.getRoleLogChannelId(), logs.getChannelId());
+        send(guild, roleTarget, eb);
+
+        if (!logs.isChannelLifecycleLogEnabled()) {
+            return;
+        }
+        Long channelTarget = resolveTargetChannelId(logs.getChannelLifecycleChannelId(), logs.getChannelId());
+        if (channelTarget == null || channelTarget.equals(roleTarget)) {
+            return;
+        }
+        send(guild, channelTarget, eb);
+    }
+
+    private Long resolveTargetChannelId(Long preferred, Long fallback) {
+        return preferred != null ? preferred : fallback;
     }
 }

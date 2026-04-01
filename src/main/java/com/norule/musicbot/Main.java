@@ -6,6 +6,8 @@ import org.yaml.snakeyaml.Yaml;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.OnlineStatus;
 import net.dv8tion.jda.api.entities.Activity;
+import net.dv8tion.jda.api.utils.ChunkingFilter;
+import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.audio.AudioModuleConfig;
@@ -37,6 +39,7 @@ public class Main {
     private static final AtomicReference<BotConfig> RUNTIME_CONFIG = new AtomicReference<>();
     private static final AtomicReference<WebControlServer> WEB_SERVER = new AtomicReference<>();
     private static final AtomicReference<I18nService> I18N_SERVICE = new AtomicReference<>();
+    private static final AtomicReference<TicketService> TICKET_SERVICE = new AtomicReference<>();
     private record ActivityTemplate(String type, String text) {}
 
     public static void main(String[] args) {
@@ -49,13 +52,20 @@ public class Main {
                 : configPath.toAbsolutePath().getParent().normalize();
         Path guildSettingsPath = resolveDataPath(baseDir, config.getGuildSettingsDir());
         Path languagePath = resolveDataPath(baseDir, config.getLanguageDir());
+        Path cachePath = resolveDataPath(baseDir, "cache");
+        Path ticketDataPath = resolveDataPath(baseDir, "guild-tickets");
+        Path ticketTranscriptPath = resolveDataPath(baseDir, "ticket-transcripts");
 
         MusicPlayerService playerService = new MusicPlayerService();
         GuildSettingsService guildSettingsService =
                 new GuildSettingsService(guildSettingsPath, config);
+        ModerationService moderationService = new ModerationService(resolveDataPath(baseDir, "guild-moderation"));
+        TicketService ticketService = new TicketService(ticketDataPath, ticketTranscriptPath);
+        TICKET_SERVICE.set(ticketService);
         I18nService i18nService = I18nService.load(languagePath, config.getDefaultLanguage());
         I18N_SERVICE.set(i18nService);
-        MusicCommandListener musicCommandListener = new MusicCommandListener(playerService, config, guildSettingsService);
+        MusicCommandListener musicCommandListener = new MusicCommandListener(playerService, config, guildSettingsService, moderationService);
+        TicketListener ticketListener = new TicketListener(guildSettingsService, ticketService, i18nService);
 
         AudioModuleConfig audioConfig = new AudioModuleConfig()
                 .withDaveSessionFactory(new LDJDADaveSessionFactory(new NativeDaveFactory()));
@@ -69,26 +79,31 @@ public class Main {
                         GatewayIntent.GUILD_MODERATION
                 )
                 .setAudioModuleConfig(audioConfig)
+                .setMemberCachePolicy(MemberCachePolicy.ALL)
+                .setChunkingFilter(ChunkingFilter.ALL)
                 .disableCache(CacheFlag.EMOJI, CacheFlag.STICKER, CacheFlag.SCHEDULED_EVENTS)
                 .setStatus(parseOnlineStatus(config.getBotProfile().getPresenceStatus()))
                 .setActivity(null)
                 .addEventListeners(
                         musicCommandListener,
                         new NotificationListener(guildSettingsService, i18nService),
-                        new MessageLogListener(guildSettingsService, i18nService),
+                        new MessageLogListener(guildSettingsService, i18nService, cachePath),
                         new ServerLogListener(guildSettingsService, i18nService),
+                        new DuplicateMessageListener(guildSettingsService, moderationService, i18nService, cachePath),
+                        new NumberChainListener(guildSettingsService, moderationService, i18nService),
                         new VoiceAutoLeaveListener(guildSettingsService, playerService, i18nService),
-                        new PrivateRoomListener(guildSettingsService, i18nService)
+                        new PrivateRoomListener(guildSettingsService, i18nService),
+                        ticketListener
                 );
 
         JDA jda = builder.build();
-        installConsoleShutdownListener(jda, i18nService, config.getDefaultLanguage(), configPath, musicCommandListener, playerService, guildSettingsService);
+        installConsoleShutdownListener(jda, i18nService, config.getDefaultLanguage(), configPath, musicCommandListener, playerService, guildSettingsService, moderationService);
         installShutdownHook(jda, i18nService, config.getDefaultLanguage());
 
         try {
             jda.awaitReady();
             startActivityRotation(jda, config.getBotProfile());
-            syncWebServer(jda, playerService, guildSettingsService, I18N_SERVICE.get());
+            syncWebServer(jda, playerService, guildSettingsService, moderationService, TICKET_SERVICE.get(), I18N_SERVICE.get());
             logLifecycleMessage(i18nService, config.getDefaultLanguage(), true);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -239,7 +254,8 @@ public class Main {
                                                        Path configPath,
                                                        MusicCommandListener musicCommandListener,
                                                        MusicPlayerService playerService,
-                                                       GuildSettingsService guildSettingsService) {
+                                                       GuildSettingsService guildSettingsService,
+                                                       ModerationService moderationService) {
         Thread listener = new Thread(() -> {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
                 String line;
@@ -251,7 +267,7 @@ public class Main {
                         break;
                     }
                     if (RELOAD_COMMANDS.contains(command)) {
-                        reloadRuntimeConfig(jda, configPath, musicCommandListener, playerService, guildSettingsService);
+                        reloadRuntimeConfig(jda, configPath, musicCommandListener, playerService, guildSettingsService, moderationService);
                     }
                 }
             } catch (Exception ignored) {
@@ -265,7 +281,8 @@ public class Main {
                                             Path configPath,
                                             MusicCommandListener musicCommandListener,
                                             MusicPlayerService playerService,
-                                            GuildSettingsService guildSettingsService) {
+                                            GuildSettingsService guildSettingsService,
+                                            ModerationService moderationService) {
         if (SHUTDOWN_STARTED.get()) {
             return;
         }
@@ -274,7 +291,7 @@ public class Main {
             RUNTIME_CONFIG.set(reloaded);
             musicCommandListener.reloadRuntimeConfig(reloaded);
             startActivityRotation(jda, reloaded.getBotProfile());
-            syncWebServer(jda, playerService, guildSettingsService, I18N_SERVICE.get());
+            syncWebServer(jda, playerService, guildSettingsService, moderationService, TICKET_SERVICE.get(), I18N_SERVICE.get());
             System.out.println("[NoRule] Config reloaded successfully.");
         } catch (Exception e) {
             System.out.println("[NoRule] Config reload failed: " + e.getMessage());
@@ -334,9 +351,11 @@ public class Main {
     private static void syncWebServer(JDA jda,
                                       MusicPlayerService playerService,
                                       GuildSettingsService guildSettingsService,
+                                      ModerationService moderationService,
+                                      TicketService ticketService,
                                       I18nService i18nService) {
         BotConfig runtime = RUNTIME_CONFIG.get();
-        if (runtime == null || i18nService == null) {
+        if (runtime == null || i18nService == null || ticketService == null) {
             return;
         }
         if (!runtime.getWeb().isEnabled()) {
@@ -348,7 +367,7 @@ public class Main {
         }
         WebControlServer server = WEB_SERVER.get();
         if (server == null) {
-            server = new WebControlServer(jda, playerService, guildSettingsService, RUNTIME_CONFIG::get, i18nService);
+            server = new WebControlServer(jda, playerService, guildSettingsService, moderationService, ticketService, RUNTIME_CONFIG::get, i18nService);
             WEB_SERVER.set(server);
         }
         server.syncWithConfig();

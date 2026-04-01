@@ -59,6 +59,7 @@ music:
   btn_repeat_off: "取消循環"
   btn_autoplay_on: "Autoplay：开"
   btn_autoplay_off: "Autoplay：关"
+  btn_refresh: "刷新"
   panel_stale: "这个音乐面板已过期，请使用 /music-panel 创建新的面板。"
   command_channel_restricted: "此音乐指令只能在设置的音乐指令频道使用。"
   panel_same_voice_only: "只有与机器人在同一语音频道的成员可以操作面板。"
@@ -68,81 +69,101 @@ music:
 
 help:
   title: "机器人说明"
-  intro: "欢迎使用 NoRule 机器人。可使用下方「下拉菜单」或「按钮」切换分类。"
+  intro: "欢迎使用 NoRule Bot。可使用下方下拉菜单或按钮切换分类。"
   select_placeholder: "选择分类"
   category_music: "音乐"
   category_settings: "设置"
   category_moderation: "管理"
   category_private_room: "私人包厢"
+  category_game: "游戏"
   category_general: "一般"
   content_music: |
     🎧 快速开始
     `/join` 让 Bot 进入你所在语音频道
-    `/play query:<关键词或网址>` 开始搜索或播放
+    `/play query:<关键词或 URL>` 搜索或播放歌曲
     `/music-panel` 创建交互控制面板
 
     🎮 播放控制
     `/skip` 跳过当前歌曲
-    `/stop` 停止播放并清空队列
+    `/stop` 停止播放并清空列队
     `/leave` 让 Bot 离开语音频道
-    `/repeat mode:<off|single|all>` 切换循環模式
+    `/repeat mode:<off|single|all>` 切换循环模式
 
-    📌 使用建议
-    先用 `/settings music` 开启菜单，设置「音乐指令频道」方便集中管理。
+    🧩 补充
+    `/settings music` 可设置音乐功能与私人包厢触发频道
+    `/设置` 的 `音乐功能` 可用中文菜单操作
   content_settings: |
-    ⚙️ 基本管理
-    `/settings info` 查看当前生效设置
-    `/settings reload` 重新加载服务器设置
-    `/settings language code:<en|zh-TW>` 切换语言
-    `/settings reset` 开启重置菜单（含二次确认）
+    ⚙️ 设置入口（中文）
+    `/设置` 使用 `action` 选项：
+    信息 / 重新加载 / 恢复默认 / 消息模板 / 模块开关 / 日志频道 / 音乐功能 / 语言
 
-    🧩 通知模板
-    `/settings template`
-    以「下拉菜单」选择要编辑的模板，再开启表单输入
+    ⚙️ 设置入口（英文）
+    `/settings` 仍可用子指令：
+    info / reload / reset / template / module / logs / music / language
 
-    📢 通知与日志频道
-    `/settings logs`
-    先用下拉菜单选择要设置的日志类型，再用频道选择器挑选文字频道
+    📌 `/settings info` 已更新
+    已移除「总览」页，改为分页模式（下拉菜单 + 按钮切换）
+    目前包含：
+    通知 / 通知模板 / 消息日志 / 音乐设置 / 私人包厢 / 数字接龙 / 模块
+  content_moderation: |
+    🧹 消息清理
+    `/删除消息 type:频道 channel:<文字频道> amount:<1-99>`
+    `/删除消息 type:使用者 user:<用户> amount:<1-99>`
+    `/delete-messages <channel|user>`（英文）
 
-    🎵 音乐与包厢
-    `/settings music`
-    以「下拉菜单」设置：
-    - 自动离开开关
-    - 自动离开分钟（1-60）
-    - Autoplay 开关
-    - 音乐指令频道
-    - 私人包厢触发频道
-
-    🧱 模块开关
-    `/settings module`
-    以「下拉菜单」快速切换各模块开关
-
-    🏠 私人包厢快捷
-    `/private-room-settings` 或 `/包厢设置`
-    可上锁、调整人数上限、修改包厢名称
-  content_moderation: "● `/delete-messages channel amount` 批次删除频道消息\n● `/delete-messages user amount` 删除指定用户消息\n● `/删除消息` 为中文別名\n● 有确认按钮，可避免误删"
+    含确认按钮，可避免误删。
   content_private_room: |
     🏠 触发设置
-    `/settings music`
-    开启音乐设置菜单后，选择「私人包厢触发频道」即可设置。
+    在 `/设置` 的 `音乐功能` 设置「私人包厢触发频道」
 
     🛠️ 包厢管理
     `/private-room-settings` 或 `/包厢设置`
     可对自己包厢进行：
-    - 上锁频道
+    - 上锁 / 解锁
     - 设置人数上限（1-99，留空=无上限）
     - 更改名称（最多 10 字）
 
     ♻️ 自动清理
     私人包厢无人时会自动删除，避免频道累积。
-  content_general: "● `/help` 开启此说明面板\n● 可搭配 `/settings language` 切换语言"
+  content_game: |
+    🎲 数字接龙
+    `/數字接龍 set-channel channel:<文字频道>`（中文别名）
+    `/數字接龍 enable value:<true|false>`（中文别名）
+    `/數字接龍 reset`（中文别名）
+
+    `/number-chain set-channel channel:<文字频道>` 设置接龙频道
+    `/number-chain enable value:<true|false>` 开启或关闭
+    `/number-chain reset` 重置进度
+
+    规则：
+    - 必须按顺序输入下一个数字
+    - 同一位用户不可连续接龙
+    - 输入错误会重置为 1
+  content_general: |
+    - `/help` 开启此说明面板
+    - 语言切换：`/设置` -> `语言`
+    - 或使用 `/settings language code:<语言代码>`
   tip_title: "快速使用"
   tip_body: "点击下方分类按钮可立即切换页面。"
 
 settings:
+  action: "选择设置项目"
   reload_done: "服务器设置已重新加载。"
+  language_code_required: "请输入语言代码（例如：zh-TW / zh-CN / en）。"
   language_invalid: "不支持的语言：{language}"
   language_updated: "语言已更改为 {language}。"
+  language_menu_title: "语言设置"
+  language_menu_desc: "请从下拉菜单选择服务器语言。"
+  language_menu_placeholder: "选择语言"
+  language_menu_expired: "语言菜单已过期，请重新执行 `/设置` 并选择语言。"
+  number_chain_menu_title: "数字接龙设置"
+  number_chain_menu_desc: "请从下拉菜单调整数字接龙设置。"
+  number_chain_menu_placeholder: "选择要调整的数字接龙设置"
+  number_chain_menu_expired: "数字接龙设置菜单已过期，请重新执行 `/设置` 并选择数字接龙。"
+  number_chain_menu_pick_channel_title: "选择数字接龙频道"
+  number_chain_menu_pick_channel_desc: "请选择数字接龙要使用的文字频道。"
+  number_chain_menu_channel_placeholder: "选择文字频道"
+  option_not_allowed: "「{option}」不能与「{action}」一起使用。"
   validation_expected_text_channel: "请选择「文字频道」。"
   validation_expected_voice_channel: "请选择「语音频道」或 Stage 频道。"
   validation_private_room_category_missing: "找不到可用的分类频道。请选择一个分类或帶有分类的频道。"
@@ -154,6 +175,7 @@ settings:
   info_message_logs: "消息日志"
   info_music: "音乐设置"
   info_private_room: "私人包厢"
+  info_number_chain: "数字接龙"
   info_module: "模块"
   info_select_placeholder: "选择设置页签"
   info_section_overview: "总览"
@@ -197,6 +219,9 @@ settings:
   info_key_category: "包厢分类"
   info_key_category_auto: "包厢分类（自动依触发频道）"
   info_key_user_limit: "人数限制"
+  info_key_number_chain_enabled: "数字接龙启用"
+  info_key_number_chain_channel: "数字接龙频道"
+  info_key_number_chain_next: "数字接龙下一个数字"
   key_notifications_enabled: "通知启用"
   key_notifications_memberChannelId: "成员进出频道通知"
   key_notifications_voiceChannelId: "语音通知频道"
@@ -215,6 +240,10 @@ settings:
   key_music_autoLeaveEnabled: "音乐自动离开启用"
   key_music_autoLeaveMinutes: "音乐自动离开分钟"
   key_music_autoplayEnabled: "音乐 Autoplay 启用"
+  key_numberChain_enabled: "数字接龙启用"
+  key_ticket_enabled: "客服单启用"
+  key_ticket_maxOpenPerUser: "每位用户客服单上限"
+  key_ticket_blacklistUserIds: "客服单黑名单人数"
   key_music_commandChannelId: "音乐指令频道"
   key_privateRoom_enabled: "私人包厢启用"
   key_privateRoom_triggerVoiceChannelId: "私人包厢触发频道"
@@ -233,6 +262,8 @@ settings:
   template_updated: "已更新设置"
   module_menu_title: "模块开关设置"
   module_menu_desc: "从下拉菜单切换模块开关，选取一次即切换一次。"
+  module_menu_column_left: "模块开关 A"
+  module_menu_column_right: "模块开关 B"
   module_menu_placeholder: "选择要切换的模块"
   module_menu_expired: "模块菜单已过期，请重新执行 `/settings module`。"
   status_label: "状态"
@@ -286,12 +317,16 @@ settings:
   reset_option_message_logs: "消息日志"
   reset_option_music: "音乐设置"
   reset_option_private_room: "私人包厢"
+  reset_option_ticket: "客服单"
+  reset_option_number_chain: "数字接龙"
   reset_option_all: "全部重置"
   reset_target_language: "语言"
   reset_target_notifications: "通知设置"
   reset_target_message-logs: "消息日志"
   reset_target_music: "音乐设置"
   reset_target_private-room: "私人包厢"
+  reset_target_ticket: "客服单"
+  reset_target_number-chain: "数字接龙"
   reset_target_all: "全部设置"
   reset_done: "已重置：{target}"
   reset_expired: "重置菜单已过期，请重新执行 `/settings reset`。"
@@ -356,7 +391,10 @@ logs:
   roles: "身分組"
   channel_created: "频道已创建"
   channel_deleted: "频道已删除"
+  channel_renamed: "频道名称变更"
   channel: "频道"
+  before: "变更前"
+  after: "变更后"
   user_banned: "成员封禁"
   user_unbanned: "成员解除封禁"
   user_kicked: "成员踢出"
@@ -396,6 +434,115 @@ message_logs:
     message_id: "消息 ID"
     content: "內容"
     attachments: "附件"
+
+warnings:
+  result_add: "{user} 的警告次数已增加，目前为 {count}。"
+  result_remove: "{user} 的警告次数已减少，目前为 {count}。"
+  result_view: "{user} 当前警告次数：{count}。"
+  result_clear: "已清除 {user} 的警告次数。"
+  reason_modal_title: "填写警告原因"
+  reason_modal_label: "原因"
+  reason_placeholder: "请填写这次警告操作的原因"
+  reason_required: "请填写原因。"
+  reason_line: "原因：{reason}"
+
+anti_duplicate:
+  result_set: "重复消息检测已更新：{status}"
+  result_status: "重复消息检测当前状态：{status}"
+
+moderation:
+  duplicate:
+    title: "🚨 重复消息自动处置"
+    user: "用户"
+    channel: "频道"
+    warning_count: "警告次数"
+    duplicate_count: "重复次数"
+    action: "处置"
+    action_timeout: "已自动删除消息、增加警告并禁言 10 分钟。"
+    action_warn_only: "已自动删除消息并增加警告（无法禁言，请检查权限层级）。"
+    content: "重复内容"
+
+number_chain:
+  invalid_input: "无法解析"
+  reset_notice: "❌ {user} 输入错误，数字接龙已重置为 `1`。预期：`{expected}`，你的输入：`{input}`。"
+  same_user_notice: "❌ {user} 不能连续接龙，请等待其他成员接下一个数字（当前应为 `{expected}`）。"
+  same_user_reset_notice: "❌ {user} 不能自己连续接龙，已判定失败并重置为 `1`（原本应为 `{expected}`）。"
+  result_set_channel: "数字接龙频道已设置为 {channel}，进度已重置为 1。"
+  result_set_enabled: "数字接龙状态已更新：{status}"
+  result_reset: "数字接龙已重置，请从 1 开始。"
+  result_status: "数字接龙状态：{status}\n频道：{channel}\n下一个数字：`{next}`"
+
+ticket:
+  disabled: "客服单系统当前未启用。"
+  panel_title: "客服单中心"
+  panel_desc: "需要协助时，请点击下方按钮开启客服单。"
+  default_welcome_message: "{user} 已创建客服单"
+  panel_open_button: "开启客服单"
+  panel_sent: "已发送客服单面板到 {channel}。"
+  panel_send_failed: "无法发送客服单面板，请检查机器人频道权限。"
+  panel_channel_title: "选择要发送客服单面板的频道"
+  panel_channel_desc: "请从下方菜单选择一个文字频道，机器人会将客服单面板发送到该频道。"
+  panel_channel_placeholder: "选择文字频道"
+  default_type_label: "开单"
+  select_placeholder: "选择客服单类型"
+  select_prompt: "请先选择要开启的客服单类型。"
+  request_expired: "此操作已超时，请重新开启客服单。"
+  summary_placeholder: "请简述问题（可留空）"
+  open_modal_title: "开启客服单"
+  open_modal_label: "问题简介"
+  opened_title: "客服单已建立"
+  opened_reply: "客服单已建立：{channel}"
+  field_type: "类型"
+  field_summary: "问题简介"
+  close_button: "关闭客服单"
+  close_no_permission: "你没有权限关闭这张客服单。"
+  not_ticket_channel: "这不是客服单频道。"
+  closing: "正在关闭客服单，请稍候..."
+  close_modal_title: "关闭客服单"
+  close_modal_label: "关闭原因"
+  close_reason_placeholder: "可留空，默认会自动填入"
+  close_reason_default: "由管理员关闭"
+  auto_close_reason: "超过闲置天数自动关闭"
+  closed_title: "客服单已关闭"
+  closed_desc_manual: "此客服单由 {user} 关闭。"
+  closed_desc_auto: "此客服单因长时间无互动而自动关闭。"
+  field_reason: "关闭原因"
+  transcript_dm: "你在 **{guild}** 的客服单记录：{url}"
+  default_open_category_name: "客服单"
+  default_closed_category_name: "已关闭客服单"
+  category_create_failed: "建立客服单分类失败，请检查机器人权限。"
+  create_failed: "建立客服单失败，请稍后再试。"
+  max_open_reached: "你当前已达到可同时开启客服单上限（最多 {max} 张），请先关闭现有客服单。"
+  blacklist_denied: "你已被加入客服单黑名单，无法开启客服单。"
+  blacklist_added: "已将 {user} 加入客服单黑名单。"
+  blacklist_removed: "已将 {user} 从客服单黑名单移除。"
+  blacklist_already: "{user} 已在客服单黑名单中。"
+  blacklist_not_found: "{user} 不在客服单黑名单中。"
+  blacklist_empty: "客服单黑名单当前为空。"
+  blacklist_list: "客服单黑名单：{users}"
+  limit_invalid: "客服单上限必须介于 1 到 20。"
+  blacklist_add_prompt: "选择要加入黑名单的用户"
+  blacklist_remove_prompt: "选择要移出黑名单的用户"
+  blacklist_select_desc: "请从下方菜单选择一位用户。"
+  blacklist_user_placeholder: "选择用户"
+  limit_modal_title: "设置客服单上限"
+  limit_modal_label: "每位用户可同时开启上限"
+  limit_modal_placeholder: "输入 1 到 20"
+  closed_manage_prompt: "客服单已关闭。管理员可选择重新开单或永久删除。"
+  reopen_button: "重新开单"
+  delete_button: "永久删除"
+  reopening: "正在重新开单，请稍候..."
+  deleting: "正在永久删除客服单，请稍候..."
+  reopened: "客服单已重新开启。"
+  delete_reason: "客服单由管理员永久删除"
+  history_delete_success: "已删除历史客服单：{name}"
+  history_delete_failed: "历史客服单删除失败。"
+
+
+
+
+
+
 
 
 

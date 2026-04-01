@@ -59,6 +59,7 @@ music:
   btn_repeat_off: "Disable Repeat"
   btn_autoplay_on: "Autoplay: ON"
   btn_autoplay_off: "Autoplay: OFF"
+  btn_refresh: "Refresh"
   panel_stale: "This music panel is outdated. Please create a new one with /music-panel."
   command_channel_restricted: "This music command can only be used in the configured music command channel."
   panel_same_voice_only: "Only members in the same voice channel as the bot can use this panel."
@@ -68,12 +69,13 @@ music:
 
 help:
   title: "Bot Help"
-  intro: "Welcome to NoRule bot. Use the dropdown or the category buttons below to switch help sections."
+  intro: "Welcome to NoRule Bot. Use the dropdown or category buttons below to switch sections."
   select_placeholder: "Choose a category"
   category_music: "Music"
   category_settings: "Settings"
   category_moderation: "Moderation"
   category_private_room: "Private Room"
+  category_game: "Game"
   category_general: "General"
   content_music: |
     🎧 Quick Start
@@ -87,67 +89,81 @@ help:
     `/leave` Make bot leave voice channel
     `/repeat mode:<off|single|all>` Switch repeat mode
 
-    📌 Tip
-    Open `/settings music`, then set "Music Command Channel" to keep commands in one place.
+    🧩 Extra
+    `/settings music` configures music options and private room trigger channel.
+    `/設定` also supports Chinese menu flow for these settings.
   content_settings: |
-    ⚙️ Core Management
-    `/settings info` View active guild settings
-    `/settings reload` Reload guild settings
-    `/settings language code:<en|zh-TW>` Switch language
-    `/settings reset` Open reset menu (with 2-step confirmation)
+    ⚙️ Settings Entry (Chinese)
+    `/設定` now uses `action` choices:
+    info / reload / reset / template / module / logs / music / language
 
-    🧩 Notification Templates
-    `/settings template`
-    Use the dropdown menu to choose a template, then open the edit form
+    ⚙️ Settings Entry (English)
+    `/settings` keeps subcommands:
+    info / reload / reset / template / module / logs / music / language
 
-    📢 Notification / Log Channels
-    `/settings logs`
-    First pick a log type from dropdown, then choose a text channel from channel selector
-
-    🎵 Music & Private Room Trigger
-    `/settings music`
-    Configure via dropdown:
-    - Auto leave toggle
-    - Auto leave minutes (1-60)
-    - Autoplay toggle
-    - Music command channel
-    - Private room trigger channel
-
-    🧱 Module Toggles
-    `/settings module`
-    Use the dropdown menu to quickly toggle each module
-
-    🏠 Private Room Quick Control
-    `/private-room-settings` to lock / set limit / rename your room
+    📌 `/settings info` Updated
+    Overview page has been removed.
+    It now uses paged sections with dropdown + buttons:
+    notifications / templates / logs / music / private-room / number-chain / module
   content_moderation: |
-    - `/delete-messages channel amount` bulk delete in a channel
-    - `/delete-messages user amount` delete by target user
-    - `/刪除訊息` is the Traditional Chinese alias
-    - Includes confirm button to prevent accidental deletion
+    🧹 Message Cleanup
+    `/刪除訊息 type:頻道 channel:<text-channel> amount:<1-99>`
+    `/刪除訊息 type:使用者 user:<user> amount:<1-99>`
+    `/delete-messages <channel|user>` (English)
+
+    Includes confirm button to prevent accidental deletion.
   content_private_room: |
     🏠 Trigger Setup
-    `/settings music`
-    Open the music settings menu, then choose "Private Room Trigger Channel".
+    Set "Private Room Trigger Channel" in `/settings music`.
 
     🛠️ Room Controls
     `/private-room-settings`
-    Manage your own room with:
-    - Lock channel
+    Manage your own room:
+    - Lock / Unlock
     - Set user limit (1-99, blank = unlimited)
     - Rename channel (max 10 chars)
 
     ♻️ Auto Cleanup
     Private rooms are auto-deleted when empty.
+  content_game: |
+    🎲 Number Chain
+    `/數字接龍 set-channel channel:<text-channel>` (Chinese alias)
+    `/數字接龍 enable value:<true|false>` (Chinese alias)
+    `/數字接龍 reset` (Chinese alias)
+
+    `/number-chain set-channel channel:<text-channel>` Set chain channel
+    `/number-chain enable value:<true|false>` Enable or disable
+    `/number-chain reset` Reset progress
+
+    Rules:
+    - Input must follow the next expected number
+    - Same user cannot continue twice in a row
+    - Wrong input resets progress to 1
   content_general: |
     - `/help` open this help panel
-    - Use `/settings language` to switch language
+    - Language switch: `/設定` -> `語言`
+    - Or use `/settings language code:<language-code>`
   tip_title: "Quick Tip"
   tip_body: "Click category buttons below to switch pages instantly."
 
 settings:
+  action: "Choose settings action"
   reload_done: "Guild settings reloaded."
+  language_code_required: "Please provide a language code (e.g. zh-TW / zh-CN / en)."
   language_invalid: "Unsupported language: {language}"
   language_updated: "Language changed to {language}."
+  language_menu_title: "Language Settings"
+  language_menu_desc: "Select the server language from the dropdown menu."
+  language_menu_placeholder: "Choose language"
+  language_menu_expired: "Language menu expired. Run `/settings` and choose language again."
+  number_chain_menu_title: "Number Chain Settings"
+  number_chain_menu_desc: "Use the dropdown menu to adjust number chain settings."
+  number_chain_menu_placeholder: "Choose a number chain setting"
+  number_chain_menu_expired: "Number chain settings menu expired. Run `/settings` and choose number chain again."
+  number_chain_menu_pick_channel_title: "Select Number Chain Channel"
+  number_chain_menu_pick_channel_desc: "Choose the text channel used for number chain."
+  number_chain_menu_channel_placeholder: "Choose a text channel"
+  option_not_allowed: "`{option}` cannot be used with `{action}`."
   validation_expected_text_channel: "Please select a text channel."
   validation_expected_voice_channel: "Please select a voice channel or stage channel."
   validation_private_room_category_missing: "No usable category was found. Please pick a category or a channel under a category."
@@ -159,6 +175,7 @@ settings:
   info_message_logs: "Message Logs"
   info_music: "Music Settings"
   info_private_room: "Private Room"
+  info_number_chain: "Number Chain"
   info_module: "Module"
   info_select_placeholder: "Choose info section"
   info_section_overview: "Overview"
@@ -202,6 +219,9 @@ settings:
   info_key_category: "Category"
   info_key_category_auto: "Category (Auto from Trigger)"
   info_key_user_limit: "User Limit"
+  info_key_number_chain_enabled: "Number Chain Enabled"
+  info_key_number_chain_channel: "Number Chain Channel"
+  info_key_number_chain_next: "Next Number"
   key_notifications_enabled: "Notifications Enabled"
   key_notifications_memberChannelId: "Member Join/Leave Notification Channel"
   key_notifications_voiceChannelId: "Voice Notification Channel"
@@ -220,6 +240,10 @@ settings:
   key_music_autoLeaveEnabled: "Music Auto Leave Enabled"
   key_music_autoLeaveMinutes: "Music Auto Leave Minutes"
   key_music_autoplayEnabled: "Music Autoplay Enabled"
+  key_numberChain_enabled: "Number Chain Enabled"
+  key_ticket_enabled: "Ticket Enabled"
+  key_ticket_maxOpenPerUser: "Ticket Max Open Per User"
+  key_ticket_blacklistUserIds: "Ticket Blacklist Count"
   key_music_commandChannelId: "Music Command Channel"
   key_privateRoom_enabled: "Private Room Enabled"
   key_privateRoom_triggerVoiceChannelId: "Private Room Trigger Channel"
@@ -238,6 +262,8 @@ settings:
   template_updated: "Updated Setting"
   module_menu_title: "Module Toggle Settings"
   module_menu_desc: "Toggle modules from the dropdown menu. Each selection flips the current state."
+  module_menu_column_left: "Module Column A"
+  module_menu_column_right: "Module Column B"
   module_menu_placeholder: "Choose module to toggle"
   module_menu_expired: "Module menu expired. Run `/settings module` again."
   status_label: "Status"
@@ -291,12 +317,16 @@ settings:
   reset_option_message_logs: "Message Logs"
   reset_option_music: "Music"
   reset_option_private_room: "Private Room"
+  reset_option_ticket: "Ticket"
+  reset_option_number_chain: "Number Chain"
   reset_option_all: "Reset All"
   reset_target_language: "Language"
   reset_target_notifications: "Notifications"
   reset_target_message-logs: "Message Logs"
   reset_target_music: "Music"
   reset_target_private-room: "Private Room"
+  reset_target_ticket: "Ticket"
+  reset_target_number-chain: "Number Chain"
   reset_target_all: "All Settings"
   reset_done: "Reset done: {target}"
   reset_expired: "This reset menu has expired. Please run `/settings reset` again."
@@ -307,6 +337,7 @@ settings:
   reset_cancelled: "Reset cancelled."
 
 room_settings:
+  action: "Choose settings action"
   title: "Private Room Settings"
   desc: "Use the dropdown to manage your current private room."
   select_placeholder: "Choose an action"
@@ -361,7 +392,10 @@ logs:
   roles: "Roles"
   channel_created: "Channel Created"
   channel_deleted: "Channel Deleted"
+  channel_renamed: "Channel Renamed"
   channel: "Channel"
+  before: "Before"
+  after: "After"
   user_banned: "User Banned"
   user_unbanned: "User Unbanned"
   user_kicked: "User Kicked"
@@ -401,6 +435,117 @@ message_logs:
     message_id: "Message ID"
     content: "Content"
     attachments: "Attachments"
+
+warnings:
+  result_add: "{user} warning count increased. Current: {count}."
+  result_remove: "{user} warning count decreased. Current: {count}."
+  result_view: "{user} current warning count: {count}."
+  result_clear: "{user} warning count has been cleared."
+  reason_modal_title: "Fill Warning Reason"
+  reason_modal_label: "Reason"
+  reason_placeholder: "Explain why this warning action is being taken"
+  reason_required: "Please provide a reason."
+  reason_line: "Reason: {reason}"
+
+anti_duplicate:
+  result_set: "Duplicate message detection updated: {status}"
+  result_status: "Duplicate message detection status: {status}"
+
+moderation:
+  duplicate:
+    title: "🚨 Duplicate Message Auto Moderation"
+    user: "User"
+    channel: "Channel"
+    warning_count: "Warning Count"
+    duplicate_count: "Duplicate Count"
+    action: "Action"
+    action_timeout: "Message deleted, warning added, and timed out for 10 minutes."
+    action_warn_only: "Message deleted and warning added (timeout unavailable, check bot permissions/role position)."
+    content: "Duplicate Content"
+
+number_chain:
+  invalid_input: "Cannot parse"
+  reset_notice: "❌ {user} sent an incorrect value. Number chain has been reset to `1`. Expected: `{expected}`, input: `{input}`."
+  same_user_notice: "❌ {user} cannot continue the chain twice in a row. Wait for another member (next expected: `{expected}`)."
+  same_user_reset_notice: "❌ {user} cannot continue the chain twice in a row. This is treated as failure and reset to `1` (previous expected: `{expected}`)."
+  result_set_channel: "Number chain channel set to {channel}. Progress reset to 1."
+  result_set_enabled: "Number chain status updated: {status}"
+  result_reset: "Number chain has been reset. Start again from 1."
+  result_status: "Number chain status: {status}\nChannel: {channel}\nNext number: `{next}`"
+
+ticket:
+  disabled: "Ticket system is currently disabled."
+  panel_title: "Ticket Center"
+  panel_desc: "Need help? Click the button below to open a ticket."
+  default_welcome_message: "{user} ticket created"
+  panel_open_button: "Open Ticket"
+  panel_sent: "Ticket panel sent to {channel}."
+  panel_send_failed: "Failed to send ticket panel. Please check bot channel permissions."
+  panel_channel_title: "Select a channel for the ticket panel"
+  panel_channel_desc: "Choose a text channel below and the bot will send the ticket panel there."
+  panel_channel_placeholder: "Choose a text channel"
+  default_type_label: "General"
+  select_placeholder: "Select ticket type"
+  select_prompt: "Choose a ticket type first."
+  request_expired: "This request has expired. Please open a new ticket."
+  summary_placeholder: "Describe your issue (optional)"
+  open_modal_title: "Open Ticket"
+  open_modal_label: "Issue Summary"
+  opened_title: "Ticket Created"
+  opened_reply: "Ticket created: {channel}"
+  field_type: "Type"
+  field_summary: "Summary"
+  close_button: "Close Ticket"
+  close_no_permission: "You don't have permission to close this ticket."
+  not_ticket_channel: "This is not a ticket channel."
+  closing: "Closing ticket, please wait..."
+  close_modal_title: "Close Ticket"
+  close_modal_label: "Close Reason"
+  close_reason_placeholder: "Optional, default reason will be used if empty"
+  close_reason_default: "Closed by staff"
+  auto_close_reason: "Auto-closed due to inactivity"
+  closed_title: "Ticket Closed"
+  closed_desc_manual: "This ticket was closed by {user}."
+  closed_desc_auto: "This ticket was auto-closed due to inactivity."
+  field_reason: "Reason"
+  transcript_dm: "Your ticket transcript in **{guild}**: {url}"
+  transcript_dm_attached: "Your ticket transcript in **{guild}** is attached to this message."
+  default_open_category_name: "Tickets"
+  default_closed_category_name: "Closed Tickets"
+  category_create_failed: "Failed to create ticket categories. Please check bot permissions."
+  create_failed: "Failed to create ticket. Please try again later."
+  max_open_reached: "You have reached the open ticket limit (max {max}). Please close an existing ticket first."
+  blacklist_denied: "You are blacklisted from creating tickets."
+  blacklist_added: "{user} has been added to the ticket blacklist."
+  blacklist_removed: "{user} has been removed from the ticket blacklist."
+  blacklist_already: "{user} is already in the ticket blacklist."
+  blacklist_not_found: "{user} is not in the ticket blacklist."
+  blacklist_empty: "Ticket blacklist is currently empty."
+  blacklist_list: "Ticket blacklist: {users}"
+  limit_invalid: "Ticket limit must be between 1 and 20."
+  blacklist_add_prompt: "Select a user to add to the blacklist"
+  blacklist_remove_prompt: "Select a user to remove from the blacklist"
+  blacklist_select_desc: "Choose one user from the menu below."
+  blacklist_user_placeholder: "Choose a user"
+  limit_modal_title: "Set ticket limit"
+  limit_modal_label: "Max open tickets per user"
+  limit_modal_placeholder: "Enter a value from 1 to 20"
+  closed_manage_prompt: "Ticket closed. Staff can reopen or permanently delete it."
+  reopen_button: "Reopen"
+  delete_button: "Delete Permanently"
+  reopening: "Reopening ticket, please wait..."
+  deleting: "Deleting ticket, please wait..."
+  reopened: "Ticket has been reopened."
+  delete_reason: "Ticket deleted by staff"
+  history_delete_success: "Deleted ticket history: {name}"
+  history_delete_failed: "Failed to delete ticket history."
+
+
+
+
+
+
+
 
 
 
