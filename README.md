@@ -48,7 +48,7 @@ mvn clean package -DskipTests
 5. 執行（建議使用 all jar）：
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.0.0-all.jar
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.1.0-all.jar
 ```
 
 ## `/help` 說明（已更新）
