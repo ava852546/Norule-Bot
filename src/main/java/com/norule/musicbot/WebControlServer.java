@@ -976,6 +976,12 @@ public class WebControlServer {
         BotConfig.Music m = settings.getMusic();
         BotConfig.PrivateRoom p = settings.getPrivateRoom();
         BotConfig.Ticket t = settings.getTicket();
+        MusicDataService.MusicStatsSnapshot musicStats = musicService.getStats(guild.getIdLong());
+        String topRequesterDisplay = "";
+        if (musicStats.topRequesterId() != null) {
+            Member topRequester = guild.getMemberById(musicStats.topRequesterId());
+            topRequesterDisplay = topRequester != null ? topRequester.getEffectiveName() : musicStats.topRequesterId().toString();
+        }
 
         DataObject payload = DataObject.empty()
                 .put("language", settings.getLanguage())
@@ -1013,6 +1019,14 @@ public class WebControlServer {
                         .put("autoplayEnabled", m.isAutoplayEnabled())
                         .put("defaultRepeatMode", m.getDefaultRepeatMode().name())
                         .put("commandChannelId", toIdText(m.getCommandChannelId())))
+                .put("musicStats", DataObject.empty()
+                        .put("topSongLabel", musicStats.topSongLabel() == null ? "" : musicStats.topSongLabel())
+                        .put("topSongCount", musicStats.topSongCount())
+                        .put("topRequesterDisplay", topRequesterDisplay)
+                        .put("topRequesterCount", musicStats.topRequesterCount())
+                        .put("todayPlaybackMillis", musicStats.todayPlaybackMillis())
+                        .put("todayPlaybackDisplay", formatDuration(musicStats.todayPlaybackMillis()))
+                        .put("historyCount", musicStats.historyCount()))
                 .put("privateRoom", DataObject.empty()
                         .put("enabled", p.isEnabled())
                         .put("triggerVoiceChannelId", toIdText(p.getTriggerVoiceChannelId()))
@@ -2077,6 +2091,23 @@ public class WebControlServer {
                     .option-card-meta{ padding:8px 10px; border-radius:10px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); }
                     .option-card-meta span{ display:block; font-size:11px; color:#94a3b8; margin-bottom:3px; }
                     .option-card-meta strong{ display:block; font-size:13px; color:#e2e8f0; }
+                    .stats-grid{
+                      display:grid;
+                      grid-template-columns:repeat(4,minmax(0,1fr));
+                      gap:10px;
+                      margin-top:10px;
+                    }
+                    .stat-card{
+                      padding:14px;
+                      border-radius:14px;
+                      border:1px solid rgba(255,255,255,.08);
+                      background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+                    }
+                    .stat-card-label{ color:#94a3b8; font-size:12px; font-weight:600; letter-spacing:.02em; }
+                    .stat-card-value{ color:#f8fafc; font-size:18px; font-weight:700; margin-top:6px; word-break:break-word; }
+                    .stat-card-meta{ color:#93c5fd; font-size:12px; margin-top:8px; min-height:16px; }
+                    @media (max-width:1100px){ .stats-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+                    @media (max-width:700px){ .stats-grid{ grid-template-columns:1fr; } }
                     .toggle{ display:flex; align-items:center; gap:8px; }
                     .toggle input{ width:auto; }
                     textarea{ min-height:72px; resize:vertical; }
@@ -2284,6 +2315,10 @@ public class WebControlServer {
                         <div class="field"><label>defaultRepeatMode</label><select id="m_defaultRepeatMode"><option value="OFF">OFF</option><option value="SINGLE">SINGLE</option><option value="ALL">ALL</option></select></div>
                         <div class="field"><label>commandChannelId</label><select id="m_commandChannelId"></select></div>
                       </div>
+                      <div class="settings-group">
+                        <div id="music_stats_title" class="settings-group-title">Music Stats</div>
+                        <div id="musicStatsCards" class="stats-grid"></div>
+                      </div>
                     </div>
 
                     <div class="tab-pane" data-pane="privateRoom">
@@ -2483,6 +2518,7 @@ public class WebControlServer {
                   let uiLang = 'zh-TW';
                   let ticketOptionsState = [];
                   let selectedTicketOptionId = '';
+                  let lastMusicStats = {};
                   let ticketHistoryFilesState = [];
                   let pendingDeleteTranscriptName = '';
                   let ticketHistoryRetentionDays = 90;
@@ -2635,6 +2671,7 @@ function t(key){
                     setCheckboxLabel('m_autoplayEnabled', 'm_autoplayEnabled');
                     setFieldLabel('m_defaultRepeatMode', 'm_defaultRepeatMode');
                     setFieldLabel('m_commandChannelId', 'm_commandChannelId');
+                    setText('music_stats_title', 'music_stats_title');
 
                     setCheckboxLabel('p_enabled', 'p_enabled');
                     setFieldLabel('p_triggerVoiceChannelId', 'p_triggerVoiceChannelId');
@@ -2687,6 +2724,7 @@ function t(key){
                     applyNotificationTemplateDefaults();
                     applyTicketPanelDefaultsIfEmpty();
                     renderTicketOptions();
+                    renderMusicStats(lastMusicStats);
                   }
 
                   function resolveNotificationTemplateKey(controlId){
@@ -2770,6 +2808,48 @@ function t(key){
                     if (desc && isTicketPanelTextStillDefault(desc.value, 'ticket_default_panel_desc')) {
                       desc.value = getTicketPanelDefault('ticket_default_panel_desc');
                     }
+                  }
+
+                  function renderMusicStats(stats){
+                    lastMusicStats = stats || {};
+                    const root = byId('musicStatsCards');
+                    if (!root) return;
+                    const topSongLabel = String(lastMusicStats.topSongLabel || '').trim();
+                    const topSongCount = Number(lastMusicStats.topSongCount || 0);
+                    const topRequesterDisplay = String(lastMusicStats.topRequesterDisplay || '').trim();
+                    const topRequesterCount = Number(lastMusicStats.topRequesterCount || 0);
+                    const todayPlaybackDisplay = String(lastMusicStats.todayPlaybackDisplay || '00:00');
+                    const historyCount = Number(lastMusicStats.historyCount || 0);
+                    const noneText = t('music_stats_none');
+                    const cards = [
+                      {
+                        label: t('music_stats_top_song'),
+                        value: topSongLabel || noneText,
+                        meta: topSongCount > 0 ? `${t('music_stats_play_count')}: ${topSongCount}` : ''
+                      },
+                      {
+                        label: t('music_stats_top_requester'),
+                        value: topRequesterDisplay || noneText,
+                        meta: topRequesterCount > 0 ? `${t('music_stats_request_count')}: ${topRequesterCount}` : ''
+                      },
+                      {
+                        label: t('music_stats_today_time'),
+                        value: todayPlaybackDisplay || '00:00',
+                        meta: ''
+                      },
+                      {
+                        label: t('music_stats_history_count'),
+                        value: String(historyCount),
+                        meta: ''
+                      }
+                    ];
+                    root.innerHTML = cards.map(card => `
+                      <div class="stat-card">
+                        <div class="stat-card-label">${esc(card.label)}</div>
+                        <div class="stat-card-value">${esc(card.value)}</div>
+                        <div class="stat-card-meta">${esc(card.meta || '')}</div>
+                      </div>
+                    `).join('');
                   }
 
                   function renderUiLanguageButtons(){
@@ -3273,6 +3353,7 @@ function t(key){
                     setChecked('m_autoplayEnabled', m.autoplayEnabled);
                     setValue('m_defaultRepeatMode', m.defaultRepeatMode || 'OFF');
                     setValue('m_commandChannelId', m.commandChannelId || '');
+                    renderMusicStats(s.musicStats || {});
 
                     const p = s.privateRoom || {};
                     setChecked('p_enabled', p.enabled);

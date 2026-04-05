@@ -1,54 +1,54 @@
 ﻿lang: "繁體中文"
 general:
-  only_guild: "此指令只能在伺服器使用。"
-  no_permission: "你沒有權限使用此指令。"
+  only_guild: "這個指令只能在伺服器中使用。"
+  no_permission: "你沒有權限使用這個指令。"
   missing_permissions: "缺少必要權限：{permissions}"
   unknown_command: "未知指令。"
   command_cooldown: "指令冷卻中，請在 {seconds} 秒後再試。"
   settings_saved: "設定已更新：{key} = {value}"
-  invalid_channel: "頻道無效。"
-  invalid_user: "使用者無效。"
+  invalid_channel: "無效的頻道。"
+  invalid_user: "無效的使用者。"
 
 system:
-  startup: "✅ 機器人已開機並上線。"
-  shutdown: "🛑 機器人正在關機。"
+  startup: "Bot 已啟動並上線。"
+  shutdown: "Bot 正在關機。"
 
 music:
   join_first: "請先加入語音頻道。"
   joined: "已加入 {channel}。"
   left: "已離開語音頻道。"
-  left_by_operator: "👋 {user} 操作了離開按鈕，機器人已離開語音頻道。"
-  auto_leave_idle_notice: "🕒 因長時間閒置未播放，機器人已自動離開語音頻道。"
+  left_by_operator: "{user} 使用了離開按鈕，Bot 已離開語音頻道。"
+  auto_leave_idle_notice: "Bot 因閒置播放超時，已自動離開語音頻道。"
   queue_added: "已加入佇列：`{title}`"
-  queue_empty: "佇列目前為空。"
-  skipped: "已跳過當前歌曲。"
+  queue_empty: "佇列目前是空的。"
+  skipped: "已跳過目前歌曲。"
   stopped: "已停止播放並清空佇列。"
   load_failed: "載入歌曲失敗：{error}"
-  not_found: "找不到結果：`{query}`"
+  not_found: "找不到 `{query}` 的結果。"
   search_title: "搜尋結果"
-  search_desc: "請從前 10 項結果選擇 1 首歌。選單會在 {seconds} 秒後自動失效。"
-  search_timeout: "搜尋選單已在 30 秒後失效。"
-  search_expired: "此搜尋選單已失效，請重新執行 /play。"
+  search_desc: "請從前 10 筆結果中選擇一首歌曲。此選單會在 {seconds} 秒後過期。"
+  search_timeout: "搜尋選單已於 30 秒後過期。"
+  search_expired: "這個搜尋選單已過期，請重新使用 /play。"
   panel_title: "音樂控制面板"
   panel_current: "目前播放"
   panel_channel: "頻道"
-  panel_queue: "列隊"
-  panel_repeat: "循環模式"
-  panel_state: "播放狀態"
-  panel_paused: "暫停"
+  panel_queue: "佇列"
+  panel_repeat: "循環"
+  panel_state: "狀態"
+  panel_paused: "暫停中"
   panel_playing: "播放中"
   panel_idle: "閒置"
   panel_source: "來源"
   panel_requester: "點歌者"
   panel_progress: "播放進度"
-  panel_autoplay_notice: "Autoplay 提示"
+  panel_autoplay_notice: "自動推薦提示"
   panel_none: "（無）"
   repeat_off: "關閉"
-  repeat_single: "單曲循環"
-  repeat_all: "佇列循環"
+  repeat_single: "單曲"
+  repeat_all: "佇列"
   autoplay_on: "開啟"
   autoplay_off: "關閉"
-  autoplay_notice_no_match: "找不到可推薦的下一首歌曲。"
+  autoplay_notice_no_match: "找不到合適的下一首推薦歌曲。"
   autoplay_notice_load_failed: "自動推薦載入失敗：{error}"
   btn_play_pause: "播放/暫停"
   btn_skip: "跳過"
@@ -56,20 +56,20 @@ music:
   btn_leave: "離開"
   btn_repeat_single: "單曲循環"
   btn_repeat_all: "佇列循環"
-  btn_repeat_off: "取消循環"
-  btn_autoplay_on: "Autoplay：開"
-  btn_autoplay_off: "Autoplay：關"
+  btn_repeat_off: "關閉循環"
+  btn_autoplay_on: "自動推薦：開啟"
+  btn_autoplay_off: "自動推薦：關閉"
   btn_refresh: "刷新"
   panel_stale: "這個音樂面板已過期，請使用 /music-panel 建立新的面板。"
-  command_channel_restricted: "此音樂指令只能在設定的音樂指令頻道使用。"
-  panel_same_voice_only: "只有與機器人在同一語音頻道的成員可以操作面板。"
-  not_same_voice_channel: "你必須先加入機器人所在的語音頻道。"
-  join_bot_voice_channel: "機器人目前在 {channel}，請先加入該語音頻道後再播放。"
-  not_connected: "機器人目前未連接任何語音頻道。"
+  command_channel_restricted: "這個音樂指令只能在設定的音樂指令頻道中使用。"
+  panel_same_voice_only: "只有和 Bot 在同一個語音頻道的成員可以使用此面板。"
+  not_same_voice_channel: "請先加入和 Bot 相同的語音頻道。"
+  join_bot_voice_channel: "Bot 目前在 {channel}，請先加入該語音頻道再使用播放功能。"
+  not_connected: "Bot 目前沒有連接任何語音頻道。"
 
 help:
-  title: "機器人說明"
-  intro: "歡迎使用 NoRule Bot。可使用下方下拉選單或按鈕切換分類。"
+  title: "Bot 說明"
+  intro: "歡迎使用 NoRule Bot。請使用下拉選單或下方分類按鈕切換說明頁面。"
   select_placeholder: "選擇分類"
   category_music: "音樂"
   category_settings: "設定"
@@ -78,97 +78,101 @@ help:
   category_game: "遊戲"
   category_general: "一般"
   content_music: |
-    🎧 快速開始
-    `/join` 讓 Bot 進入你所在語音頻道
-    `/play query:<關鍵字或 URL>` 搜尋或播放歌曲
-    `/music-panel` 建立互動控制面板
+    音樂播放
+    `/join` 加入你目前所在的語音頻道
+    `/play query:<關鍵字或URL>` 搜尋並播放歌曲
+    `/music-panel` 建立互動式控制面板
 
-    🎮 播放控制
+    播放控制
     `/skip` 跳過目前歌曲
-    `/stop` 停止播放並清空列隊
+    `/stop` 停止播放並清空佇列
     `/leave` 讓 Bot 離開語音頻道
     `/repeat mode:<off|single|all>` 切換循環模式
 
-    🧩 補充
-    `/settings music` 可設定音樂功能與私人包廂觸發頻道
-    `/設定` 的 `音樂功能` 可用中文選單操作
+    音樂工具
+    `/volume value:<0-200>` 設定伺服器音量
+    `/history` 顯示最近播放紀錄
+    `/playlist action:<save|load|delete|list>` 管理已儲存歌單
+    `/music action:stats` 顯示播放統計
   content_settings: |
-    ⚙️ 設定入口（中文）
-    `/設定` 使用 `action` 選項：
-    資訊 / 重新加載 / 恢復預設 / 訊息模板 / 模組開關 / 紀錄頻道 / 音樂功能 / 語言
+    中文設定流程
+    `/設定` 使用 `選項` 選單：
+    資訊 / 重載 / 重設 / 模板 / 模組 / 日誌 / 音樂 / 接龍 / 語言
 
-    ⚙️ 設定入口（英文）
-    `/settings` 仍可用子指令：
-    info / reload / reset / template / module / logs / music / language
+    英文設定流程
+    `/settings` 使用 `action` 選單：
+    info / reload / reset / template / module / logs / music / number-chain / language
 
-    📌 `/settings info` 已更新
-    已移除「總覽」頁，改為分頁模式（下拉選單 + 按鈕切換）
-    目前包含：
-    通知 / 通知模板 / 訊息日誌 / 音樂設定 / 私人包廂 / 數字接龍 / 模組
+    資訊面板
+    `/settings action:info` 會開啟分頁資訊面板：
+    notifications / templates / logs / music / private-room / number-chain / module
   content_moderation: |
-    🧹 訊息清理
-    `/刪除訊息 type:頻道 channel:<文字頻道> amount:<1-99>`
-    `/刪除訊息 type:使用者 user:<使用者> amount:<1-99>`
-    `/delete-messages <channel|user>`（英文）
+    訊息清理
+    `/刪除訊息` 中文使用選項式流程
+    `/delete-messages` 英文保留 channel/user 路由
 
-    含確認按鈕，可避免誤刪。
+    警告系統
+    `/警告` 和 `/warnings` 支援 add / remove / view / clear
+    add/remove/clear 會先要求填寫原因再執行
   content_private_room: |
-    🏠 觸發設定
-    在 `/設定` 的 `音樂功能` 設定「私人包廂觸發頻道」
+    觸發設定
+    請在 `/settings action:music` 中設定私人包廂觸發頻道
 
-    🛠️ 包廂管理
+    包廂控制
     `/private-room-settings` 或 `/包廂設定`
-    可對自己包廂進行：
+    可用操作：
     - 上鎖 / 解鎖
-    - 設定人數上限（1-99，留空=無上限）
-    - 更改名稱（最多 10 字）
+    - 設定人數上限
+    - 重新命名包廂
 
-    ♻️ 自動清理
-    私人包廂無人時會自動刪除，避免頻道累積。
+    自動清理
+    私人包廂在無人時會自動刪除
   content_game: |
-    🎲 數字接龍
-    `/數字接龍 set-channel channel:<文字頻道>`（中文別名）
-    `/數字接龍 enable value:<true|false>`（中文別名）
-    `/數字接龍 reset`（中文別名）
+    數字接龍
+    可從以下位置開啟數字接龍設定：
+    `/設定` -> `選項:接龍`
+    `/settings` -> `action:number-chain`
 
-    `/number-chain set-channel channel:<文字頻道>` 設定接龍頻道
-    `/number-chain enable value:<true|false>` 開啟或關閉
-    `/number-chain reset` 重置進度
+    可用操作
+    - 設定頻道
+    - 啟用或停用
+    - 重設進度
 
-    規則：
-    - 必須依序輸入下一個數字
-    - 同一位使用者不可連續接龍
-    - 輸入錯誤會重置為 1
+    規則
+    - 輸入必須符合下一個預期數字
+    - 同一位使用者不能連續接龍兩次
+    - 輸入錯誤會將進度重設回 1
   content_general: |
     - `/help` 開啟此說明面板
-    - 語言切換：`/設定` -> `語言`
-    - 或使用 `/settings language code:<語言代碼>`
-  tip_title: "快速使用"
-  tip_body: "點擊下方分類按鈕可立即切換頁面。"
+    - `/ping` 顯示目前延遲資訊
+    - 語言切換：`/settings` -> `action:language`
+    - 從下拉選單中選擇目標語言
+  tip_title: "快速提示"
+  tip_body: "點擊下方分類按鈕可以快速切換頁面。"
 
 settings:
-  action: "選擇設定項目"
-  reload_done: "伺服器設定已重新載入。"
-  language_code_required: "請輸入語言代碼（例如：zh-TW / zh-CN / en）。"
+  action: "選擇設定操作"
+  reload_done: "已重新載入伺服器設定。"
+  language_code_required: "請從語言選單中選擇語言。"
   language_invalid: "不支援的語言：{language}"
-  language_updated: "語言已更改為 {language}。"
+  language_updated: "語言已切換為 {language}。"
   language_menu_title: "語言設定"
-  language_menu_desc: "請從下拉選單選擇伺服器語言。"
+  language_menu_desc: "請從下拉選單中選擇伺服器語言。"
   language_menu_placeholder: "選擇語言"
-  language_menu_expired: "語言選單已過期，請重新執行 `/設定` 並選擇語言。"
+  language_menu_expired: "語言選單已過期，請重新執行 `/settings` 並選擇 `action:language`。"
   number_chain_menu_title: "數字接龍設定"
-  number_chain_menu_desc: "請從下拉選單調整數字接龍設定。"
-  number_chain_menu_placeholder: "選擇要調整的數字接龍設定"
-  number_chain_menu_expired: "數字接龍設定選單已過期，請重新執行 `/設定` 並選擇數字接龍。"
+  number_chain_menu_desc: "使用下拉選單調整數字接龍設定。"
+  number_chain_menu_placeholder: "選擇數字接龍設定"
+  number_chain_menu_expired: "數字接龍設定選單已過期，請重新執行 `/settings` 並選擇數字接龍。"
   number_chain_menu_pick_channel_title: "選擇數字接龍頻道"
-  number_chain_menu_pick_channel_desc: "請選擇數字接龍要使用的文字頻道。"
+  number_chain_menu_pick_channel_desc: "請選擇用於數字接龍的文字頻道。"
   number_chain_menu_channel_placeholder: "選擇文字頻道"
-  option_not_allowed: "「{option}」不能搭配「{action}」使用。"
-  validation_expected_text_channel: "請選擇「文字頻道」。"
-  validation_expected_voice_channel: "請選擇「語音頻道」或 Stage 頻道。"
-  validation_private_room_category_missing: "找不到可用的分類頻道。請選擇一個分類或帶有分類的頻道。"
-  info_title: "當前伺服器設定"
-  info_desc: "下方每項顯示：目前生效值 與 預設值。"
+  option_not_allowed: "`{option}` 不能與 `{action}` 一起使用。"
+  validation_expected_text_channel: "請選擇文字頻道。"
+  validation_expected_voice_channel: "請選擇語音頻道或舞台頻道。"
+  validation_private_room_category_missing: "找不到可用分類。請選擇分類，或選擇位於某個分類底下的頻道。"
+  info_title: "目前伺服器設定"
+  info_desc: "下方各項會顯示目前生效值與預設值。"
   info_language: "語言"
   info_notifications: "通知設定"
   info_notification_templates: "通知模板"
@@ -177,114 +181,114 @@ settings:
   info_private_room: "私人包廂"
   info_number_chain: "數字接龍"
   info_module: "模組"
-  info_select_placeholder: "選擇設定頁籤"
+  info_select_placeholder: "選擇資訊區塊"
   info_section_overview: "總覽"
   info_channels_none: "未設定"
-  info_bool_on: "開啟✅"
-  info_bool_off: "關閉❌"
+  info_bool_on: "開啟"
+  info_bool_off: "關閉"
   info_compare_format: "{effective}\n> 預設：{default}"
   info_default_prefix: "預設"
   info_key_enabled: "啟用"
-  info_key_member_channel: "成員進出頻道通知"
+  info_key_member_channel: "成員加入/離開通知頻道"
   info_key_member_channel_mode: "成員通知頻道模式"
-  info_key_member_join_channel: "成員加入通知頻道（分開）"
-  info_key_member_leave_channel: "成員離開通知頻道（分開）"
+  info_key_member_join_channel: "成員加入通知頻道（分離）"
+  info_key_member_leave_channel: "成員離開通知頻道（分離）"
   info_key_member_join_enabled: "成員加入通知啟用"
   info_key_member_leave_enabled: "成員離開通知啟用"
-  info_key_voice_log_enabled: "語音日誌啟用"
+  info_key_voice_log_enabled: "語音紀錄啟用"
   info_key_voice_channel: "語音通知頻道"
   info_key_member_join_template: "成員加入模板"
-  info_key_member_join_color: "成員加入 Embed 顏色"
+  info_key_member_join_color: "成員加入嵌入顏色"
   info_key_member_leave_template: "成員離開模板"
-  info_key_member_leave_color: "成員離開 Embed 顏色"
+  info_key_member_leave_color: "成員離開嵌入顏色"
   info_key_voice_join_template: "語音加入模板"
   info_key_voice_leave_template: "語音離開模板"
   info_key_voice_move_template: "語音移動模板"
   info_key_log_channel: "預設日誌頻道"
   info_key_message_log_channel: "訊息編輯/刪除日誌頻道"
-  info_key_log_role_channel: "身分組變更日誌頻道"
-  info_key_log_moderation_channel: "封禁/踢出管理日誌頻道"
+  info_key_log_role_channel: "身分組事件日誌頻道"
+  info_key_log_moderation_channel: "管理事件日誌頻道"
   info_key_log_command_channel: "指令使用日誌頻道"
   info_key_log_channel_events_channel: "頻道事件日誌頻道"
-  info_key_log_role: "身分組變更日誌"
-  info_key_log_channel_lifecycle: "頻道建立/刪除日誌"
-  info_key_log_moderation: "封禁/踢出管理日誌"
-  info_key_log_command_usage: "指令使用日誌"
-  info_key_auto_leave_enabled: "自動離開啟用"
-  info_key_auto_leave_minutes: "自動離開分鐘"
-  info_key_autoplay_enabled: "Autoplay 推薦啟用"
+  info_key_log_role: "身分組變更紀錄"
+  info_key_log_channel_lifecycle: "頻道建立/刪除紀錄"
+  info_key_log_moderation: "管理紀錄（踢出/封鎖）"
+  info_key_log_command_usage: "指令使用紀錄"
+  info_key_auto_leave_enabled: "音樂自動離開啟用"
+  info_key_auto_leave_minutes: "音樂自動離開分鐘數"
+  info_key_autoplay_enabled: "自動推薦啟用"
   info_key_default_repeat_mode: "預設循環模式"
   info_key_music_command_channel: "音樂指令頻道"
   info_key_trigger_channel: "觸發語音頻道"
-  info_key_category: "包廂分類"
-  info_key_category_auto: "包廂分類（自動依觸發頻道）"
-  info_key_user_limit: "人數限制"
+  info_key_category: "分類"
+  info_key_category_auto: "分類（依觸發頻道自動判定）"
+  info_key_user_limit: "人數上限"
   info_key_number_chain_enabled: "數字接龍啟用"
   info_key_number_chain_channel: "數字接龍頻道"
-  info_key_number_chain_next: "數字接龍下一個數字"
+  info_key_number_chain_next: "下一個數字"
   key_notifications_enabled: "通知啟用"
-  key_notifications_memberChannelId: "成員進出頻道通知"
+  key_notifications_memberChannelId: "成員加入/離開通知頻道"
   key_notifications_voiceChannelId: "語音通知頻道"
   key_notifications_memberJoinEnabled: "成員加入通知啟用"
   key_notifications_memberLeaveEnabled: "成員離開通知啟用"
-  key_notifications_voiceLogEnabled: "語音日誌啟用"
-  member_channel_mode_same: "進入/離開在同一個頻道"
-  member_channel_mode_split: "進入/離開不在同一個頻道"
+  key_notifications_voiceLogEnabled: "語音紀錄啟用"
+  member_channel_mode_same: "加入/離開使用同一頻道"
+  member_channel_mode_split: "加入/離開使用不同頻道"
   key_messageLogs_enabled: "訊息日誌啟用"
   key_messageLogs_channelId: "預設日誌頻道"
   key_messageLogs_messageLogChannelId: "訊息編輯/刪除日誌頻道"
-  key_messageLogs_roleLogChannelId: "身分組變更日誌頻道"
-  key_messageLogs_moderationLogChannelId: "封禁/踢出管理日誌頻道"
+  key_messageLogs_roleLogChannelId: "身分組事件日誌頻道"
+  key_messageLogs_moderationLogChannelId: "管理事件日誌頻道"
   key_messageLogs_commandUsageChannelId: "指令使用日誌頻道"
   key_messageLogs_channelLifecycleChannelId: "頻道事件日誌頻道"
   key_music_autoLeaveEnabled: "音樂自動離開啟用"
-  key_music_autoLeaveMinutes: "音樂自動離開分鐘"
-  key_music_autoplayEnabled: "音樂 Autoplay 啟用"
+  key_music_autoLeaveMinutes: "音樂自動離開分鐘數"
+  key_music_autoplayEnabled: "音樂自動推薦啟用"
   key_numberChain_enabled: "數字接龍啟用"
   key_ticket_enabled: "客服單啟用"
-  key_ticket_maxOpenPerUser: "每位使用者客服單上限"
-  key_ticket_blacklistUserIds: "客服單黑名單人數"
+  key_ticket_maxOpenPerUser: "每位使用者可開啟客服單上限"
+  key_ticket_blacklistUserIds: "客服單黑名單數量"
   key_music_commandChannelId: "音樂指令頻道"
   key_privateRoom_enabled: "私人包廂啟用"
   key_privateRoom_triggerVoiceChannelId: "私人包廂觸發頻道"
   key_privateRoom_userLimit: "私人包廂人數上限"
   template_modal_title: "模板表單"
   template_modal_label: "模板內容"
-  template_modal_color_label: "Embed 顏色 (Hex)"
+  template_modal_color_label: "嵌入顏色（Hex）"
   template_menu_title: "通知模板設定"
-  template_menu_desc: "請先用下拉選單選擇要編輯的模板類型。"
-  template_member_placeholders_guide: "可用佔位符：`{user}` 使用者標記、`{username}` 使用者名稱、`{guild}` 伺服器名稱、`{id}` 使用者ID、`{tag}` 使用者Tag、`{isBot}` 是否為機器人、`{createdAt}` 帳號建立時間、`{accountAgeDays}` 帳號天數。"
+  template_menu_desc: "請從下拉選單選擇要編輯的模板。"
+  template_member_placeholders_guide: "可用 placeholder：`{user}` 使用者提及、`{username}` 使用者名稱、`{guild}` 伺服器名稱、`{id}` 使用者 ID、`{tag}` 使用者 tag、`{isBot}` 是否為 bot、`{createdAt}` 帳號建立時間、`{accountAgeDays}` 帳號存在天數。"
   template_member_placeholders_short: "{user} {username} {guild} {id} {tag} {isBot} {createdAt} {accountAgeDays}"
   template_menu_placeholder: "選擇模板類型"
   template_menu_expired: "模板選單已過期，請重新執行 `/settings template`。"
-  template_color_invalid: "顏色格式錯誤，請使用 #RRGGBB 或 RRGGBB。"
+  template_color_invalid: "顏色格式無效，請使用 #RRGGBB 或 RRGGBB。"
   template_preview_title: "模板預覽"
   template_updated: "已更新設定"
   module_menu_title: "模組開關設定"
-  module_menu_desc: "從下拉選單切換模組開關，選取一次即切換一次。"
-  module_menu_column_left: "模組開關 A"
-  module_menu_column_right: "模組開關 B"
+  module_menu_desc: "請從下拉選單切換模組。每次選擇都會翻轉目前狀態。"
+  module_menu_column_left: "模組欄 A"
+  module_menu_column_right: "模組欄 B"
   module_menu_placeholder: "選擇要切換的模組"
   module_menu_expired: "模組選單已過期，請重新執行 `/settings module`。"
   status_label: "狀態"
   value_label: "數值"
   logs_menu_title: "日誌頻道設定"
-  logs_menu_desc: "先選擇日誌類型，再選擇要輸出的文字頻道。未設定獨立頻道時，會使用「預設日誌頻道」。"
-  logs_menu_placeholder: "選擇要設定的日誌類型"
+  logs_menu_desc: "請先選擇日誌類型，再選擇輸出的文字頻道。若未設定專用頻道，將使用預設日誌頻道。"
+  logs_menu_placeholder: "選擇日誌類型"
   logs_menu_expired: "日誌選單已過期，請重新執行 `/settings logs`。"
   logs_menu_channel_placeholder: "選擇文字頻道"
   logs_menu_pick_channel_title: "選擇日誌輸出頻道"
-  logs_menu_pick_channel_desc: "請為「{target}」選擇一個文字頻道。"
+  logs_menu_pick_channel_desc: "請為「{target}」選擇文字頻道。"
   logs_menu_status_format: "{module} | {channel}"
   logs_menu_module_default: "模組：預設"
-  logs_member_mode_title: "成員進出頻道通知模式"
-  logs_member_mode_desc: "請先選擇要使用同一個頻道，或分開設定加入/離開頻道。"
+  logs_member_mode_title: "成員加入/離開頻道模式"
+  logs_member_mode_desc: "選擇加入/離開通知要使用同一個頻道，或分開兩個頻道。"
   logs_member_mode_placeholder: "選擇成員通知頻道模式"
-  logs_member_mode_shared: "進入/離開 在同一個頻道"
-  logs_member_mode_split: "進入/離開 不在同一個頻道"
-  logs_member_split_title: "分開設定成員進出通知頻道"
-  logs_member_split_desc: "請選擇要設定「加入」或「離開」通知頻道。"
-  logs_member_split_placeholder: "選擇要設定的通知頻道"
+  logs_member_mode_shared: "加入/離開使用同一頻道"
+  logs_member_mode_split: "加入/離開使用不同頻道"
+  logs_member_split_title: "分別設定加入/離開通知頻道"
+  logs_member_split_desc: "選擇要設定加入通知頻道，或離開通知頻道。"
+  logs_member_split_placeholder: "選擇要設定的目標頻道"
   logs_member_split_join: "設定加入通知頻道"
   logs_member_split_leave: "設定離開通知頻道"
   logs_menu_module_none: "模組：無"
@@ -294,258 +298,253 @@ settings:
   logs_menu_channel_member_split: "頻道：加入 {join} / 離開 {leave}"
   logs_menu_channel_set: "已設定"
   logs_menu_channel_unset: "未設定"
-  logs_default_required: "請先到 `/settings logs` 設定「預設日誌頻道」，再啟用日誌模組。"
+  logs_default_required: "啟用日誌模組前，請先在 `/settings logs` 中設定預設日誌頻道。"
   music_menu_title: "音樂設定"
-  music_menu_desc: "請用下拉選單調整音樂與私人包廂觸發相關設定。"
-  music_menu_placeholder: "選擇要調整的音樂設定"
+  music_menu_desc: "使用下拉選單設定音樂功能與私人包廂觸發項目。"
+  music_menu_placeholder: "選擇要更新的音樂設定"
   music_menu_expired: "音樂設定選單已過期，請重新執行 `/settings music`。"
   music_menu_current: "目前：{value}"
   music_menu_pick_channel_title: "選擇音樂設定頻道"
-  music_menu_pick_channel_desc: "請為「{target}」選擇一個頻道。"
+  music_menu_pick_channel_desc: "請為「{target}」選擇頻道。"
   music_menu_channel_placeholder: "選擇頻道"
-  music_menu_minutes_title: "設定自動離開分鐘"
-  music_menu_minutes_hint: "請輸入 1-60 分鐘"
-  music_menu_minutes_label: "分鐘數"
-  music_menu_minutes_invalid: "分鐘數僅能輸入 1 到 60 的整數。"
-  private_room_auto_enabled_notice: "已自動啟用私人包廂模組。"
-  private_room_category_deprecated: "現在會自動依據觸發語音頻道的類別建立包廂，不需要手動設定類別。"
+  music_menu_minutes_title: "設定自動離開分鐘數"
+  music_menu_minutes_hint: "請輸入 1 到 60 之間的數字"
+  music_menu_minutes_label: "分鐘"
+  music_menu_minutes_invalid: "分鐘數必須是 1 到 60 之間的整數。"
+  private_room_auto_enabled_notice: "私人包廂模組已自動啟用。"
+  private_room_category_deprecated: "分類現在會依觸發語音頻道自動判定，不需要手動設定分類。"
   reset_title: "重設伺服器設定"
   reset_desc: "請從下拉選單選擇要重設的區塊。"
-  reset_placeholder: "選擇重設項目"
+  reset_placeholder: "選擇重設目標"
   reset_option_language: "語言"
-  reset_option_notifications: "通知設定"
+  reset_option_notifications: "通知"
   reset_option_message_logs: "訊息日誌"
-  reset_option_music: "音樂設定"
+  reset_option_music: "音樂"
   reset_option_private_room: "私人包廂"
   reset_option_ticket: "客服單"
   reset_option_number_chain: "數字接龍"
   reset_option_all: "全部重設"
   reset_target_language: "語言"
-  reset_target_notifications: "通知設定"
+  reset_target_notifications: "通知"
   reset_target_message-logs: "訊息日誌"
-  reset_target_music: "音樂設定"
+  reset_target_music: "音樂"
   reset_target_private-room: "私人包廂"
   reset_target_ticket: "客服單"
   reset_target_number-chain: "數字接龍"
   reset_target_all: "全部設定"
   reset_done: "已重設：{target}"
-  reset_expired: "重設選單已過期，請重新執行 `/settings reset`。"
+  reset_expired: "這個重設選單已過期，請重新執行 `/settings reset`。"
   reset_confirm_title: "確認重設"
-  reset_confirm_desc: "你即將重設：{target}\n此操作會覆蓋目前伺服器設定，是否繼續？"
+  reset_confirm_desc: "你即將重設：{target}\n這將覆蓋目前的伺服器設定，是否繼續？"
   reset_confirm_button: "確認重設"
   reset_cancel_button: "取消"
   reset_cancelled: "已取消重設。"
 
 room_settings:
+  action: "選擇設定操作"
   title: "私人包廂設定"
   desc: "使用下拉選單管理你目前的私人包廂。"
-  select_placeholder: "選擇要操作的項目"
-  option_lock: "上鎖/解鎖頻道"
-  option_limit: "設定人數"
-  option_rename: "更改名稱"
-  field_channel: "目前頻道"
-  field_name: "頻道名稱"
+  select_placeholder: "選擇操作"
+  option_lock: "上鎖/解鎖包廂"
+  option_limit: "設定人數上限"
+  option_rename: "重新命名包廂"
+  field_channel: "頻道"
+  field_name: "名稱"
   field_limit: "人數上限"
-  field_lock: "上鎖狀態"
+  field_lock: "已上鎖"
   unlimited: "無上限"
-  must_join_private_room: "請先加入你的私人包廂再使用此指令。"
-  expired: "此包廂設定選單已失效，請重新執行 `/private-room-settings`。"
-  room_not_found: "找不到可操作的私人包廂。"
-  already_locked: "此包廂已上鎖。"
-  action_failed: "操作失敗，請檢查 Bot 權限後重試。"
-  limit_title: "設定包廂人數"
-  limit_label: "請輸入 1-99，留空代表不限制"
-  limit_placeholder: "例如：8（留空=無上限）"
-  limit_invalid: "人數上限僅能輸入 1-99，或留空代表無上限。"
-  limit_saved: "包廂人數上限已更新為：{limit}"
-  rename_title: "更改包廂名稱"
-  rename_label: "新頻道名稱（最多 10 字）"
+  must_join_private_room: "請先加入你的私人包廂，再使用這個指令。"
+  expired: "這個包廂設定選單已過期，請重新執行 `/private-room-settings`。"
+  room_not_found: "找不到可管理的私人包廂。"
+  already_locked: "這個私人包廂已經上鎖。"
+  action_failed: "操作失敗，請檢查 Bot 權限後再試一次。"
+  limit_title: "設定人數上限"
+  limit_label: "輸入 1-99，留空代表無上限"
+  limit_placeholder: "例如：8（留空 = 無上限）"
+  limit_invalid: "人數上限必須是 1-99，或留空代表無上限。"
+  limit_saved: "人數上限已更新為：{limit}"
+  rename_title: "重新命名包廂"
+  rename_label: "新的包廂名稱（最多 10 字）"
   rename_placeholder: "目前：{name}"
-  rename_invalid: "名稱不可為空，且長度必須在 1 到 10 字。"
+  rename_invalid: "名稱不能為空，且長度必須介於 1-10 字。"
   rename_saved: "包廂名稱已更新為：{name}"
-  default_room_suffix: "的包廂"
+  default_room_suffix: "包廂"
 
 delete:
-  processing: "正在刪除訊息中，請稍候..."
+  processing: "正在刪除訊息，請稍候..."
   confirm_title: "刪除確認"
-  confirm_body: "確定要在 {scope} 刪除 {count} 則訊息嗎？"
+  confirm_body: "要刪除 {scope} 中的 {count} 則訊息嗎？"
   confirm_warning: "只能刪除 14 天內的訊息。"
   confirm_button: "確認"
   cancel_button: "取消"
   cancelled: "已取消刪除。"
   processed: "已刪除 {count} 則訊息。"
-  no_target: "找不到可刪除的目標訊息。"
-  amount_range: "數量限制為 1 到 99。"
-  default_amount_notice: "未輸入數量，已使用系統可刪除上限：{count}。"
-  default_channel_notice: "未指定頻道，已使用當前頻道：{channel}"
-  only_requester: "只有發起者可使用這些按鈕。"
+  no_target: "找不到符合條件的訊息。"
+  amount_range: "數量必須介於 1 到 99 之間。"
+  default_amount_notice: "未提供數量，將使用最大可刪除數量：{count}。"
+  default_channel_notice: "未提供頻道，將使用目前頻道：{channel}"
+  only_requester: "只有原始請求者可以使用這些按鈕。"
   failed: "刪除失敗，請稍後再試。"
 
 logs:
-  command_title: "🧭 指令使用日誌"
+  command_title: "指令使用紀錄"
   command_user: "使用者"
   command_channel: "頻道"
   user: "使用者"
-  role_added: "身分組新增"
-  role_removed: "身分組移除"
+  role_added: "新增身分組"
+  role_removed: "移除身分組"
   roles: "身分組"
   channel_created: "頻道已建立"
   channel_deleted: "頻道已刪除"
-  channel_renamed: "頻道名稱變更"
+  channel_renamed: "頻道已重新命名"
   channel: "頻道"
   before: "變更前"
   after: "變更後"
-  user_banned: "成員封禁"
-  user_unbanned: "成員解除封禁"
-  user_kicked: "成員踢出"
+  user_banned: "使用者已封鎖"
+  user_unbanned: "使用者已解除封鎖"
+  user_kicked: "使用者已踢出"
   target: "目標"
-  moderator: "管理員"
+  moderator: "管理者"
 
 notifications:
   embed:
-    member_join_title: "成員加入通知"
-    member_leave_title: "成員離開通知"
+    member_join_title: "成員加入"
+    member_leave_title: "成員離開"
     user_field: "使用者"
     account_created_field: "帳號建立時間"
     join_notify_time_field: "加入通知時間"
     leave_notify_time_field: "離開通知時間"
   template:
     default:
-      member_join: "{user} 加入了伺服器。帳號建立：{createdAt}（{accountAgeDays} 天前）。ID：{id}"
-      member_leave: "{user} 離開了伺服器。帳號建立：{createdAt}（{accountAgeDays} 天前）。ID：{id}"
-      voice_join: "{user} 加入語音頻道 {channel}。"
-      voice_leave: "{user} 離開語音頻道 {channel}。"
-      voice_move: "{user} 從 {from} 移動到 {to}。"
+      member_join: "{user} 已加入伺服器。帳號建立時間：{createdAt}（{accountAgeDays} 天前）。ID：{id}"
+      member_leave: "{user} 已離開伺服器。帳號建立時間：{createdAt}（{accountAgeDays} 天前）。ID：{id}"
+      voice_join: "{user} 已加入語音頻道 {channel}。"
+      voice_leave: "{user} 已離開語音頻道 {channel}。"
+      voice_move: "{user} 已從語音頻道 {from} 移動到 {to}。"
 
 message_logs:
   edit:
-    title: "訊息編輯紀錄"
+    title: "訊息已編輯"
     user: "使用者"
     channel: "頻道"
     message_id: "訊息 ID"
-    before: "修改前內容"
-    before_attachments: "修改前附件"
-    after: "修改後內容"
-    after_attachments: "修改後附件"
+    before: "編輯前"
+    before_attachments: "編輯前附件"
+    after: "編輯後"
+    after_attachments: "編輯後附件"
   delete:
-    title: "訊息刪除紀錄"
+    title: "訊息已刪除"
     author: "作者"
     channel: "頻道"
     message_id: "訊息 ID"
     content: "內容"
     attachments: "附件"
-
 warnings:
-  result_add: "{user} 的警告次數已增加，目前為 {count}。"
-  result_remove: "{user} 的警告次數已減少，目前為 {count}。"
-  result_view: "{user} 目前的警告次數：{count}。"
-  result_clear: "已清除 {user} 的警告次數。"
+  result_add: "{user} 的警告數已增加。目前：{count}。"
+  result_remove: "{user} 的警告數已減少。目前：{count}。"
+  result_view: "{user} 目前的警告數：{count}。"
+  result_clear: "{user} 的警告數已清除。"
   reason_modal_title: "填寫警告原因"
   reason_modal_label: "原因"
-  reason_placeholder: "請填寫這次警告操作的原因"
+  reason_placeholder: "請說明為什麼要執行這次警告操作"
   reason_required: "請填寫原因。"
   reason_line: "原因：{reason}"
 
 anti_duplicate:
-  result_set: "重複訊息偵測已更新：{status}"
-  result_status: "重複訊息偵測目前狀態：{status}"
+  result_set: "防重複訊息偵測已更新：{status}"
+  result_status: "防重複訊息偵測狀態：{status}"
 
 moderation:
   duplicate:
-    title: "🚨 重複訊息自動處置"
+    title: "重複訊息自動管理"
     user: "使用者"
     channel: "頻道"
-    warning_count: "警告次數"
+    warning_count: "警告數"
     duplicate_count: "重複次數"
     action: "處置"
-    action_timeout: "已自動刪除訊息、增加警告並禁言 10 分鐘。"
-    action_warn_only: "已自動刪除訊息並增加警告（無法禁言，請檢查權限層級）。"
+    action_timeout: "訊息已刪除、警告已增加，並已禁言 10 分鐘。"
+    action_warn_only: "訊息已刪除並增加警告（無法禁言，請檢查 Bot 權限或身分組層級）。"
     content: "重複內容"
 
 number_chain:
   invalid_input: "無法解析"
-  reset_notice: "❌ {user} 輸入錯誤，數字接龍已重置為 `1`。預期：`{expected}`，你的輸入：`{input}`。"
-  same_user_notice: "❌ {user} 不能連續接龍，請等待其他成員接下一個數字（目前應為 `{expected}`）。"
-  same_user_reset_notice: "❌ {user} 不能自己連續接龍，已判定失敗並重置為 `1`（原本應為 `{expected}`）。"
-  result_set_channel: "數字接龍頻道已設定為 {channel}，進度已重置為 1。"
+  reset_notice: "{user} 傳送了錯誤的數值。數字接龍已重設為 `1`。預期：`{expected}`，輸入：`{input}`。"
+  same_user_notice: "{user} 不能連續接龍兩次。請等待其他成員接續（下一個預期數字：`{expected}`）。"
+  same_user_reset_notice: "{user} 不能連續接龍兩次。這次會視為失敗並重設為 `1`（上一個預期數字：`{expected}`）。"
+  result_set_channel: "數字接龍頻道已設定為 {channel}，進度已重設為 1。"
   result_set_enabled: "數字接龍狀態已更新：{status}"
-  result_reset: "數字接龍已重置，請從 1 開始。"
+  result_reset: "數字接龍已重設，請從 1 重新開始。"
   result_status: "數字接龍狀態：{status}\n頻道：{channel}\n下一個數字：`{next}`"
 
 ticket:
-  disabled: "客服單系統目前未啟用。"
+  disabled: "客服單系統目前已停用。"
   panel_title: "客服單中心"
-  panel_desc: "需要協助時，請點下方按鈕開啟客服單。"
+  panel_desc: "需要協助時，請點擊下方按鈕開啟客服單。"
   default_welcome_message: "{user} 已建立客服單"
   panel_open_button: "開啟客服單"
-  panel_sent: "已發送客服單面板到 {channel}。"
-  panel_send_failed: "無法發送客服單面板，請確認機器人頻道權限。"
-  panel_channel_title: "選擇要發送客服單面板的頻道"
-  panel_channel_desc: "請從下方選單選擇一個文字頻道，機器人會將客服單面板發送到該頻道。"
+  panel_sent: "客服單面板已發送到 {channel}。"
+  panel_send_failed: "發送客服單面板失敗，請檢查 Bot 在該頻道的權限。"
+  panel_channel_title: "選擇客服單面板頻道"
+  panel_channel_desc: "請在下方選擇文字頻道，Bot 會在該處發送客服單面板。"
   panel_channel_placeholder: "選擇文字頻道"
-  default_type_label: "開單"
+  default_type_label: "一般"
   select_placeholder: "選擇客服單類型"
-  select_prompt: "請先選擇要開啟的客服單類型。"
-  request_expired: "此操作已逾時，請重新開啟客服單。"
-  summary_placeholder: "請簡述問題（可留空）"
+  select_prompt: "請先選擇一個客服單類型。"
+  request_expired: "此請求已過期，請重新開啟客服單。"
+  summary_placeholder: "描述你的問題（選填）"
   open_modal_title: "開啟客服單"
-  open_modal_label: "問題簡介"
+  open_modal_label: "問題摘要"
   opened_title: "客服單已建立"
   opened_reply: "客服單已建立：{channel}"
   field_type: "類型"
-  field_summary: "問題簡介"
+  field_summary: "摘要"
   close_button: "關閉客服單"
-  close_no_permission: "你沒有權限關閉這張客服單。"
+  close_no_permission: "你沒有權限關閉此客服單。"
   not_ticket_channel: "這不是客服單頻道。"
   closing: "正在關閉客服單，請稍候..."
   close_modal_title: "關閉客服單"
   close_modal_label: "關閉原因"
-  close_reason_placeholder: "可留空，預設會自動填入"
-  close_reason_default: "由管理員關閉"
-  auto_close_reason: "超過閒置天數自動關閉"
+  close_reason_placeholder: "選填，留空會使用預設原因"
+  close_reason_default: "由工作人員關閉"
+  auto_close_reason: "因閒置而自動關閉"
   closed_title: "客服單已關閉"
-  closed_desc_manual: "此客服單由 {user} 關閉。"
-  closed_desc_auto: "此客服單因長時間無互動而自動關閉。"
-  field_reason: "關閉原因"
+  closed_desc_manual: "此客服單已由 {user} 關閉。"
+  closed_desc_auto: "此客服單因閒置而自動關閉。"
+  field_reason: "原因"
   transcript_dm: "你在 **{guild}** 的客服單紀錄：{url}"
-  transcript_dm_attached: "你在 **{guild}** 的客服單紀錄已附加在此訊息附件。"
+  transcript_dm_attached: "你在 **{guild}** 的客服單紀錄已附加於此訊息。"
   default_open_category_name: "客服單"
   default_closed_category_name: "已關閉客服單"
-  category_create_failed: "建立客服單分類失敗，請檢查機器人權限。"
+  category_create_failed: "建立客服單分類失敗，請檢查 Bot 權限。"
   create_failed: "建立客服單失敗，請稍後再試。"
-  max_open_reached: "你目前已達可同時開啟客服單上限（最多 {max} 張），請先關閉既有客服單。"
-  blacklist_denied: "你已被加入客服單黑名單，無法開啟客服單。"
-  blacklist_added: "已將 {user} 加入客服單黑名單。"
-  blacklist_removed: "已將 {user} 從客服單黑名單移除。"
+  max_open_reached: "你已達到客服單開啟上限（最多 {max} 個），請先關閉既有客服單。"
+  blacklist_denied: "你已被列入客服單黑名單，無法建立客服單。"
+  blacklist_added: "{user} 已加入客服單黑名單。"
+  blacklist_removed: "{user} 已從客服單黑名單移除。"
   blacklist_already: "{user} 已在客服單黑名單中。"
   blacklist_not_found: "{user} 不在客服單黑名單中。"
   blacklist_empty: "客服單黑名單目前為空。"
   blacklist_list: "客服單黑名單：{users}"
-  limit_invalid: "客服單上限必須介於 1 到 20。"
+  limit_invalid: "客服單上限必須介於 1 到 20 之間。"
   blacklist_add_prompt: "選擇要加入黑名單的使用者"
-  blacklist_remove_prompt: "選擇要移出黑名單的使用者"
+  blacklist_remove_prompt: "選擇要移除黑名單的使用者"
   blacklist_select_desc: "請從下方選單選擇一位使用者。"
   blacklist_user_placeholder: "選擇使用者"
   limit_modal_title: "設定客服單上限"
-  limit_modal_label: "每位使用者可同時開啟上限"
-  limit_modal_placeholder: "輸入 1 到 20"
-  closed_manage_prompt: "客服單已關閉。管理員可選擇重新開單或永久刪除。"
-  reopen_button: "重新開單"
+  limit_modal_label: "每位使用者最多可開啟的客服單數量"
+  limit_modal_placeholder: "輸入 1 到 20 的數值"
+  closed_manage_prompt: "客服單已關閉，工作人員可以重新開啟或永久刪除。"
+  reopen_button: "重新開啟"
   delete_button: "永久刪除"
-  reopening: "正在重新開單，請稍候..."
+  reopening: "正在重新開啟客服單，請稍候..."
   deleting: "正在永久刪除客服單，請稍候..."
   reopened: "客服單已重新開啟。"
-  delete_reason: "客服單由管理員永久刪除"
-  history_delete_success: "已刪除歷史客服單：{name}"
-  history_delete_failed: "歷史客服單刪除失敗。"
+  delete_reason: "客服單已由工作人員刪除"
+  history_delete_success: "已刪除客服單歷史：{name}"
+  history_delete_failed: "刪除客服單歷史失敗。"
 
-
-
-
-
-
-
-
-
-
-
+ping:
+  title: "延遲測試"
+  description: "以下為目前機器人的即時延遲資訊。"
+  gateway: "Gateway 延遲"
+  response: "互動回應"

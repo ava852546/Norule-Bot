@@ -21,6 +21,8 @@ public class TrackScheduler extends AudioEventAdapter {
     private volatile RepeatMode repeatMode = RepeatMode.OFF;
     private volatile Runnable stateListener;
     private volatile Consumer<AudioTrack> queueExhaustedListener;
+    private volatile Consumer<AudioTrack> trackStartListener;
+    private volatile Consumer<AudioTrack> trackEndListener;
 
     public TrackScheduler(AudioPlayer player) {
         this.player = player;
@@ -68,13 +70,29 @@ public class TrackScheduler extends AudioEventAdapter {
         this.queueExhaustedListener = queueExhaustedListener;
     }
 
+    public void setTrackStartListener(Consumer<AudioTrack> trackStartListener) {
+        this.trackStartListener = trackStartListener;
+    }
+
+    public void setTrackEndListener(Consumer<AudioTrack> trackEndListener) {
+        this.trackEndListener = trackEndListener;
+    }
+
     @Override
     public void onTrackStart(AudioPlayer player, AudioTrack track) {
+        Consumer<AudioTrack> startListener = trackStartListener;
+        if (startListener != null && track != null) {
+            startListener.accept(track);
+        }
         notifyStateChanged();
     }
 
     @Override
     public void onTrackEnd(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason) {
+        Consumer<AudioTrack> endListener = trackEndListener;
+        if (endListener != null && track != null) {
+            endListener.accept(track);
+        }
         if (!endReason.mayStartNext) {
             notifyStateChanged();
             return;

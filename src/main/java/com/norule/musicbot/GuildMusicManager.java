@@ -11,11 +11,17 @@ public class GuildMusicManager {
     private final TrackScheduler scheduler;
     private final AudioPlayerSendHandler sendHandler;
 
-    public GuildMusicManager(AudioPlayerManager manager, Runnable stateListener, Consumer<AudioTrack> queueExhaustedListener) {
+    public GuildMusicManager(AudioPlayerManager manager,
+                             Runnable stateListener,
+                             Consumer<AudioTrack> queueExhaustedListener,
+                             Consumer<AudioTrack> trackStartListener,
+                             Consumer<AudioTrack> trackEndListener) {
         this.player = manager.createPlayer();
         this.scheduler = new TrackScheduler(player);
         this.scheduler.setStateListener(stateListener);
         this.scheduler.setQueueExhaustedListener(queueExhaustedListener);
+        this.scheduler.setTrackStartListener(trackStartListener);
+        this.scheduler.setTrackEndListener(trackEndListener);
         this.sendHandler = new AudioPlayerSendHandler(player);
         player.addListener(scheduler);
     }

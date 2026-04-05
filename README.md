@@ -4,7 +4,7 @@ NoRule Bot 是以 Java 17 + JDA 6 + LavaPlayer 開發的 Discord 多功能機器
 
 ## 功能重點
 
-- 音樂：YouTube 關鍵字/URL、Spotify 連結轉播、互動式音樂面板
+- 音樂：YouTube 關鍵字/URL、Spotify 連結轉播、互動式音樂面板、音量控制、播放歷史、音樂統計
 - 設定：`/settings`（英文）與 `/設定`（中文）
 - 日誌：訊息編輯/刪除、指令使用、頻道事件、身分組事件、管理事件
 - 私人包廂：進入觸發語音頻道後自動建立房間，無人自動刪除
@@ -66,12 +66,22 @@ java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.1.0-all.jar
 ## 主要指令
 
 - `/help`
+- `/ping`
+- `/延遲`
 - `/join`
 - `/play query:<關鍵字或URL>`
+- `/volume value:<0-200>`
+- `/音量 value:<0-200>`
+- `/history`
+- `/播放歷史`
+- `/playlist save/load/delete/list`
+- `/歌單 儲存/載入/刪除/列表`
 - `/skip`
 - `/stop`
 - `/leave`
 - `/music-panel`
+- `/music stats`
+- `/音樂 統計`
 - `/repeat mode:<off|single|all>`
 - `/private-room-settings`
 - `/包廂設定`
@@ -142,10 +152,44 @@ java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.1.0-all.jar
 - `!help`
 - `!join`
 - `!play <關鍵字或URL>`
+- `!volume <0-200>`
+- `!history`
+- `!music`
 - `!skip`
 - `!stop`
 - `!leave`
 - `!repeat <off|single|all>`
+
+## 音樂功能（第一階段）
+
+- `/volume` / `/音量`
+  - 設定音量範圍 `0-200%`
+  - 音量會依伺服器保存
+- `/history` / `/播放歷史`
+  - 顯示本伺服器最近播放的歌曲
+  - 包含來源、時長、點歌者與相對時間
+- `/playlist` / `/歌單`
+  - 可儲存目前播放歌曲與佇列為歌單
+  - 支援載入、刪除與列出已儲存歌單
+- `/music stats` / `/音樂 統計`
+  - 顯示本伺服器播放次數最多歌曲
+  - 顯示最常點歌成員
+  - 顯示今日播放時數
+- 音樂控制面板強化
+  - 顯示封面縮圖
+  - 顯示上傳者、來源、時長、播放進度
+  - 顯示目前音量與 Autoplay 狀態
+ - Web UI 音樂頁面
+   - 顯示音樂統計卡片
+   - 可快速查看熱門歌曲、熱門點歌成員、今日播放時數與歷史筆數
+ - Autoplay 強化
+   - 依最近播放歷史避開重複推薦
+   - 優先挑選同作者、同風格與較接近的推薦歌曲
+
+## 後續規劃
+
+- Web UI 歌單管理
+- 更進一步的 Autoplay 推薦策略與權重調整
 
 ## 設定檔
 

@@ -47,6 +47,12 @@ public class I18nService {
                 bundles.put("zh-TW", zhFallback);
             }
         }
+        if (!bundles.containsKey("zh-CN") || bundles.get("zh-CN").isEmpty()) {
+            Map<String, String> zhCnFallback = readBundleResource("defaults/lang/zh-CN.yml");
+            if (!zhCnFallback.isEmpty()) {
+                bundles.put("zh-CN", zhCnFallback);
+            }
+        }
         if (!bundles.containsKey("en") || bundles.get("en").isEmpty()) {
             Map<String, String> enFallback = readBundleResource("defaults/lang/en.yml");
             bundles.put("en", enFallback.isEmpty() ? Map.of() : enFallback);

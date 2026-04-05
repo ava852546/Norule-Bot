@@ -277,13 +277,20 @@ public class ModerationService {
         if (raw == null) {
             return null;
         }
-        String text = raw.trim().replace(" ", "");
+        String text = normalizeExpression(raw);
         if (text.isBlank() || text.length() > 64) {
             return null;
         }
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
-            if (!Character.isDigit(c) && c != '+' && c != '-' && c != '*' && c != '/' && c != '(' && c != ')') {
+            if (!Character.isDigit(c)
+                    && c != '+'
+                    && c != '-'
+                    && c != '*'
+                    && c != '/'
+                    && c != '('
+                    && c != ')'
+                    && c != '.') {
                 return null;
             }
         }
@@ -294,13 +301,20 @@ public class ModerationService {
                 return null;
             }
             long rounded = Math.round(value);
-            if (Math.abs(value - rounded) > 1e-9) {
-                return null;
-            }
             return rounded;
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private String normalizeExpression(String raw) {
+        return raw.trim()
+                .replace(" ", "")
+                .replace("\u00A0", "")
+                .replace("x", "*")
+                .replace("X", "*")
+                .replace("×", "*")
+                .replace("÷", "/");
     }
 
     private static class ExpressionParser {
@@ -384,10 +398,21 @@ public class ModerationService {
 
         private double parseNumber() {
             int start = i;
-            while (i < s.length() && Character.isDigit(s.charAt(i))) {
-                i++;
+            boolean seenDot = false;
+            while (i < s.length()) {
+                char c = s.charAt(i);
+                if (Character.isDigit(c)) {
+                    i++;
+                    continue;
+                }
+                if (c == '.' && !seenDot) {
+                    seenDot = true;
+                    i++;
+                    continue;
+                }
+                break;
             }
-            if (start == i) {
+            if (start == i || ".".equals(s.substring(start, i))) {
                 throw new IllegalArgumentException("Expected number");
             }
             return Double.parseDouble(s.substring(start, i));

@@ -57,6 +57,7 @@ public class PrivateRoomListener extends ListenerAdapter {
                                 Permission.VIEW_CHANNEL,
                                 Permission.VOICE_CONNECT,
                                 Permission.VOICE_SPEAK,
+                                Permission.VOICE_STREAM,
                                 Permission.VOICE_USE_VAD
                         ),
                         0L
@@ -66,10 +67,9 @@ public class PrivateRoomListener extends ListenerAdapter {
                         Permission.getRaw(
                                 Permission.MANAGE_CHANNEL,
                                 Permission.VOICE_MOVE_OTHERS,
-                                Permission.VOICE_MUTE_OTHERS,
-                                Permission.VOICE_DEAF_OTHERS,
                                 Permission.VOICE_CONNECT,
                                 Permission.VOICE_SPEAK,
+                                Permission.VOICE_STREAM,
                                 Permission.VOICE_USE_VAD,
                                 Permission.VIEW_CHANNEL,
                                 Permission.MESSAGE_SEND,
