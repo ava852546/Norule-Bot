@@ -375,7 +375,7 @@ public class MusicCommandListener extends ListenerAdapter {
                     .queue();
             case "ping" -> handlePingSlash(event, lang);
             case "volume" -> handleVolumeSlash(event, lang);
-            case "history" -> event.replyEmbeds(historyEmbed(event.getGuild(), lang).build()).setEphemeral(true).queue();
+            case "history" -> event.replyEmbeds(historyEmbed(event.getGuild(), lang).build()).queue();
             case "playlist" -> handlePlaylistSlash(event, lang);
             case "join" -> {
                 event.deferReply().queue();
@@ -2174,6 +2174,7 @@ public class MusicCommandListener extends ListenerAdapter {
             case "settings" -> eb.addField(i18n.t(lang, "help.category_settings"), i18n.t(lang, "help.content_settings"), false);
             case "moderation" -> eb.addField(i18n.t(lang, "help.category_moderation"), i18n.t(lang, "help.content_moderation"), false);
             case "private-room" -> eb.addField(i18n.t(lang, "help.category_private_room"), i18n.t(lang, "help.content_private_room"), false);
+            case "ticket" -> eb.addField(i18n.t(lang, "help.category_ticket"), i18n.t(lang, "help.content_ticket"), false);
             case "game" -> eb.addField(i18n.t(lang, "help.category_game"), i18n.t(lang, "help.content_game"), false);
             default -> eb.addField(i18n.t(lang, "help.category_general"), i18n.t(lang, "help.content_general"), false);
         }
@@ -2188,10 +2189,10 @@ public class MusicCommandListener extends ListenerAdapter {
             long gatewayMs = event.getJDA().getGatewayPing();
             EmbedBuilder eb = new EmbedBuilder()
                     .setColor(new Color(52, 152, 219))
-                    .setTitle(pingUx(lang, "title"))
-                    .setDescription(pingUx(lang, "description"))
-                    .addField(pingUx(lang, "gateway"), "`" + gatewayMs + " ms`", true)
-                    .addField(pingUx(lang, "response"), "`" + responseMs + " ms`", true)
+                    .setTitle(pingText(lang, "title"))
+                    .setDescription(pingText(lang, "description"))
+                    .addField(pingText(lang, "gateway"), "`" + gatewayMs + " ms`", true)
+                    .addField(pingText(lang, "response"), "`" + responseMs + " ms`", true)
                     .setTimestamp(Instant.now());
             hook.editOriginalEmbeds(eb.build()).queue();
         }, error -> event.reply("Pong").queue());
@@ -2212,11 +2213,11 @@ public class MusicCommandListener extends ListenerAdapter {
     private void handleMusicSlash(SlashCommandInteractionEvent event, String lang) {
         String sub = event.getSubcommandName();
         if (sub == null || sub.isBlank()) {
-            event.replyEmbeds(musicStatsEmbed(event.getGuild(), lang).build()).setEphemeral(true).queue();
+            event.replyEmbeds(musicStatsEmbed(event.getGuild(), lang).build()).queue();
             return;
         }
         if ("stats".equals(sub)) {
-            event.replyEmbeds(musicStatsEmbed(event.getGuild(), lang).build()).setEphemeral(true).queue();
+            event.replyEmbeds(musicStatsEmbed(event.getGuild(), lang).build()).queue();
             return;
         }
         event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
@@ -2228,27 +2229,27 @@ public class MusicCommandListener extends ListenerAdapter {
             event.replyEmbeds(playlistListEmbed(event.getGuild(), lang).build()).setEphemeral(true).queue();
             return;
         }
-        String playlistSourceLabel = CMD_PLAYLIST_ZH.equals(event.getName()) ? musicUx(lang, "playlist_source") : "Playlist";
+        String playlistSourceLabel = CMD_PLAYLIST_ZH.equals(event.getName()) ? musicText(lang, "playlist_source") : "Playlist";
         String playlistName = event.getOption("name") == null ? "" : event.getOption("name").getAsString().trim();
         switch (sub) {
             case "list" -> event.replyEmbeds(playlistListEmbed(event.getGuild(), lang).build()).setEphemeral(true).queue();
             case "save" -> {
                 if (playlistName.isBlank()) {
-                    event.reply(musicUx(lang, "playlist_name_required")).setEphemeral(true).queue();
+                    event.reply(musicText(lang, "playlist_name_required")).setEphemeral(true).queue();
                     return;
                 }
                 int saved = musicService.saveCurrentPlaylist(event.getGuild(), playlistName);
                 if (saved <= 0) {
-                    event.reply(musicUx(lang, "playlist_save_empty")).setEphemeral(true).queue();
+                    event.reply(musicText(lang, "playlist_save_empty")).setEphemeral(true).queue();
                     return;
                 }
-                event.reply(musicUx(lang, "playlist_save_success", Map.of("name", playlistName, "count", String.valueOf(saved))))
+                event.reply(musicText(lang, "playlist_save_success", Map.of("name", playlistName, "count", String.valueOf(saved))))
                         .setEphemeral(true)
                         .queue();
             }
             case "load" -> {
                 if (playlistName.isBlank()) {
-                    event.reply(musicUx(lang, "playlist_name_required")).setEphemeral(true).queue();
+                    event.reply(musicText(lang, "playlist_name_required")).setEphemeral(true).queue();
                     return;
                 }
                 if (!ensureMemberReadyForPlaylistLoad(event.getGuild(), event.getMember(), text -> event.reply(text).setEphemeral(true).queue())) {
@@ -2268,25 +2269,25 @@ public class MusicCommandListener extends ListenerAdapter {
                         playlistSourceLabel
                 );
                 if (queued <= 0) {
-                    event.reply(musicUx(lang, "playlist_load_missing", Map.of("name", playlistName))).setEphemeral(true).queue();
+                    event.reply(musicText(lang, "playlist_load_missing", Map.of("name", playlistName))).setEphemeral(true).queue();
                     return;
                 }
                 refreshPanel(event.getGuild().getIdLong());
-                event.reply(musicUx(lang, "playlist_load_success", Map.of("name", playlistName, "count", String.valueOf(queued))))
+                event.reply(musicText(lang, "playlist_load_success", Map.of("name", playlistName, "count", String.valueOf(queued))))
                         .setEphemeral(true)
                         .queue();
             }
             case "delete" -> {
                 if (playlistName.isBlank()) {
-                    event.reply(musicUx(lang, "playlist_name_required")).setEphemeral(true).queue();
+                    event.reply(musicText(lang, "playlist_name_required")).setEphemeral(true).queue();
                     return;
                 }
                 boolean removed = musicService.deletePlaylist(event.getGuild().getIdLong(), playlistName);
                 if (!removed) {
-                    event.reply(musicUx(lang, "playlist_delete_missing", Map.of("name", playlistName))).setEphemeral(true).queue();
+                    event.reply(musicText(lang, "playlist_delete_missing", Map.of("name", playlistName))).setEphemeral(true).queue();
                     return;
                 }
-                event.reply(musicUx(lang, "playlist_delete_success", Map.of("name", playlistName))).setEphemeral(true).queue();
+                event.reply(musicText(lang, "playlist_delete_success", Map.of("name", playlistName))).setEphemeral(true).queue();
             }
             default -> event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
         }
@@ -2388,6 +2389,7 @@ public class MusicCommandListener extends ListenerAdapter {
                         SelectOption.of(i18n.t(lang, "help.category_settings"), "settings"),
                         SelectOption.of(i18n.t(lang, "help.category_moderation"), "moderation"),
                         SelectOption.of(i18n.t(lang, "help.category_private_room"), "private-room"),
+                        SelectOption.of(i18n.t(lang, "help.category_ticket"), "ticket"),
                         SelectOption.of(i18n.t(lang, "help.category_game"), "game")
                 )
                 .build();
@@ -2404,7 +2406,10 @@ public class MusicCommandListener extends ListenerAdapter {
     }
 
     private List<Button> helpButtonsSecondary(String lang, String selectedCategory) {
-        return List.of(categoryButton(lang, "game", selectedCategory, i18n.t(lang, "help.category_game")));
+        return List.of(
+                categoryButton(lang, "game", selectedCategory, i18n.t(lang, "help.category_game")),
+                categoryButton(lang, "ticket", selectedCategory, i18n.t(lang, "help.category_ticket"))
+        );
     }
 
     private Button categoryButton(String lang, String category, String selectedCategory, String label) {
@@ -3287,29 +3292,29 @@ public class MusicCommandListener extends ListenerAdapter {
         boolean autoplayEnabled = isAutoplayEnabled(guildId);
         Guild guild = jda == null ? null : jda.getGuildById(guildId);
         int currentVolume = guild == null ? 100 : musicService.getVolume(guild);
-        buttons.add(Button.primary(PANEL_PLAY_PAUSE, "⏯ " + musicUx(lang, "btn_play_pause")));
-        buttons.add(Button.primary(PANEL_SKIP, "⏭ " + musicUx(lang, "btn_skip")));
-        buttons.add(Button.danger(PANEL_STOP, "⏹ " + musicUx(lang, "btn_stop")));
-        buttons.add(Button.secondary(PANEL_LEAVE, "📤 " + musicUx(lang, "btn_leave")));
+        buttons.add(Button.primary(PANEL_PLAY_PAUSE, "\u23EF " + musicUx(lang, "btn_play_pause")));
+        buttons.add(Button.primary(PANEL_SKIP, "\u23ED " + musicUx(lang, "btn_skip")));
+        buttons.add(Button.danger(PANEL_STOP, "\u23F9 " + musicUx(lang, "btn_stop")));
+        buttons.add(Button.secondary(PANEL_LEAVE, "\uD83D\uDCE4 " + musicUx(lang, "btn_leave")));
         buttons.add(currentVolume <= 0
-                ? Button.secondary(PANEL_VOLUME_DOWN, "🔉 " + musicUx(lang, "btn_volume_down")).asDisabled()
-                : Button.secondary(PANEL_VOLUME_DOWN, "🔉 " + musicUx(lang, "btn_volume_down")));
+                ? Button.secondary(PANEL_VOLUME_DOWN, "\uD83D\uDD09 " + musicUx(lang, "btn_volume_down")).asDisabled()
+                : Button.secondary(PANEL_VOLUME_DOWN, "\uD83D\uDD09 " + musicUx(lang, "btn_volume_down")));
         buttons.add(currentVolume >= 200
-                ? Button.secondary(PANEL_VOLUME_UP, "🔊 " + musicUx(lang, "btn_volume_up")).asDisabled()
-                : Button.secondary(PANEL_VOLUME_UP, "🔊 " + musicUx(lang, "btn_volume_up")));
-        buttons.add(Button.secondary(PANEL_REFRESH, "🔄 " + musicUx(lang, "btn_refresh")));
+                ? Button.secondary(PANEL_VOLUME_UP, "\uD83D\uDD0A " + musicUx(lang, "btn_volume_up")).asDisabled()
+                : Button.secondary(PANEL_VOLUME_UP, "\uD83D\uDD0A " + musicUx(lang, "btn_volume_up")));
+        buttons.add(Button.secondary(PANEL_REFRESH, "\uD83D\uDD04 " + musicUx(lang, "btn_refresh")));
         buttons.add(autoplayEnabled
-                ? Button.success(PANEL_AUTOPLAY_TOGGLE, "🧠 " + musicUx(lang, "btn_autoplay_on"))
-                : Button.secondary(PANEL_AUTOPLAY_TOGGLE, "🧠 " + musicUx(lang, "btn_autoplay_off")));
+                ? Button.success(PANEL_AUTOPLAY_TOGGLE, "\uD83E\uDDE0 " + musicUx(lang, "btn_autoplay_on"))
+                : Button.secondary(PANEL_AUTOPLAY_TOGGLE, "\uD83E\uDDE0 " + musicUx(lang, "btn_autoplay_off")));
         buttons.add("OFF".equalsIgnoreCase(repeatMode)
-                ? Button.secondary(PANEL_REPEAT_OFF, "⭕ " + musicUx(lang, "btn_repeat_off"))
-                : Button.secondary(PANEL_REPEAT_OFF, "◻ " + musicUx(lang, "btn_repeat_off")));
+                ? Button.secondary(PANEL_REPEAT_OFF, "\u2B55 " + musicUx(lang, "btn_repeat_off"))
+                : Button.secondary(PANEL_REPEAT_OFF, "\u2B55 " + musicUx(lang, "btn_repeat_off")));
         buttons.add("SINGLE".equalsIgnoreCase(repeatMode)
-                ? Button.success(PANEL_REPEAT_SINGLE, "🔂 " + musicUx(lang, "btn_repeat_single"))
-                : Button.secondary(PANEL_REPEAT_SINGLE, "🔂 " + musicUx(lang, "btn_repeat_single")));
+                ? Button.success(PANEL_REPEAT_SINGLE, "\uD83D\uDD02 " + musicUx(lang, "btn_repeat_single"))
+                : Button.secondary(PANEL_REPEAT_SINGLE, "\uD83D\uDD02 " + musicUx(lang, "btn_repeat_single")));
         buttons.add("ALL".equalsIgnoreCase(repeatMode)
-                ? Button.success(PANEL_REPEAT_ALL, "🔁 " + musicUx(lang, "btn_repeat_all"))
-                : Button.secondary(PANEL_REPEAT_ALL, "🔁 " + musicUx(lang, "btn_repeat_all")));
+                ? Button.success(PANEL_REPEAT_ALL, "\uD83D\uDD01 " + musicUx(lang, "btn_repeat_all"))
+                : Button.secondary(PANEL_REPEAT_ALL, "\uD83D\uDD01 " + musicUx(lang, "btn_repeat_all")));
         return buttons;
     }
 
@@ -3459,11 +3464,7 @@ public class MusicCommandListener extends ListenerAdapter {
         commands.add(Commands.slash("music", "Music utility commands")
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
                 .addSubcommands(
-                        localizedSubcommandName(
-                                new SubcommandData("stats", "Show music statistics"),
-                                "\u7d71\u8a08",
-                                "\u7edf\u8ba1"
-                        )
+                        new SubcommandData("stats", "Show music statistics")
                 ));
         commands.add(Commands.slash(CMD_MUSIC_ZH, "Music utility commands")
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
@@ -3843,9 +3844,9 @@ public class MusicCommandListener extends ListenerAdapter {
         );
         EmbedBuilder eb = new EmbedBuilder()
                 .setColor(new Color(46, 204, 113))
-                .setTitle("1?????" + i18n.t(lang, "settings.number_chain_menu_title"))
+                .setTitle("1??????" + i18n.t(lang, "settings.number_chain_menu_title"))
                 .setDescription(i18n.t(lang, "settings.number_chain_menu_desc"))
-                .addField("1?????" + i18n.t(lang, "settings.info_number_chain"), body, false);
+                .addField("1??????" + i18n.t(lang, "settings.info_number_chain"), body, false);
         if (changedText != null && !changedText.isBlank()) {
             eb.addField(i18n.t(lang, "settings.template_updated"), changedText, false);
         }
@@ -4381,7 +4382,7 @@ public class MusicCommandListener extends ListenerAdapter {
         List<MusicDataService.PlaybackEntry> history = musicService.getRecentHistory(guild.getIdLong(), 10);
         String body;
         if (history.isEmpty()) {
-            body = musicUx(lang, "history_empty");
+            body = musicText(lang, "history_empty");
         } else {
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < history.size(); i++) {
@@ -4395,15 +4396,15 @@ public class MusicCommandListener extends ListenerAdapter {
                         .append(safe(entry.author(), 40))
                         .append('\n')
                         .append("   ")
-                        .append(musicUx(lang, "history_source"))
+                        .append(musicText(lang, "history_source"))
                         .append(": ")
                         .append(safe(entry.source(), 20))
                         .append(" | ")
-                        .append(musicUx(lang, "history_duration"))
+                        .append(musicText(lang, "history_duration"))
                         .append(": ")
                         .append(formatDuration(entry.durationMillis()))
                         .append(" | ")
-                        .append(musicUx(lang, "history_requester"))
+                        .append(musicText(lang, "history_requester"))
                         .append(": ")
                         .append(requester)
                         .append(" | <t:")
@@ -4414,37 +4415,37 @@ public class MusicCommandListener extends ListenerAdapter {
         }
         return new EmbedBuilder()
                 .setColor(new Color(52, 152, 219))
-                .setTitle("?? " + musicUx(lang, "history_title"))
-                .setDescription(musicUx(lang, "history_desc"))
-                .addField(musicUx(lang, "history_field"), body, false)
+                .setTitle("\uD83D\uDD58 " + musicText(lang, "history_title"))
+                .setDescription(musicText(lang, "history_desc"))
+                .addField(musicText(lang, "history_field"), body, false)
                 .setTimestamp(Instant.now());
     }
 
     private EmbedBuilder musicStatsEmbed(Guild guild, String lang) {
         MusicDataService.MusicStatsSnapshot stats = musicService.getStats(guild.getIdLong());
         String topSong = stats.topSongLabel() == null || stats.topSongLabel().isBlank()
-                ? musicUx(lang, "stats_none")
+                ? musicText(lang, "stats_none")
                 : safe(stats.topSongLabel(), 100) + " (`" + stats.topSongCount() + "`)";
         String topRequester = stats.topRequesterId() == null
-                ? musicUx(lang, "stats_none")
+                ? musicText(lang, "stats_none")
                 : "<@" + stats.topRequesterId() + "> (`" + stats.topRequesterCount() + "`)";
         return new EmbedBuilder()
                 .setColor(new Color(155, 89, 182))
-                .setTitle("?? " + musicUx(lang, "stats_title"))
-                .setDescription(musicUx(lang, "stats_desc"))
-                .addField("?? " + musicUx(lang, "stats_top_song"), topSong, false)
-                .addField("?? " + musicUx(lang, "stats_top_user"), topRequester, false)
-                .addField("?梧? " + musicUx(lang, "stats_today_time"), formatDuration(stats.todayPlaybackMillis()), true)
-                .addField("?屁 " + musicUx(lang, "stats_history_count"), String.valueOf(stats.historyCount()), true)
+                .setTitle("\uD83D\uDCCA " + musicText(lang, "stats_title"))
+                .setDescription(musicText(lang, "stats_desc"))
+                .addField("\uD83C\uDFB5 " + musicText(lang, "stats_top_song"), topSong, false)
+                .addField("\uD83D\uDC64 " + musicText(lang, "stats_top_user"), topRequester, false)
+                .addField("\u23F1\uFE0F " + musicText(lang, "stats_today_time"), formatDuration(stats.todayPlaybackMillis()), true)
+                .addField("\uD83D\uDDD2\uFE0F " + musicText(lang, "stats_history_count"), String.valueOf(stats.historyCount()), true)
                 .setTimestamp(Instant.now());
     }
 
     private EmbedBuilder playlistListEmbed(Guild guild, String lang) {
         List<MusicDataService.PlaylistSummary> playlists = musicService.listPlaylists(guild.getIdLong());
-        String description = playlists.isEmpty() ? musicUx(lang, "playlist_list_empty") : musicUx(lang, "playlist_list_desc");
+        String description = playlists.isEmpty() ? musicText(lang, "playlist_list_empty") : musicText(lang, "playlist_list_desc");
         String body;
         if (playlists.isEmpty()) {
-            body = musicUx(lang, "playlist_list_empty");
+            body = musicText(lang, "playlist_list_empty");
         } else {
             StringBuilder sb = new StringBuilder();
             int max = Math.min(15, playlists.size());
@@ -4457,7 +4458,7 @@ public class MusicCommandListener extends ListenerAdapter {
                         .append(" (`")
                         .append(playlist.trackCount())
                         .append("`)\n   ")
-                        .append(musicUx(lang, "playlist_updated"))
+                        .append(musicText(lang, "playlist_updated"))
                         .append(": <t:")
                         .append(epochSeconds)
                         .append(":R>\n");
@@ -4466,9 +4467,9 @@ public class MusicCommandListener extends ListenerAdapter {
         }
         return new EmbedBuilder()
                 .setColor(new Color(46, 204, 113))
-                .setTitle("?? " + musicUx(lang, "playlist_title"))
+                .setTitle("📚 " + musicText(lang, "playlist_title"))
                 .setDescription(description)
-                .addField(musicUx(lang, "playlist_field"), body, false)
+                .addField(musicText(lang, "playlist_field"), body, false)
                 .setTimestamp(Instant.now());
     }
 
@@ -4494,14 +4495,34 @@ public class MusicCommandListener extends ListenerAdapter {
         return musicUx(lang, key, Map.of());
     }
 
+    private String pingText(String lang, String key) {
+        String fullKey = "ping." + key;
+        String value = i18n.t(lang, fullKey);
+        return isMissingTranslation(value, fullKey) ? pingUx(lang, key) : value;
+    }
+
+    private String musicText(String lang, String key) {
+        return musicText(lang, key, Map.of());
+    }
+
+    private String musicText(String lang, String key, Map<String, String> placeholders) {
+        String fullKey = "music." + key;
+        String value = i18n.t(lang, fullKey, placeholders);
+        return isMissingTranslation(value, fullKey) ? musicUx(lang, key, placeholders) : value;
+    }
+
+    private boolean isMissingTranslation(String value, String key) {
+        return value == null || value.isBlank() || value.equals(key);
+    }
+
     private String pingUx(String lang, String key) {
         boolean zhCn = lang != null && lang.startsWith("zh-CN");
         boolean zh = lang != null && lang.startsWith("zh");
         return switch (key) {
-            case "title" -> zhCn ? "延迟测试" : (zh ? "延遲測試" : "Ping");
-            case "description" -> zhCn ? "以下为当前机器人的实时延迟信息。" : (zh ? "以下為目前機器人的即時延遲資訊。" : "Current live latency information for the bot.");
-            case "gateway" -> zhCn ? "Gateway 延迟" : (zh ? "Gateway 延遲" : "Gateway Latency");
-            case "response" -> zhCn ? "交互响应" : (zh ? "互動回應" : "Interaction Response");
+            case "title" -> zhCn ? "\u5EF6\u8FDF\u6D4B\u8BD5" : (zh ? "\u5EF6\u9072\u6E2C\u8A66" : "Ping");
+            case "description" -> zhCn ? "\u4EE5\u4E0B\u4E3A\u5F53\u524D\u673A\u5668\u4EBA\u7684\u5B9E\u65F6\u5EF6\u8FDF\u4FE1\u606F\u3002" : (zh ? "\u4EE5\u4E0B\u70BA\u76EE\u524D\u6A5F\u5668\u4EBA\u7684\u5373\u6642\u5EF6\u9072\u8CC7\u8A0A\u3002" : "Current live latency information for the bot.");
+            case "gateway" -> zhCn ? "Gateway \u5EF6\u8FDF" : (zh ? "Gateway \u5EF6\u9072" : "Gateway Latency");
+            case "response" -> zhCn ? "\u4EA4\u4E92\u54CD\u5E94" : (zh ? "\u4E92\u52D5\u56DE\u61C9" : "Interaction Response");
             default -> key;
         };
     }
@@ -4510,70 +4531,70 @@ public class MusicCommandListener extends ListenerAdapter {
         boolean zhCn = lang != null && lang.startsWith("zh-CN");
         boolean zh = lang != null && lang.startsWith("zh");
         String value = switch (key) {
-            case "volume_usage" -> zhCn ? "使用 `!volume <0-200>`。" : (zh ? "使用 `!volume <0-200>`。" : "Use `!volume <0-200>`.");
-            case "volume_set" -> zhCn ? "音量已設定為 `{value}%`。" : (zh ? "音量已設定為 `{value}%`。" : "Volume set to `{value}%`.");
-            case "playlist_usage" -> zhCn ? "使用 `!playlist <save|load|delete|list> [名称]`。" : (zh ? "使用 `!playlist <save|load|delete|list> [名稱]`。" : "Use `!playlist <save|load|delete|list> [name]`.");
-            case "playlist_name_required" -> zhCn ? "请提供歌单名称。" : (zh ? "請提供歌單名稱。" : "Please provide a playlist name.");
-            case "playlist_save_empty" -> zhCn ? "当前没有歌曲或队列可供保存。" : (zh ? "目前沒有歌曲或佇列可供儲存。" : "There is no current track or queue to save.");
-            case "playlist_save_success" -> zhCn ? "歌单 `{name}` 已保存，共 `{count}` 首歌曲。" : (zh ? "歌單 `{name}` 已儲存，共 `{count}` 首歌曲。" : "Playlist `{name}` saved with `{count}` tracks.");
-            case "playlist_load_missing" -> zhCn ? "找不到歌单 `{name}`。" : (zh ? "找不到歌單 `{name}`。" : "Playlist `{name}` was not found.");
-            case "playlist_load_success" -> zhCn ? "歌单 `{name}` 已加入队列，共 `{count}` 首歌曲。" : (zh ? "歌單 `{name}` 已加入佇列，共 `{count}` 首歌曲。" : "Playlist `{name}` queued with `{count}` tracks.");
-            case "playlist_delete_missing" -> zhCn ? "找不到歌单 `{name}`。" : (zh ? "找不到歌單 `{name}`。" : "Playlist `{name}` was not found.");
-            case "playlist_delete_success" -> zhCn ? "歌单 `{name}` 已删除。" : (zh ? "歌單 `{name}` 已刪除。" : "Playlist `{name}` deleted.");
-            case "playlist_title" -> zhCn ? "已保存的歌单" : (zh ? "已儲存的歌單" : "Saved Playlists");
-            case "playlist_desc" -> zhCn ? "保存当前歌曲与队列，之后可随时重新载入。" : (zh ? "儲存目前歌曲與佇列，之後可隨時重新載入。" : "Save the current track and queue, then load them again anytime.");
-            case "playlist_field" -> zhCn ? "歌单" : (zh ? "歌單" : "Playlists");
-            case "playlist_list_desc" -> zhCn ? "这个服务器已保存的歌单。" : (zh ? "這個伺服器已儲存的歌單。" : "Saved playlists for this server.");
-            case "playlist_list_empty" -> zhCn ? "目前还没有保存任何歌单。" : (zh ? "目前還沒有儲存任何歌單。" : "No playlists saved yet.");
-            case "playlist_updated" -> zhCn ? "已更新" : (zh ? "已更新" : "Updated");
-            case "playlist_source" -> zhCn ? "歌单" : (zh ? "歌單" : "Playlist");
-            case "queue_added" -> zhCn ? "已加入队列：`{title}`" : (zh ? "已加入佇列：`{title}`" : "Queued: `{title}`");
-            case "panel_autoplay" -> zhCn ? "自动推荐" : (zh ? "自動推薦" : "Autoplay");
-            case "panel_autoplay_notice" -> zhCn ? "自动推荐提示" : (zh ? "自動推薦提示" : "Autoplay Notice");
-            case "btn_autoplay_on" -> zhCn ? "自动推荐：开启" : (zh ? "自動推薦：開啟" : "Autoplay: ON");
-            case "btn_autoplay_off" -> zhCn ? "自动推荐：关闭" : (zh ? "自動推薦：關閉" : "Autoplay: OFF");
-            case "panel_title" -> zhCn ? "音乐控制面板" : (zh ? "音樂控制面板" : "Music Control Panel");
-            case "panel_current" -> zhCn ? "当前播放" : (zh ? "目前播放" : "Now Playing");
-            case "panel_channel" -> zhCn ? "频道" : (zh ? "頻道" : "Channel");
-            case "panel_queue" -> zhCn ? "队列" : (zh ? "佇列" : "Queue");
-            case "panel_repeat" -> zhCn ? "循环" : (zh ? "循環" : "Repeat");
-            case "panel_state" -> zhCn ? "状态" : (zh ? "狀態" : "State");
-            case "panel_paused" -> zhCn ? "暂停" : (zh ? "暫停" : "Paused");
-            case "panel_playing" -> zhCn ? "播放中" : (zh ? "播放中" : "Playing");
-            case "panel_idle" -> zhCn ? "闲置" : (zh ? "閒置" : "Idle");
-            case "panel_source" -> zhCn ? "来源" : (zh ? "來源" : "Source");
-            case "panel_requester" -> zhCn ? "点歌者" : (zh ? "點歌者" : "Requested By");
-            case "panel_progress" -> zhCn ? "播放进度" : (zh ? "播放進度" : "Progress");
-            case "panel_none" -> zhCn ? "（无）" : (zh ? "（無）" : "(none)");
-            case "autoplay_on" -> zhCn ? "开启" : (zh ? "開啟" : "ON");
-            case "autoplay_off" -> zhCn ? "关闭" : (zh ? "關閉" : "OFF");
-            case "btn_play_pause" -> zhCn ? "播放 / 暂停" : (zh ? "播放 / 暫停" : "Play/Pause");
-            case "btn_skip" -> zhCn ? "跳过" : (zh ? "跳過" : "Skip");
-            case "btn_stop" -> zhCn ? "停止" : (zh ? "停止" : "Stop");
-            case "btn_leave" -> zhCn ? "离开" : (zh ? "離開" : "Leave");
-            case "btn_volume_down" -> zhCn ? "降低音量" : (zh ? "降低音量" : "Volume Down");
-            case "btn_volume_up" -> zhCn ? "增加音量" : (zh ? "增加音量" : "Volume Up");
-            case "btn_repeat_single" -> zhCn ? "单曲循环" : (zh ? "單曲循環" : "Repeat One");
-            case "btn_repeat_all" -> zhCn ? "队列循环" : (zh ? "佇列循環" : "Repeat Queue");
-            case "btn_repeat_off" -> zhCn ? "关闭循环" : (zh ? "關閉循環" : "Disable Repeat");
-            case "btn_refresh" -> zhCn ? "刷新" : (zh ? "刷新" : "Refresh");
-            case "panel_volume" -> zhCn ? "音量" : (zh ? "音量" : "Volume");
-            case "panel_author" -> zhCn ? "上传者" : (zh ? "上傳者" : "Uploader");
-            case "panel_duration" -> zhCn ? "时长" : (zh ? "時長" : "Duration");
-            case "history_title" -> zhCn ? "播放历史" : (zh ? "播放歷史" : "Playback History");
-            case "history_desc" -> zhCn ? "这个服务器最近播放过的歌曲。" : (zh ? "這個伺服器最近播放過的歌曲。" : "Recently played tracks for this server.");
-            case "history_field" -> zhCn ? "最近播放" : (zh ? "最近播放" : "Recently Played");
-            case "history_empty" -> zhCn ? "目前还没有播放历史。" : (zh ? "目前還沒有播放歷史。" : "No playback history yet.");
-            case "history_source" -> zhCn ? "来源" : (zh ? "來源" : "Source");
-            case "history_duration" -> zhCn ? "时长" : (zh ? "時長" : "Duration");
-            case "history_requester" -> zhCn ? "点歌者" : (zh ? "點歌者" : "Requester");
-            case "stats_title" -> zhCn ? "音乐统计" : (zh ? "音樂統計" : "Music Stats");
-            case "stats_desc" -> zhCn ? "这个服务器的音乐活动概览。" : (zh ? "這個伺服器的音樂活動概覽。" : "Music activity overview for this server.");
-            case "stats_top_song" -> zhCn ? "最多播放歌曲" : (zh ? "最多播放歌曲" : "Most Played Song");
-            case "stats_top_user" -> zhCn ? "最常点歌成员" : (zh ? "最常點歌成員" : "Most Active Requester");
-            case "stats_today_time" -> zhCn ? "今日播放时数" : (zh ? "今日播放時數" : "Today's Playback Time");
-            case "stats_history_count" -> zhCn ? "历史记录数量" : (zh ? "歷史紀錄數量" : "History Entries");
-            case "stats_none" -> zhCn ? "暂无资料" : (zh ? "暫無資料" : "No data");
+            case "volume_usage" -> zhCn ? "\u8BF7\u4F7F\u7528 `!volume <0-200>`\u3002" : (zh ? "\u8ACB\u4F7F\u7528 `!volume <0-200>`\u3002" : "Use `!volume <0-200>`.");
+            case "volume_set" -> zhCn ? "\u97F3\u91CF\u5DF2\u8BBE\u7F6E\u4E3A `{value}%`\u3002" : (zh ? "\u97F3\u91CF\u5DF2\u8A2D\u5B9A\u70BA `{value}%`\u3002" : "Volume set to `{value}%`.");
+            case "playlist_usage" -> zhCn ? "\u8BF7\u4F7F\u7528 `!playlist <save|load|delete|list> [name]`\u3002" : (zh ? "\u8ACB\u4F7F\u7528 `!playlist <save|load|delete|list> [name]`\u3002" : "Use `!playlist <save|load|delete|list> [name]`.");
+            case "playlist_name_required" -> zhCn ? "\u8BF7\u63D0\u4F9B\u6B4C\u5355\u540D\u79F0\u3002" : (zh ? "\u8ACB\u63D0\u4F9B\u6B4C\u55AE\u540D\u7A31\u3002" : "Please provide a playlist name.");
+            case "playlist_save_empty" -> zhCn ? "\u76EE\u524D\u6CA1\u6709\u53EF\u4FDD\u5B58\u7684\u6B4C\u66F2\u6216\u961F\u5217\u3002" : (zh ? "\u76EE\u524D\u6C92\u6709\u53EF\u5132\u5B58\u7684\u6B4C\u66F2\u6216\u4F47\u5217\u3002" : "There is no current track or queue to save.");
+            case "playlist_save_success" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u4FDD\u5B58\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u5132\u5B58\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : "Playlist `{name}` saved with `{count}` tracks.");
+            case "playlist_load_missing" -> zhCn ? "\u627E\u4E0D\u5230\u6B4C\u5355 `{name}`\u3002" : (zh ? "\u627E\u4E0D\u5230\u6B4C\u55AE `{name}`\u3002" : "Playlist `{name}` was not found.");
+            case "playlist_load_success" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u52A0\u5165\u961F\u5217\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u52A0\u5165\u4F47\u5217\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : "Playlist `{name}` queued with `{count}` tracks.");
+            case "playlist_delete_missing" -> zhCn ? "\u627E\u4E0D\u5230\u6B4C\u5355 `{name}`\u3002" : (zh ? "\u627E\u4E0D\u5230\u6B4C\u55AE `{name}`\u3002" : "Playlist `{name}` was not found.");
+            case "playlist_delete_success" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u5220\u9664\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u522A\u9664\u3002" : "Playlist `{name}` deleted.");
+            case "playlist_title" -> zhCn ? "\u5DF2\u4FDD\u5B58\u6B4C\u5355" : (zh ? "\u5DF2\u5132\u5B58\u6B4C\u55AE" : "Saved Playlists");
+            case "playlist_desc" -> zhCn ? "\u4FDD\u5B58\u76EE\u524D\u64AD\u653E\u6B4C\u66F2\u4E0E\u961F\u5217\uFF0C\u4E4B\u540E\u53EF\u968F\u65F6\u91CD\u65B0\u8F7D\u5165\u3002" : (zh ? "\u5132\u5B58\u76EE\u524D\u64AD\u653E\u6B4C\u66F2\u8207\u4F47\u5217\uFF0C\u4E4B\u5F8C\u53EF\u96A8\u6642\u91CD\u65B0\u8F09\u5165\u3002" : "Save the current track and queue, then load them again anytime.");
+            case "playlist_field" -> zhCn ? "\u6B4C\u5355\u5217\u8868" : (zh ? "\u6B4C\u55AE\u5217\u8868" : "Playlists");
+            case "playlist_list_desc" -> zhCn ? "\u8FD9\u4E2A\u670D\u52A1\u5668\u5DF2\u4FDD\u5B58\u7684\u6B4C\u5355\u3002" : (zh ? "\u9019\u500B\u4F3A\u670D\u5668\u5DF2\u5132\u5B58\u7684\u6B4C\u55AE\u3002" : "Saved playlists for this server.");
+            case "playlist_list_empty" -> zhCn ? "\u76EE\u524D\u8FD8\u6CA1\u6709\u4FDD\u5B58\u4EFB\u4F55\u6B4C\u5355\u3002" : (zh ? "\u76EE\u524D\u9084\u6C92\u6709\u5132\u5B58\u4EFB\u4F55\u6B4C\u55AE\u3002" : "No playlists saved yet.");
+            case "playlist_updated" -> zhCn ? "\u5DF2\u66F4\u65B0" : (zh ? "\u5DF2\u66F4\u65B0" : "Updated");
+            case "playlist_source" -> zhCn ? "\u6B4C\u5355" : (zh ? "\u6B4C\u55AE" : "Playlist");
+            case "queue_added" -> zhCn ? "\u5DF2\u52A0\u5165\u961F\u5217\uFF1A`{title}`" : (zh ? "\u5DF2\u52A0\u5165\u4F47\u5217\uFF1A`{title}`" : "Queued: `{title}`");
+            case "panel_autoplay" -> zhCn ? "\u81EA\u52A8\u63A8\u8350" : (zh ? "\u81EA\u52D5\u63A8\u85A6" : "Autoplay");
+            case "panel_autoplay_notice" -> zhCn ? "\u81EA\u52A8\u63A8\u8350\u63D0\u793A" : (zh ? "\u81EA\u52D5\u63A8\u85A6\u63D0\u793A" : "Autoplay Notice");
+            case "btn_autoplay_on" -> zhCn ? "\u81EA\u52A8\u63A8\u8350\uFF1A\u5F00\u542F" : (zh ? "\u81EA\u52D5\u63A8\u85A6\uFF1A\u958B\u555F" : "Autoplay: ON");
+            case "btn_autoplay_off" -> zhCn ? "\u81EA\u52A8\u63A8\u8350\uFF1A\u5173\u95ED" : (zh ? "\u81EA\u52D5\u63A8\u85A6\uFF1A\u95DC\u9589" : "Autoplay: OFF");
+            case "panel_title" -> zhCn ? "\u97F3\u4E50\u63A7\u5236\u9762\u677F" : (zh ? "\u97F3\u6A02\u63A7\u5236\u9762\u677F" : "Music Control Panel");
+            case "panel_current" -> zhCn ? "\u5F53\u524D\u64AD\u653E" : (zh ? "\u76EE\u524D\u64AD\u653E" : "Now Playing");
+            case "panel_channel" -> zhCn ? "\u9891\u9053" : (zh ? "\u983B\u9053" : "Channel");
+            case "panel_queue" -> zhCn ? "\u961F\u5217" : (zh ? "\u4F47\u5217" : "Queue");
+            case "panel_repeat" -> zhCn ? "\u5FAA\u73AF" : (zh ? "\u5FAA\u74B0" : "Repeat");
+            case "panel_state" -> zhCn ? "\u72B6\u6001" : (zh ? "\u72C0\u614B" : "State");
+            case "panel_paused" -> zhCn ? "\u6682\u505C" : (zh ? "\u66AB\u505C" : "Paused");
+            case "panel_playing" -> zhCn ? "\u64AD\u653E\u4E2D" : (zh ? "\u64AD\u653E\u4E2D" : "Playing");
+            case "panel_idle" -> zhCn ? "\u95F2\u7F6E" : (zh ? "\u9592\u7F6E" : "Idle");
+            case "panel_source" -> zhCn ? "\u6765\u6E90" : (zh ? "\u4F86\u6E90" : "Source");
+            case "panel_requester" -> zhCn ? "\u70B9\u6B4C\u8005" : (zh ? "\u9EDE\u6B4C\u8005" : "Requested By");
+            case "panel_progress" -> zhCn ? "\u64AD\u653E\u8FDB\u5EA6" : (zh ? "\u64AD\u653E\u9032\u5EA6" : "Progress");
+            case "panel_none" -> zhCn ? "\uFF08\u65E0\uFF09" : (zh ? "\uFF08\u7121\uFF09" : "(none)");
+            case "autoplay_on" -> zhCn ? "\u5F00\u542F" : (zh ? "\u958B\u555F" : "ON");
+            case "autoplay_off" -> zhCn ? "\u5173\u95ED" : (zh ? "\u95DC\u9589" : "OFF");
+            case "btn_play_pause" -> zhCn ? "\u64AD\u653E/\u6682\u505C" : (zh ? "\u64AD\u653E/\u66AB\u505C" : "Play/Pause");
+            case "btn_skip" -> zhCn ? "\u8DF3\u8FC7" : (zh ? "\u8DF3\u904E" : "Skip");
+            case "btn_stop" -> zhCn ? "\u505C\u6B62" : (zh ? "\u505C\u6B62" : "Stop");
+            case "btn_leave" -> zhCn ? "\u79BB\u5F00" : (zh ? "\u96E2\u958B" : "Leave");
+            case "btn_volume_down" -> zhCn ? "\u964D\u4F4E\u97F3\u91CF" : (zh ? "\u964D\u4F4E\u97F3\u91CF" : "Volume Down");
+            case "btn_volume_up" -> zhCn ? "\u589E\u52A0\u97F3\u91CF" : (zh ? "\u589E\u52A0\u97F3\u91CF" : "Volume Up");
+            case "btn_repeat_single" -> zhCn ? "\u5355\u66F2\u5FAA\u73AF" : (zh ? "\u55AE\u66F2\u5FAA\u74B0" : "Repeat One");
+            case "btn_repeat_all" -> zhCn ? "\u961F\u5217\u5FAA\u73AF" : (zh ? "\u4F47\u5217\u5FAA\u74B0" : "Repeat Queue");
+            case "btn_repeat_off" -> zhCn ? "\u5173\u95ED\u5FAA\u73AF" : (zh ? "\u95DC\u9589\u5FAA\u74B0" : "Disable Repeat");
+            case "btn_refresh" -> zhCn ? "\u5237\u65B0" : (zh ? "\u5237\u65B0" : "Refresh");
+            case "panel_volume" -> zhCn ? "\u97F3\u91CF" : (zh ? "\u97F3\u91CF" : "Volume");
+            case "panel_author" -> zhCn ? "\u4E0A\u4F20\u8005" : (zh ? "\u4E0A\u50B3\u8005" : "Uploader");
+            case "panel_duration" -> zhCn ? "\u65F6\u957F" : (zh ? "\u6642\u9577" : "Duration");
+            case "history_title" -> zhCn ? "\u64AD\u653E\u5386\u53F2" : (zh ? "\u64AD\u653E\u6B77\u53F2" : "Playback History");
+            case "history_desc" -> zhCn ? "\u8FD9\u4E2A\u670D\u52A1\u5668\u6700\u8FD1\u64AD\u653E\u8FC7\u7684\u6B4C\u66F2\u3002" : (zh ? "\u9019\u500B\u4F3A\u670D\u5668\u6700\u8FD1\u64AD\u653E\u904E\u7684\u6B4C\u66F2\u3002" : "Recently played tracks for this server.");
+            case "history_field" -> zhCn ? "\u6700\u8FD1\u64AD\u653E" : (zh ? "\u6700\u8FD1\u64AD\u653E" : "Recently Played");
+            case "history_empty" -> zhCn ? "\u76EE\u524D\u8FD8\u6CA1\u6709\u64AD\u653E\u5386\u53F2\u3002" : (zh ? "\u76EE\u524D\u9084\u6C92\u6709\u64AD\u653E\u6B77\u53F2\u3002" : "No playback history yet.");
+            case "history_source" -> zhCn ? "\u6765\u6E90" : (zh ? "\u4F86\u6E90" : "Source");
+            case "history_duration" -> zhCn ? "\u65F6\u957F" : (zh ? "\u6642\u9577" : "Duration");
+            case "history_requester" -> zhCn ? "\u70B9\u6B4C\u8005" : (zh ? "\u9EDE\u6B4C\u8005" : "Requester");
+            case "stats_title" -> zhCn ? "\u97F3\u4E50\u7EDF\u8BA1" : (zh ? "\u97F3\u6A02\u7D71\u8A08" : "Music Stats");
+            case "stats_desc" -> zhCn ? "\u8FD9\u4E2A\u670D\u52A1\u5668\u7684\u97F3\u4E50\u6D3B\u52A8\u6982\u89C8\u3002" : (zh ? "\u9019\u500B\u4F3A\u670D\u5668\u7684\u97F3\u6A02\u6D3B\u52D5\u6982\u89BD\u3002" : "Music activity overview for this server.");
+            case "stats_top_song" -> zhCn ? "\u6700\u591A\u64AD\u653E\u6B4C\u66F2" : (zh ? "\u6700\u591A\u64AD\u653E\u6B4C\u66F2" : "Most Played Song");
+            case "stats_top_user" -> zhCn ? "\u6700\u5E38\u70B9\u6B4C\u6210\u5458" : (zh ? "\u6700\u5E38\u9EDE\u6B4C\u6210\u54E1" : "Most Active Requester");
+            case "stats_today_time" -> zhCn ? "\u4ECA\u65E5\u64AD\u653E\u65F6\u6570" : (zh ? "\u4ECA\u65E5\u64AD\u653E\u6642\u6578" : "Today Playback Time");
+            case "stats_history_count" -> zhCn ? "\u5386\u53F2\u7EAA\u5F55\u6570\u91CF" : (zh ? "\u6B77\u53F2\u7D00\u9304\u6578\u91CF" : "History Entries");
+            case "stats_none" -> zhCn ? "\u6682\u65E0\u8D44\u6599" : (zh ? "\u66AB\u7121\u8CC7\u6599" : "No data");
             default -> key;
         };
         for (Map.Entry<String, String> entry : placeholders.entrySet()) {

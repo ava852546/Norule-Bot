@@ -66,6 +66,20 @@ music:
   not_same_voice_channel: "請先加入和 Bot 相同的語音頻道。"
   join_bot_voice_channel: "Bot 目前在 {channel}，請先加入該語音頻道再使用播放功能。"
   not_connected: "Bot 目前沒有連接任何語音頻道。"
+  playlist_name_required: "請提供歌單名稱。"
+  playlist_save_empty: "目前沒有可儲存的歌曲或佇列。"
+  playlist_save_success: "歌單 `{name}` 已儲存，共 `{count}` 首歌曲。"
+  playlist_load_missing: "找不到歌單 `{name}`。"
+  playlist_load_success: "歌單 `{name}` 已加入佇列，共 `{count}` 首歌曲。"
+  playlist_delete_missing: "找不到歌單 `{name}`。"
+  playlist_delete_success: "歌單 `{name}` 已刪除。"
+  playlist_title: "已儲存歌單"
+  playlist_desc: "這個伺服器已儲存的歌單。"
+  playlist_field: "歌單列表"
+  playlist_list_desc: "這個伺服器已儲存的歌單。"
+  playlist_list_empty: "目前還沒有儲存任何歌單。"
+  playlist_updated: "已更新"
+  playlist_source: "歌單"
 
 help:
   title: "Bot 說明"
@@ -76,79 +90,81 @@ help:
   category_moderation: "管理"
   category_private_room: "私人包廂"
   category_game: "遊戲"
+  category_ticket: "客服單"
   category_general: "一般"
   content_music: |
-    音樂播放
-    `/join` 加入你目前所在的語音頻道
-    `/play query:<關鍵字或URL>` 搜尋並播放歌曲
-    `/music-panel` 建立互動式控制面板
+    英文指令
+    `/join`, `/play query:<keyword or URL>`, `/music-panel`
+    `/skip`, `/stop`, `/leave`, `/repeat mode:<off|single|all>`
+    `/volume value:<0-200>`, `/history`
+    `/playlist action:<save|load|delete|list>`
+    `/music stats`
 
-    播放控制
-    `/skip` 跳過目前歌曲
-    `/stop` 停止播放並清空佇列
-    `/leave` 讓 Bot 離開語音頻道
-    `/repeat mode:<off|single|all>` 切換循環模式
-
-    音樂工具
-    `/volume value:<0-200>` 設定伺服器音量
-    `/history` 顯示最近播放紀錄
-    `/playlist action:<save|load|delete|list>` 管理已儲存歌單
-    `/music action:stats` 顯示播放統計
+    中文指令
+    `/加入`, `/播放 query:<關鍵字或URL>`, `/音樂面板`
+    `/跳過`, `/停止`, `/離開`, `/循環`
+    `/音量 value:<0-200>`, `/播放歷史`
+    `/歌單 儲存 / 載入 / 刪除 / 列表`
+    `/音樂 統計`
   content_settings: |
-    中文設定流程
-    `/設定` 使用 `選項` 選單：
-    資訊 / 重載 / 重設 / 模板 / 模組 / 日誌 / 音樂 / 接龍 / 語言
+    英文指令
+    `/settings action:info|reload|reset|template|module|logs|music|number-chain|language`
 
-    英文設定流程
-    `/settings` 使用 `action` 選單：
-    info / reload / reset / template / module / logs / music / number-chain / language
+    中文指令
+    `/設定 選項:資訊|重載|重設|模板|模組|日誌|音樂|接龍|語言`
 
     資訊面板
-    `/settings action:info` 會開啟分頁資訊面板：
-    notifications / templates / logs / music / private-room / number-chain / module
+    `/settings action:info` 與 `/設定 選項:資訊`
+    都會開啟相同的分頁資訊面板
   content_moderation: |
     訊息清理
-    `/刪除訊息` 中文使用選項式流程
-    `/delete-messages` 英文保留 channel/user 路由
+    `/delete-messages channel` / `/delete-messages user`
+    `/刪除訊息 type:頻道|使用者`
 
     警告系統
-    `/警告` 和 `/warnings` 支援 add / remove / view / clear
-    add/remove/clear 會先要求填寫原因再執行
+    `/warnings action:add|remove|view|clear`
+    `/警告 action:增加|減少|查看|清除`
+
+    防洗頻
+    `/anti-duplicate action:enable|status`
+    `/防洗頻 action:啟用|狀態`
   content_private_room: |
     觸發設定
-    請在 `/settings action:music` 中設定私人包廂觸發頻道
+    請從以下位置設定私人包廂觸發頻道：
+    `/settings action:music`
+    `/設定 選項:音樂`
 
     包廂控制
-    `/private-room-settings` 或 `/包廂設定`
-    可用操作：
-    - 上鎖 / 解鎖
-    - 設定人數上限
-    - 重新命名包廂
-
-    自動清理
-    私人包廂在無人時會自動刪除
+    `/private-room-settings`
+    `/包廂設定`
+    可用操作：上鎖、解鎖、上限、重新命名
   content_game: |
     數字接龍
-    可從以下位置開啟數字接龍設定：
-    `/設定` -> `選項:接龍`
-    `/settings` -> `action:number-chain`
-
-    可用操作
-    - 設定頻道
-    - 啟用或停用
-    - 重設進度
+    `/settings action:number-chain`
+    `/設定 選項:接龍`
+    可用操作：設定頻道、啟用或停用、重設進度
 
     規則
     - 輸入必須符合下一個預期數字
     - 同一位使用者不能連續接龍兩次
     - 輸入錯誤會將進度重設回 1
+  content_ticket: |
+    英文指令
+    `/ticket action:panel|close|limit|blacklist-add|blacklist-remove|blacklist-list`
+
+    中文指令
+    `/客服單 action:面板|關閉|上限|黑名單新增|黑名單移除|黑名單列表`
+
+    補充
+    面板、上限、關閉與黑名單操作
+    會依需要開啟互動選單或輸入視窗
   content_general: |
     - `/help` 開啟此說明面板
-    - `/ping` 顯示目前延遲資訊
-    - 語言切換：`/settings` -> `action:language`
-    - 從下拉選單中選擇目標語言
+    - `/說明` 開啟中文版說明
+    - `/ping` 與 `/延遲` 顯示目前延遲資訊
+    - 語言切換：`/settings action:language` 或 `/設定 選項:語言`
   tip_title: "快速提示"
-  tip_body: "點擊下方分類按鈕可以快速切換頁面。"
+  tip_body: "可使用下拉選單或下方按鈕，在一般、音樂、設定、管理、私人包廂、遊戲、客服單之間快速切換。"
 
 settings:
   action: "選擇設定操作"
