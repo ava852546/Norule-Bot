@@ -53,10 +53,11 @@ public class Main {
         Path guildSettingsPath = resolveDataPath(baseDir, config.getGuildSettingsDir());
         Path languagePath = resolveDataPath(baseDir, config.getLanguageDir());
         Path cachePath = resolveDataPath(baseDir, "cache");
+        Path musicDataPath = resolveDataPath(baseDir, "guild-music");
         Path ticketDataPath = resolveDataPath(baseDir, "guild-tickets");
         Path ticketTranscriptPath = resolveDataPath(baseDir, "ticket-transcripts");
 
-        MusicPlayerService playerService = new MusicPlayerService();
+        MusicPlayerService playerService = new MusicPlayerService(musicDataPath);
         GuildSettingsService guildSettingsService =
                 new GuildSettingsService(guildSettingsPath, config);
         ModerationService moderationService = new ModerationService(resolveDataPath(baseDir, "guild-moderation"));

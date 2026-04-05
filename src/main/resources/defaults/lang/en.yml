@@ -10,15 +10,15 @@ general:
   invalid_user: "Invalid user."
 
 system:
-  startup: "✅ Bot started and is now online."
-  shutdown: "🛑 Bot is shutting down."
+  startup: "??Bot started and is now online."
+  shutdown: "?? Bot is shutting down."
 
 music:
   join_first: "Join a voice channel first."
   joined: "Joined {channel}."
   left: "Left voice channel."
-  left_by_operator: "👋 {user} used the leave button. Bot has left the voice channel."
-  auto_leave_idle_notice: "🕒 Bot left the voice channel automatically due to idle playback timeout."
+  left_by_operator: "?? {user} used the leave button. Bot has left the voice channel."
+  auto_leave_idle_notice: "?? Bot left the voice channel automatically due to idle playback timeout."
   queue_added: "Queued: `{title}`"
   queue_empty: "Queue is empty."
   skipped: "Skipped current track."
@@ -78,84 +78,87 @@ help:
   category_game: "Game"
   category_general: "General"
   content_music: |
-    🎧 Quick Start
-    `/join` Make bot join your current voice channel
+    Music Playback
+    `/join` Join your current voice channel
     `/play query:<keyword or URL>` Search and play a track
     `/music-panel` Create an interactive control panel
 
-    🎮 Playback Controls
-    `/skip` Skip current track
+    Playback Controls
+    `/skip` Skip the current track
     `/stop` Stop playback and clear queue
-    `/leave` Make bot leave voice channel
+    `/leave` Disconnect the bot from voice
     `/repeat mode:<off|single|all>` Switch repeat mode
 
-    🧩 Extra
-    `/settings music` configures music options and private room trigger channel.
-    `/設定` also supports Chinese menu flow for these settings.
+    Music Tools
+    `/volume value:<0-200>` Set guild volume
+    `/history` Show recently played tracks
+    `/playlist action:<save|load|delete|list>` Manage saved playlists
+    `/music action:stats` Show playback stats
   content_settings: |
-    ⚙️ Settings Entry (Chinese)
-    `/設定` now uses `action` choices:
-    info / reload / reset / template / module / logs / music / language
+    Chinese Settings Flow
+    `/設定` uses `選項` choices:
+    資訊 / 重載 / 重設 / 模板 / 模組 / 日誌 / 音樂 / 接龍 / 語言
 
-    ⚙️ Settings Entry (English)
-    `/settings` keeps subcommands:
-    info / reload / reset / template / module / logs / music / language
+    English Settings Flow
+    `/settings` uses `action` choices:
+    info / reload / reset / template / module / logs / music / number-chain / language
 
-    📌 `/settings info` Updated
-    Overview page has been removed.
-    It now uses paged sections with dropdown + buttons:
+    Info Panel
+    `/settings action:info` opens the paged info panel:
     notifications / templates / logs / music / private-room / number-chain / module
   content_moderation: |
-    🧹 Message Cleanup
-    `/刪除訊息 type:頻道 channel:<text-channel> amount:<1-99>`
-    `/刪除訊息 type:使用者 user:<user> amount:<1-99>`
-    `/delete-messages <channel|user>` (English)
+    Message Cleanup
+    `/刪除訊息` uses option-based flow in Chinese
+    `/delete-messages` keeps channel/user routes in English
 
-    Includes confirm button to prevent accidental deletion.
+    Warning System
+    `/警告` and `/warnings` support add / remove / view / clear
+    add/remove/clear will ask for a reason before executing
   content_private_room: |
-    🏠 Trigger Setup
-    Set "Private Room Trigger Channel" in `/settings music`.
+    Trigger Setup
+    Set the private room trigger channel in `/settings action:music`
 
-    🛠️ Room Controls
-    `/private-room-settings`
-    Manage your own room:
+    Room Controls
+    `/private-room-settings` or `/包廂設定`
+    Available actions:
     - Lock / Unlock
-    - Set user limit (1-99, blank = unlimited)
-    - Rename channel (max 10 chars)
+    - Set user limit
+    - Rename the room
 
-    ♻️ Auto Cleanup
-    Private rooms are auto-deleted when empty.
+    Auto Cleanup
+    Private rooms are deleted automatically when empty
   content_game: |
-    🎲 Number Chain
-    `/數字接龍 set-channel channel:<text-channel>` (Chinese alias)
-    `/數字接龍 enable value:<true|false>` (Chinese alias)
-    `/數字接龍 reset` (Chinese alias)
+    Number Chain
+    Open number chain settings from:
+    `/設定` -> `選項:接龍`
+    `/settings` -> `action:number-chain`
 
-    `/number-chain set-channel channel:<text-channel>` Set chain channel
-    `/number-chain enable value:<true|false>` Enable or disable
-    `/number-chain reset` Reset progress
+    Available actions
+    - Set channel
+    - Enable or disable
+    - Reset progress
 
-    Rules:
-    - Input must follow the next expected number
-    - Same user cannot continue twice in a row
+    Rules
+    - Input must match the next expected number
+    - The same user cannot continue twice in a row
     - Wrong input resets progress to 1
   content_general: |
-    - `/help` open this help panel
-    - Language switch: `/設定` -> `語言`
-    - Or use `/settings language code:<language-code>`
+    - `/help` opens this help panel
+    - `/ping` shows current latency information
+    - Language switch: `/settings` -> `action:language`
+    - Select the target language from the dropdown menu
   tip_title: "Quick Tip"
-  tip_body: "Click category buttons below to switch pages instantly."
-
+  tip_body: "Click the category buttons below to switch pages instantly."
 settings:
   action: "Choose settings action"
   reload_done: "Guild settings reloaded."
-  language_code_required: "Please provide a language code (e.g. zh-TW / zh-CN / en)."
+  language_code_required: "Please choose a language from the language menu."
   language_invalid: "Unsupported language: {language}"
   language_updated: "Language changed to {language}."
   language_menu_title: "Language Settings"
   language_menu_desc: "Select the server language from the dropdown menu."
   language_menu_placeholder: "Choose language"
-  language_menu_expired: "Language menu expired. Run `/settings` and choose language again."
+  language_menu_expired: "Language menu expired. Run `/settings` and choose `action:language` again."
   number_chain_menu_title: "Number Chain Settings"
   number_chain_menu_desc: "Use the dropdown menu to adjust number chain settings."
   number_chain_menu_placeholder: "Choose a number chain setting"
@@ -180,8 +183,8 @@ settings:
   info_select_placeholder: "Choose info section"
   info_section_overview: "Overview"
   info_channels_none: "Not set"
-  info_bool_on: "On✅"
-  info_bool_off: "Off❌"
+  info_bool_on: "On??
+  info_bool_off: "Off??
   info_compare_format: "{effective}\n> default: {default}"
   info_default_prefix: "Default"
   info_key_enabled: "Enabled"
@@ -383,7 +386,7 @@ delete:
   failed: "Delete failed. Please try again later."
 
 logs:
-  command_title: "🧭 Command Usage Log"
+  command_title: "?妣 Command Usage Log"
   command_user: "User"
   command_channel: "Channel"
   user: "User"
@@ -453,7 +456,7 @@ anti_duplicate:
 
 moderation:
   duplicate:
-    title: "🚨 Duplicate Message Auto Moderation"
+    title: "? Duplicate Message Auto Moderation"
     user: "User"
     channel: "Channel"
     warning_count: "Warning Count"
@@ -465,9 +468,9 @@ moderation:
 
 number_chain:
   invalid_input: "Cannot parse"
-  reset_notice: "❌ {user} sent an incorrect value. Number chain has been reset to `1`. Expected: `{expected}`, input: `{input}`."
-  same_user_notice: "❌ {user} cannot continue the chain twice in a row. Wait for another member (next expected: `{expected}`)."
-  same_user_reset_notice: "❌ {user} cannot continue the chain twice in a row. This is treated as failure and reset to `1` (previous expected: `{expected}`)."
+  reset_notice: "??{user} sent an incorrect value. Number chain has been reset to `1`. Expected: `{expected}`, input: `{input}`."
+  same_user_notice: "??{user} cannot continue the chain twice in a row. Wait for another member (next expected: `{expected}`)."
+  same_user_reset_notice: "??{user} cannot continue the chain twice in a row. This is treated as failure and reset to `1` (previous expected: `{expected}`)."
   result_set_channel: "Number chain channel set to {channel}. Progress reset to 1."
   result_set_enabled: "Number chain status updated: {status}"
   result_reset: "Number chain has been reset. Start again from 1."
@@ -551,4 +554,10 @@ ticket:
 
 
 
+
+ping:
+  title: "Ping"
+  description: "Current live latency information for the bot."
+  gateway: "Gateway Latency"
+  response: "Interaction Response"
 

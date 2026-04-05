@@ -20,10 +20,16 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import java.util.function.Consumer;
 import java.util.function.LongPredicate;
 import java.util.regex.Matcher;
@@ -34,6 +40,7 @@ public class MusicPlayerService {
     private static final Pattern JSON_FIELD_PATTERN_TEMPLATE = Pattern.compile("\"%s\"\\s*:\\s*\"(.*?)\"");
 
     private final AudioPlayerManager playerManager;
+    private final MusicDataService musicDataService;
     private final Map<Long, GuildMusicManager> musicManagers = new ConcurrentHashMap<>();
     private final Map<Long, Runnable> guildStateListeners = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastCommandChannelByGuild = new ConcurrentHashMap<>();
@@ -43,7 +50,8 @@ public class MusicPlayerService {
             .connectTimeout(Duration.ofSeconds(8))
             .build();
 
-    public MusicPlayerService() {
+    public MusicPlayerService(Path dataDir) {
+        this.musicDataService = new MusicDataService(dataDir);
         playerManager = new DefaultAudioPlayerManager();
         playerManager.registerSourceManager(new YoutubeAudioSourceManager());
         AudioSourceManagers.registerLocalSource(playerManager);
@@ -55,8 +63,11 @@ public class MusicPlayerService {
             GuildMusicManager manager = new GuildMusicManager(
                     playerManager,
                     () -> notifyStateChanged(id),
-                    endedTrack -> handleQueueExhausted(id, endedTrack)
+                    endedTrack -> handleQueueExhausted(id, endedTrack),
+                    startedTrack -> handleTrackStarted(id, startedTrack),
+                    finishedTrack -> handleTrackFinished(id, finishedTrack)
             );
+            manager.getPlayer().setVolume(musicDataService.getVolume(id));
             guild.getAudioManager().setSendingHandler(manager.getSendHandler());
             return manager;
         });
@@ -236,6 +247,14 @@ public class MusicPlayerService {
         return getGuildMusicManager(guild).getScheduler().getRepeatModeName();
     }
 
+    public String getRepeatModeByGuildId(long guildId) {
+        GuildMusicManager manager = musicManagers.get(guildId);
+        if (manager == null) {
+            return "OFF";
+        }
+        return manager.getScheduler().getRepeatModeName();
+    }
+
     public String getCurrentTitle(Guild guild) {
         AudioTrack track = getCurrentTrack(guild);
         return track == null ? null : track.getInfo().title;
@@ -277,14 +296,7 @@ public class MusicPlayerService {
 
     public String getCurrentArtworkUrl(Guild guild) {
         AudioTrack track = getCurrentTrack(guild);
-        if (track == null) {
-            return null;
-        }
-        AudioTrackInfo info = track.getInfo();
-        if (info == null || info.artworkUrl == null || info.artworkUrl.isBlank()) {
-            return null;
-        }
-        return info.artworkUrl;
+        return resolveArtworkUrl(track);
     }
 
     public AudioTrack getCurrentTrack(Guild guild) {
@@ -307,11 +319,124 @@ public class MusicPlayerService {
         return getGuildMusicManager(guild).getScheduler().snapshotQueue();
     }
 
+    public int getVolume(Guild guild) {
+        return getGuildMusicManager(guild).getPlayer().getVolume();
+    }
+
+    public int setVolume(Guild guild, int volume) {
+        int applied = musicDataService.setVolume(guild.getIdLong(), volume);
+        getGuildMusicManager(guild).getPlayer().setVolume(applied);
+        notifyStateChanged(guild.getIdLong());
+        return applied;
+    }
+
+    public String getCurrentAuthor(Guild guild) {
+        AudioTrack track = getCurrentTrack(guild);
+        if (track == null || track.getInfo() == null || track.getInfo().author == null || track.getInfo().author.isBlank()) {
+            return "-";
+        }
+        return track.getInfo().author;
+    }
+
+    public List<MusicDataService.PlaybackEntry> getRecentHistory(long guildId, int limit) {
+        return musicDataService.getRecentHistory(guildId, limit);
+    }
+
+    public MusicDataService.MusicStatsSnapshot getStats(long guildId) {
+        return musicDataService.getStats(guildId);
+    }
+
+    public List<MusicDataService.PlaylistSummary> listPlaylists(long guildId) {
+        return musicDataService.listPlaylists(guildId);
+    }
+
+    public int saveCurrentPlaylist(Guild guild, String playlistName) {
+        List<MusicDataService.PlaybackEntry> snapshot = new ArrayList<>();
+        MusicDataService.PlaybackEntry current = snapshotTrack(getCurrentTrack(guild));
+        if (current != null) {
+            snapshot.add(current);
+        }
+        for (AudioTrack track : getQueueSnapshot(guild)) {
+            MusicDataService.PlaybackEntry entry = snapshotTrack(track);
+            if (entry != null) {
+                snapshot.add(entry);
+            }
+        }
+        return musicDataService.savePlaylist(guild.getIdLong(), playlistName, snapshot);
+    }
+
+    public boolean deletePlaylist(long guildId, String playlistName) {
+        return musicDataService.deletePlaylist(guildId, playlistName);
+    }
+
+    public List<MusicDataService.PlaybackEntry> getPlaylistTracks(long guildId, String playlistName) {
+        return musicDataService.getPlaylistTracks(guildId, playlistName);
+    }
+
+    public int loadPlaylist(Guild guild,
+                            String playlistName,
+                            Consumer<String> messageSender,
+                            Long requesterId,
+                            String requesterName) {
+        return loadPlaylist(guild, playlistName, messageSender, requesterId, requesterName, null);
+    }
+
+    public int loadPlaylist(Guild guild,
+                            String playlistName,
+                            Consumer<String> messageSender,
+                            Long requesterId,
+                            String requesterName,
+                            String sourceLabelOverride) {
+        List<MusicDataService.PlaybackEntry> entries = musicDataService.getPlaylistTracks(guild.getIdLong(), playlistName);
+        if (entries.isEmpty()) {
+            return 0;
+        }
+        GuildMusicManager guildMusicManager = getGuildMusicManager(guild);
+        clearAutoplayNotice(guild.getIdLong());
+        resumeIfPaused(guildMusicManager.getPlayer(), guild.getIdLong());
+        int queued = 0;
+        for (MusicDataService.PlaybackEntry entry : entries) {
+            String identifier = playlistIdentifier(entry);
+            if (identifier == null || identifier.isBlank()) {
+                continue;
+            }
+            load(
+                    guildMusicManager,
+                    messageSender == null ? ignored -> { } : messageSender,
+                    identifier,
+                    identifier,
+                    sourceLabelOverride == null || sourceLabelOverride.isBlank() ? entry.source() : sourceLabelOverride,
+                    true,
+                    requesterId,
+                    requesterName
+            );
+            queued++;
+        }
+        return queued;
+    }
+
     private void notifyStateChanged(long guildId) {
         Runnable listener = guildStateListeners.get(guildId);
         if (listener != null) {
             listener.run();
         }
+    }
+
+    private void handleTrackStarted(long guildId, AudioTrack track) {
+        MusicDataService.PlaybackEntry entry = snapshotTrack(track);
+        if (entry != null) {
+            musicDataService.recordTrackStarted(guildId, entry);
+        }
+    }
+
+    private void handleTrackFinished(long guildId, AudioTrack track) {
+        if (track == null) {
+            return;
+        }
+        long duration = Math.max(0L, track.getDuration());
+        long position = Math.max(0L, track.getPosition());
+        long playedMillis = duration > 0L ? Math.min(duration, position) : position;
+        musicDataService.recordTrackFinished(guildId, playedMillis);
     }
 
     private void handleQueueExhausted(long guildId, AudioTrack endedTrack) {
@@ -345,7 +470,7 @@ public class MusicPlayerService {
         playerManager.loadItemOrdered(guildMusicManager, identifier, new AudioLoadResultHandler() {
             @Override
             public void trackLoaded(AudioTrack track) {
-                if (isLikelySameTrack(seedTrack, track)) {
+                if (isLikelySameOrRecentTrack(guildId, seedTrack, track)) {
                     if (tryFallback()) {
                         return;
                     }
@@ -365,8 +490,8 @@ public class MusicPlayerService {
                     return;
                 }
                 AudioTrack candidate = playlist.getTracks().stream()
-                        .filter(track -> !isLikelySameTrack(seedTrack, track))
-                        .findFirst()
+                        .filter(track -> !isLikelySameOrRecentTrack(guildId, seedTrack, track))
+                        .max(Comparator.comparingInt(track -> scoreAutoplayCandidate(seedTrack, track)))
                         .orElse(null);
                 if (candidate == null) {
                     if (tryFallback()) {
@@ -449,6 +574,62 @@ public class MusicPlayerService {
                 && leftAuthor.equalsIgnoreCase(rightAuthor);
     }
 
+    private boolean isLikelySameOrRecentTrack(long guildId, AudioTrack seedTrack, AudioTrack candidateTrack) {
+        if (isLikelySameTrack(seedTrack, candidateTrack)) {
+            return true;
+        }
+        MusicDataService.PlaybackEntry snapshot = snapshotTrack(candidateTrack);
+        return musicDataService.wasRecentlyPlayed(guildId, snapshot, 10);
+    }
+
+    private int scoreAutoplayCandidate(AudioTrack seedTrack, AudioTrack candidateTrack) {
+        if (seedTrack == null || candidateTrack == null || seedTrack.getInfo() == null || candidateTrack.getInfo() == null) {
+            return Integer.MIN_VALUE;
+        }
+        AudioTrackInfo seed = seedTrack.getInfo();
+        AudioTrackInfo candidate = candidateTrack.getInfo();
+        int score = 0;
+
+        String seedAuthor = normalizeComparableText(seed.author);
+        String candidateAuthor = normalizeComparableText(candidate.author);
+        if (!seedAuthor.isBlank() && !candidateAuthor.isBlank()) {
+            if (seedAuthor.equals(candidateAuthor)) {
+                score += 60;
+            } else if (seedAuthor.contains(candidateAuthor) || candidateAuthor.contains(seedAuthor)) {
+                score += 35;
+            }
+        }
+
+        Set<String> seedTokens = comparableTokens(seed.title);
+        Set<String> candidateTokens = comparableTokens(candidate.title);
+        int overlap = 0;
+        for (String token : seedTokens) {
+            if (candidateTokens.contains(token)) {
+                overlap++;
+            }
+        }
+        score += Math.min(30, overlap * 6);
+
+        String seedSource = normalizeComparableText(seed.uri);
+        String candidateSource = normalizeComparableText(candidate.uri);
+        if (!seedSource.isBlank() && !candidateSource.isBlank()) {
+            if ((seedSource.contains("youtube") || seedSource.contains("youtu be"))
+                    && (candidateSource.contains("youtube") || candidateSource.contains("youtu be"))) {
+                score += 8;
+            } else if (seedSource.contains("soundcloud") && candidateSource.contains("soundcloud")) {
+                score += 8;
+            }
+        }
+
+        long durationGap = Math.abs(Math.max(0L, seedTrack.getDuration()) - Math.max(0L, candidateTrack.getDuration()));
+        if (durationGap <= 30_000L) {
+            score += 8;
+        } else if (durationGap <= 90_000L) {
+            score += 4;
+        }
+        return score;
+    }
+
     private String buildRelatedPlaylistIdentifier(AudioTrack seedTrack) {
         if (seedTrack == null || seedTrack.getInfo() == null || seedTrack.getInfo().uri == null) {
             return null;
@@ -506,9 +687,9 @@ public class MusicPlayerService {
         if (info == null) {
             return "";
         }
-        String title = info.title == null ? "" : info.title.trim();
-        String author = info.author == null ? "" : info.author.trim();
-        String query = (title + " " + author).trim();
+        String title = stripNoise(info.title);
+        String author = stripNoise(info.author);
+        String query = (author + " " + title).trim();
         return query.length() > 180 ? query.substring(0, 180) : query;
     }
 
@@ -538,6 +719,90 @@ public class MusicPlayerService {
         return sourceLabel == null || sourceLabel.isBlank() ? "youtube" : sourceLabel;
     }
 
+    private MusicDataService.PlaybackEntry snapshotTrack(AudioTrack track) {
+        if (track == null || track.getInfo() == null) {
+            return null;
+        }
+        AudioTrackInfo info = track.getInfo();
+        TrackRequestContext context = readContext(track);
+        String source = context == null ? normalizeSourceLabel(null) : context.sourceLabel;
+        Long requesterId = context == null ? null : context.requesterId;
+        String requesterName = context == null ? "" : context.requesterName;
+        return new MusicDataService.PlaybackEntry(
+                Instant.now().toEpochMilli(),
+                info.title,
+                info.author,
+                source,
+                info.uri,
+                resolveArtworkUrl(track),
+                Math.max(0L, track.getDuration()),
+                requesterId,
+                requesterName
+        );
+    }
+
+    private String resolveArtworkUrl(AudioTrack track) {
+        if (track == null) {
+            return null;
+        }
+        AudioTrackInfo info = track.getInfo();
+        if (info != null && info.artworkUrl != null && !info.artworkUrl.isBlank()) {
+            return info.artworkUrl;
+        }
+        if (info == null || info.uri == null || info.uri.isBlank()) {
+            return null;
+        }
+        String videoId = extractYouTubeVideoId(info.uri);
+        if (videoId != null && !videoId.isBlank()) {
+            return "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg";
+        }
+        return null;
+    }
+
+    private String playlistIdentifier(MusicDataService.PlaybackEntry entry) {
+        if (entry == null) {
+            return null;
+        }
+        String uri = entry.uri() == null ? "" : entry.uri().trim();
+        if (!uri.isBlank()) {
+            return uri;
+        }
+        String query = (stripNoise(entry.author()) + " " + stripNoise(entry.title())).trim();
+        if (query.isBlank()) {
+            return null;
+        }
+        return YT_SEARCH_PREFIX + query;
+    }
+
+    private String normalizeComparableText(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.toLowerCase().replaceAll("[^\\p{IsAlphabetic}\\p{IsDigit}]+", " ").trim();
+    }
+
+    private Set<String> comparableTokens(String value) {
+        String normalized = normalizeComparableText(stripNoise(value));
+        if (normalized.isBlank()) {
+            return Set.of();
+        }
+        return List.of(normalized.split("\\s+")).stream()
+                .filter(token -> token.length() >= 2)
+                .limit(12)
+                .collect(Collectors.toSet());
+    }
+
+    private String stripNoise(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replaceAll("(?i)\\b(official|audio|video|lyrics|lyric video|mv|hd|4k|visualizer)\\b", " ")
+                .replaceAll("[\\[\\](){}|]+", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
     private ResolvedInput resolveInput(String input) {
         String trimmed = input.trim();
         if (!looksLikeUrl(trimmed)) {
@@ -548,6 +813,9 @@ public class MusicPlayerService {
             if (!keyword.isBlank()) {
                 return new ResolvedInput(keyword, false, "spotify");
             }
+        }
+        if (looksLikeSoundCloudUrl(trimmed)) {
+            return new ResolvedInput(trimmed, true, "soundcloud");
         }
         return new ResolvedInput(trimmed, true, looksLikeYouTubeUrl(trimmed) ? "youtube" : "url");
     }
@@ -598,6 +866,11 @@ public class MusicPlayerService {
     private boolean looksLikeSpotifyUrl(String text) {
         String lower = text.toLowerCase();
         return lower.contains("open.spotify.com/") || lower.startsWith("spotify:");
+    }
+
+    private boolean looksLikeSoundCloudUrl(String text) {
+        String lower = text.toLowerCase();
+        return lower.contains("soundcloud.com/");
     }
 
     private static class ResolvedInput {
