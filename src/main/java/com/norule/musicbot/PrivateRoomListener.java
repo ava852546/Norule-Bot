@@ -14,6 +14,18 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class PrivateRoomListener extends ListenerAdapter {
+    private static final long ROOM_OWNER_PERMISSION_RAW = Permission.getRaw(
+            Permission.MANAGE_CHANNEL,
+            Permission.VOICE_MOVE_OTHERS,
+            Permission.VOICE_CONNECT,
+            Permission.VOICE_SPEAK,
+            Permission.VOICE_STREAM,
+            Permission.VOICE_USE_VAD,
+            Permission.VIEW_CHANNEL,
+            Permission.MESSAGE_SEND,
+            Permission.MESSAGE_EMBED_LINKS,
+            Permission.USE_APPLICATION_COMMANDS
+    );
     private final GuildSettingsService settingsService;
     private final I18nService i18n;
     private final Map<Long, Set<Long>> privateChannelsByGuild = new ConcurrentHashMap<>();
@@ -54,6 +66,7 @@ public class PrivateRoomListener extends ListenerAdapter {
                 .addRolePermissionOverride(
                         event.getGuild().getPublicRole().getIdLong(),
                         Permission.getRaw(
+                                Permission.CREATE_INSTANT_INVITE,
                                 Permission.VIEW_CHANNEL,
                                 Permission.VOICE_CONNECT,
                                 Permission.VOICE_SPEAK,
@@ -64,18 +77,7 @@ public class PrivateRoomListener extends ListenerAdapter {
                 )
                 .addMemberPermissionOverride(
                         member.getIdLong(),
-                        Permission.getRaw(
-                                Permission.MANAGE_CHANNEL,
-                                Permission.VOICE_MOVE_OTHERS,
-                                Permission.VOICE_CONNECT,
-                                Permission.VOICE_SPEAK,
-                                Permission.VOICE_STREAM,
-                                Permission.VOICE_USE_VAD,
-                                Permission.VIEW_CHANNEL,
-                                Permission.MESSAGE_SEND,
-                                Permission.MESSAGE_EMBED_LINKS,
-                                Permission.USE_APPLICATION_COMMANDS
-                        ),
+                        ROOM_OWNER_PERMISSION_RAW,
                         0L
                 )
                 .queue(created -> {
@@ -160,6 +162,19 @@ public class PrivateRoomListener extends ListenerAdapter {
         }
         Long ownerId = owners.get(channelId);
         return ownerId != null && ownerId == userId;
+    }
+
+    public static Long getRoomOwnerId(long guildId, long channelId) {
+        Map<Long, Long> owners = ROOM_OWNERS.get(guildId);
+        return owners == null ? null : owners.get(channelId);
+    }
+
+    public static void setRoomOwner(long guildId, long channelId, long userId) {
+        ROOM_OWNERS.computeIfAbsent(guildId, id -> new ConcurrentHashMap<>()).put(channelId, userId);
+    }
+
+    public static long getRoomOwnerPermissionRaw() {
+        return ROOM_OWNER_PERMISSION_RAW;
     }
 
     private String buildRoomName(Member member) {

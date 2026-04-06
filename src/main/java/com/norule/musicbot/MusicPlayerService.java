@@ -449,11 +449,6 @@ public class MusicPlayerService {
             return;
         }
         String fallbackQuery = buildAutoplayQuery(endedTrack);
-        String relatedIdentifier = buildRelatedPlaylistIdentifier(endedTrack);
-        if (relatedIdentifier != null) {
-            loadAutoplayCandidate(guildId, guildMusicManager, endedTrack, relatedIdentifier, fallbackQuery, true);
-            return;
-        }
         if (fallbackQuery.isBlank()) {
             setAutoplayNotice(guildId, "NO_MATCH");
             return;
@@ -817,7 +812,33 @@ public class MusicPlayerService {
         if (looksLikeSoundCloudUrl(trimmed)) {
             return new ResolvedInput(trimmed, true, "soundcloud");
         }
-        return new ResolvedInput(trimmed, true, looksLikeYouTubeUrl(trimmed) ? "youtube" : "url");
+        if (looksLikeYouTubeUrl(trimmed)) {
+            return new ResolvedInput(normalizeYouTubePlaybackUrl(trimmed), true, "youtube");
+        }
+        return new ResolvedInput(trimmed, true, "url");
+    }
+
+    private String normalizeYouTubePlaybackUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return url;
+        }
+        try {
+            String videoId = extractYouTubeVideoId(url);
+            if (videoId == null || videoId.isBlank()) {
+                return url;
+            }
+            URI uri = URI.create(url.trim());
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+            if (host.contains("youtube.com")) {
+                String query = uri.getRawQuery();
+                if (query != null && query.contains("list=RD")) {
+                    return "https://www.youtube.com/watch?v=" + videoId;
+                }
+            }
+            return url;
+        } catch (Exception ignored) {
+            return url;
+        }
     }
 
     private String resolveSpotifyToSearch(String spotifyUrl) {

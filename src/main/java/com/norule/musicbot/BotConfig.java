@@ -33,6 +33,7 @@ public class BotConfig {
     private final BotProfile botProfile;
     private final Map<String, String> commandDescriptions;
     private final Notifications notifications;
+    private final Welcome welcome;
     private final MessageLogs messageLogs;
     private final Music music;
     private final PrivateRoom privateRoom;
@@ -49,6 +50,7 @@ public class BotConfig {
                       BotProfile botProfile,
                       Map<String, String> commandDescriptions,
                       Notifications notifications,
+                      Welcome welcome,
                       MessageLogs messageLogs,
                       Music music,
                       PrivateRoom privateRoom,
@@ -64,6 +66,7 @@ public class BotConfig {
         this.botProfile = botProfile;
         this.commandDescriptions = commandDescriptions;
         this.notifications = notifications;
+        this.welcome = welcome;
         this.messageLogs = messageLogs;
         this.music = music;
         this.privateRoom = privateRoom;
@@ -98,6 +101,7 @@ public class BotConfig {
             BotProfile botProfile = BotProfile.fromMap(asMap(root.get("bot")), null);
             Map<String, String> commandDescriptions = resolveCommandDescriptions(asMap(root.get("commandDescriptions")));
             Notifications notifications = Notifications.fromMap(asMap(root.get("notifications")), null);
+            Welcome welcome = Welcome.fromMap(asMap(root.get("welcome")), null);
             MessageLogs messageLogs = MessageLogs.fromMap(asMap(root.get("messageLogs")), null);
             Music music = Music.fromMap(asMap(root.get("music")), null);
             PrivateRoom privateRoom = PrivateRoom.fromMap(asMap(root.get("privateRoom")), null);
@@ -106,7 +110,7 @@ public class BotConfig {
 
             return new BotConfig(token, prefix, commandGuildId, guildSettingsDir, languageDir, defaultLanguage, commandCooldownSeconds, botProfile,
                     commandDescriptions,
-                    notifications, messageLogs, music, privateRoom, ticket, web);
+                    notifications, welcome, messageLogs, music, privateRoom, ticket, web);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read config.yml: " + path.toAbsolutePath(), e);
         }
@@ -447,6 +451,10 @@ public class BotConfig {
         return notifications;
     }
 
+    public Welcome getWelcome() {
+        return welcome;
+    }
+
     public MessageLogs getMessageLogs() {
         return messageLogs;
     }
@@ -475,7 +483,10 @@ public class BotConfig {
         private final Long memberChannelId;
         private final Long memberJoinChannelId;
         private final Long memberLeaveChannelId;
+        private final String memberJoinTitle;
         private final String memberJoinMessage;
+        private final String memberJoinThumbnailUrl;
+        private final String memberJoinImageUrl;
         private final String memberLeaveMessage;
         private final int memberJoinColor;
         private final int memberLeaveColor;
@@ -491,7 +502,10 @@ public class BotConfig {
                               Long memberChannelId,
                               Long memberJoinChannelId,
                               Long memberLeaveChannelId,
+                              String memberJoinTitle,
                               String memberJoinMessage,
+                              String memberJoinThumbnailUrl,
+                              String memberJoinImageUrl,
                               String memberLeaveMessage,
                               int memberJoinColor,
                               int memberLeaveColor,
@@ -506,7 +520,10 @@ public class BotConfig {
             this.memberChannelId = memberChannelId;
             this.memberJoinChannelId = memberJoinChannelId;
             this.memberLeaveChannelId = memberLeaveChannelId;
+            this.memberJoinTitle = memberJoinTitle;
             this.memberJoinMessage = memberJoinMessage;
+            this.memberJoinThumbnailUrl = memberJoinThumbnailUrl;
+            this.memberJoinImageUrl = memberJoinImageUrl;
             this.memberLeaveMessage = memberLeaveMessage;
             this.memberJoinColor = memberJoinColor;
             this.memberLeaveColor = memberLeaveColor;
@@ -526,7 +543,10 @@ public class BotConfig {
                     getLong(map, "memberChannelId", defaults.getMemberChannelId()),
                     getLong(map, "memberJoinChannelId", defaults.getMemberJoinChannelId()),
                     getLong(map, "memberLeaveChannelId", defaults.getMemberLeaveChannelId()),
+                    getString(map, "memberJoinTitle", defaults.getMemberJoinTitle()),
                     getString(map, "memberJoinMessage", defaults.getMemberJoinMessage()),
+                    getString(map, "memberJoinThumbnailUrl", defaults.getMemberJoinThumbnailUrl()),
+                    getString(map, "memberJoinImageUrl", defaults.getMemberJoinImageUrl()),
                     getString(map, "memberLeaveMessage", defaults.getMemberLeaveMessage()),
                     getColor(map, "memberJoinColor", defaults.getMemberJoinColor()),
                     getColor(map, "memberLeaveColor", defaults.getMemberLeaveColor()),
@@ -546,7 +566,10 @@ public class BotConfig {
                     null,
                     null,
                     null,
+                    "Member Joined",
                     "{user} joined the server. Account created: {createdAt} ({accountAgeDays} days ago). ID: {id}",
+                    "",
+                    "",
                     "{user} left the server. Account created: {createdAt} ({accountAgeDays} days ago). ID: {id}",
                     0x2ECC71,
                     0xE74C3C,
@@ -558,77 +581,92 @@ public class BotConfig {
         }
 
         public Notifications withEnabled(boolean enabled) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withMemberJoinEnabled(boolean memberJoinEnabled) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withMemberLeaveEnabled(boolean memberLeaveEnabled) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withVoiceLogEnabled(boolean voiceLogEnabled) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withMemberChannelId(Long memberChannelId) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withMemberJoinChannelId(Long memberJoinChannelId) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withMemberLeaveChannelId(Long memberLeaveChannelId) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withVoiceChannelId(Long voiceChannelId) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+        }
+
+        public Notifications withMemberJoinTitle(String memberJoinTitle) {
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withMemberJoinMessage(String memberJoinMessage) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+        }
+
+        public Notifications withMemberJoinThumbnailUrl(String memberJoinThumbnailUrl) {
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+        }
+
+        public Notifications withMemberJoinImageUrl(String memberJoinImageUrl) {
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withMemberLeaveMessage(String memberLeaveMessage) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withVoiceJoinMessage(String voiceJoinMessage) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withVoiceLeaveMessage(String voiceLeaveMessage) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withVoiceMoveMessage(String voiceMoveMessage) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withMemberJoinColor(int memberJoinColor) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, normalizeColor(memberJoinColor), memberLeaveColor, voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, normalizeColor(memberJoinColor), memberLeaveColor, voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
         public Notifications withMemberLeaveColor(int memberLeaveColor) {
-            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinMessage, memberLeaveMessage, memberJoinColor, normalizeColor(memberLeaveColor), voiceChannelId,
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, normalizeColor(memberLeaveColor), voiceChannelId,
                     voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
         }
 
@@ -660,8 +698,20 @@ public class BotConfig {
             return memberLeaveChannelId;
         }
 
+        public String getMemberJoinTitle() {
+            return memberJoinTitle;
+        }
+
         public String getMemberJoinMessage() {
             return memberJoinMessage;
+        }
+
+        public String getMemberJoinThumbnailUrl() {
+            return memberJoinThumbnailUrl;
+        }
+
+        public String getMemberJoinImageUrl() {
+            return memberJoinImageUrl;
         }
 
         public String getMemberLeaveMessage() {
@@ -694,6 +744,100 @@ public class BotConfig {
 
         private static int normalizeColor(int value) {
             return value & 0xFFFFFF;
+        }
+    }
+
+    public static class Welcome {
+        private final boolean enabled;
+        private final Long channelId;
+        private final String title;
+        private final String message;
+        private final String thumbnailUrl;
+        private final String imageUrl;
+
+        private Welcome(boolean enabled,
+                        Long channelId,
+                        String title,
+                        String message,
+                        String thumbnailUrl,
+                        String imageUrl) {
+            this.enabled = enabled;
+            this.channelId = channelId;
+            this.title = title == null ? "" : title.trim();
+            this.message = message == null ? "" : message.trim();
+            this.thumbnailUrl = thumbnailUrl == null ? "" : thumbnailUrl.trim();
+            this.imageUrl = imageUrl == null ? "" : imageUrl.trim();
+        }
+
+        public static Welcome fromMap(Map<String, Object> map, Welcome fallback) {
+            Welcome defaults = fallback == null ? defaultValues() : fallback;
+            return new Welcome(
+                    getBoolean(map, "enabled", defaults.isEnabled()),
+                    getLong(map, "channelId", defaults.getChannelId()),
+                    getString(map, "title", defaults.getTitle()),
+                    getString(map, "message", defaults.getMessage()),
+                    getString(map, "thumbnailUrl", defaults.getThumbnailUrl()),
+                    getString(map, "imageUrl", defaults.getImageUrl())
+            );
+        }
+
+        public static Welcome defaultValues() {
+            return new Welcome(
+                    false,
+                    null,
+                    "",
+                    "{user} joined {guild}.",
+                    "",
+                    ""
+            );
+        }
+
+        public Welcome withEnabled(boolean enabled) {
+            return new Welcome(enabled, channelId, title, message, thumbnailUrl, imageUrl);
+        }
+
+        public Welcome withChannelId(Long channelId) {
+            return new Welcome(enabled, channelId, title, message, thumbnailUrl, imageUrl);
+        }
+
+        public Welcome withTitle(String title) {
+            return new Welcome(enabled, channelId, title, message, thumbnailUrl, imageUrl);
+        }
+
+        public Welcome withMessage(String message) {
+            return new Welcome(enabled, channelId, title, message, thumbnailUrl, imageUrl);
+        }
+
+        public Welcome withThumbnailUrl(String thumbnailUrl) {
+            return new Welcome(enabled, channelId, title, message, thumbnailUrl, imageUrl);
+        }
+
+        public Welcome withImageUrl(String imageUrl) {
+            return new Welcome(enabled, channelId, title, message, thumbnailUrl, imageUrl);
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public Long getChannelId() {
+            return channelId;
+        }
+
+        public String getTitle() {
+            return title;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+
+        public String getThumbnailUrl() {
+            return thumbnailUrl;
+        }
+
+        public String getImageUrl() {
+            return imageUrl;
         }
     }
 

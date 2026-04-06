@@ -12,6 +12,7 @@ import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Role;
+import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
@@ -40,6 +41,8 @@ import java.security.KeyStore;
 import java.security.KeyFactory;
 import java.security.PrivateKey;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -653,6 +656,20 @@ public class WebControlServer {
             return;
         }
 
+        if ("welcome".equals(section)) {
+            if (segments.length < 3) {
+                sendJson(exchange, 404, DataObject.empty().put("error", "Unknown welcome action"));
+                return;
+            }
+            String action = segments[2];
+            if ("POST".equalsIgnoreCase(exchange.getRequestMethod()) && "preview".equals(action)) {
+                handleWelcomePreview(exchange, guild, member);
+                return;
+            }
+            sendJson(exchange, 405, DataObject.empty().put("error", "Method Not Allowed"));
+            return;
+        }
+
         if ("number-chain".equals(section)) {
             if (segments.length < 3) {
                 sendJson(exchange, 404, DataObject.empty().put("error", "Unknown number chain action"));
@@ -993,7 +1010,10 @@ public class WebControlServer {
                         .put("memberChannelId", toIdText(n.getMemberChannelId()))
                         .put("memberJoinChannelId", toIdText(n.getMemberJoinChannelId()))
                         .put("memberLeaveChannelId", toIdText(n.getMemberLeaveChannelId()))
+                        .put("memberJoinTitle", n.getMemberJoinTitle())
                         .put("memberJoinMessage", n.getMemberJoinMessage())
+                        .put("memberJoinThumbnailUrl", n.getMemberJoinThumbnailUrl())
+                        .put("memberJoinImageUrl", n.getMemberJoinImageUrl())
                         .put("memberLeaveMessage", n.getMemberLeaveMessage())
                         .put("memberJoinColor", String.format("#%06X", n.getMemberJoinColor()))
                         .put("memberLeaveColor", String.format("#%06X", n.getMemberLeaveColor()))
@@ -1001,6 +1021,13 @@ public class WebControlServer {
                         .put("voiceJoinMessage", n.getVoiceJoinMessage())
                         .put("voiceLeaveMessage", n.getVoiceLeaveMessage())
                         .put("voiceMoveMessage", n.getVoiceMoveMessage()))
+                .put("welcome", DataObject.empty()
+                        .put("enabled", settings.getWelcome().isEnabled())
+                        .put("channelId", toIdText(settings.getWelcome().getChannelId()))
+                        .put("title", settings.getWelcome().getTitle())
+                        .put("message", settings.getWelcome().getMessage())
+                        .put("thumbnailUrl", settings.getWelcome().getThumbnailUrl())
+                        .put("imageUrl", settings.getWelcome().getImageUrl()))
                 .put("messageLogs", DataObject.empty()
                         .put("enabled", l.isEnabled())
                         .put("channelId", toIdText(l.getChannelId()))
@@ -1098,7 +1125,10 @@ public class WebControlServer {
                         .withMemberChannelId(idOrDefault(nMap, "memberChannelId", n.getMemberChannelId()))
                         .withMemberJoinChannelId(idOrDefault(nMap, "memberJoinChannelId", n.getMemberJoinChannelId()))
                         .withMemberLeaveChannelId(idOrDefault(nMap, "memberLeaveChannelId", n.getMemberLeaveChannelId()))
+                        .withMemberJoinTitle(stringOrDefault(nMap, "memberJoinTitle", n.getMemberJoinTitle()))
                         .withMemberJoinMessage(stringOrDefault(nMap, "memberJoinMessage", n.getMemberJoinMessage()))
+                        .withMemberJoinThumbnailUrl(stringOrDefault(nMap, "memberJoinThumbnailUrl", n.getMemberJoinThumbnailUrl()))
+                        .withMemberJoinImageUrl(stringOrDefault(nMap, "memberJoinImageUrl", n.getMemberJoinImageUrl()))
                         .withMemberLeaveMessage(stringOrDefault(nMap, "memberLeaveMessage", n.getMemberLeaveMessage()))
                         .withMemberJoinColor(colorOrDefault(nMap, "memberJoinColor", n.getMemberJoinColor()))
                         .withMemberLeaveColor(colorOrDefault(nMap, "memberLeaveColor", n.getMemberLeaveColor()))
@@ -1106,6 +1136,17 @@ public class WebControlServer {
                         .withVoiceJoinMessage(stringOrDefault(nMap, "voiceJoinMessage", n.getVoiceJoinMessage()))
                         .withVoiceLeaveMessage(stringOrDefault(nMap, "voiceLeaveMessage", n.getVoiceLeaveMessage()))
                         .withVoiceMoveMessage(stringOrDefault(nMap, "voiceMoveMessage", n.getVoiceMoveMessage()));
+            }
+
+            BotConfig.Welcome w = current.getWelcome();
+            Map<String, Object> wMap = asMap(root.get("welcome"));
+            if (!wMap.isEmpty()) {
+                w = w.withEnabled(boolOrDefault(wMap, "enabled", w.isEnabled()))
+                        .withChannelId(idOrDefault(wMap, "channelId", w.getChannelId()))
+                        .withTitle(stringOrDefault(wMap, "title", w.getTitle()))
+                        .withMessage(stringOrDefault(wMap, "message", w.getMessage()))
+                        .withThumbnailUrl(stringOrDefault(wMap, "thumbnailUrl", w.getThumbnailUrl()))
+                        .withImageUrl(stringOrDefault(wMap, "imageUrl", w.getImageUrl()));
             }
 
             if (languageChanged) {
@@ -1201,6 +1242,7 @@ public class WebControlServer {
 
             return current.withLanguage(language)
                     .withNotifications(n)
+                    .withWelcome(w)
                     .withMessageLogs(l)
                     .withMusic(m)
                     .withPrivateRoom(p)
@@ -1208,6 +1250,165 @@ public class WebControlServer {
         });
 
         sendJson(exchange, 200, DataObject.empty().put("ok", true).put("language", updated.getLanguage()));
+    }
+
+    private void handleWelcomePreview(HttpExchange exchange, Guild guild, Member member) throws IOException {
+        String lang = settingsService.getLanguage(guild.getIdLong());
+        String body = readBody(exchange);
+        Map<String, Object> root;
+        try {
+            root = asMap(new Yaml().load(body));
+        } catch (Exception e) {
+            sendJson(exchange, 400, DataObject.empty().put("error", previewWelcomeInvalidPayload(lang)));
+            return;
+        }
+
+        BotConfig.Welcome welcome = settingsService.getWelcome(guild.getIdLong());
+        Map<String, Object> wMap = asMap(root.get("welcome"));
+        if (wMap.isEmpty()) {
+            wMap = root;
+        }
+        if (!wMap.isEmpty()) {
+            welcome = welcome
+                    .withEnabled(boolOrDefault(wMap, "enabled", welcome.isEnabled()))
+                    .withChannelId(idOrDefault(wMap, "channelId", welcome.getChannelId()))
+                    .withTitle(stringOrDefault(wMap, "title", welcome.getTitle()))
+                    .withMessage(stringOrDefault(wMap, "message", welcome.getMessage()))
+                    .withThumbnailUrl(stringOrDefault(wMap, "thumbnailUrl", welcome.getThumbnailUrl()))
+                    .withImageUrl(stringOrDefault(wMap, "imageUrl", welcome.getImageUrl()));
+        }
+
+        if (welcome.getChannelId() == null || welcome.getChannelId() <= 0L) {
+            sendJson(exchange, 400, DataObject.empty().put("error", previewWelcomeChannelRequired(lang)));
+            return;
+        }
+
+        TextChannel channel = guild.getTextChannelById(welcome.getChannelId());
+        if (channel == null) {
+            sendJson(exchange, 404, DataObject.empty().put("error", previewWelcomeChannelMissing(lang)));
+            return;
+        }
+        if (!guild.getSelfMember().hasPermission(channel,
+                Permission.VIEW_CHANNEL,
+                Permission.MESSAGE_SEND,
+                Permission.MESSAGE_EMBED_LINKS)) {
+            sendJson(exchange, 403, DataObject.empty().put("error", previewWelcomeMissingPermission(lang)));
+            return;
+        }
+
+        User user = member.getUser();
+        String title = formatWelcomeTemplate(resolveWelcomeTitle(welcome, lang), user, guild);
+        String message = formatWelcomeTemplate(resolveWelcomeMessage(welcome, lang), user, guild);
+        if (message.isBlank()) {
+            sendJson(exchange, 400, DataObject.empty().put("error", previewWelcomeEmptyMessage(lang)));
+            return;
+        }
+
+        String thumbnailUrl = sanitizeWelcomeUrl(welcome.getThumbnailUrl());
+        String imageUrl = sanitizeWelcomeUrl(welcome.getImageUrl());
+        try {
+            channel.sendMessageEmbeds(buildWelcomeEmbed(guild, user, title, message, thumbnailUrl, imageUrl).build()).complete();
+        } catch (Exception firstError) {
+            try {
+                channel.sendMessageEmbeds(buildWelcomeEmbed(guild, user, title, message, null, null).build()).complete();
+            } catch (Exception secondError) {
+                sendJson(exchange, 500, DataObject.empty().put("error", previewWelcomeSendFailed(lang)));
+                return;
+            }
+        }
+
+        sendJson(exchange, 200, DataObject.empty()
+                .put("ok", true)
+                .put("message", previewWelcomeSent(lang, channel.getAsMention())));
+    }
+
+    private EmbedBuilder buildWelcomeEmbed(Guild guild, User user, String title, String message, String thumbnailUrl, String imageUrl) {
+        EmbedBuilder eb = new EmbedBuilder()
+                .setColor(new java.awt.Color(0x2ECC71))
+                .setTitle(title)
+                .setDescription(message)
+                .setTimestamp(Instant.now())
+                .setFooter(guild.getName(), guild.getIconUrl());
+        eb.setThumbnail(thumbnailUrl != null ? thumbnailUrl : user.getEffectiveAvatarUrl());
+        if (imageUrl != null) {
+            eb.setImage(imageUrl);
+        }
+        return eb;
+    }
+
+    private String resolveWelcomeTitle(BotConfig.Welcome welcome, String lang) {
+        String title = welcome.getTitle();
+        return (title == null || title.isBlank())
+                ? i18n.t(lang, "welcome.default_title")
+                : title;
+    }
+
+    private String resolveWelcomeMessage(BotConfig.Welcome welcome, String lang) {
+        String message = welcome.getMessage();
+        return (message == null || message.isBlank())
+                ? i18n.t(lang, "welcome.default_message")
+                : message;
+    }
+
+    private String formatWelcomeTemplate(String template, User user, Guild guild) {
+        Instant createdAt = user.getTimeCreated().toInstant();
+        long accountAgeDays = ChronoUnit.DAYS.between(createdAt, Instant.now());
+        return template
+                .replace("{user}", user.getAsMention())
+                .replace("{username}", user.getName())
+                .replace("{guild}", guild.getName())
+                .replace("{id}", user.getId())
+                .replace("{tag}", user.getAsTag())
+                .replace("{isBot}", String.valueOf(user.isBot()))
+                .replace("{createdAt}", discordCreatedAt(createdAt))
+                .replace("{accountAgeDays}", String.valueOf(Math.max(0L, accountAgeDays)));
+    }
+
+    private String sanitizeWelcomeUrl(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String text = raw.trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        String lower = text.toLowerCase();
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+            return null;
+        }
+        return text;
+    }
+
+    private String discordCreatedAt(Instant instant) {
+        return "<t:" + instant.getEpochSecond() + ":F>";
+    }
+
+    private String previewWelcomeSent(String lang, String channelMention) {
+        return "Welcome preview sent to " + channelMention + ".";
+    }
+
+    private String previewWelcomeChannelRequired(String lang) {
+        return "Please select a welcome message channel first.";
+    }
+
+    private String previewWelcomeChannelMissing(String lang) {
+        return "The welcome message channel could not be found. Please choose it again.";
+    }
+
+    private String previewWelcomeMissingPermission(String lang) {
+        return "The bot is missing the channel permissions required to send the welcome preview.";
+    }
+
+    private String previewWelcomeEmptyMessage(String lang) {
+        return "Welcome message content cannot be empty.";
+    }
+
+    private String previewWelcomeInvalidPayload(String lang) {
+        return "Invalid welcome preview payload.";
+    }
+
+    private String previewWelcomeSendFailed(String lang) {
+        return "Failed to send the welcome preview. Please check the image URLs and channel permissions.";
     }
 
     private String normalizeLang(String lang) {
@@ -1231,10 +1432,8 @@ public class WebControlServer {
 
     private BotConfig.Notifications notificationDefaultsForLanguage(String language) {
         BotConfig.Notifications defaults = BotConfig.Notifications.defaultValues();
-        if (!"zh-TW".equalsIgnoreCase(normalizeLang(language))) {
-            return defaults;
-        }
         return defaults
+                .withMemberJoinTitle(i18n.t(language, "notifications.embed.member_join_title"))
                 .withMemberJoinMessage(i18n.t(language, "notifications.template.default.member_join"))
                 .withMemberLeaveMessage(i18n.t(language, "notifications.template.default.member_leave"))
                 .withVoiceJoinMessage(i18n.t(language, "notifications.template.default.voice_join"))
@@ -2064,6 +2263,246 @@ public class WebControlServer {
                     }
                     .settings-group .grid2,
                     .settings-group .grid3{ margin-top:6px; }
+                    .welcome-shell{ display:flex; flex-direction:column; gap:14px; }
+                    .welcome-compact-actions{
+                      display:flex;
+                      gap:10px;
+                      flex-wrap:wrap;
+                      margin-top:12px;
+                    }
+                    .welcome-compact-actions button{
+                      width:auto;
+                    }
+                    .welcome-lead{
+                      margin:-2px 0 2px;
+                      color:#93c5fd;
+                      font-size:12px;
+                      line-height:1.6;
+                    }
+                    .welcome-toggle{
+                      padding:12px 14px;
+                      border-radius:12px;
+                      border:1px solid rgba(96,165,250,.18);
+                      background:linear-gradient(180deg, rgba(37,99,235,.12), rgba(15,23,42,.35));
+                    }
+                    .welcome-topline{
+                      display:grid;
+                      grid-template-columns:repeat(2,minmax(0,1fr));
+                      gap:12px;
+                      align-items:end;
+                    }
+                    .welcome-topline .toggle{
+                      justify-self:end;
+                      min-height:42px;
+                      padding:0 2px;
+                    }
+                    .welcome-media-grid{
+                      display:grid;
+                      grid-template-columns:repeat(2,minmax(0,1fr));
+                      gap:12px;
+                    }
+                    .welcome-preview-headline{
+                      display:flex;
+                      align-items:center;
+                      justify-content:space-between;
+                      gap:12px;
+                      margin-bottom:10px;
+                    }
+                    .welcome-preview-headline button{
+                      width:auto;
+                      white-space:nowrap;
+                    }
+                    .welcome-preview{
+                      border:1px solid rgba(88,101,242,.28);
+                      border-radius:16px;
+                      background:linear-gradient(180deg, rgba(17,24,39,.92), rgba(15,23,42,.92));
+                      overflow:hidden;
+                      box-shadow:0 12px 26px rgba(0,0,0,.28);
+                    }
+                    .welcome-preview-head{
+                      display:flex;
+                      align-items:center;
+                      justify-content:space-between;
+                      gap:10px;
+                      padding:12px 14px;
+                      border-bottom:1px solid rgba(255,255,255,.08);
+                      background:linear-gradient(90deg, rgba(59,130,246,.12), rgba(34,197,94,.08));
+                    }
+                    .welcome-preview-title{
+                      color:#e5e7eb;
+                      font-size:13px;
+                      font-weight:700;
+                      letter-spacing:.02em;
+                    }
+                    .welcome-preview-badges{
+                      display:flex;
+                      gap:8px;
+                      flex-wrap:wrap;
+                      justify-content:flex-end;
+                    }
+                    .welcome-preview-badge{
+                      font-size:11px;
+                      color:#dbeafe;
+                      padding:4px 9px;
+                      border-radius:999px;
+                      border:1px solid rgba(96,165,250,.28);
+                      background:rgba(30,41,59,.72);
+                    }
+                    .welcome-preview-body{
+                      display:flex;
+                      flex-direction:column;
+                      gap:12px;
+                      padding:14px;
+                    }
+                    .welcome-preview-embed{
+                      border-left:4px solid #5865F2;
+                      border-radius:12px;
+                      background:rgba(255,255,255,.03);
+                      padding:14px;
+                    }
+                    .welcome-preview-embed-head{
+                      display:flex;
+                      gap:12px;
+                      align-items:flex-start;
+                    }
+                    .welcome-preview-embed-main{
+                      flex:1 1 auto;
+                      min-width:0;
+                    }
+                    .welcome-preview-embed-title{
+                      color:#f8fafc;
+                      font-size:16px;
+                      font-weight:700;
+                      word-break:break-word;
+                    }
+                    .welcome-preview-embed-desc{
+                      color:#d1d5db;
+                      font-size:13px;
+                      line-height:1.7;
+                      margin-top:8px;
+                      white-space:pre-wrap;
+                      word-break:break-word;
+                    }
+                    .welcome-preview-thumb{
+                      width:72px;
+                      height:72px;
+                      border-radius:12px;
+                      object-fit:cover;
+                      border:1px solid rgba(255,255,255,.12);
+                      background:rgba(255,255,255,.04);
+                      flex:0 0 auto;
+                    }
+                    .welcome-preview-image{
+                      width:100%;
+                      max-height:220px;
+                      object-fit:cover;
+                      border-radius:12px;
+                      border:1px solid rgba(255,255,255,.08);
+                      background:rgba(255,255,255,.03);
+                    }
+                    .welcome-preview-footer{
+                      display:flex;
+                      align-items:center;
+                      gap:10px;
+                      color:#94a3b8;
+                      font-size:12px;
+                      margin-top:12px;
+                    }
+                    .welcome-preview-footer-icon{
+                      width:22px;
+                      height:22px;
+                      border-radius:999px;
+                      object-fit:cover;
+                      border:1px solid rgba(255,255,255,.12);
+                      background:rgba(255,255,255,.05);
+                    }
+                    .welcome-preview-empty{
+                      color:#94a3b8;
+                      font-size:13px;
+                    }
+                    .welcome-card{
+                      padding:12px;
+                      border-radius:12px;
+                      border:1px solid rgba(255,255,255,.08);
+                      background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.02));
+                    }
+                    .welcome-card-title{
+                      color:#e2e8f0;
+                      font-size:12px;
+                      font-weight:700;
+                      letter-spacing:.02em;
+                      margin-bottom:8px;
+                    }
+                    .welcome-card .keyhint{ margin-top:6px; }
+                    .modal-backdrop{
+                      position:fixed;
+                      inset:0;
+                      background:rgba(2,6,23,.78);
+                      backdrop-filter:blur(8px);
+                      display:flex;
+                      align-items:center;
+                      justify-content:center;
+                      padding:20px;
+                      z-index:9998;
+                    }
+                    .modal-backdrop.hidden{ display:none; }
+                    .modal-card{
+                      width:min(980px, 100%);
+                      max-height:min(88vh, 920px);
+                      overflow:auto;
+                      border:1px solid rgba(255,255,255,.10);
+                      border-radius:20px;
+                      background:linear-gradient(180deg, rgba(15,23,42,.98), rgba(17,24,39,.98));
+                      box-shadow:0 30px 60px rgba(0,0,0,.45);
+                    }
+                    .modal-head{
+                      position:sticky;
+                      top:0;
+                      z-index:2;
+                      display:flex;
+                      align-items:center;
+                      justify-content:space-between;
+                      gap:12px;
+                      padding:16px 18px;
+                      border-bottom:1px solid rgba(255,255,255,.08);
+                      background:linear-gradient(180deg, rgba(15,23,42,.98), rgba(15,23,42,.92));
+                    }
+                    .modal-title{
+                      font-size:16px;
+                      font-weight:800;
+                      color:#f8fafc;
+                    }
+                    .modal-close{
+                      width:auto;
+                      padding:10px 14px;
+                    }
+                    .modal-body{
+                      padding:18px;
+                    }
+                    .modal-actions{
+                      position:sticky;
+                      bottom:0;
+                      z-index:2;
+                      display:flex;
+                      justify-content:flex-end;
+                      gap:10px;
+                      padding:16px 18px;
+                      border-top:1px solid rgba(255,255,255,.08);
+                      background:linear-gradient(180deg, rgba(15,23,42,.92), rgba(15,23,42,.98));
+                    }
+                    @media (max-width:820px){
+                      .welcome-topline{ grid-template-columns:1fr; }
+                      .welcome-topline .toggle{ justify-self:start; }
+                      .welcome-media-grid{ grid-template-columns:1fr; }
+                      .welcome-preview-headline{
+                        flex-direction:column;
+                        align-items:stretch;
+                      }
+                      .modal-backdrop{ padding:12px; }
+                      .modal-head,
+                      .modal-body,
+                      .modal-actions{ padding:14px; }
+                    }
                     .span-all{ grid-column:1 / -1; }
                     .history-list{ display:flex; flex-direction:column; gap:8px; margin-top:8px; }
                     .history-item{
@@ -2228,6 +2667,7 @@ public class WebControlServer {
                       <button class="tab-btn" data-tab="logs">Logs</button>
                       <button class="tab-btn" data-tab="music">Music</button>
                       <button class="tab-btn" data-tab="privateRoom">Private Room</button>
+                      <button class="tab-btn" data-tab="welcome">Welcome</button>
                       <button class="tab-btn" data-tab="numberChain">Number Chain</button>
                       <button class="tab-btn" data-tab="ticket">Tickets</button>
                       <button class="tab-btn" data-tab="ticketHistory">Ticket History</button>
@@ -2266,9 +2706,14 @@ public class WebControlServer {
                       </div>
                       <div class="grid2">
                         <div class="field">
+                          <label>memberJoinTitle</label>
+                          <input id="n_memberJoinTitle" type="text">
+                          <div id="hint_n_memberJoinTitle" class="keyhint">Available placeholders: {user}, {guild}, {使用者}, {群組名稱}</div>
+                        </div>
+                        <div class="field">
                           <label>memberJoinMessage</label>
                           <textarea id="n_memberJoinMessage"></textarea>
-                          <div id="hint_n_memberJoinMessage" class="keyhint">Available placeholders: {user}, {username}, {guild}, {id}, {tag}, {isBot}, {createdAt}, {accountAgeDays}</div>
+                          <div id="hint_n_memberJoinMessage" class="keyhint">Available placeholders: {user}, {username}, {guild}, {使用者}, {使用者名稱}, {群組名稱}, {id}, {tag}, {isBot}, {createdAt}, {accountAgeDays}</div>
                         </div>
                         <div class="field"><label>memberLeaveMessage</label><textarea id="n_memberLeaveMessage"></textarea></div>
                         <div class="field"><label>voiceJoinMessage</label><textarea id="n_voiceJoinMessage"></textarea></div>
@@ -2279,6 +2724,8 @@ public class WebControlServer {
                           <div class="field"><label>memberLeaveColor</label><input type="color" id="n_memberLeaveColor"></div>
                         </div>
                       </div>
+                      <input id="n_memberJoinThumbnailUrl" type="hidden">
+                      <input id="n_memberJoinImageUrl" type="hidden">
                     </div>
 
                     <div class="tab-pane" data-pane="logs">
@@ -2332,8 +2779,84 @@ public class WebControlServer {
                         <div class="field"><label>userLimit (0-99)</label><input type="number" min="0" max="99" id="p_userLimit"></div>
                       </div>
                     </div>
+                    <div class="tab-pane" data-pane="welcome">
+                      <div class="row pane-head">
+                        <h3 id="welcome_group_title">welcome.*</h3>
+                      </div>
+                      <div class="welcome-shell">
+                        <div class="settings-group">
+                          <div id="welcome_message_card_title" class="settings-group-title">Welcome Message</div>
+                          <div id="welcome_message_lead" class="welcome-lead">Set the public welcome message shown to new members, including the target channel, title, and content.</div>
+                          <div class="welcome-toggle">
+                            <div class="welcome-topline">
+                              <div class="field"><label id="label_w_channelId">welcomeChannelId</label><select id="w_channelId"></select></div>
+                              <div class="toggle"><input type="checkbox" id="w_enabled"><label for="w_enabled">enabled</label></div>
+                            </div>
+                          </div>
+                        <div class="welcome-compact-actions">
+                          <button id="sendWelcomePreviewBtn" class="primary" type="button">Send Preview Message</button>
+                          <button id="openWelcomeEditorBtn" class="warn" type="button">Configure Welcome Message</button>
+                        </div>
+                      </div>
+""";
+        html += """
+                      <div id="welcomeEditorModal" class="modal-backdrop hidden">
+                        <div class="modal-card">
+                          <div class="modal-head">
+                            <div id="welcomeEditorTitle" class="modal-title">Configure Welcome Message</div>
+                            <button id="closeWelcomeEditorBtn" class="danger modal-close" type="button">Close</button>
+                            </div>
+                            <div class="modal-body">
+                              <div class="settings-group">
+                                <div id="welcome_message_card_title_modal" class="settings-group-title">Welcome Message</div>
+                                <div class="grid2">
+                                  <div class="field">
+                                    <label id="label_w_title">welcomeTitle</label>
+                                    <input id="w_title" type="text">
+                                    <div id="hint_w_title" class="keyhint">Available placeholders: {user}, {guild}, {使用者}, {群組名稱}</div>
+                                  </div>
+                                  <div class="field">
+                                    <label id="label_w_message">welcomeMessage</label>
+                                    <textarea id="w_message"></textarea>
+                                    <div id="hint_w_message" class="keyhint">Available placeholders: {user}, {username}, {guild}, {使用者}, {使用者名稱}, {群組名稱}, {id}, {tag}, {isBot}, {createdAt}, {accountAgeDays}</div>
+                                  </div>
+                                </div>
+                              </div>
+                              <div class="settings-group">
+                                <div id="welcome_media_card_title" class="settings-group-title">Welcome Media</div>
+                                <div class="welcome-media-grid">
+                                  <div class="welcome-card">
+                                    <div id="welcome_thumbnail_card_title" class="welcome-card-title">Thumbnail</div>
+                                    <div class="field">
+                                      <label id="label_w_thumbnailUrl">welcomeThumbnailUrl</label>
+                                      <input id="w_thumbnailUrl" type="url">
+                                      <div id="hint_w_thumbnailUrl" class="keyhint">Use a direct `https://...` image URL for the small top-right thumbnail.</div>
+                                    </div>
+                                  </div>
+                                  <div class="welcome-card">
+                                    <div id="welcome_image_card_title" class="welcome-card-title">Large Image</div>
+                                    <div class="field">
+                                      <label id="label_w_imageUrl">welcomeImageUrl</label>
+                                      <input id="w_imageUrl" type="url">
+                                      <div id="hint_w_imageUrl" class="keyhint">Use a direct `https://...` image URL for the large image below the message.</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                              <div class="settings-group">
+                                <div id="welcome_preview_card_title" class="settings-group-title">Live Preview</div>
+                                <div id="welcomePreviewCard" class="welcome-preview"></div>
+                              </div>
+                            </div>
+                            <div class="modal-actions">
+                              <button id="saveWelcomeSettingsBtn" class="primary" type="button">Save Settings</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
 
-                    <div class="tab-pane" data-pane="numberChain">
+                    <div class="tab-pane" data-pane="numberChain"> 
                       <div class="row pane-head">
                         <h3>numberChain.*</h3>
                         <button id="resetNumberChainBtn" class="danger reset-btn" type="button">Reset Section</button>
@@ -2354,8 +2877,7 @@ public class WebControlServer {
                       </div>
                     </div>
 
-                """;
-        html += """
+                
                     <div class="tab-pane" data-pane="ticket">
                       <div class="row pane-head">
                         <h3>ticket.*</h3>
@@ -2624,6 +3146,7 @@ function t(key){
                     setTabLabel('logs', 'tabs_logs');
                     setTabLabel('music', 'tabs_music');
                     setTabLabel('privateRoom', 'tabs_privateRoom');
+                    setTabLabel('welcome', 'tabs_welcome');
                     setTabLabel('numberChain', 'tabs_numberChain');
                     setTabLabel('ticket', 'tabs_ticket');
                     setTabLabel('ticketHistory', 'tabs_ticket_history');
@@ -2633,6 +3156,7 @@ function t(key){
                     setSectionLabel('logs', 'section_logs');
                     setSectionLabel('music', 'section_music');
                     setSectionLabel('privateRoom', 'section_privateRoom');
+                    setSectionLabel('welcome', 'section_welcome');
                     setSectionLabel('numberChain', 'section_numberChain');
                     setSectionLabel('ticket', 'section_ticket');
                     setSectionLabel('ticketHistory', 'section_ticket_history');
@@ -2645,6 +3169,8 @@ function t(key){
                     setFieldLabel('n_memberJoinChannelId', 'n_memberJoinChannelId');
                     setFieldLabel('n_memberLeaveChannelId', 'n_memberLeaveChannelId');
                     setFieldLabel('n_voiceChannelId', 'n_voiceChannelId');
+                    setFieldLabel('n_memberJoinTitle', 'n_memberJoinTitle');
+                    setText('hint_n_memberJoinTitle', 'n_memberJoinTitle_hint');
                     setFieldLabel('n_memberJoinMessage', 'n_memberJoinMessage');
                     setText('hint_n_memberJoinMessage', 'n_memberJoinMessage_hint');
                     setFieldLabel('n_memberLeaveMessage', 'n_memberLeaveMessage');
@@ -2653,6 +3179,31 @@ function t(key){
                     setFieldLabel('n_voiceMoveMessage', 'n_voiceMoveMessage');
                     setFieldLabel('n_memberJoinColor', 'n_memberJoinColor');
                     setFieldLabel('n_memberLeaveColor', 'n_memberLeaveColor');
+
+                    setText('welcome_group_title', 'welcome_group_title');
+                    setText('welcome_message_card_title', 'welcome_message_card_title');
+                    setText('welcome_message_card_title_modal', 'welcome_message_card_title');
+                    setText('welcome_message_lead', 'welcome_message_lead');
+                    setCheckboxLabel('w_enabled', 'w_enabled');
+                    setFieldLabel('w_channelId', 'w_channelId');
+                    setText('openWelcomeEditorBtn', 'openWelcomeEditorBtn');
+                    setText('welcomeEditorTitle', 'welcomeEditorTitle');
+                    setText('closeWelcomeEditorBtn', 'closeBtn');
+                    setText('saveWelcomeSettingsBtn', 'saveSettingsBtn');
+                    setFieldLabel('w_title', 'w_title');
+                    setText('hint_w_title', 'w_title_hint');
+                    setFieldLabel('w_message', 'w_message');
+                    setText('hint_w_message', 'w_message_hint');
+                    setText('welcome_media_card_title', 'welcome_media_card_title');
+                    setText('welcome_thumbnail_card_title', 'welcome_thumbnail_card_title');
+                    setFieldLabel('w_thumbnailUrl', 'w_thumbnailUrl');
+                    setText('hint_w_thumbnailUrl', 'w_thumbnailUrl_hint');
+                    setText('welcome_image_card_title', 'welcome_image_card_title');
+                    setFieldLabel('w_imageUrl', 'w_imageUrl');
+                    setText('hint_w_imageUrl', 'w_imageUrl_hint');
+                    setText('welcome_preview_card_title', 'welcome_preview_card_title');
+                    setText('sendWelcomePreviewBtn', 'sendWelcomePreviewBtn');
+                    renderWelcomePreview();
 
                     setCheckboxLabel('l_enabled', 'l_enabled');
                     setCheckboxLabel('l_roleLogEnabled', 'l_roleLogEnabled');
@@ -2729,6 +3280,7 @@ function t(key){
 
                   function resolveNotificationTemplateKey(controlId){
                     const mapping = {
+                      n_memberJoinTitle: 'notifications_default_member_join_title',
                       n_memberJoinMessage: 'notifications_default_member_join',
                       n_memberLeaveMessage: 'notifications_default_member_leave',
                       n_voiceJoinMessage: 'notifications_default_voice_join',
@@ -2764,6 +3316,7 @@ function t(key){
 
                   function applyNotificationTemplateDefaults(){
                     [
+                      'n_memberJoinTitle',
                       'n_memberJoinMessage',
                       'n_memberLeaveMessage',
                       'n_voiceJoinMessage',
@@ -2891,6 +3444,7 @@ function t(key){
                     setText('resetLogsBtn', 'resetSectionBtn');
                     setText('resetMusicBtn', 'resetSectionBtn');
                     setText('resetPrivateRoomBtn', 'resetSectionBtn');
+                    setText('resetWelcomeBtn', 'resetSectionBtn');
                     setText('resetNumberChainBtn', 'resetSectionBtn');
                     setText('resetTicketBtn', 'resetSectionBtn');
                     localizeSettingsForm();
@@ -2921,14 +3475,27 @@ function t(key){
                         uiLanguages = Object.keys(bundles).map(code => ({ code, label: code }));
                       }
                       if (botLanguages.length === 0) {
-                        botLanguages = [{ code: 'zh-TW', label: 'Traditional Chinese' }, { code: 'en', label: 'English' }];
+                        botLanguages = [
+                          { code: 'zh-TW', label: 'Traditional Chinese' },
+                          { code: 'zh-CN', label: 'Simplified Chinese' },
+                          { code: 'en', label: 'English' }
+                        ];
                       }
                     } catch (_) {
-                      uiLanguages = [{ code: 'zh-TW', label: '繁中' }, { code: 'en', label: 'ENG' }];
-                      botLanguages = [{ code: 'zh-TW', label: 'Traditional Chinese' }, { code: 'en', label: 'English' }];
+                      uiLanguages = [
+                        { code: 'zh-TW', label: '繁體中文' },
+                        { code: 'zh-CN', label: '簡體中文' },
+                        { code: 'en', label: 'ENG' }
+                      ];
+                      botLanguages = [
+                        { code: 'zh-TW', label: 'Traditional Chinese' },
+                        { code: 'zh-CN', label: 'Simplified Chinese' },
+                        { code: 'en', label: 'English' }
+                      ];
                     }
                   }
-
+""";
+        html += """
                   function showStatus(text){ statusEl.textContent = text || ''; }
                   function showToast(text, type = 'success'){
                     const toastHost = byId('toastHost');
@@ -3081,7 +3648,7 @@ function t(key){
                           <div class="option-card-meta"><span>${esc(t('ticket_option_meta_name'))}</span><strong>${esc(option.label || t('ticket_option_unnamed'))}</strong></div>
                           <div class="option-card-meta"><span>${esc(t('ticket_option_meta_style'))}</span><strong>${esc(styleLabel)}</strong></div>
                           <div class="option-card-meta"><span>${esc(t('ticket_option_meta_form'))}</span><strong>${esc(formState)}</strong></div>
-                          <div class="option-card-meta"><span>${esc(t('ticket_option_meta_welcome'))}</span><strong>${esc(welcomeLabel.length > 40 ? welcomeLabel.slice(0, 40) + '…' : welcomeLabel)}</strong></div>
+                          <div class="option-card-meta"><span>${esc(t('ticket_option_meta_welcome'))}</span><strong>${esc(welcomeLabel.length > 40 ? welcomeLabel.slice(0, 40) + '...' : welcomeLabel)}</strong></div>
                         </div>
                       `;
                       card.onclick = () => {
@@ -3160,7 +3727,7 @@ function t(key){
                     const guildId = selectedGuild();
                     if(!guildId) return;
                     channelsCache = await api(`/api/guild/${guildId}/channels`);
-                    const textIds = ['n_memberChannelId','n_memberJoinChannelId','n_memberLeaveChannelId','l_channelId','l_messageLogChannelId','l_commandUsageChannelId','l_channelLifecycleChannelId','l_roleLogChannelId','l_moderationLogChannelId','m_commandChannelId','nc_channelId','t_panelChannelId'];
+                    const textIds = ['n_memberChannelId','n_memberJoinChannelId','n_memberLeaveChannelId','w_channelId','l_channelId','l_messageLogChannelId','l_commandUsageChannelId','l_channelLifecycleChannelId','l_roleLogChannelId','l_moderationLogChannelId','m_commandChannelId','nc_channelId','t_panelChannelId'];
                     const voiceIds = ['n_voiceChannelId','p_triggerVoiceChannelId'];
                     textIds.forEach(id => setSelectOptions(id, channelsCache.textChannels || []));
                     voiceIds.forEach(id => setSelectOptions(id, channelsCache.voiceChannels || []));
@@ -3191,10 +3758,83 @@ function t(key){
                     return translated !== key ? translated : 'General';
                   }
 
+                  function selectedGuildName(){
+                    const select = byId('guildSelect');
+                    const option = select?.selectedOptions?.[0];
+                    return String(option?.textContent || '').trim() || 'NoRule Server';
+                  }
+
+                  function sanitizePreviewUrl(value){
+                    const url = String(value || '').trim();
+                    return /^https?:\\/\\//i.test(url) ? url : '';
+                  }
+
+                  function applyWelcomePreviewTemplate(value){
+                    const guildName = selectedGuildName();
+                    return String(value || '')
+                      .replace(/\\{user\\}|\\{使用者\\}/g, '@NewMember')
+                      .replace(/\\{username\\}|\\{使用者名稱\\}/g, 'NewMember')
+                      .replace(/\\{guild\\}|\\{群組名稱\\}/g, guildName)
+                      .replace(/\\{id\\}/g, '123456789012345678')
+                      .replace(/\\{tag\\}/g, 'NewMember#0001')
+                      .replace(/\\{isBot\\}/g, 'false')
+                      .replace(/\\{createdAt\\}/g, '2026-04-01 12:00')
+                      .replace(/\\{accountAgeDays\\}/g, '5');
+                  }
+                  function renderWelcomePreview(){
+                    const root = byId('welcomePreviewCard');
+                    if (!root) return;
+                    const enabled = getChecked('w_enabled');
+                    const channelSelect = byId('w_channelId');
+                    const channelLabel = channelSelect?.selectedOptions?.[0]?.textContent || '-';
+                    const guildName = selectedGuildName();
+                    const title = applyWelcomePreviewTemplate(getValue('w_title')) || t('w_title');
+                    const message = applyWelcomePreviewTemplate(getValue('w_message')) || t('w_message');
+                    const thumb = sanitizePreviewUrl(getValue('w_thumbnailUrl'));
+                    const image = sanitizePreviewUrl(getValue('w_imageUrl'));
+                    const footerIcon = 'https://cdn.discordapp.com/embed/avatars/0.png';
+                    root.innerHTML = `
+                      <div class="welcome-preview-head">
+                        <div class="welcome-preview-title">${esc(t('welcome_preview_embed_title'))}</div>
+                        <div class="welcome-preview-badges">
+                          <span class="welcome-preview-badge">${esc(t('w_channelId'))}: ${esc(channelLabel)}</span>
+                          <span class="welcome-preview-badge">${esc(enabled ? t('enabledOption') : t('disabledOption'))}</span>
+                        </div>
+                      </div>
+                      <div class="welcome-preview-body">
+                        <div class="welcome-preview-embed">
+                          <div class="welcome-preview-embed-head">
+                            <div class="welcome-preview-embed-main">
+                              <div class="welcome-preview-embed-title">${esc(title)}</div>
+                              <div class="welcome-preview-embed-desc">${esc(message)}</div>
+                            </div>
+                            ${thumb ? `<img class="welcome-preview-thumb" src="${esc(thumb)}" alt="thumbnail" loading="lazy" referrerpolicy="no-referrer" />` : ''}
+                          </div>
+                          ${image ? `<img class="welcome-preview-image" src="${esc(image)}" alt="preview" loading="lazy" referrerpolicy="no-referrer" />` : `<div class="welcome-preview-empty">${esc(t('welcome_preview_no_image'))}</div>`}
+                          <div class="welcome-preview-footer">
+                            <img class="welcome-preview-footer-icon" src="${footerIcon}" alt="guild" loading="lazy" referrerpolicy="no-referrer" />
+                            <span>${esc(guildName)} • ${esc(t('welcome_preview_now'))}</span>
+                          </div>
+                        </div>
+                      </div>
+                    `;
+                  }
+
+                  function bindWelcomePreviewAutoSync(){
+                    ['w_enabled', 'w_channelId', 'w_title', 'w_message', 'w_thumbnailUrl', 'w_imageUrl'].forEach(id => {
+                      const el = byId(id);
+                      if (!el || el.dataset.previewBound === '1') return;
+                      el.dataset.previewBound = '1';
+                      el.addEventListener('input', renderWelcomePreview);
+                      el.addEventListener('change', renderWelcomePreview);
+                    });
+                  }
+
                   function resetGeneralSettings(){
                     setValue('s_language', defaultBotLanguageCode());
                     applyNotificationTemplateDefaults();
                     applyTicketPanelDefaultsIfEmpty();
+                    renderWelcomePreview();
                   }
 
                   function resetNotificationSettings(){
@@ -3206,7 +3846,10 @@ function t(key){
                     setValue('n_memberJoinChannelId', '');
                     setValue('n_memberLeaveChannelId', '');
                     setValue('n_voiceChannelId', '');
+                    setValue('n_memberJoinTitle', '');
                     setValue('n_memberJoinMessage', '');
+                    setValue('n_memberJoinThumbnailUrl', '');
+                    setValue('n_memberJoinImageUrl', '');
                     setValue('n_memberLeaveMessage', '');
                     setValue('n_voiceJoinMessage', '');
                     setValue('n_voiceLeaveMessage', '');
@@ -3214,6 +3857,49 @@ function t(key){
                     setValue('n_memberJoinColor', '#2ECC71');
                     setValue('n_memberLeaveColor', '#E74C3C');
                     applyNotificationTemplateDefaults();
+                  }
+
+                  function resetWelcomeSettings(){
+                    setChecked('w_enabled', false);
+                    setValue('w_channelId', '');
+                    setValue('w_title', '');
+                    setValue('w_message', '');
+                    setValue('w_thumbnailUrl', '');
+                    setValue('w_imageUrl', '');
+                    renderWelcomePreview();
+                  }
+
+                  function openWelcomeEditor(){
+                    const modal = byId('welcomeEditorModal');
+                    if (!modal) return;
+                    modal.classList.remove('hidden');
+                    document.body.style.overflow = 'hidden';
+                    const firstInput = byId('w_title');
+                    if (firstInput) setTimeout(() => firstInput.focus(), 20);
+                  }
+
+                  function closeWelcomeEditor(){
+                    const modal = byId('welcomeEditorModal');
+                    if (!modal) return;
+                    modal.classList.add('hidden');
+                    document.body.style.overflow = '';
+                  }
+
+                  async function saveWelcomeSettings(){
+                    const saveBtn = byId('saveWelcomeSettingsBtn');
+                    if (saveBtn) {
+                      saveBtn.disabled = true;
+                      saveBtn.classList.add('saving');
+                    }
+                    try {
+                      await saveSettings();
+                      closeWelcomeEditor();
+                    } finally {
+                      if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.classList.remove('saving');
+                      }
+                    }
                   }
 
                   function resetLogSettings(){
@@ -3296,6 +3982,9 @@ function t(key){
                       case 'privateRoom':
                         resetPrivateRoomSettings();
                         break;
+                      case 'welcome':
+                        resetWelcomeSettings();
+                        break;
                       case 'numberChain':
                         resetNumberChainSettings();
                         break;
@@ -3311,8 +4000,7 @@ function t(key){
                     showToast(message, 'success');
                   }
 
-                """;
-        html += """
+                
                   function populateSettings(s){
                     setValue('s_language', s.language || 'zh-TW');
 
@@ -3325,7 +4013,10 @@ function t(key){
                     setValue('n_memberJoinChannelId', n.memberJoinChannelId || '');
                     setValue('n_memberLeaveChannelId', n.memberLeaveChannelId || '');
                     setValue('n_voiceChannelId', n.voiceChannelId || '');
+                    setValue('n_memberJoinTitle', n.memberJoinTitle || '');
                     setValue('n_memberJoinMessage', n.memberJoinMessage || '');
+                    setValue('n_memberJoinThumbnailUrl', n.memberJoinThumbnailUrl || '');
+                    setValue('n_memberJoinImageUrl', n.memberJoinImageUrl || '');
                     setValue('n_memberLeaveMessage', n.memberLeaveMessage || '');
                     setValue('n_voiceJoinMessage', n.voiceJoinMessage || '');
                     setValue('n_voiceLeaveMessage', n.voiceLeaveMessage || '');
@@ -3333,6 +4024,15 @@ function t(key){
                     setValue('n_memberJoinColor', n.memberJoinColor || '#2ECC71');
                     setValue('n_memberLeaveColor', n.memberLeaveColor || '#E74C3C');
                     applyNotificationTemplateDefaults();
+
+                    const w = s.welcome || {};
+                    setChecked('w_enabled', w.enabled);
+                    setValue('w_channelId', w.channelId || '');
+                    setValue('w_title', w.title || '');
+                    setValue('w_message', w.message || '');
+                    setValue('w_thumbnailUrl', w.thumbnailUrl || '');
+                    setValue('w_imageUrl', w.imageUrl || '');
+                    renderWelcomePreview();
 
                     const l = s.messageLogs || {};
                     setChecked('l_enabled', l.enabled);
@@ -3420,7 +4120,10 @@ function t(key){
                         memberChannelId: getValue('n_memberChannelId'),
                         memberJoinChannelId: getValue('n_memberJoinChannelId'),
                         memberLeaveChannelId: getValue('n_memberLeaveChannelId'),
+                        memberJoinTitle: getValue('n_memberJoinTitle'),
                         memberJoinMessage: getValue('n_memberJoinMessage'),
+                        memberJoinThumbnailUrl: getValue('n_memberJoinThumbnailUrl'),
+                        memberJoinImageUrl: getValue('n_memberJoinImageUrl'),
                         memberLeaveMessage: getValue('n_memberLeaveMessage'),
                         memberJoinColor: getValue('n_memberJoinColor') || '#2ECC71',
                         memberLeaveColor: getValue('n_memberLeaveColor') || '#E74C3C',
@@ -3428,6 +4131,14 @@ function t(key){
                         voiceJoinMessage: getValue('n_voiceJoinMessage'),
                         voiceLeaveMessage: getValue('n_voiceLeaveMessage'),
                         voiceMoveMessage: getValue('n_voiceMoveMessage')
+                      },
+                      welcome: {
+                        enabled: getChecked('w_enabled'),
+                        channelId: getValue('w_channelId'),
+                        title: getValue('w_title'),
+                        message: getValue('w_message'),
+                        thumbnailUrl: getValue('w_thumbnailUrl'),
+                        imageUrl: getValue('w_imageUrl')
                       },
                       messageLogs: {
                         enabled: getChecked('l_enabled'),
@@ -3485,6 +4196,8 @@ function t(key){
                       }
                     };
                   }
+""";
+        html += """
 
                   async function loadSettings(){
                     const guildId = selectedGuild();
@@ -3534,6 +4247,27 @@ function t(key){
                     } catch (e) {
                       showStatus(e.message || t('ticketPanelSendFailed'));
                       showToast(e.message || t('ticketPanelSendFailed'), 'error');
+                    }
+                  }
+
+                  async function sendWelcomePreview(){
+                    const guildId = selectedGuild();
+                    if(!guildId) return;
+                    const previewBtn = byId('sendWelcomePreviewBtn');
+                    if (previewBtn) previewBtn.disabled = true;
+                    try {
+                      const data = await api(`/api/guild/${guildId}/welcome/preview`, {
+                        method:'POST',
+                        headers:{'Content-Type':'application/json'},
+                        body: JSON.stringify({ welcome: collectSettings().welcome })
+                      });
+                      showStatus(data?.message || t('welcomePreviewSent'));
+                      showToast(data?.message || t('welcomePreviewSent'), 'success');
+                    } catch (e) {
+                      showStatus(e.message || t('welcomePreviewSendFailed'));
+                      showToast(e.message || t('welcomePreviewSendFailed'), 'error');
+                    } finally {
+                      if (previewBtn) previewBtn.disabled = false;
                     }
                   }
 
@@ -3734,10 +4468,16 @@ function t(key){
                       updateMeLine();
                       await loadGuilds();
                     } catch (_) {
-                      authBlock.classList.remove('hidden');
-                      userBlock.classList.add('hidden');
-                      guildsBlock.classList.add('hidden');
-                      settingsBlock.classList.add('hidden');
+                      uiLanguages = [
+                        { code: 'zh-TW', label: '繁體中文' },
+                        { code: 'zh-CN', label: '簡體中文' },
+                        { code: 'en', label: 'ENG' }
+                      ];
+                      botLanguages = [
+                        { code: 'zh-TW', label: 'Traditional Chinese' },
+                        { code: 'zh-CN', label: 'Simplified Chinese' },
+                        { code: 'en', label: 'English' }
+                      ];
                     }
                   }
 
@@ -3750,11 +4490,17 @@ function t(key){
                   if (byId('resetLogsBtn')) byId('resetLogsBtn').onclick = () => resetSection('logs');
                   if (byId('resetMusicBtn')) byId('resetMusicBtn').onclick = () => resetSection('music');
                   if (byId('resetPrivateRoomBtn')) byId('resetPrivateRoomBtn').onclick = () => resetSection('privateRoom');
+                  if (byId('resetWelcomeBtn')) byId('resetWelcomeBtn').onclick = () => resetSection('welcome');
+                  if (byId('sendWelcomePreviewBtn')) byId('sendWelcomePreviewBtn').onclick = () => sendWelcomePreview().catch(() => {});
+                  if (byId('openWelcomeEditorBtn')) byId('openWelcomeEditorBtn').onclick = () => openWelcomeEditor();
+                  if (byId('closeWelcomeEditorBtn')) byId('closeWelcomeEditorBtn').onclick = () => closeWelcomeEditor();
+                  if (byId('saveWelcomeSettingsBtn')) byId('saveWelcomeSettingsBtn').onclick = () => saveWelcomeSettings().catch(() => {});
                   if (byId('resetNumberChainBtn')) byId('resetNumberChainBtn').onclick = () => resetSection('numberChain');
                   if (byId('resetTicketBtn')) byId('resetTicketBtn').onclick = () => resetSection('ticket');
                   if (byId('s_language')) byId('s_language').addEventListener('change', () => {
                     applyNotificationTemplateDefaults();
                     applyTicketPanelDefaultsIfEmpty();
+                    renderWelcomePreview();
                   });
                   if (byId('resetNumberChainProgressBtn')) byId('resetNumberChainProgressBtn').onclick = () => resetNumberChainProgress();
                   if (byId('sendTicketPanelBtn')) byId('sendTicketPanelBtn').onclick = () => sendTicketPanel();
@@ -3782,8 +4528,19 @@ function t(key){
                     }
                   };
                   if (byId('saveSettingsBtn')) byId('saveSettingsBtn').onclick = () => saveSettings().catch(() => {});
+                  if (byId('welcomeEditorModal')) byId('welcomeEditorModal').onclick = (event) => {
+                    if (event.target === byId('welcomeEditorModal')) {
+                      closeWelcomeEditor();
+                    }
+                  };
+                  document.addEventListener('keydown', (event) => {
+                    if (event.key === 'Escape' && byId('welcomeEditorModal') && !byId('welcomeEditorModal').classList.contains('hidden')) {
+                      closeWelcomeEditor();
+                    }
+                  });
                   if (byId('t_supportRoleIds')) byId('t_supportRoleIds').addEventListener('change', updateSupportRoleCount);
                   bindTicketOptionEditorAutoSync();
+                  bindWelcomePreviewAutoSync();
                   guildSelect.onchange = () => onGuildSelected(guildSelect.value).catch(e => showStatus(e.message));
                   init();
                 </script>
@@ -3819,6 +4576,9 @@ function t(key){
         }
     }
 }
+
+
+
 
 
 

@@ -19,6 +19,7 @@ public class GuildSettingsService {
     public static class GuildSettings {
         private final String language;
         private final BotConfig.Notifications notifications;
+        private final BotConfig.Welcome welcome;
         private final BotConfig.MessageLogs messageLogs;
         private final BotConfig.Music music;
         private final BotConfig.PrivateRoom privateRoom;
@@ -26,12 +27,14 @@ public class GuildSettingsService {
 
         public GuildSettings(String language,
                              BotConfig.Notifications notifications,
+                             BotConfig.Welcome welcome,
                              BotConfig.MessageLogs messageLogs,
                              BotConfig.Music music,
                              BotConfig.PrivateRoom privateRoom,
                              BotConfig.Ticket ticket) {
             this.language = language;
             this.notifications = notifications;
+            this.welcome = welcome;
             this.messageLogs = messageLogs;
             this.music = music;
             this.privateRoom = privateRoom;
@@ -50,6 +53,10 @@ public class GuildSettingsService {
             return messageLogs;
         }
 
+        public BotConfig.Welcome getWelcome() {
+            return welcome;
+        }
+
         public BotConfig.Music getMusic() {
             return music;
         }
@@ -63,27 +70,31 @@ public class GuildSettingsService {
         }
 
         public GuildSettings withLanguage(String language) {
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
+            return new GuildSettings(language, notifications, welcome, messageLogs, music, privateRoom, ticket);
         }
 
         public GuildSettings withNotifications(BotConfig.Notifications notifications) {
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
+            return new GuildSettings(language, notifications, welcome, messageLogs, music, privateRoom, ticket);
+        }
+
+        public GuildSettings withWelcome(BotConfig.Welcome welcome) {
+            return new GuildSettings(language, notifications, welcome, messageLogs, music, privateRoom, ticket);
         }
 
         public GuildSettings withMessageLogs(BotConfig.MessageLogs messageLogs) {
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
+            return new GuildSettings(language, notifications, welcome, messageLogs, music, privateRoom, ticket);
         }
 
         public GuildSettings withMusic(BotConfig.Music music) {
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
+            return new GuildSettings(language, notifications, welcome, messageLogs, music, privateRoom, ticket);
         }
 
         public GuildSettings withPrivateRoom(BotConfig.PrivateRoom privateRoom) {
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
+            return new GuildSettings(language, notifications, welcome, messageLogs, music, privateRoom, ticket);
         }
 
         public GuildSettings withTicket(BotConfig.Ticket ticket) {
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
+            return new GuildSettings(language, notifications, welcome, messageLogs, music, privateRoom, ticket);
         }
     }
 
@@ -96,6 +107,7 @@ public class GuildSettingsService {
         this.defaults = new GuildSettings(
                 defaultsConfig.getDefaultLanguage(),
                 defaultsConfig.getNotifications(),
+                defaultsConfig.getWelcome(),
                 defaultsConfig.getMessageLogs(),
                 defaultsConfig.getMusic(),
                 defaultsConfig.getPrivateRoom(),
@@ -123,6 +135,10 @@ public class GuildSettingsService {
 
     public BotConfig.MessageLogs getMessageLogs(long guildId) {
         return getSettings(guildId).getMessageLogs();
+    }
+
+    public BotConfig.Welcome getWelcome(long guildId) {
+        return getSettings(guildId).getWelcome();
     }
 
     public BotConfig.Music getMusic(long guildId) {
@@ -162,11 +178,12 @@ public class GuildSettingsService {
             Map<String, Object> rootMap = asMap(root);
             String language = readLanguage(rootMap.get("language"), defaults.getLanguage());
             BotConfig.Notifications notifications = BotConfig.Notifications.fromMap(asMap(rootMap.get("notifications")), defaults.getNotifications());
+            BotConfig.Welcome welcome = BotConfig.Welcome.fromMap(asMap(rootMap.get("welcome")), defaults.getWelcome());
             BotConfig.MessageLogs messageLogs = BotConfig.MessageLogs.fromMap(asMap(rootMap.get("messageLogs")), defaults.getMessageLogs());
             BotConfig.Music music = BotConfig.Music.fromMap(asMap(rootMap.get("music")), defaults.getMusic());
             BotConfig.PrivateRoom privateRoom = BotConfig.PrivateRoom.fromMap(asMap(rootMap.get("privateRoom")), defaults.getPrivateRoom());
             BotConfig.Ticket ticket = BotConfig.Ticket.fromMap(asMap(rootMap.get("ticket")), defaults.getTicket());
-            return new GuildSettings(language, notifications, messageLogs, music, privateRoom, ticket);
+            return new GuildSettings(language, notifications, welcome, messageLogs, music, privateRoom, ticket);
         } catch (Exception e) {
             return defaults;
         }
@@ -195,7 +212,10 @@ public class GuildSettingsService {
         notificationsMap.put("memberChannelId", toText(notifications.getMemberChannelId()));
         notificationsMap.put("memberJoinChannelId", toText(notifications.getMemberJoinChannelId()));
         notificationsMap.put("memberLeaveChannelId", toText(notifications.getMemberLeaveChannelId()));
+        notificationsMap.put("memberJoinTitle", notifications.getMemberJoinTitle());
         notificationsMap.put("memberJoinMessage", notifications.getMemberJoinMessage());
+        notificationsMap.put("memberJoinThumbnailUrl", notifications.getMemberJoinThumbnailUrl());
+        notificationsMap.put("memberJoinImageUrl", notifications.getMemberJoinImageUrl());
         notificationsMap.put("memberLeaveMessage", notifications.getMemberLeaveMessage());
         notificationsMap.put("memberJoinColor", String.format("#%06X", notifications.getMemberJoinColor()));
         notificationsMap.put("memberLeaveColor", String.format("#%06X", notifications.getMemberLeaveColor()));
@@ -204,6 +224,16 @@ public class GuildSettingsService {
         notificationsMap.put("voiceLeaveMessage", notifications.getVoiceLeaveMessage());
         notificationsMap.put("voiceMoveMessage", notifications.getVoiceMoveMessage());
         root.put("notifications", notificationsMap);
+
+        BotConfig.Welcome welcome = settings.getWelcome();
+        Map<String, Object> welcomeMap = new LinkedHashMap<>();
+        welcomeMap.put("enabled", welcome.isEnabled());
+        welcomeMap.put("channelId", toText(welcome.getChannelId()));
+        welcomeMap.put("title", welcome.getTitle());
+        welcomeMap.put("message", welcome.getMessage());
+        welcomeMap.put("thumbnailUrl", welcome.getThumbnailUrl());
+        welcomeMap.put("imageUrl", welcome.getImageUrl());
+        root.put("welcome", welcomeMap);
 
         BotConfig.MessageLogs logs = settings.getMessageLogs();
         Map<String, Object> logsMap = new LinkedHashMap<>();

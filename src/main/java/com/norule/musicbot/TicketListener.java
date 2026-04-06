@@ -268,6 +268,14 @@ public class TicketListener extends ListenerAdapter {
                 return;
             }
             TextChannel channel = event.getChannel().asTextChannel();
+            String missing = formatMissingPermissions(event.getGuild().getSelfMember(), channel,
+                    Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS, Permission.MESSAGE_SEND);
+            if (!"-".equals(missing)) {
+                event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", missing)))
+                        .setEphemeral(true)
+                        .queue();
+                return;
+            }
             TicketService.TicketRecord record = ticketService.getTicket(event.getGuild().getIdLong(), channel.getIdLong());
             if (record == null || record.isClosed()) {
                 event.reply(i18n.t(lang, "ticket.not_ticket_channel")).setEphemeral(true).queue();
@@ -294,6 +302,14 @@ public class TicketListener extends ListenerAdapter {
                 return;
             }
             TextChannel channel = event.getChannel().asTextChannel();
+            String missing = formatMissingPermissions(event.getGuild().getSelfMember(), channel,
+                    Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS, Permission.MESSAGE_SEND);
+            if (!"-".equals(missing)) {
+                event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", missing)))
+                        .setEphemeral(true)
+                        .queue();
+                return;
+            }
             long channelId = parseChannelIdFromButton(id, REOPEN_BUTTON_PREFIX, channel.getIdLong());
             TicketService.TicketRecord record = ticketService.getTicket(event.getGuild().getIdLong(), channelId);
             if (record == null) {
@@ -317,6 +333,13 @@ public class TicketListener extends ListenerAdapter {
                 return;
             }
             TextChannel channel = event.getChannel().asTextChannel();
+            String missing = formatMissingPermissions(event.getGuild().getSelfMember(), channel, Permission.MANAGE_CHANNEL);
+            if (!"-".equals(missing)) {
+                event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", missing)))
+                        .setEphemeral(true)
+                        .queue();
+                return;
+            }
             long channelId = parseChannelIdFromButton(id, DELETE_BUTTON_PREFIX, channel.getIdLong());
             TicketService.TicketRecord record = ticketService.getTicket(event.getGuild().getIdLong(), channelId);
             if (record == null) {
@@ -627,6 +650,14 @@ public class TicketListener extends ListenerAdapter {
             event.reply(i18n.t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
             return;
         }
+        String panelMissing = formatMissingPermissions(event.getGuild().getSelfMember(), target,
+                Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND, Permission.MESSAGE_EMBED_LINKS);
+        if (!"-".equals(panelMissing)) {
+            event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", panelMissing)))
+                    .setEphemeral(true)
+                    .queue();
+            return;
+        }
         BotConfig.Ticket cfg = settingsService.getTicket(event.getGuild().getIdLong());
         worker.execute(() -> {
             ensureTicketCategories(event.getGuild(), lang);
@@ -865,6 +896,11 @@ public class TicketListener extends ListenerAdapter {
         BotConfig.Ticket.TicketOption option = findTicketOption(cfg, optionId, lang);
         if (option == null) {
             reply.accept(i18n.t(lang, "general.unknown_command"));
+            return;
+        }
+        String guildMissing = formatMissingPermissions(guild.getSelfMember(), Permission.MANAGE_CHANNEL);
+        if (!"-".equals(guildMissing)) {
+            reply.accept(i18n.t(lang, "general.missing_permissions", Map.of("permissions", guildMissing)));
             return;
         }
         TicketCategoryPair pair = ensureTicketCategories(guild, lang);
@@ -1339,6 +1375,32 @@ public class TicketListener extends ListenerAdapter {
 
     private boolean has(Member member, Permission permission) {
         return member != null && member.hasPermission(permission);
+    }
+
+    private String formatMissingPermissions(Member member, Permission... permissions) {
+        if (member == null) {
+            return "-";
+        }
+        Set<String> names = new HashSet<>();
+        for (Permission permission : permissions) {
+            if (!member.hasPermission(permission)) {
+                names.add(permission.getName());
+            }
+        }
+        return names.isEmpty() ? "-" : String.join(", ", names);
+    }
+
+    private String formatMissingPermissions(Member member, TextChannel channel, Permission... permissions) {
+        if (member == null || channel == null) {
+            return "-";
+        }
+        Set<String> names = new HashSet<>();
+        for (Permission permission : permissions) {
+            if (!member.hasPermission(channel, permission)) {
+                names.add(permission.getName());
+            }
+        }
+        return names.isEmpty() ? "-" : String.join(", ", names);
     }
 
     private Modal buildOpenTicketModal(BotConfig.Ticket cfg, BotConfig.Ticket.TicketOption option, String token, String lang) {

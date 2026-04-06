@@ -382,7 +382,21 @@ public class Main {
         if (message == null || message.isBlank() || key.equals(message)) {
             message = fallback;
         }
-        System.out.println("[NoRule] " + message);
+        System.out.println("[NoRule] " + sanitizeConsoleMessage(message));
+    }
+
+    private static String sanitizeConsoleMessage(String message) {
+        if (message == null || message.isEmpty()) {
+            return "";
+        }
+        String sanitized = message
+                .replace("\uFEFF", "")
+                .replaceAll("\u001B\\[[;\\d]*[ -/]*[@-~]", "")
+                .replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", "");
+        if (sanitized.isBlank()) {
+            return "Bot lifecycle event.";
+        }
+        return sanitized.trim();
     }
 
     private static Path resolveConfigPath() {

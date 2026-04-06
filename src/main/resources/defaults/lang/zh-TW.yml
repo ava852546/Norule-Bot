@@ -111,10 +111,10 @@ help:
     `/settings action:info|reload|reset|template|module|logs|music|number-chain|language`
 
     中文指令
-    `/設定 選項:資訊|重載|重設|模板|模組|日誌|音樂|接龍|語言`
+    `/設定 選項:詳細資訊|重載設定|恢復預設|模板編輯|模組開關|日誌頻道|音樂設定|接龍遊戲|語言設置`
 
     資訊面板
-    `/settings action:info` 與 `/設定 選項:資訊`
+    `/settings action:info` 與 `/設定 選項:詳細資訊`
     都會開啟相同的分頁資訊面板
   content_moderation: |
     訊息清理
@@ -132,7 +132,7 @@ help:
     觸發設定
     請從以下位置設定私人包廂觸發頻道：
     `/settings action:music`
-    `/設定 選項:音樂`
+    `/設定 選項:音樂設定`
 
     包廂控制
     `/private-room-settings`
@@ -141,7 +141,7 @@ help:
   content_game: |
     數字接龍
     `/settings action:number-chain`
-    `/設定 選項:接龍`
+    `/設定 選項:接龍遊戲`
     可用操作：設定頻道、啟用或停用、重設進度
 
     規則
@@ -162,7 +162,7 @@ help:
     - `/help` 開啟此說明面板
     - `/說明` 開啟中文版說明
     - `/ping` 與 `/延遲` 顯示目前延遲資訊
-    - 語言切換：`/settings action:language` 或 `/設定 選項:語言`
+    - 語言切換：`/settings action:language` 或 `/設定 選項:語言設置`
   tip_title: "快速提示"
   tip_body: "可使用下拉選單或下方按鈕，在一般、音樂、設定、管理、私人包廂、遊戲、客服單之間快速切換。"
 
@@ -246,6 +246,7 @@ settings:
   key_notifications_memberChannelId: "成員加入/離開通知頻道"
   key_notifications_voiceChannelId: "語音通知頻道"
   key_notifications_memberJoinEnabled: "成員加入通知啟用"
+  key_welcome_enabled: "歡迎訊息啟用"
   key_notifications_memberLeaveEnabled: "成員離開通知啟用"
   key_notifications_voiceLogEnabled: "語音紀錄啟用"
   member_channel_mode_same: "加入/離開使用同一頻道"
@@ -364,11 +365,14 @@ room_settings:
   option_lock: "上鎖/解鎖包廂"
   option_limit: "設定人數上限"
   option_rename: "重新命名包廂"
+  option_transfer: "轉讓房主"
   field_channel: "頻道"
   field_name: "名稱"
   field_limit: "人數上限"
   field_lock: "已上鎖"
+  field_owner: "房主"
   unlimited: "無上限"
+  owner_unknown: "未知"
   must_join_private_room: "請先加入你的私人包廂，再使用這個指令。"
   expired: "這個包廂設定選單已過期，請重新執行 `/private-room-settings`。"
   room_not_found: "找不到可管理的私人包廂。"
@@ -384,6 +388,11 @@ room_settings:
   rename_placeholder: "目前：{name}"
   rename_invalid: "名稱不能為空，且長度必須介於 1-10 字。"
   rename_saved: "包廂名稱已更新為：{name}"
+  transfer_title: "轉讓包廂房主"
+  transfer_desc: "請選擇目前在 {channel} 內的成員作為新房主。"
+  transfer_placeholder: "選擇新房主"
+  transfer_invalid: "請選擇目前在這個私人包廂內的其他非 Bot 成員。"
+  transfer_success: "包廂房主已轉讓給 {user}。"
   default_room_suffix: "包廂"
 
 delete:
@@ -559,8 +568,25 @@ ticket:
   history_delete_success: "已刪除客服單歷史：{name}"
   history_delete_failed: "刪除客服單歷史失敗。"
 
+welcome:
+  modal_form_title: "編輯歡迎訊息"
+  modal_title_label: "嵌入標題"
+  modal_title_placeholder: "例如：歡迎來到 {群組名稱}"
+  modal_message_label: "訊息內容"
+  modal_message_placeholder: "支援 {user}、{guild}、{使用者}、{群組名稱}"
+  modal_message_required: "請輸入歡迎訊息內容。"
+  saved_title: "已儲存"
+  saved_desc: "歡迎訊息設定已更新。"
+  channel_saved: "歡迎訊息頻道已設為 {channel}。"
+  default_title: "歡迎來到 {guild}"
+  default_message: "{user} 已加入 {guild}。"
 ping:
   title: "延遲測試"
   description: "以下為目前機器人的即時延遲資訊。"
   gateway: "Gateway 延遲"
   response: "互動回應"
+
+
+
+
+

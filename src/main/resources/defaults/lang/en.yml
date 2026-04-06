@@ -111,11 +111,11 @@ help:
     `/settings action:info|reload|reset|template|module|logs|music|number-chain|language`
 
     Chinese Commands
-    `/設定 選項:資訊|重載|重設|模板|模組|日誌|音樂|接龍|語言`
+    `/設定 選項:詳細資訊|重載設定|恢復預設|模板編輯|模組開關|日誌頻道|音樂設定|接龍遊戲|語言設置`
 
     Info Panel
     `/settings action:info` opens the paged info panel
-    `/設定 選項:資訊` opens the same panel in Chinese
+    `/設定 選項:詳細資訊` opens the same panel in Chinese
   content_moderation: |
     Message Cleanup
     `/delete-messages channel` / `/delete-messages user`
@@ -132,7 +132,7 @@ help:
     Trigger Setup
     Configure the trigger channel from:
     `/settings action:music`
-    `/設定 選項:音樂`
+    `/設定 選項:音樂設定`
 
     Room Controls
     `/private-room-settings`
@@ -141,7 +141,7 @@ help:
   content_game: |
     Number Chain
     `/settings action:number-chain`
-    `/設定 選項:接龍`
+    `/設定 選項:接龍遊戲`
     Actions: set channel, enable/disable, reset
 
     Rules
@@ -161,7 +161,7 @@ help:
     - `/help` opens this help panel
     - `/說明` opens the same panel in Chinese
     - `/ping` and `/延遲` show current latency information
-    - Language switch: `/settings action:language` or `/設定 選項:語言`
+    - Language switch: `/settings action:language` or `/設定 選項:語言設置`
   tip_title: "Quick Tip"
   tip_body: "Use the dropdown or the buttons below to switch between General, Music, Settings, Moderation, Private Room, Game, and Ticket."
 settings:
@@ -244,6 +244,7 @@ settings:
   key_notifications_memberChannelId: "Member Join/Leave Notification Channel"
   key_notifications_voiceChannelId: "Voice Notification Channel"
   key_notifications_memberJoinEnabled: "Member Join Notify Enabled"
+  key_welcome_enabled: "Welcome Message Enabled"
   key_notifications_memberLeaveEnabled: "Member Leave Notify Enabled"
   key_notifications_voiceLogEnabled: "Voice Log Enabled"
   member_channel_mode_same: "Join/Leave in the same channel"
@@ -292,7 +293,7 @@ settings:
   logs_menu_expired: "Logs menu expired. Run `/settings logs` again."
   logs_menu_channel_placeholder: "Choose a text channel"
   logs_menu_pick_channel_title: "Select Log Output Channel"
-  logs_menu_pick_channel_desc: "Choose a text channel for \"{target}\"."
+  logs_menu_pick_channel_desc: "Choose a text channel for "{target}"."
   logs_menu_status_format: "{module} | {channel}"
   logs_menu_module_default: "Module: Default"
   logs_member_mode_title: "Member Join/Leave Channel Mode"
@@ -319,7 +320,7 @@ settings:
   music_menu_expired: "Music settings menu expired. Run `/settings music` again."
   music_menu_current: "Current: {value}"
   music_menu_pick_channel_title: "Select Music Setting Channel"
-  music_menu_pick_channel_desc: "Choose a channel for \"{target}\"."
+  music_menu_pick_channel_desc: "Choose a channel for "{target}"."
   music_menu_channel_placeholder: "Choose a channel"
   music_menu_minutes_title: "Set Auto Leave Minutes"
   music_menu_minutes_hint: "Enter a value from 1 to 60"
@@ -362,11 +363,14 @@ room_settings:
   option_lock: "Lock/Unlock Room"
   option_limit: "Set User Limit"
   option_rename: "Rename Room"
+  option_transfer: "Transfer Ownership"
   field_channel: "Channel"
   field_name: "Name"
   field_limit: "User Limit"
   field_lock: "Locked"
+  field_owner: "Owner"
   unlimited: "Unlimited"
+  owner_unknown: "Unknown"
   must_join_private_room: "Join your private room first before using this command."
   expired: "This room settings menu has expired. Please run `/private-room-settings` again."
   room_not_found: "No manageable private room was found."
@@ -382,6 +386,11 @@ room_settings:
   rename_placeholder: "Current: {name}"
   rename_invalid: "Name cannot be empty and must be 1-10 characters."
   rename_saved: "Room name updated to: {name}"
+  transfer_title: "Transfer Room Ownership"
+  transfer_desc: "Select a member currently in {channel} to transfer ownership."
+  transfer_placeholder: "Choose the new owner"
+  transfer_invalid: "Please choose another non-bot member who is currently in this private room."
+  transfer_success: "Room ownership has been transferred to {user}."
   default_room_suffix: "Room"
 
 delete:
@@ -570,9 +579,26 @@ ticket:
 
 
 
+welcome:
+  modal_form_title: "Edit Welcome Message"
+  modal_title_label: "Embed Title"
+  modal_title_placeholder: "For example: Welcome to {群組名稱}"
+  modal_message_label: "Message Content"
+  modal_message_placeholder: "Supports {user}, {guild}, {使用者}, {群組名稱}"
+  modal_message_required: "Please enter welcome message content."
+  saved_title: "Saved"
+  saved_desc: "Welcome message settings have been updated."
+  channel_saved: "Welcome message channel set to {channel}."
+  default_title: "Welcome to {guild}"
+  default_message: "{user} joined {guild}."
 ping:
   title: "Ping"
   description: "Current live latency information for the bot."
   gateway: "Gateway Latency"
   response: "Interaction Response"
+
+
+
+
+
 

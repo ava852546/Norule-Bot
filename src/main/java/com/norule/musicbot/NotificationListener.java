@@ -8,6 +8,7 @@ import net.dv8tion.jda.api.events.guild.member.GuildMemberJoinEvent;
 import net.dv8tion.jda.api.events.guild.member.GuildMemberRemoveEvent;
 import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.Permission;
 
 import java.awt.Color;
 import java.time.Instant;
@@ -25,19 +26,21 @@ public class NotificationListener extends ListenerAdapter {
     @Override
     public void onGuildMemberJoin(GuildMemberJoinEvent event) {
         BotConfig.Notifications config = guildSettingsService.getNotifications(event.getGuild().getIdLong());
-        if (!config.isEnabled() || !config.isMemberJoinEnabled() || event.getUser().isBot()) {
+        if (event.getUser().isBot()) {
             return;
         }
         String lang = guildSettingsService.getLanguage(event.getGuild().getIdLong());
-
-        sendMemberMessage(
-                event.getGuild(),
-                config,
-                formatUserTemplate(resolveMemberTemplate(lang, config.getMemberJoinMessage(), true), event.getUser(), event.getGuild()),
-                config.getMemberJoinColor(),
-                event.getUser(),
-                true
-        );
+        if (config.isEnabled() && config.isMemberJoinEnabled()) {
+            sendMemberMessage(
+                    event.getGuild(),
+                    config,
+                    formatUserTemplate(resolveMemberTemplate(lang, config.getMemberJoinMessage(), true), event.getUser(), event.getGuild()),
+                    config.getMemberJoinColor(),
+                    event.getUser(),
+                    true
+            );
+        }
+        sendWelcomeMessage(event.getGuild(), guildSettingsService.getWelcome(event.getGuild().getIdLong()), event.getUser(), lang);
     }
 
     @Override
@@ -111,11 +114,14 @@ public class NotificationListener extends ListenerAdapter {
 
         TextChannel channel = guild.getTextChannelById(channelId);
         if (channel != null) {
+            String title = joinEvent
+                    ? (config.getMemberJoinTitle() == null || config.getMemberJoinTitle().isBlank()
+                        ? i18n.t(lang, "notifications.embed.member_join_title")
+                        : formatUserTemplate(config.getMemberJoinTitle(), user, guild))
+                    : i18n.t(lang, "notifications.embed.member_leave_title");
             EmbedBuilder eb = new EmbedBuilder()
                     .setColor(new Color(color & 0xFFFFFF))
-                    .setTitle(i18n.t(lang, joinEvent
-                            ? "notifications.embed.member_join_title"
-                            : "notifications.embed.member_leave_title"))
+                    .setTitle(title)
                     .setDescription(message)
                     .addField(i18n.t(lang, "notifications.embed.user_field"), user.getAsMention() + " (`" + user.getAsTag() + "`)", false)
                     .addField("ID", user.getId(), true)
@@ -125,10 +131,68 @@ public class NotificationListener extends ListenerAdapter {
                                     : "notifications.embed.leave_notify_time_field"),
                             discordTimestamp(now),
                             false
-                    )
-                    .setThumbnail(user.getEffectiveAvatarUrl());
+                    );
+            if (joinEvent) {
+                String thumbnailUrl = sanitizeExternalUrl(config.getMemberJoinThumbnailUrl());
+                String imageUrl = sanitizeExternalUrl(config.getMemberJoinImageUrl());
+                eb.setThumbnail(thumbnailUrl != null ? thumbnailUrl : user.getEffectiveAvatarUrl());
+                if (imageUrl != null) {
+                    eb.setImage(imageUrl);
+                }
+            } else {
+                eb.setThumbnail(user.getEffectiveAvatarUrl());
+            }
             channel.sendMessageEmbeds(eb.build()).queue();
         }
+    }
+
+    private void sendWelcomeMessage(Guild guild, BotConfig.Welcome welcome, User user, String lang) {
+        if (welcome == null || !welcome.isEnabled() || welcome.getChannelId() == null) {
+            return;
+        }
+        TextChannel channel = guild.getTextChannelById(welcome.getChannelId());
+        if (channel == null) {
+            return;
+        }
+        if (!guild.getSelfMember().hasPermission(channel,
+                Permission.VIEW_CHANNEL,
+                Permission.MESSAGE_SEND,
+                Permission.MESSAGE_EMBED_LINKS)) {
+            return;
+        }
+        String title = formatUserTemplate(resolveWelcomeTitle(welcome, lang), user, guild);
+        String message = formatUserTemplate(resolveWelcomeMessage(welcome, lang), user, guild);
+        if (message.isBlank()) {
+            return;
+        }
+        String thumbnailUrl = sanitizeExternalUrl(welcome.getThumbnailUrl());
+        String imageUrl = sanitizeExternalUrl(welcome.getImageUrl());
+        EmbedBuilder eb = buildWelcomeEmbed(guild, user, title, message, thumbnailUrl, imageUrl);
+        channel.sendMessageEmbeds(eb.build()).queue(
+                null,
+                error -> {
+                    System.err.println("[NoRule] Failed to send welcome embed in guild " + guild.getId() + ": " + error.getMessage());
+                    EmbedBuilder fallback = buildWelcomeEmbed(guild, user, title, message, null, null);
+                    channel.sendMessageEmbeds(fallback.build()).queue(
+                            null,
+                            retryError -> System.err.println("[NoRule] Welcome fallback send failed in guild " + guild.getId() + ": " + retryError.getMessage())
+                    );
+                }
+        );
+    }
+
+    private EmbedBuilder buildWelcomeEmbed(Guild guild, User user, String title, String message, String thumbnailUrl, String imageUrl) {
+        EmbedBuilder eb = new EmbedBuilder()
+                .setColor(new Color(0x2ECC71))
+                .setTitle(title)
+                .setDescription(message)
+                .setTimestamp(Instant.now())
+                .setFooter(guild.getName(), guild.getIconUrl());
+        eb.setThumbnail(thumbnailUrl != null ? thumbnailUrl : user.getEffectiveAvatarUrl());
+        if (imageUrl != null) {
+            eb.setImage(imageUrl);
+        }
+        return eb;
     }
 
     private Long resolveMemberChannelId(BotConfig.Notifications config, boolean joinEvent) {
@@ -161,13 +225,43 @@ public class NotificationListener extends ListenerAdapter {
         long accountAgeDays = ChronoUnit.DAYS.between(createdAt, Instant.now());
         return template
                 .replace("{user}", user.getAsMention())
+                .replace("{使用者}", user.getAsMention())
                 .replace("{username}", user.getName())
+                .replace("{使用者名稱}", user.getName())
                 .replace("{guild}", guild.getName())
+                .replace("{群組名稱}", guild.getName())
                 .replace("{id}", user.getId())
                 .replace("{tag}", user.getAsTag())
                 .replace("{isBot}", String.valueOf(user.isBot()))
                 .replace("{createdAt}", discordCreatedAt(createdAt))
                 .replace("{accountAgeDays}", String.valueOf(Math.max(0L, accountAgeDays)));
+    }
+
+    private String resolveWelcomeTitle(BotConfig.Welcome welcome, String lang) {
+        String title = welcome.getTitle();
+        if (title == null || title.isBlank()) {
+            return i18n.t(lang, "welcome.default_title");
+        }
+        return title;
+    }
+
+    private String resolveWelcomeMessage(BotConfig.Welcome welcome, String lang) {
+        String message = welcome.getMessage();
+        if (message == null || message.isBlank()) {
+            return i18n.t(lang, "welcome.default_message");
+        }
+        return message;
+    }
+
+    private String sanitizeExternalUrl(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String text = raw.trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        return text.startsWith("http://") || text.startsWith("https://") ? text : null;
     }
 
     private String formatVoiceTemplate(String template, String userMention, String fromChannel, String toChannel) {
@@ -227,3 +321,6 @@ public class NotificationListener extends ListenerAdapter {
         return "<t:" + sec + ":S> (<t:" + sec + ":R>)";
     }
 }
+
+
+

@@ -74,6 +74,8 @@ public class MusicCommandListener extends ListenerAdapter {
     private static final String CMD_MUSIC_PANEL_ZH = "\u97f3\u6a02\u9762\u677f";
     private static final String CMD_REPEAT_ZH = "\u5faa\u74b0";
     private static final String CMD_PING_ZH = "\u5ef6\u9072";
+    private static final String CMD_WELCOME_ZH = "\u6b61\u8fce\u8a0a\u606f";
+    private static final String OPTION_WELCOME_CHANNEL_ZH = "\u983b\u9053";
     private static final String CMD_VOLUME_ZH = "\u97f3\u91cf";
     private static final String CMD_HISTORY_ZH = "\u64ad\u653e\u6b77\u53f2";
     private static final String CMD_MUSIC_ZH = "\u97f3\u6a02";
@@ -85,15 +87,15 @@ public class MusicCommandListener extends ListenerAdapter {
     private static final String CMD_ANTI_DUPLICATE_ZH = "\u9632\u6d17\u983b";
     private static final String CMD_NUMBER_CHAIN_ZH = "\u6578\u5b57\u63a5\u9f8d";
     private static final String CMD_TICKET_ZH = "\u5ba2\u670d\u55ae";
-    private static final String SUB_SETTINGS_INFO_ZH = "\u8cc7\u8a0a";
-    private static final String SUB_SETTINGS_RELOAD_ZH = "\u91cd\u8f09";
-    private static final String SUB_SETTINGS_RESET_ZH = "\u91cd\u8a2d";
-    private static final String SUB_SETTINGS_TEMPLATE_ZH = "\u6a21\u677f";
-    private static final String SUB_SETTINGS_MODULE_ZH = "\u6a21\u7d44";
-    private static final String SUB_SETTINGS_LOGS_ZH = "\u65e5\u8a8c";
-    private static final String SUB_SETTINGS_MUSIC_ZH = "\u97f3\u6a02";
-    private static final String SUB_SETTINGS_LANGUAGE_ZH = "\u8a9e\u8a00";
-    private static final String SUB_SETTINGS_NUMBER_CHAIN_ZH = "\u63a5\u9f8d";
+    private static final String SUB_SETTINGS_INFO_ZH = "\u8a73\u7d30\u8cc7\u8a0a";
+    private static final String SUB_SETTINGS_RELOAD_ZH = "\u91cd\u8f09\u8a2d\u5b9a";
+    private static final String SUB_SETTINGS_RESET_ZH = "\u6062\u5fa9\u9810\u8a2d";
+    private static final String SUB_SETTINGS_TEMPLATE_ZH = "\u6a21\u677f\u7de8\u8f2f";
+    private static final String SUB_SETTINGS_MODULE_ZH = "\u6a21\u7d44\u958b\u95dc";
+    private static final String SUB_SETTINGS_LOGS_ZH = "\u65e5\u8a8c\u983b\u9053";
+    private static final String SUB_SETTINGS_MUSIC_ZH = "\u97f3\u6a02\u8a2d\u5b9a";
+    private static final String SUB_SETTINGS_LANGUAGE_ZH = "\u8a9e\u8a00\u8a2d\u7f6e";
+    private static final String SUB_SETTINGS_NUMBER_CHAIN_ZH = "\u63a5\u9f8d\u904a\u6232";
     private static final String SUB_DELETE_CHANNEL_ZH = "\u983b\u9053";
     private static final String SUB_DELETE_USER_ZH = "\u4f7f\u7528\u8005";
     private static final String HELP_SELECT_ID = "help:select";
@@ -118,11 +120,13 @@ public class MusicCommandListener extends ListenerAdapter {
     private static final String ROOM_SETTINGS_MENU_PREFIX = "room:settings:";
     private static final String ROOM_LIMIT_MODAL_PREFIX = "room:limit:";
     private static final String ROOM_RENAME_MODAL_PREFIX = "room:rename:";
+    private static final String ROOM_TRANSFER_SELECT_PREFIX = "room:transfer:";
     private static final String PLAY_PICK_PREFIX = "play:pick:";
     private static final String DELETE_CONFIRM_PREFIX = "delete:confirm:";
     private static final String DELETE_CANCEL_PREFIX = "delete:cancel:";
     private static final String WARNING_REASON_MODAL_PREFIX = "warnings:reason:";
     private static final String TEMPLATE_MODAL_PREFIX = "settings:template:";
+    private static final String WELCOME_MODAL_ID = "welcome:edit";
     private static final String PANEL_PLAY_PAUSE = "panel:playpause";
     private static final String PANEL_SKIP = "panel:skip";
     private static final String PANEL_STOP = "panel:stop";
@@ -313,11 +317,16 @@ public class MusicCommandListener extends ListenerAdapter {
                     return;
                 }
                 int applied = musicService.setVolume(guild, value);
-                event.getChannel().sendMessage(musicUx(lang, "volume_set", Map.of("value", String.valueOf(applied)))).queue();
+                event.getChannel().sendMessage(musicUx(lang, "volume_set", Map.of("value", String.valueOf(applied))))
+                        .queue(success -> moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                        });
             }
             case "history" -> event.getChannel().sendMessageEmbeds(historyEmbed(guild, lang).build()).queue();
             case "playlist" -> handlePlaylistPrefix(event, guild, arg, lang);
-            case "join" -> handleJoin(guild, event.getMember(), text -> event.getChannel().sendMessage(text).queue());
+            case "join" -> handleJoin(guild, event.getMember(),
+                    text -> event.getChannel().sendMessage(text)
+                            .queue(success -> moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                            }));
             case "play" -> directPlay(
                     guild,
                     event.getMember(),
@@ -325,12 +334,23 @@ public class MusicCommandListener extends ListenerAdapter {
                     text -> event.getChannel().sendMessage(text).queue(),
                     event.getChannel().asTextChannel()
             );
-            case "skip" -> handleSkip(guild, text -> event.getChannel().sendMessage(text).queue());
-            case "stop" -> handleStop(guild, text -> event.getChannel().sendMessage(text).queue());
-            case "leave" -> handleLeave(guild, text -> event.getChannel().sendMessage(text).queue());
+            case "skip" -> handleSkip(guild,
+                    text -> event.getChannel().sendMessage(text)
+                            .queue(success -> moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                            }));
+            case "stop" -> handleStop(guild,
+                    text -> event.getChannel().sendMessage(text)
+                            .queue(success -> moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                            }));
+            case "leave" -> handleLeave(guild,
+                    text -> event.getChannel().sendMessage(text)
+                            .queue(success -> moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                            }));
             case "repeat" -> {
                 setRepeat(guild, arg);
-                event.getChannel().sendMessage(mapRepeatLabel(lang, musicService.getRepeatMode(guild))).queue();
+                event.getChannel().sendMessage(mapRepeatLabel(lang, musicService.getRepeatMode(guild)))
+                        .queue(success -> moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                        });
             }
             case "music" -> event.getChannel().sendMessageEmbeds(musicStatsEmbed(guild, lang).build()).queue();
             default -> event.getChannel().sendMessage(i18n.t(lang, "general.unknown_command")).queue();
@@ -374,25 +394,42 @@ public class MusicCommandListener extends ListenerAdapter {
                     .setEphemeral(true)
                     .queue();
             case "ping" -> handlePingSlash(event, lang);
+            case "welcome" -> handleWelcomeSlash(event, lang);
             case "volume" -> handleVolumeSlash(event, lang);
             case "history" -> event.replyEmbeds(historyEmbed(event.getGuild(), lang).build()).queue();
             case "playlist" -> handlePlaylistSlash(event, lang);
             case "join" -> {
                 event.deferReply().queue();
-                handleJoin(event.getGuild(), event.getMember(), text -> event.getHook().sendMessage(text).queue());
+                handleJoin(event.getGuild(), event.getMember(),
+                        text -> event.getHook().sendMessage(text)
+                                .queue(success -> moveActivePanelToBottom(event.getGuild(),
+                                        event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null), error -> {
+                                }));
             }
             case "play" -> handlePlaySlash(event, lang);
             case "skip" -> {
                 event.deferReply().queue();
-                handleSkip(event.getGuild(), text -> event.getHook().sendMessage(text).queue());
+                handleSkip(event.getGuild(),
+                        text -> event.getHook().sendMessage(text)
+                                .queue(success -> moveActivePanelToBottom(event.getGuild(),
+                                        event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null), error -> {
+                                }));
             }
             case "stop" -> {
                 event.deferReply().queue();
-                handleStop(event.getGuild(), text -> event.getHook().sendMessage(text).queue());
+                handleStop(event.getGuild(),
+                        text -> event.getHook().sendMessage(text)
+                                .queue(success -> moveActivePanelToBottom(event.getGuild(),
+                                        event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null), error -> {
+                                }));
             }
             case "leave" -> {
                 event.deferReply().queue();
-                handleLeave(event.getGuild(), text -> event.getHook().sendMessage(text).queue());
+                handleLeave(event.getGuild(),
+                        text -> event.getHook().sendMessage(text)
+                                .queue(success -> moveActivePanelToBottom(event.getGuild(),
+                                        event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null), error -> {
+                                }));
             }
             case "music-panel" -> {
                 event.deferReply().queue();
@@ -413,7 +450,11 @@ public class MusicCommandListener extends ListenerAdapter {
                 String mode = Objects.requireNonNull(event.getOption("mode")).getAsString();
                 setRepeat(event.getGuild(), mode);
                 refreshPanel(event.getGuild().getIdLong());
-                event.reply(mapRepeatLabel(lang, musicService.getRepeatMode(event.getGuild()))).setEphemeral(true).queue();
+                TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
+                event.reply(mapRepeatLabel(lang, musicService.getRepeatMode(event.getGuild())))
+                        .setEphemeral(true)
+                        .queue(success -> moveActivePanelToBottom(event.getGuild(), panelChannel), error -> {
+                        });
             }
             case "music" -> handleMusicSlash(event, lang);
             case "settings" -> handleSettings(event, lang);
@@ -595,6 +636,10 @@ public class MusicCommandListener extends ListenerAdapter {
         }
         if (event.getModalId().startsWith(WARNING_REASON_MODAL_PREFIX)) {
             handleWarningReasonModal(event, lang);
+            return;
+        }
+        if (WELCOME_MODAL_ID.equals(event.getModalId())) {
+            handleWelcomeModal(event, lang);
             return;
         }
         if (!event.getModalId().startsWith(TEMPLATE_MODAL_PREFIX)) {
@@ -780,6 +825,10 @@ public class MusicCommandListener extends ListenerAdapter {
         }
         if (componentId.startsWith(SETTINGS_NUMBER_CHAIN_CHANNEL_PREFIX)) {
             handleNumberChainChannelSelect(event, lang);
+            return;
+        }
+        if (componentId.startsWith(ROOM_TRANSFER_SELECT_PREFIX)) {
+            handleRoomTransferSelect(event, lang);
         }
     }
 
@@ -1087,6 +1136,8 @@ public class MusicCommandListener extends ListenerAdapter {
                                 .withDescription(boolText(lang, s.getMessageLogs().isEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.key_notifications_memberJoinEnabled"), "member-join")
                                 .withDescription(boolText(lang, s.getNotifications().isMemberJoinEnabled())),
+                        SelectOption.of(i18n.t(lang, "settings.key_welcome_enabled"), "welcome-enable")
+                                .withDescription(boolText(lang, s.getWelcome().isEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.key_notifications_memberLeaveEnabled"), "member-leave")
                                 .withDescription(boolText(lang, s.getNotifications().isMemberLeaveEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.key_notifications_voiceLogEnabled"), "voice-log")
@@ -1120,6 +1171,7 @@ public class MusicCommandListener extends ListenerAdapter {
                 moduleLine(lang, "settings.key_notifications_enabled", s.getNotifications().isEnabled()),
                 moduleLine(lang, "settings.key_messageLogs_enabled", s.getMessageLogs().isEnabled()),
                 moduleLine(lang, "settings.key_notifications_memberJoinEnabled", s.getNotifications().isMemberJoinEnabled()),
+                moduleLine(lang, "settings.key_welcome_enabled", s.getWelcome().isEnabled()),
                 moduleLine(lang, "settings.key_notifications_memberLeaveEnabled", s.getNotifications().isMemberLeaveEnabled()),
                 moduleLine(lang, "settings.key_notifications_voiceLogEnabled", s.getNotifications().isVoiceLogEnabled()),
                 moduleLine(lang, "settings.info_key_log_command_usage", s.getMessageLogs().isCommandUsageLogEnabled()),
@@ -1223,6 +1275,11 @@ public class MusicCommandListener extends ListenerAdapter {
                 boolean value = !settingsService.getNotifications(guildId).isMemberLeaveEnabled();
                 settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications().withMemberLeaveEnabled(value)));
                 return new ToggleResult("settings.key_notifications_memberLeaveEnabled", value);
+            }
+            case "welcome-enable" -> {
+                boolean value = !settingsService.getWelcome(guildId).isEnabled();
+                settingsService.updateSettings(guildId, s -> s.withWelcome(s.getWelcome().withEnabled(value)));
+                return new ToggleResult("settings.key_welcome_enabled", value);
             }
             case "member-join" -> {
                 boolean value = !settingsService.getNotifications(guildId).isMemberJoinEnabled();
@@ -1347,6 +1404,12 @@ public class MusicCommandListener extends ListenerAdapter {
         }
 
         if ("member-channel".equals(target)) {
+            BotConfig.Notifications notifications = settingsService.getNotifications(event.getGuild().getIdLong());
+            boolean split = notifications.getMemberJoinChannelId() != null || notifications.getMemberLeaveChannelId() != null;
+            if (!split) {
+                openSharedMemberChannelPicker(event, token, lang);
+                return;
+            }
             event.editMessageEmbeds(new EmbedBuilder()
                             .setColor(new Color(241, 196, 15))
                             .setTitle(i18n.t(lang, "settings.logs_member_mode_title"))
@@ -1377,14 +1440,11 @@ public class MusicCommandListener extends ListenerAdapter {
 
     private StringSelectMenu settingsMemberChannelModeMenu(String token, long guildId, String lang) {
         BotConfig.Notifications n = settingsService.getNotifications(guildId);
-        boolean split = n.getMemberJoinChannelId() != null || n.getMemberLeaveChannelId() != null;
         return StringSelectMenu.create(SETTINGS_LOGS_MEMBER_MODE_PREFIX + token)
                 .setPlaceholder(i18n.t(lang, "settings.logs_member_mode_placeholder"))
                 .addOptions(
-                        SelectOption.of(i18n.t(lang, "settings.logs_member_mode_shared"), "member-channel-shared")
-                                .withDefault(!split),
+                        SelectOption.of(i18n.t(lang, "settings.logs_member_mode_shared"), "member-channel-shared"),
                         SelectOption.of(i18n.t(lang, "settings.logs_member_mode_split"), "member-channel-split")
-                                .withDefault(split)
                 )
                 .build();
     }
@@ -1423,20 +1483,7 @@ public class MusicCommandListener extends ListenerAdapter {
 
         String mode = event.getValues().isEmpty() ? "" : event.getValues().get(0);
         if ("member-channel-shared".equals(mode)) {
-            String channelComponentId = SETTINGS_LOGS_CHANNEL_PREFIX + token + ":member-channel-shared";
-            EntitySelectMenu channelMenu = EntitySelectMenu.create(channelComponentId, EntitySelectMenu.SelectTarget.CHANNEL)
-                    .setChannelTypes(ChannelType.TEXT)
-                    .setPlaceholder(i18n.t(lang, "settings.logs_menu_channel_placeholder"))
-                    .setRequiredRange(1, 1)
-                    .build();
-            event.editMessageEmbeds(new EmbedBuilder()
-                            .setColor(new Color(241, 196, 15))
-                            .setTitle(i18n.t(lang, "settings.logs_menu_pick_channel_title"))
-                            .setDescription(i18n.t(lang, "settings.logs_menu_pick_channel_desc",
-                                    Map.of("target", i18n.t(lang, "settings.logs_member_mode_shared"))))
-                            .build())
-                    .setComponents(ActionRow.of(channelMenu))
-                    .queue();
+            openSharedMemberChannelPicker(event, token, lang);
             return;
         }
 
@@ -1452,6 +1499,23 @@ public class MusicCommandListener extends ListenerAdapter {
         }
 
         event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+    }
+
+    private void openSharedMemberChannelPicker(StringSelectInteractionEvent event, String token, String lang) {
+        String channelComponentId = SETTINGS_LOGS_CHANNEL_PREFIX + token + ":member-channel-shared";
+        EntitySelectMenu channelMenu = EntitySelectMenu.create(channelComponentId, EntitySelectMenu.SelectTarget.CHANNEL)
+                .setChannelTypes(ChannelType.TEXT)
+                .setPlaceholder(i18n.t(lang, "settings.logs_menu_channel_placeholder"))
+                .setRequiredRange(1, 1)
+                .build();
+        event.editMessageEmbeds(new EmbedBuilder()
+                        .setColor(new Color(241, 196, 15))
+                        .setTitle(i18n.t(lang, "settings.logs_menu_pick_channel_title"))
+                        .setDescription(i18n.t(lang, "settings.logs_menu_pick_channel_desc",
+                                Map.of("target", i18n.t(lang, "settings.logs_member_mode_shared"))))
+                        .build())
+                .setComponents(ActionRow.of(channelMenu))
+                .queue();
     }
 
     private void handleLogsMemberSplitSelect(StringSelectInteractionEvent event, String lang) {
@@ -1526,6 +1590,14 @@ public class MusicCommandListener extends ListenerAdapter {
         GuildChannel selected = channels.get(0);
         if (!(selected instanceof TextChannel textChannel)) {
             event.reply(i18n.t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
+            return;
+        }
+        String missing = formatMissingPermissions(event.getGuild().getSelfMember(), textChannel,
+                Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND, Permission.MESSAGE_EMBED_LINKS);
+        if (!"-".equals(missing)) {
+            event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", missing)))
+                    .setEphemeral(true)
+                    .queue();
             return;
         }
         long guildId = event.getGuild().getIdLong();
@@ -2050,7 +2122,8 @@ public class MusicCommandListener extends ListenerAdapter {
     }
 
     private void recreatePanelForChannel(Guild guild, TextChannel channel, String lang) {
-        PanelRef old = panelByGuild.remove(guild.getIdLong());
+        long guildId = guild.getIdLong();
+        PanelRef old = panelByGuild.remove(guildId);
         if (old != null) {
             TextChannel oldChannel = guild.getTextChannelById(old.channelId);
             if (oldChannel != null) {
@@ -2062,6 +2135,24 @@ public class MusicCommandListener extends ListenerAdapter {
         createPanelMessageWithFeedback(guild, channel, lang, () -> {
         }, error -> {
         });
+    }
+
+    private void moveActivePanelToBottom(Guild guild, TextChannel preferredChannel) {
+        if (guild == null) {
+            return;
+        }
+        PanelRef active = panelByGuild.get(guild.getIdLong());
+        if (active == null) {
+            return;
+        }
+        TextChannel target = preferredChannel != null
+                ? preferredChannel
+                : guild.getTextChannelById(active.channelId);
+        if (target == null || !target.canTalk()) {
+            return;
+        }
+        musicService.rememberCommandChannel(guild.getIdLong(), target.getIdLong());
+        recreatePanelForChannel(guild, target, lang(guild.getIdLong()));
     }
 
     private void handleJoin(Guild guild, Member member, TextSink sink) {
@@ -2198,6 +2289,126 @@ public class MusicCommandListener extends ListenerAdapter {
         }, error -> event.reply("Pong").queue());
     }
 
+    private void handleWelcomeSlash(SlashCommandInteractionEvent event, String lang) {
+        if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
+            event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
+                    .setEphemeral(true)
+                    .queue();
+            return;
+        }
+        var channelOption = event.getOption("channel");
+        if (channelOption == null) {
+            channelOption = event.getOption(OPTION_WELCOME_CHANNEL_ZH);
+        }
+        if (channelOption != null) {
+            if (channelOption.getAsChannel().getType() != ChannelType.TEXT) {
+                event.reply(i18n.t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
+                return;
+            }
+            TextChannel textChannel = channelOption.getAsChannel().asTextChannel();
+            String missing = formatMissingPermissions(event.getGuild().getSelfMember(), textChannel,
+                    Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND, Permission.MESSAGE_EMBED_LINKS);
+            if (!"-".equals(missing)) {
+                event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", missing)))
+                        .setEphemeral(true)
+                        .queue();
+                return;
+            }
+            settingsService.updateSettings(event.getGuild().getIdLong(), s -> s.withWelcome(
+                    s.getWelcome()
+                            .withChannelId(textChannel.getIdLong())
+                            .withEnabled(true)
+            ));
+            event.reply(i18n.t(lang, "welcome.channel_saved", Map.of("channel", textChannel.getAsMention())))
+                    .setEphemeral(true)
+                    .queue();
+            return;
+        }
+        BotConfig.Welcome welcome = settingsService.getWelcome(event.getGuild().getIdLong());
+        event.replyModal(buildWelcomeModal(welcome, lang)).queue();
+    }
+
+    private Modal buildWelcomeModal(BotConfig.Welcome welcome, String lang) {
+        String defaultTitle = welcome.getTitle();
+        if (defaultTitle == null || defaultTitle.isBlank()) {
+            defaultTitle = i18n.t(lang, "welcome.default_title");
+        }
+        TextInput.Builder titleInput = TextInput.create("title", TextInputStyle.SHORT)
+                .setPlaceholder(i18n.t(lang, "welcome.modal_title_placeholder"))
+                .setRequired(false)
+                .setMaxLength(100);
+        if (!defaultTitle.isBlank()) {
+            titleInput.setValue(defaultTitle.length() > 100 ? defaultTitle.substring(0, 100) : defaultTitle);
+        }
+
+        String defaultBody = welcome.getMessage();
+        TextInput.Builder bodyInput = TextInput.create("message", TextInputStyle.PARAGRAPH)
+                .setPlaceholder(i18n.t(lang, "welcome.modal_message_placeholder"))
+                .setRequired(true)
+                .setMaxLength(1000);
+        if (defaultBody != null && !defaultBody.isBlank()) {
+            bodyInput.setValue(defaultBody.length() > 1000 ? defaultBody.substring(0, 1000) : defaultBody);
+        }
+
+        return Modal.create(WELCOME_MODAL_ID, i18n.t(lang, "welcome.modal_form_title"))
+                .addComponents(
+                        Label.of(i18n.t(lang, "welcome.modal_title_label"), titleInput.build()),
+                        Label.of(i18n.t(lang, "welcome.modal_message_label"), bodyInput.build())
+                )
+                .build();
+    }
+
+    private void handleWelcomeModal(ModalInteractionEvent event, String lang) {
+        if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
+            event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
+                    .setEphemeral(true)
+                    .queue();
+            return;
+        }
+        String title = event.getValue("title") == null ? "" : event.getValue("title").getAsString().trim();
+        String message = event.getValue("message") == null ? "" : event.getValue("message").getAsString().trim();
+        if (message.isBlank()) {
+            event.reply(i18n.t(lang, "welcome.modal_message_required")).setEphemeral(true).queue();
+            return;
+        }
+        settingsService.updateSettings(event.getGuild().getIdLong(), s -> s.withWelcome(
+                s.getWelcome()
+                        .withEnabled(true)
+                        .withTitle(title)
+                        .withMessage(message)
+        ));
+
+        String previewTitle = title.isBlank()
+                ? i18n.t(lang, "welcome.default_title")
+                : previewWelcomeText(title, event.getGuild(), event.getUser());
+        String previewBody = previewWelcomeText(message, event.getGuild(), event.getUser());
+        EmbedBuilder preview = new EmbedBuilder()
+                .setColor(new Color(0x2ECC71))
+                .setTitle(previewTitle)
+                .setDescription(previewBody)
+                .addField(i18n.t(lang, "welcome.saved_title"), i18n.t(lang, "welcome.saved_desc"), false)
+                .setThumbnail(event.getUser().getEffectiveAvatarUrl());
+        event.replyEmbeds(preview.build()).setEphemeral(true).queue();
+    }
+
+    private String previewWelcomeText(String text, Guild guild, User user) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        return text
+                .replace("{user}", user.getAsMention())
+                .replace("{使用者}", user.getAsMention())
+                .replace("{username}", user.getName())
+                .replace("{使用者名稱}", user.getName())
+                .replace("{guild}", guild.getName())
+                .replace("{群組名稱}", guild.getName())
+                .replace("{id}", user.getId())
+                .replace("{tag}", user.getAsTag())
+                .replace("{isBot}", String.valueOf(user.isBot()))
+                .replace("{createdAt}", "<t:" + user.getTimeCreated().toInstant().getEpochSecond() + ":F>")
+                .replace("{accountAgeDays}", String.valueOf(Math.max(0L, Duration.between(user.getTimeCreated().toInstant(), Instant.now()).toDays())));
+    }
+
     private void handleVolumeSlash(SlashCommandInteractionEvent event, String lang) {
         long guildId = event.getGuild().getIdLong();
         Integer raw = event.getOption("value") == null ? null : (int) event.getOption("value").getAsLong();
@@ -2207,7 +2418,11 @@ public class MusicCommandListener extends ListenerAdapter {
         }
         int applied = musicService.setVolume(event.getGuild(), raw);
         refreshPanel(guildId);
-        event.reply(musicUx(lang, "volume_set", Map.of("value", String.valueOf(applied)))).setEphemeral(true).queue();
+        TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
+        event.reply(musicUx(lang, "volume_set", Map.of("value", String.valueOf(applied))))
+                .setEphemeral(true)
+                .queue(success -> moveActivePanelToBottom(event.getGuild(), panelChannel), error -> {
+                });
     }
 
     private void handleMusicSlash(SlashCommandInteractionEvent event, String lang) {
@@ -2273,9 +2488,11 @@ public class MusicCommandListener extends ListenerAdapter {
                     return;
                 }
                 refreshPanel(event.getGuild().getIdLong());
+                TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
                 event.reply(musicText(lang, "playlist_load_success", Map.of("name", playlistName, "count", String.valueOf(queued))))
                         .setEphemeral(true)
-                        .queue();
+                        .queue(success -> moveActivePanelToBottom(event.getGuild(), panelChannel), error -> {
+                        });
             }
             case "delete" -> {
                 if (playlistName.isBlank()) {
@@ -2330,7 +2547,9 @@ public class MusicCommandListener extends ListenerAdapter {
                     return;
                 }
                 refreshPanel(guild.getIdLong());
-                event.getChannel().sendMessage(musicUx(lang, "playlist_load_success", Map.of("name", playlistName, "count", String.valueOf(queued)))).queue();
+                event.getChannel().sendMessage(musicUx(lang, "playlist_load_success", Map.of("name", playlistName, "count", String.valueOf(queued))))
+                        .queue(success -> moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                        });
             }
             case "delete" -> {
                 if (playlistName.isBlank()) {
@@ -2520,6 +2739,7 @@ public class MusicCommandListener extends ListenerAdapter {
                 line(lang, "settings.key_notifications_enabled", boolText(lang, n.isEnabled())),
                 line(lang, "settings.key_messageLogs_enabled", boolText(lang, logs.isEnabled())),
                 line(lang, "settings.key_notifications_memberJoinEnabled", boolText(lang, n.isMemberJoinEnabled())),
+                line(lang, "settings.key_welcome_enabled", boolText(lang, settings.getWelcome().isEnabled())),
                 line(lang, "settings.key_notifications_memberLeaveEnabled", boolText(lang, n.isMemberLeaveEnabled())),
                 line(lang, "settings.key_notifications_voiceLogEnabled", boolText(lang, n.isVoiceLogEnabled())),
                 line(lang, "settings.info_key_log_command_usage", boolText(lang, logs.isCommandUsageLogEnabled())),
@@ -2766,6 +2986,7 @@ public class MusicCommandListener extends ListenerAdapter {
                 settingsService.updateSettings(guildId, s -> new GuildSettingsService.GuildSettings(
                         config.getDefaultLanguage(),
                         config.getNotifications(),
+                        config.getWelcome(),
                         config.getMessageLogs(),
                         config.getMusic(),
                         config.getPrivateRoom(),
@@ -2818,13 +3039,17 @@ public class MusicCommandListener extends ListenerAdapter {
                 .addOptions(
                         SelectOption.of(i18n.t(lang, "room_settings.option_lock"), "lock"),
                         SelectOption.of(i18n.t(lang, "room_settings.option_limit"), "limit"),
-                        SelectOption.of(i18n.t(lang, "room_settings.option_rename"), "rename")
+                        SelectOption.of(i18n.t(lang, "room_settings.option_rename"), "rename"),
+                        SelectOption.of(i18n.t(lang, "room_settings.option_transfer"), "transfer")
                 )
                 .build();
     }
 
     private EmbedBuilder privateRoomSettingsEmbed(VoiceChannel room, String lang) {
         boolean locked = isRoomLocked(room);
+        Long ownerId = PrivateRoomListener.getRoomOwnerId(room.getGuild().getIdLong(), room.getIdLong());
+        Member owner = ownerId == null ? null : room.getGuild().getMemberById(ownerId);
+        String ownerText = owner == null ? i18n.t(lang, "room_settings.owner_unknown") : owner.getAsMention();
         return new EmbedBuilder()
                 .setColor(new Color(155, 89, 182))
                 .setTitle(i18n.t(lang, "room_settings.title"))
@@ -2832,7 +3057,8 @@ public class MusicCommandListener extends ListenerAdapter {
                 .addField(i18n.t(lang, "room_settings.field_channel"), room.getAsMention(), true)
                 .addField(i18n.t(lang, "room_settings.field_name"), room.getName(), true)
                 .addField(i18n.t(lang, "room_settings.field_limit"), room.getUserLimit() <= 0 ? i18n.t(lang, "room_settings.unlimited") : String.valueOf(room.getUserLimit()), true)
-                .addField(i18n.t(lang, "room_settings.field_lock"), locked ? i18n.t(lang, "settings.info_bool_on") : i18n.t(lang, "settings.info_bool_off"), true);
+                .addField(i18n.t(lang, "room_settings.field_lock"), locked ? i18n.t(lang, "settings.info_bool_on") : i18n.t(lang, "settings.info_bool_off"), true)
+                .addField(i18n.t(lang, "room_settings.field_owner"), ownerText, true);
     }
 
     private void handleRoomSettingsSelect(StringSelectInteractionEvent event, String lang) {
@@ -2858,6 +3084,14 @@ public class MusicCommandListener extends ListenerAdapter {
         String action = event.getValues().isEmpty() ? "" : event.getValues().get(0);
         switch (action) {
             case "lock" -> {
+                String missing = formatMissingPermissions(event.getGuild().getSelfMember(), room,
+                        Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS);
+                if (!"-".equals(missing)) {
+                    event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", missing)))
+                            .setEphemeral(true)
+                            .queue();
+                    return;
+                }
                 boolean currentlyLocked = isRoomLocked(room);
                 var overrideAction = room.upsertPermissionOverride(event.getGuild().getPublicRole());
                 if (currentlyLocked) {
@@ -2874,8 +3108,23 @@ public class MusicCommandListener extends ListenerAdapter {
             }
             case "limit" -> openRoomLimitModal(event, token, room, lang);
             case "rename" -> openRoomRenameModal(event, token, room, lang);
+            case "transfer" -> openRoomTransferMenu(event, token, room, lang);
             default -> event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
         }
+    }
+
+    private void openRoomTransferMenu(StringSelectInteractionEvent event, String token, VoiceChannel room, String lang) {
+        EntitySelectMenu memberMenu = EntitySelectMenu.create(ROOM_TRANSFER_SELECT_PREFIX + token, EntitySelectMenu.SelectTarget.USER)
+                .setPlaceholder(i18n.t(lang, "room_settings.transfer_placeholder"))
+                .setRequiredRange(1, 1)
+                .build();
+        event.editMessageEmbeds(new EmbedBuilder()
+                        .setColor(new Color(241, 196, 15))
+                        .setTitle(i18n.t(lang, "room_settings.transfer_title"))
+                        .setDescription(i18n.t(lang, "room_settings.transfer_desc", Map.of("channel", room.getAsMention())))
+                        .build())
+                .setComponents(ActionRow.of(memberMenu))
+                .queue();
     }
 
     private void openRoomLimitModal(StringSelectInteractionEvent event, String token, VoiceChannel room, String lang) {
@@ -2923,6 +3172,14 @@ public class MusicCommandListener extends ListenerAdapter {
         if (room == null || !isUserOwnedPrivateRoom(event.getGuild(), room, request.requestUserId)) {
             roomSettingRequests.remove(token);
             event.reply(i18n.t(lang, "room_settings.room_not_found")).setEphemeral(true).queue();
+            return;
+        }
+
+        String missing = formatMissingPermissions(event.getGuild().getSelfMember(), room, Permission.MANAGE_CHANNEL);
+        if (!"-".equals(missing)) {
+            event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", missing)))
+                    .setEphemeral(true)
+                    .queue();
             return;
         }
 
@@ -2982,6 +3239,77 @@ public class MusicCommandListener extends ListenerAdapter {
                 },
                 error -> event.reply(i18n.t(lang, "room_settings.action_failed")).setEphemeral(true).queue()
         );
+    }
+
+    private void handleRoomTransferSelect(EntitySelectInteractionEvent event, String lang) {
+        String token = event.getComponentId().substring(ROOM_TRANSFER_SELECT_PREFIX.length());
+        RoomSettingsRequest request = roomSettingRequests.get(token);
+        if (request == null || Instant.now().isAfter(request.expiresAt)) {
+            roomSettingRequests.remove(token);
+            event.reply(i18n.t(lang, "room_settings.expired")).setEphemeral(true).queue();
+            return;
+        }
+        if (event.getUser().getIdLong() != request.requestUserId) {
+            event.reply(i18n.t(lang, "delete.only_requester")).setEphemeral(true).queue();
+            return;
+        }
+
+        VoiceChannel room = event.getGuild().getVoiceChannelById(request.roomChannelId);
+        if (room == null || !isUserOwnedPrivateRoom(event.getGuild(), room, request.requestUserId)) {
+            roomSettingRequests.remove(token);
+            event.reply(i18n.t(lang, "room_settings.room_not_found")).setEphemeral(true).queue();
+            return;
+        }
+
+        String missing = formatMissingPermissions(event.getGuild().getSelfMember(), room,
+                Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS);
+        if (!"-".equals(missing)) {
+            event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", missing)))
+                    .setEphemeral(true)
+                    .queue();
+            return;
+        }
+
+        List<Member> members = event.getMentions().getMembers();
+        Member target = members.isEmpty() ? null : members.get(0);
+        if (target == null
+                || target.getUser().isBot()
+                || target.getIdLong() == request.requestUserId
+                || target.getVoiceState() == null
+                || target.getVoiceState().getChannel() == null
+                || target.getVoiceState().getChannel().getIdLong() != room.getIdLong()) {
+            event.reply(i18n.t(lang, "room_settings.transfer_invalid")).setEphemeral(true).queue();
+            return;
+        }
+
+        long oldOwnerId = request.requestUserId;
+        room.upsertPermissionOverride(target)
+                .grant(Permission.getPermissions(PrivateRoomListener.getRoomOwnerPermissionRaw()))
+                .queue(success -> removeOldRoomOwnerOverride(room, oldOwnerId, () -> {
+                            PrivateRoomListener.setRoomOwner(event.getGuild().getIdLong(), room.getIdLong(), target.getIdLong());
+                            roomSettingRequests.remove(token);
+                            event.editMessageEmbeds(new EmbedBuilder()
+                                            .setColor(new Color(46, 204, 113))
+                                            .setTitle(i18n.t(lang, "room_settings.title"))
+                                            .setDescription(i18n.t(lang, "room_settings.transfer_success", Map.of("user", target.getAsMention())))
+                                            .build())
+                                    .setComponents(List.of())
+                                    .queue();
+                        },
+                        () -> event.reply(i18n.t(lang, "room_settings.action_failed")).setEphemeral(true).queue()),
+                        error -> event.reply(i18n.t(lang, "room_settings.action_failed")).setEphemeral(true).queue());
+    }
+
+    private void removeOldRoomOwnerOverride(VoiceChannel room, long oldOwnerId, Runnable onSuccess, Runnable onError) {
+        var oldOverride = room.getMemberPermissionOverrides().stream()
+                .filter(override -> override.getIdLong() == oldOwnerId)
+                .findFirst()
+                .orElse(null);
+        if (oldOverride == null) {
+            onSuccess.run();
+            return;
+        }
+        oldOverride.delete().queue(success -> onSuccess.run(), error -> onError.run());
     }
 
     private boolean isRoomLocked(VoiceChannel room) {
@@ -3139,31 +3467,31 @@ public class MusicCommandListener extends ListenerAdapter {
                 scheduleDelayedPanelRefresh(guildId, PANEL_MIN_EDIT_INTERVAL_MS - (now - lastRefresh));
                 return;
             }
-        Guild guild = jda.getGuildById(guildId);
-        if (guild == null) {
-            panelByGuild.remove(guildId);
-            return;
-        }
-        TextChannel channel = guild.getTextChannelById(ref.channelId);
-        if (channel == null) {
-            panelByGuild.remove(guildId);
-            return;
-        }
-        String signature = panelSignature(guild);
-        if (signature.equals(panelLastSignature.get(guildId))) {
-            return;
-        }
-        String lang = lang(guildId);
-        channel.editMessageEmbedsById(ref.messageId, panelEmbed(guild, lang).build())
-                .setComponents(panelRows(lang, guildId))
-                .queue(success -> {
-                    panelLastSignature.put(guildId, signature);
-                    panelLastRefreshAt.put(guildId, System.currentTimeMillis());
-                }, error -> {
-                    panelByGuild.remove(guildId);
-                    panelLastSignature.remove(guildId);
-                    panelLastRefreshAt.remove(guildId);
-                });
+            Guild guild = jda.getGuildById(guildId);
+            if (guild == null) {
+                panelByGuild.remove(guildId);
+                return;
+            }
+            TextChannel channel = guild.getTextChannelById(ref.channelId);
+            if (channel == null) {
+                panelByGuild.remove(guildId);
+                return;
+            }
+            String signature = panelSignature(guild);
+            if (signature.equals(panelLastSignature.get(guildId))) {
+                return;
+            }
+            String lang = lang(guildId);
+            channel.editMessageEmbedsById(ref.messageId, panelEmbed(guild, lang).build())
+                    .setComponents(panelRows(lang, guildId))
+                    .queue(success -> {
+                        panelLastSignature.put(guildId, signature);
+                        panelLastRefreshAt.put(guildId, System.currentTimeMillis());
+                    }, error -> {
+                        panelByGuild.remove(guildId);
+                        panelLastSignature.remove(guildId);
+                        panelLastRefreshAt.remove(guildId);
+                    });
         } finally {
             panelRefreshingGuilds.remove(guildId);
         }
@@ -3401,6 +3729,14 @@ public class MusicCommandListener extends ListenerAdapter {
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED));
         commands.add(Commands.slash(CMD_PING_ZH, cd("ping", "Check bot latency"))
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED));
+        commands.add(Commands.slash("welcome", cd("welcome", "Edit member join welcome message"))
+                .addOptions(new OptionData(OptionType.CHANNEL, "channel", "Welcome message channel", false)
+                        .setChannelTypes(ChannelType.TEXT))
+                .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_SERVER)));
+        commands.add(Commands.slash(CMD_WELCOME_ZH, cd("welcome", "Edit member join welcome message"))
+                .addOptions(new OptionData(OptionType.CHANNEL, OPTION_WELCOME_CHANNEL_ZH, "\u6b61\u8fce\u8a0a\u606f\u983b\u9053", false)
+                        .setChannelTypes(ChannelType.TEXT))
+                .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_SERVER)));
         commands.add(Commands.slash("join", cd("join", "Join your voice channel"))
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED));
         commands.add(Commands.slash(CMD_JOIN_ZH, cd("join", "Join your voice channel"))
@@ -4018,6 +4354,7 @@ public class MusicCommandListener extends ListenerAdapter {
         return switch (name) {
             case CMD_HELP_ZH -> "help";
             case CMD_PING_ZH -> "ping";
+            case CMD_WELCOME_ZH -> "welcome";
             case CMD_VOLUME_ZH -> "volume";
             case CMD_HISTORY_ZH -> "history";
             case CMD_MUSIC_ZH -> "music";
@@ -4113,6 +4450,7 @@ public class MusicCommandListener extends ListenerAdapter {
         name = canonicalSlashName(name);
         return "help".equals(name)
                 || "ping".equals(name)
+                || "welcome".equals(name)
                 || "volume".equals(name)
                 || "history".equals(name)
                 || "music".equals(name)
@@ -4201,6 +4539,23 @@ public class MusicCommandListener extends ListenerAdapter {
     }
 
     private String formatMissingPermissions(Member member, AudioChannel channel, Permission... permissions) {
+        EnumSet<Permission> missing = EnumSet.noneOf(Permission.class);
+        for (Permission permission : permissions) {
+            if (!member.hasPermission(channel, permission)) {
+                missing.add(permission);
+            }
+        }
+        if (missing.isEmpty()) {
+            return "-";
+        }
+        List<String> names = new ArrayList<>();
+        for (Permission permission : missing) {
+            names.add(permission.getName());
+        }
+        return String.join(", ", names);
+    }
+
+    private String formatMissingPermissions(Member member, GuildChannel channel, Permission... permissions) {
         EnumSet<Permission> missing = EnumSet.noneOf(Permission.class);
         for (Permission permission : permissions) {
             if (!member.hasPermission(channel, permission)) {
@@ -4421,6 +4776,7 @@ public class MusicCommandListener extends ListenerAdapter {
                 .setTimestamp(Instant.now());
     }
 
+
     private EmbedBuilder musicStatsEmbed(Guild guild, String lang) {
         MusicDataService.MusicStatsSnapshot stats = musicService.getStats(guild.getIdLong());
         String topSong = stats.topSongLabel() == null || stats.topSongLabel().isBlank()
@@ -4467,7 +4823,7 @@ public class MusicCommandListener extends ListenerAdapter {
         }
         return new EmbedBuilder()
                 .setColor(new Color(46, 204, 113))
-                .setTitle("📚 " + musicText(lang, "playlist_title"))
+                .setTitle("?? " + musicText(lang, "playlist_title"))
                 .setDescription(description)
                 .addField(musicText(lang, "playlist_field"), body, false)
                 .setTimestamp(Instant.now());
@@ -4835,6 +5191,7 @@ public class MusicCommandListener extends ListenerAdapter {
             case "settings.info_key_member_join_enabled", "settings.key_notifications_memberJoinEnabled",
                  "settings.info_key_member_join_template", "settings.info_key_member_join_color",
                  "settings.info_key_member_join_channel" -> "\uD83D\uDC4B";
+            case "settings.key_welcome_enabled" -> "\uD83C\uDF89";
             case "settings.info_key_member_leave_enabled", "settings.key_notifications_memberLeaveEnabled",
                  "settings.info_key_member_leave_template", "settings.info_key_member_leave_color",
                  "settings.info_key_member_leave_channel" -> "\uD83D\uDEAA";
@@ -4998,4 +5355,6 @@ public class MusicCommandListener extends ListenerAdapter {
         }
     }
 }
+
+
 
