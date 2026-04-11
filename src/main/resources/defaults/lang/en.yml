@@ -93,32 +93,42 @@ help:
   category_ticket: "Ticket"
   category_general: "General"
   content_music: |
-    English Commands
+    Playback
     `/join`, `/play query:<keyword or URL>`, `/music-panel`
-    `/skip`, `/stop`, `/leave`, `/repeat mode:<off|single|all>`
-    `/volume value:<0-200>`, `/history`
-    `/playlist action:<save|load|delete|list>`
-    `/music stats`
-
-    Chinese Commands
     `/加入`, `/播放 query:<關鍵字或URL>`, `/音樂面板`
-    `/跳過`, `/停止`, `/離開`, `/循環`
-    `/音量 value:<0-200>`, `/播放歷史`
-    `/歌單 儲存 / 載入 / 刪除 / 列表`
-    `/音樂 統計`
-  content_settings: |
-    English Commands
-    `/settings action:info|reload|reset|template|module|logs|music|number-chain|language`
 
-    Chinese Commands
+    Controls
+    `/skip`, `/stop`, `/leave`, `/repeat mode:<off|single|all>`
+    `/跳過`, `/停止`, `/離開`, `/循環`
+
+    Volume and Info
+    `/volume value:<0-200>`, `/history`, `/music stats`
+    `/音量 value:<0-200>`, `/播放歷史`, `/音樂 統計`
+
+    Playlists
+    `/playlist save|load|delete|list name:<playlist>`
+    `/歌單 儲存|載入|刪除|列表 name:<歌單名稱>`
+
+    Features
+    The music panel supports playback controls, volume, repeat modes, autoplay, artwork, history, and server music stats.
+  content_settings: |
+    Server Settings
+    `/settings action:info|reload|reset|template|module|logs|music|number-chain|language`
     `/設定 選項:詳細資訊|重載設定|恢復預設|模板編輯|模組開關|日誌頻道|音樂設定|接龍遊戲|語言設置`
 
-    Info Panel
-    `/settings action:info` opens the paged info panel
-    `/設定 選項:詳細資訊` opens the same panel in Chinese
+    Welcome Message
+    `/welcome`
+    `/welcome action:enable|status`
+    `/welcome channel:<text-channel>`
+    `/歡迎訊息`
+    `/歡迎訊息 action:啟用|狀態`
+    `/歡迎訊息 頻道:<文字頻道>`
+
+    Features
+    Manage modules, notification templates, log channels, music settings, number chain, language, and welcome messages.
   content_moderation: |
     Message Cleanup
-    `/delete-messages channel` / `/delete-messages user`
+    `/delete-messages channel`, `/delete-messages user`
     `/刪除訊息 type:頻道|使用者`
 
     Warnings
@@ -128,40 +138,52 @@ help:
     Anti-Duplicate
     `/anti-duplicate action:enable|status`
     `/防洗頻 action:啟用|狀態`
+
+    Features
+    Quickly clean messages, manage warning counts, and check or enable duplicate-message protection.
   content_private_room: |
     Trigger Setup
-    Configure the trigger channel from:
+    Configure the trigger voice channel from:
     `/settings action:music`
     `/設定 選項:音樂設定`
 
     Room Controls
     `/private-room-settings`
     `/包廂設定`
-    Actions: lock, unlock, limit, rename
+
+    Actions
+    Lock, unlock, set user limit, rename, and transfer ownership.
   content_game: |
     Number Chain
+    Direct commands
+    `/number-chain action:enable|status channel:<text-channel> reset:<true|false>`
+    `/數字接龍 action:enable|status channel:<text-channel> reset:<true|false>`
+
+    Settings entry
     `/settings action:number-chain`
     `/設定 選項:接龍遊戲`
-    Actions: set channel, enable/disable, reset
+
+    Available actions
+    - Set the text channel
+    - Enable or disable the game
+    - Reset progress back to 1
 
     Rules
     - Input must match the next expected number
     - The same user cannot continue twice in a row
     - Wrong input resets progress to 1
   content_ticket: |
-    English Commands
-    `/ticket action:panel|close|limit|blacklist-add|blacklist-remove|blacklist-list`
+    Ticket Management
+    `/ticket action:enable|status|panel|close|limit|blacklist-add|blacklist-remove|blacklist-list`
 
-    Chinese Commands
-    `/客服單 action:面板|關閉|上限|黑名單新增|黑名單移除|黑名單列表`
-
-    Tip
-    Panel, limit, close, and blacklist actions use interactive menus or modals when needed
+    Features
+    Send a ticket panel, close tickets, set open limits per user, manage blacklists, and use interactive menus or modals when needed.
   content_general: |
-    - `/help` opens this help panel
-    - `/說明` opens the same panel in Chinese
-    - `/ping` and `/延遲` show current latency information
-    - Language switch: `/settings action:language` or `/設定 選項:語言設置`
+    - `/help` and `/說明` open this help panel
+    - `/ping` and `/延遲` show current bot latency
+    - `/welcome` and `/歡迎訊息` edit the welcome message
+    - `/settings action:language` and `/設定 選項:語言設置` switch language
+    - The Web UI can manage welcome messages, tickets, music, private rooms, and number chain
   tip_title: "Quick Tip"
   tip_body: "Use the dropdown or the buttons below to switch between General, Music, Settings, Moderation, Private Room, Game, and Ticket."
 settings:
@@ -475,6 +497,7 @@ warnings:
   reason_line: "Reason: {reason}"
 
 anti_duplicate:
+  missing_bot_permissions: "The bot is missing required anti-duplicate permissions: {permissions}. Please ask a server administrator to grant them before enabling this feature."
   result_set: "Duplicate message detection updated: {status}"
   result_status: "Duplicate message detection status: {status}"
 
@@ -501,7 +524,9 @@ number_chain:
   result_status: "Number chain status: {status}\nChannel: {channel}\nNext number: `{next}`"
 
 ticket:
-  disabled: "Ticket system is currently disabled."
+  disabled: "Ticket system is currently disabled. Enable it from `/settings action:module` or `/設定 選項:模組開關`."
+  result_set_enabled: "Ticket status updated: {status}"
+  result_status: "Ticket status: {status}\nPanel channel: {channel}\nMax open per user: {limit}\nBlacklist count: {blacklist}"
   panel_title: "Ticket Center"
   panel_desc: "Need help? Click the button below to open a ticket."
   default_welcome_message: "{user} ticket created"
@@ -586,6 +611,8 @@ welcome:
   modal_message_label: "Message Content"
   modal_message_placeholder: "Supports {user}, {guild}, {使用者}, {群組名稱}"
   modal_message_required: "Please enter welcome message content."
+  result_set_enabled: "Welcome message status updated: {status}"
+  result_status: "Welcome message status: {status}\nChannel: {channel}\nTitle: {title}"
   saved_title: "Saved"
   saved_desc: "Welcome message settings have been updated."
   channel_saved: "Welcome message channel set to {channel}."

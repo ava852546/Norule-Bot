@@ -117,7 +117,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.norule.musicbot.Main</mainClass>
+                            <mainClass>com.norule.musicbot.bootstrap.Main</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
@@ -138,7 +138,7 @@
                             <shadedClassifierName>all</shadedClassifierName>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>com.norule.musicbot.Main</mainClass>
+                                    <mainClass>com.norule.musicbot.bootstrap.Main</mainClass>
                                 </transformer>
                             </transformers>
                         </configuration>
@@ -150,7 +150,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.5.0</version>
                 <configuration>
-                    <mainClass>com.norule.musicbot.Main</mainClass>
+                    <mainClass>com.norule.musicbot.bootstrap.Main</mainClass>
                 </configuration>
             </plugin>
         </plugins>
