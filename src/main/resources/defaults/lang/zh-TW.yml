@@ -93,32 +93,42 @@ help:
   category_ticket: "客服單"
   category_general: "一般"
   content_music: |
-    英文指令
-    `/join`, `/play query:<keyword or URL>`, `/music-panel`
-    `/skip`, `/stop`, `/leave`, `/repeat mode:<off|single|all>`
-    `/volume value:<0-200>`, `/history`
-    `/playlist action:<save|load|delete|list>`
-    `/music stats`
+    主要播放
+    `/join`、`/play query:<keyword or URL>`、`/music-panel`
+    `/加入`、`/播放 query:<關鍵字或URL>`、`/音樂面板`
 
-    中文指令
-    `/加入`, `/播放 query:<關鍵字或URL>`, `/音樂面板`
-    `/跳過`, `/停止`, `/離開`, `/循環`
-    `/音量 value:<0-200>`, `/播放歷史`
-    `/歌單 儲存 / 載入 / 刪除 / 列表`
-    `/音樂 統計`
+    播放控制
+    `/skip`、`/stop`、`/leave`、`/repeat mode:<off|single|all>`
+    `/跳過`、`/停止`、`/離開`、`/循環`
+
+    音量與資訊
+    `/volume value:<0-200>`、`/history`、`/music stats`
+    `/音量 value:<0-200>`、`/播放歷史`、`/音樂 統計`
+
+    歌單
+    `/playlist save|load|delete|list name:<playlist>`
+    `/歌單 儲存|載入|刪除|列表 name:<歌單名稱>`
+
+    功能介紹
+    音樂面板支援播放控制、音量調整、循環模式、自動推薦、封面顯示、播放歷史與音樂統計。
   content_settings: |
-    英文指令
+    伺服器設定
     `/settings action:info|reload|reset|template|module|logs|music|number-chain|language`
-
-    中文指令
     `/設定 選項:詳細資訊|重載設定|恢復預設|模板編輯|模組開關|日誌頻道|音樂設定|接龍遊戲|語言設置`
 
-    資訊面板
-    `/settings action:info` 與 `/設定 選項:詳細資訊`
-    都會開啟相同的分頁資訊面板
+    歡迎訊息
+    `/welcome`
+    `/welcome action:enable|status`
+    `/welcome channel:<text-channel>`
+    `/歡迎訊息`
+    `/歡迎訊息 action:啟用|狀態`
+    `/歡迎訊息 頻道:<文字頻道>`
+
+    功能介紹
+    可管理模組開關、通知模板、日誌頻道、音樂設定、數字接龍、語言與歡迎訊息內容。
   content_moderation: |
     訊息清理
-    `/delete-messages channel` / `/delete-messages user`
+    `/delete-messages channel`、`/delete-messages user`
     `/刪除訊息 type:頻道|使用者`
 
     警告系統
@@ -128,41 +138,53 @@ help:
     防洗頻
     `/anti-duplicate action:enable|status`
     `/防洗頻 action:啟用|狀態`
+
+    功能介紹
+    可快速清理訊息、管理警告紀錄，並檢查或啟用重複訊息偵測。
   content_private_room: |
     觸發設定
-    請從以下位置設定私人包廂觸發頻道：
+    請從以下位置設定私人包廂觸發語音頻道：
     `/settings action:music`
     `/設定 選項:音樂設定`
 
     包廂控制
     `/private-room-settings`
     `/包廂設定`
-    可用操作：上鎖、解鎖、上限、重新命名
+
+    可用操作
+    上鎖、解鎖、設定人數上限、重新命名、轉讓房主。
   content_game: |
     數字接龍
+    直接指令
+    `/number-chain action:enable|status channel:<文字頻道> reset:<true|false>`
+    `/數字接龍 action:啟用|狀態 channel:<文字頻道> reset:<true|false>`
+
+    設定入口
     `/settings action:number-chain`
     `/設定 選項:接龍遊戲`
-    可用操作：設定頻道、啟用或停用、重設進度
+
+    可用操作
+    - 設定文字頻道
+    - 啟用或停用遊戲
+    - 將進度重設回 1
 
     規則
     - 輸入必須符合下一個預期數字
     - 同一位使用者不能連續接龍兩次
     - 輸入錯誤會將進度重設回 1
   content_ticket: |
-    英文指令
-    `/ticket action:panel|close|limit|blacklist-add|blacklist-remove|blacklist-list`
+    客服單管理
+    `/ticket action:enable|status|panel|close|limit|blacklist-add|blacklist-remove|blacklist-list`
+    `/客服單 action:啟用|狀態|面板|關閉|上限|黑名單新增|黑名單移除|黑名單列表`
 
-    中文指令
-    `/客服單 action:面板|關閉|上限|黑名單新增|黑名單移除|黑名單列表`
-
-    補充
-    面板、上限、關閉與黑名單操作
-    會依需要開啟互動選單或輸入視窗
+    功能介紹
+    可發送客服單面板、關閉客服單、設定每位使用者上限、管理黑名單，並支援互動選單與輸入視窗。
   content_general: |
-    - `/help` 開啟此說明面板
-    - `/說明` 開啟中文版說明
-    - `/ping` 與 `/延遲` 顯示目前延遲資訊
-    - 語言切換：`/settings action:language` 或 `/設定 選項:語言設置`
+    - `/help` 與 `/說明` 可開啟此說明面板
+    - `/ping` 與 `/延遲` 可查看目前 Bot 延遲
+    - `/welcome` 與 `/歡迎訊息` 可編輯歡迎訊息
+    - `/settings action:language` 與 `/設定 選項:語言設置` 可切換語言
+    - Web UI 可管理歡迎訊息、客服單、音樂、私人包廂與數字接龍
   tip_title: "快速提示"
   tip_body: "可使用下拉選單或下方按鈕，在一般、音樂、設定、管理、私人包廂、遊戲、客服單之間快速切換。"
 
@@ -476,6 +498,7 @@ warnings:
   reason_line: "原因：{reason}"
 
 anti_duplicate:
+  missing_bot_permissions: "Bot 目前缺少防洗頻所需權限：{permissions}。請伺服器管理員先補齊對應權限後再啟用。"
   result_set: "防重複訊息偵測已更新：{status}"
   result_status: "防重複訊息偵測狀態：{status}"
 
@@ -502,7 +525,9 @@ number_chain:
   result_status: "數字接龍狀態：{status}\n頻道：{channel}\n下一個數字：`{next}`"
 
 ticket:
-  disabled: "客服單系統目前已停用。"
+  disabled: "客服單系統目前已停用。請使用 `/設定 選項:模組開關` 開啟客服單功能。"
+  result_set_enabled: "客服單狀態已更新：{status}"
+  result_status: "客服單狀態：{status}\n面板頻道：{channel}\n每位使用者上限：{limit}\n黑名單數量：{blacklist}"
   panel_title: "客服單中心"
   panel_desc: "需要協助時，請點擊下方按鈕開啟客服單。"
   default_welcome_message: "{user} 已建立客服單"
@@ -575,6 +600,8 @@ welcome:
   modal_message_label: "訊息內容"
   modal_message_placeholder: "支援 {user}、{guild}、{使用者}、{群組名稱}"
   modal_message_required: "請輸入歡迎訊息內容。"
+  result_set_enabled: "歡迎訊息狀態已更新：{status}"
+  result_status: "歡迎訊息狀態：{status}\n頻道：{channel}\n標題：{title}"
   saved_title: "已儲存"
   saved_desc: "歡迎訊息設定已更新。"
   channel_saved: "歡迎訊息頻道已設為 {channel}。"

@@ -93,32 +93,42 @@ help:
   category_ticket: "客服单"
   category_general: "常规"
   content_music: |
-    英文指令
-    `/join`, `/play query:<keyword or URL>`, `/music-panel`
-    `/skip`, `/stop`, `/leave`, `/repeat mode:<off|single|all>`
-    `/volume value:<0-200>`, `/history`
-    `/playlist action:<save|load|delete|list>`
-    `/music stats`
+    主要播放
+    `/join`、`/play query:<keyword or URL>`、`/music-panel`
+    `/加入`、`/播放 query:<关键词或URL>`、`/音樂面板`
 
-    中文指令
-    `/加入`, `/播放 query:<关键词或URL>`, `/音樂面板`
-    `/跳過`, `/停止`, `/離開`, `/循環`
-    `/音量 value:<0-200>`, `/播放歷史`
-    `/歌單 儲存 / 載入 / 刪除 / 列表`
-    `/音樂 統計`
+    播放控制
+    `/skip`、`/stop`、`/leave`、`/repeat mode:<off|single|all>`
+    `/跳過`、`/停止`、`/離開`、`/循環`
+
+    音量与信息
+    `/volume value:<0-200>`、`/history`、`/music stats`
+    `/音量 value:<0-200>`、`/播放歷史`、`/音樂 統計`
+
+    歌单
+    `/playlist save|load|delete|list name:<playlist>`
+    `/歌單 儲存|載入|刪除|列表 name:<歌單名稱>`
+
+    功能介绍
+    音乐面板支持播放控制、音量调整、循环模式、自动推荐、封面显示、播放历史与音乐统计。
   content_settings: |
-    英文指令
+    服务器设置
     `/settings action:info|reload|reset|template|module|logs|music|number-chain|language`
-
-    中文指令
     `/設定 選項:詳細資訊|重載設定|恢復預設|模板編輯|模組開關|日誌頻道|音樂設定|接龍遊戲|語言設置`
 
-    信息面板
-    `/settings action:info` 与 `/設定 選項:詳細資訊`
-    都会打开相同的分页信息面板
+    欢迎消息
+    `/welcome`
+    `/welcome action:enable|status`
+    `/welcome channel:<text-channel>`
+    `/歡迎訊息`
+    `/歡迎訊息 action:啟用|狀態`
+    `/歡迎訊息 頻道:<文字頻道>`
+
+    功能介绍
+    可管理模块开关、通知模板、日志频道、音乐设置、数字接龙、语言与欢迎消息内容。
   content_moderation: |
     消息清理
-    `/delete-messages channel` / `/delete-messages user`
+    `/delete-messages channel`、`/delete-messages user`
     `/刪除訊息 type:頻道|使用者`
 
     警告系统
@@ -128,41 +138,53 @@ help:
     防刷屏
     `/anti-duplicate action:enable|status`
     `/防洗頻 action:啟用|狀態`
+
+    功能介绍
+    可快速清理消息、管理警告记录，并检查或启用重复消息检测。
   content_private_room: |
     触发设置
-    请从以下位置设置私人包厢触发频道：
+    请从以下位置设置私人包厢触发语音频道：
     `/settings action:music`
     `/設定 選項:音樂設定`
 
     包厢控制
     `/private-room-settings`
     `/包廂設定`
-    可用操作：上锁、解锁、上限、重命名
+
+    可用操作
+    上锁、解锁、设置人数上限、重命名、转让房主。
   content_game: |
     数字接龙
+    直接指令
+    `/number-chain action:enable|status channel:<文字频道> reset:<true|false>`
+    `/數字接龍 action:啟用|狀態 channel:<文字频道> reset:<true|false>`
+
+    设置入口
     `/settings action:number-chain`
     `/設定 選項:接龍遊戲`
-    可用操作：设置频道、启用或停用、重置进度
+
+    可用操作
+    - 设置文字频道
+    - 启用或停用游戏
+    - 将进度重置回 1
 
     规则
     - 输入必须符合下一个预期数字
     - 同一位用户不能连续接龙两次
     - 输入错误会将进度重置回 1
   content_ticket: |
-    英文指令
-    `/ticket action:panel|close|limit|blacklist-add|blacklist-remove|blacklist-list`
+    客服单管理
+    `/ticket action:enable|status|panel|close|limit|blacklist-add|blacklist-remove|blacklist-list`
+    `/客服單 action:啟用|狀態|面板|關閉|上限|黑名單新增|黑名單移除|黑名單列表`
 
-    中文指令
-    `/客服單 action:面板|關閉|上限|黑名單新增|黑名單移除|黑名單列表`
-
-    说明
-    面板、上限、关闭与黑名单操作
-    会按需要打开交互菜单或输入窗口
+    功能介绍
+    可发送客服单面板、关闭客服单、设置每位用户上限、管理黑名单，并支持交互菜单与输入窗口。
   content_general: |
-    - `/help` 打开此帮助面板
-    - `/說明` 打开中文版帮助
-    - `/ping` 与 `/延遲` 显示当前延迟信息
-    - 语言切换：`/settings action:language` 或 `/設定 選項:語言設置`
+    - `/help` 与 `/說明` 可打开此说明面板
+    - `/ping` 与 `/延遲` 可查看当前 Bot 延迟
+    - `/welcome` 与 `/歡迎訊息` 可编辑欢迎消息
+    - `/settings action:language` 与 `/設定 選項:語言設置` 可切换语言
+    - Web UI 可管理欢迎消息、客服单、音乐、私人包厢与数字接龙
   tip_title: "快速提示"
   tip_body: "可使用下拉菜单或下方按钮，在常规、音乐、设置、管理、私人包厢、游戏、客服单之间快速切换。"
 
@@ -476,6 +498,7 @@ warnings:
   reason_line: "原因：{reason}"
 
 anti_duplicate:
+  missing_bot_permissions: "Bot 当前缺少防洗频所需权限：{permissions}。请服务器管理员先补齐对应权限后再启用。"
   result_set: "防重复消息检测已更新：{status}"
   result_status: "防重复消息检测状态：{status}"
 
@@ -502,7 +525,9 @@ number_chain:
   result_status: "数字接龙状态：{status}\n频道：{channel}\n下一个数字：`{next}`"
 
 ticket:
-  disabled: "工单系统当前已停用。"
+  disabled: "工单系统当前已停用。请使用 `/設定 選項:模組開關` 开启工单功能。"
+  result_set_enabled: "工单状态已更新：{status}"
+  result_status: "工单状态：{status}\n面板频道：{channel}\n每位用户上限：{limit}\n黑名单数量：{blacklist}"
   panel_title: "工单中心"
   panel_desc: "需要帮助时，请点击下方按钮开启工单。"
   default_welcome_message: "{user} 已创建工单"
@@ -575,6 +600,8 @@ welcome:
   modal_message_label: "消息内容"
   modal_message_placeholder: "支持 {user}、{guild}、{使用者}、{群組名稱}"
   modal_message_required: "请输入欢迎消息内容。"
+  result_set_enabled: "欢迎消息状态已更新：{status}"
+  result_status: "欢迎消息状态：{status}\n频道：{channel}\n标题：{title}"
   saved_title: "已保存"
   saved_desc: "欢迎消息设置已更新。"
   channel_saved: "欢迎消息频道已设为 {channel}。"

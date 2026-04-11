@@ -1,5 +1,13 @@
 package com.norule.musicbot;
 
+import com.norule.musicbot.domain.music.*;
+import com.norule.musicbot.i18n.*;
+import com.norule.musicbot.discord.listeners.*;
+import com.norule.musicbot.web.*;
+
+
+import com.norule.musicbot.config.*;
+
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
