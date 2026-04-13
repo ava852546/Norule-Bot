@@ -6,6 +6,7 @@
     getUiLanguage,
     getUiLanguages,
     getBotLanguages,
+    renderNotificationPreview,
     renderWelcomePreview,
     renderTicketOptions,
     renderMusicStats,
@@ -129,10 +130,28 @@
     setText('hint_n_memberJoinMessage', 'n_memberJoinMessage_hint');
     setFieldLabel('n_memberLeaveMessage', 'n_memberLeaveMessage');
     setFieldLabel('n_voiceJoinMessage', 'n_voiceJoinMessage');
+    setText('hint_n_voiceJoinMessage', 'n_voiceJoinMessage_hint');
     setFieldLabel('n_voiceLeaveMessage', 'n_voiceLeaveMessage');
+    setText('hint_n_voiceLeaveMessage', 'n_voiceLeaveMessage_hint');
     setFieldLabel('n_voiceMoveMessage', 'n_voiceMoveMessage');
+    setText('hint_n_voiceMoveMessage', 'n_voiceMoveMessage_hint');
     setFieldLabel('n_memberJoinColor', 'n_memberJoinColor');
     setFieldLabel('n_memberLeaveColor', 'n_memberLeaveColor');
+    setFieldLabel('n_voiceJoinColor', 'n_voiceJoinColor');
+    setFieldLabel('n_voiceLeaveColor', 'n_voiceLeaveColor');
+    setFieldLabel('n_voiceMoveColor', 'n_voiceMoveColor');
+    setText('notifications_group_title', 'section_notifications');
+    setText('notifications_message_card_title', 'notifications_message_card_title');
+    setText('notifications_message_lead', 'notifications_message_lead');
+    setText('openNotificationEditorBtn', 'openNotificationEditorBtn');
+    setText('notificationEditorTitle', 'notificationEditorTitle');
+    setText('closeNotificationEditorBtn', 'closeBtn');
+    setText('saveNotificationSettingsBtn', 'saveSettingsBtn');
+    setText('notification_member_template_card_title', 'notification_member_template_card_title');
+    setText('notification_voice_template_card_title', 'notification_voice_template_card_title');
+    setText('notification_voice_color_card_title', 'notification_voice_color_card_title');
+    setText('notification_voice_preview_card_title', 'notification_voice_preview_card_title');
+    renderNotificationPreview();
 
     setText('welcome_group_title', 'welcome_group_title');
     setText('welcome_message_card_title', 'welcome_message_card_title');

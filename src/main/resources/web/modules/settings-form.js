@@ -12,6 +12,7 @@
     showStatus,
     showToast,
     renderMusicStats,
+    renderNotificationPreview,
     renderWelcomePreview,
     applyNotificationTemplateDefaults,
     applyTicketPanelDefaultsIfEmpty,
@@ -44,13 +45,18 @@
         { id: 'n_voiceLeaveMessage', path: 'notifications.voiceLeaveMessage', type: 'value', default: '' },
         { id: 'n_voiceMoveMessage', path: 'notifications.voiceMoveMessage', type: 'value', default: '' },
         { id: 'n_memberJoinColor', path: 'notifications.memberJoinColor', type: 'value', default: '#2ECC71' },
-        { id: 'n_memberLeaveColor', path: 'notifications.memberLeaveColor', type: 'value', default: '#E74C3C' }
+        { id: 'n_memberLeaveColor', path: 'notifications.memberLeaveColor', type: 'value', default: '#E74C3C' },
+        { id: 'n_voiceJoinColor', path: 'notifications.voiceJoinColor', type: 'value', default: '#2ECC71' },
+        { id: 'n_voiceLeaveColor', path: 'notifications.voiceLeaveColor', type: 'value', default: '#E74C3C' },
+        { id: 'n_voiceMoveColor', path: 'notifications.voiceMoveColor', type: 'value', default: '#5865F2' }
       ],
       afterReset() {
         applyNotificationTemplateDefaults();
+        renderNotificationPreview();
       },
       afterPopulate() {
         applyNotificationTemplateDefaults();
+        renderNotificationPreview();
       }
     },
     welcome: {

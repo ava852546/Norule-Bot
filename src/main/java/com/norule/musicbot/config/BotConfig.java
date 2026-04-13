@@ -1,4 +1,4 @@
-package com.norule.musicbot.config;
+﻿package com.norule.musicbot.config;
 
 import com.norule.musicbot.*;
 import com.norule.musicbot.i18n.*;
@@ -497,6 +497,9 @@ public class BotConfig {
         private final String voiceJoinMessage;
         private final String voiceLeaveMessage;
         private final String voiceMoveMessage;
+        private final int voiceJoinColor;
+        private final int voiceLeaveColor;
+        private final int voiceMoveColor;
 
         private Notifications(boolean enabled,
                               boolean memberJoinEnabled,
@@ -515,7 +518,10 @@ public class BotConfig {
                               Long voiceChannelId,
                               String voiceJoinMessage,
                               String voiceLeaveMessage,
-                              String voiceMoveMessage) {
+                              String voiceMoveMessage,
+                              int voiceJoinColor,
+                              int voiceLeaveColor,
+                              int voiceMoveColor) {
             this.enabled = enabled;
             this.memberJoinEnabled = memberJoinEnabled;
             this.memberLeaveEnabled = memberLeaveEnabled;
@@ -534,6 +540,9 @@ public class BotConfig {
             this.voiceJoinMessage = voiceJoinMessage;
             this.voiceLeaveMessage = voiceLeaveMessage;
             this.voiceMoveMessage = voiceMoveMessage;
+            this.voiceJoinColor = normalizeColor(voiceJoinColor);
+            this.voiceLeaveColor = normalizeColor(voiceLeaveColor);
+            this.voiceMoveColor = normalizeColor(voiceMoveColor);
         }
 
         public static Notifications fromMap(Map<String, Object> map, Notifications fallback) {
@@ -556,7 +565,10 @@ public class BotConfig {
                     getLong(map, "voiceChannelId", defaults.getVoiceChannelId()),
                     getString(map, "voiceJoinMessage", defaults.getVoiceJoinMessage()),
                     getString(map, "voiceLeaveMessage", defaults.getVoiceLeaveMessage()),
-                    getString(map, "voiceMoveMessage", defaults.getVoiceMoveMessage())
+                    getString(map, "voiceMoveMessage", defaults.getVoiceMoveMessage()),
+                    getColor(map, "voiceJoinColor", defaults.getVoiceJoinColor()),
+                    getColor(map, "voiceLeaveColor", defaults.getVoiceLeaveColor()),
+                    getColor(map, "voiceMoveColor", defaults.getVoiceMoveColor())
             );
         }
 
@@ -579,98 +591,116 @@ public class BotConfig {
                     null,
                     "{user} joined voice channel {channel}.",
                     "{user} left voice channel {channel}.",
-                    "{user} moved voice channel from {from} to {to}."
+                    "{user} moved voice channel from {from} to {to}.",
+                    0x2ECC71,
+                    0xE74C3C,
+                    0x5865F2
             );
         }
 
         public Notifications withEnabled(boolean enabled) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withMemberJoinEnabled(boolean memberJoinEnabled) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withMemberLeaveEnabled(boolean memberLeaveEnabled) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withVoiceLogEnabled(boolean voiceLogEnabled) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withMemberChannelId(Long memberChannelId) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withMemberJoinChannelId(Long memberJoinChannelId) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withMemberLeaveChannelId(Long memberLeaveChannelId) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withVoiceChannelId(Long voiceChannelId) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withMemberJoinTitle(String memberJoinTitle) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withMemberJoinMessage(String memberJoinMessage) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withMemberJoinThumbnailUrl(String memberJoinThumbnailUrl) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withMemberJoinImageUrl(String memberJoinImageUrl) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withMemberLeaveMessage(String memberLeaveMessage) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withVoiceJoinMessage(String voiceJoinMessage) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withVoiceLeaveMessage(String voiceLeaveMessage) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withVoiceMoveMessage(String voiceMoveMessage) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withMemberJoinColor(int memberJoinColor) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, normalizeColor(memberJoinColor), memberLeaveColor, voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
         }
 
         public Notifications withMemberLeaveColor(int memberLeaveColor) {
             return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, normalizeColor(memberLeaveColor), voiceChannelId,
-                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage);
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, voiceMoveColor);
+        }
+
+        public Notifications withVoiceJoinColor(int voiceJoinColor) {
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, normalizeColor(voiceJoinColor), voiceLeaveColor, voiceMoveColor);
+        }
+
+        public Notifications withVoiceLeaveColor(int voiceLeaveColor) {
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, normalizeColor(voiceLeaveColor), voiceMoveColor);
+        }
+
+        public Notifications withVoiceMoveColor(int voiceMoveColor) {
+            return new Notifications(enabled, memberJoinEnabled, memberLeaveEnabled, voiceLogEnabled, memberChannelId, memberJoinChannelId, memberLeaveChannelId, memberJoinTitle, memberJoinMessage, memberJoinThumbnailUrl, memberJoinImageUrl, memberLeaveMessage, memberJoinColor, memberLeaveColor, voiceChannelId,
+                    voiceJoinMessage, voiceLeaveMessage, voiceMoveMessage, voiceJoinColor, voiceLeaveColor, normalizeColor(voiceMoveColor));
         }
 
         public boolean isEnabled() {
@@ -743,6 +773,18 @@ public class BotConfig {
 
         public String getVoiceMoveMessage() {
             return voiceMoveMessage;
+        }
+
+        public int getVoiceJoinColor() {
+            return voiceJoinColor;
+        }
+
+        public int getVoiceLeaveColor() {
+            return voiceLeaveColor;
+        }
+
+        public int getVoiceMoveColor() {
+            return voiceMoveColor;
         }
 
         private static int normalizeColor(int value) {
@@ -2141,6 +2183,7 @@ public static class Web {
         return map;
     }
 }
+
 
 
 

@@ -1421,43 +1421,100 @@ public class WebControlServer {
 
                       <div class="tab-pane" data-pane="notifications">
                       <div class="row pane-head">
-                        <h3>notifications.*</h3>
-                        <button id="resetNotificationsBtn" class="danger reset-btn" type="button">Reset Section</button>
+                        <h3 id="notifications_group_title">notifications.*</h3>
                       </div>
-                      <div class="grid3">
-                        <div class="toggle"><input type="checkbox" id="n_enabled"><label for="n_enabled">enabled</label></div>
-                        <div class="toggle"><input type="checkbox" id="n_memberJoinEnabled"><label for="n_memberJoinEnabled">memberJoinEnabled</label></div>
-                        <div class="toggle"><input type="checkbox" id="n_memberLeaveEnabled"><label for="n_memberLeaveEnabled">memberLeaveEnabled</label></div>
-                        <div class="toggle"><input type="checkbox" id="n_voiceLogEnabled"><label for="n_voiceLogEnabled">voiceLogEnabled</label></div>
-                      </div>
-                      <div class="grid3">
-                        <div class="field"><label>memberChannelId</label><select id="n_memberChannelId"></select></div>
-                        <div class="field"><label>memberJoinChannelId</label><select id="n_memberJoinChannelId"></select></div>
-                        <div class="field"><label>memberLeaveChannelId</label><select id="n_memberLeaveChannelId"></select></div>
-                        <div class="field"><label>voiceChannelId</label><select id="n_voiceChannelId"></select></div>
-                      </div>
-                      <div class="grid2">
-                        <div class="field">
-                          <label>memberJoinTitle</label>
-                          <input id="n_memberJoinTitle" type="text">
-                          <div id="hint_n_memberJoinTitle" class="keyhint">Available placeholders: {user}, {guild}</div>
-                        </div>
-                        <div class="field">
-                          <label>memberJoinMessage</label>
-                          <textarea id="n_memberJoinMessage"></textarea>
-                          <div id="hint_n_memberJoinMessage" class="keyhint">Available placeholders: {user}, {username}, {guild}, {id}, {tag}, {isBot}, {createdAt}, {accountAgeDays}</div>
-                        </div>
-                        <div class="field"><label>memberLeaveMessage</label><textarea id="n_memberLeaveMessage"></textarea></div>
-                        <div class="field"><label>voiceJoinMessage</label><textarea id="n_voiceJoinMessage"></textarea></div>
-                        <div class="field"><label>voiceLeaveMessage</label><textarea id="n_voiceLeaveMessage"></textarea></div>
-                        <div class="field"><label>voiceMoveMessage</label><textarea id="n_voiceMoveMessage"></textarea></div>
-                        <div class="grid2">
-                          <div class="field"><label>memberJoinColor</label><input type="color" id="n_memberJoinColor"></div>
-                          <div class="field"><label>memberLeaveColor</label><input type="color" id="n_memberLeaveColor"></div>
+                      <div class="welcome-shell">
+                        <div class="settings-group">
+                          <div id="notifications_message_card_title" class="settings-group-title">Notification Settings</div>
+                          <div id="notifications_message_lead" class="welcome-lead">Configure member and voice notification channels, templates, and embed styles.</div>
+                          <div class="notification-toggle-stack">
+                            <div class="grid2">
+                              <div class="toggle"><input type="checkbox" id="n_enabled"><label for="n_enabled">enabled</label></div>
+                              <div class="toggle"><input type="checkbox" id="n_voiceLogEnabled"><label for="n_voiceLogEnabled">voiceLogEnabled</label></div>
+                              <div class="toggle"><input type="checkbox" id="n_memberJoinEnabled"><label for="n_memberJoinEnabled">memberJoinEnabled</label></div>
+                              <div class="toggle"><input type="checkbox" id="n_memberLeaveEnabled"><label for="n_memberLeaveEnabled">memberLeaveEnabled</label></div>
+                            </div>
+                            <div class="grid2">
+                              <div class="field"><label>memberChannelId</label><select id="n_memberChannelId"></select></div>
+                              <div class="field"><label>voiceChannelId</label><select id="n_voiceChannelId"></select></div>
+                              <div class="field"><label>memberJoinChannelId</label><select id="n_memberJoinChannelId"></select></div>
+                              <div class="field"><label>memberLeaveChannelId</label><select id="n_memberLeaveChannelId"></select></div>
+                            </div>
+                          </div>
+                          <div class="welcome-compact-actions">
+                            <button id="resetNotificationsBtn" class="danger" type="button">Reset Section</button>
+                            <button id="openNotificationEditorBtn" class="warn" type="button">Configure Notification Embeds</button>
+                          </div>
                         </div>
                       </div>
                       <input id="n_memberJoinThumbnailUrl" type="hidden">
                       <input id="n_memberJoinImageUrl" type="hidden">
+                      <div id="notificationEditorModal" class="modal-backdrop hidden">
+                        <div class="modal-card">
+                          <div class="modal-head">
+                            <div id="notificationEditorTitle" class="modal-title">Configure Notification Embeds</div>
+                            <button id="closeNotificationEditorBtn" class="danger modal-close" type="button">Close</button>
+                          </div>
+                          <div class="modal-body">
+                            <div class="settings-group">
+                              <div id="notification_member_template_card_title" class="settings-group-title">Member Notification Embed</div>
+                              <div class="grid2">
+                                <div class="field">
+                                  <label>memberJoinTitle</label>
+                                  <input id="n_memberJoinTitle" type="text">
+                                  <div id="hint_n_memberJoinTitle" class="keyhint">Available placeholders: {user}, {guild}</div>
+                                </div>
+                                <div class="field">
+                                  <label>memberJoinMessage</label>
+                                  <textarea id="n_memberJoinMessage"></textarea>
+                                  <div id="hint_n_memberJoinMessage" class="keyhint">Available placeholders: {user}, {username}, {guild}, {id}, {tag}, {isBot}, {createdAt}, {accountAgeDays}</div>
+                                </div>
+                                <div class="field">
+                                  <label>memberLeaveMessage</label>
+                                  <textarea id="n_memberLeaveMessage"></textarea>
+                                </div>
+                                <div class="grid2">
+                                  <div class="field"><label>memberJoinColor</label><input type="color" id="n_memberJoinColor"></div>
+                                  <div class="field"><label>memberLeaveColor</label><input type="color" id="n_memberLeaveColor"></div>
+                                </div>
+                              </div>
+                            </div>
+                            <div class="settings-group">
+                              <div id="notification_voice_template_card_title" class="settings-group-title">Voice Notification Embed</div>
+                              <div class="grid2">
+                                <div class="field">
+                                  <label>voiceJoinMessage</label>
+                                  <textarea id="n_voiceJoinMessage"></textarea>
+                                  <div id="hint_n_voiceJoinMessage" class="keyhint">Available placeholders: {user}, {channel}, {from}, {to}</div>
+                                </div>
+                                <div class="field">
+                                  <label>voiceLeaveMessage</label>
+                                  <textarea id="n_voiceLeaveMessage"></textarea>
+                                  <div id="hint_n_voiceLeaveMessage" class="keyhint">Available placeholders: {user}, {channel}, {from}, {to}</div>
+                                </div>
+                                <div class="field">
+                                  <label>voiceMoveMessage</label>
+                                  <textarea id="n_voiceMoveMessage"></textarea>
+                                  <div id="hint_n_voiceMoveMessage" class="keyhint">Available placeholders: {user}, {channel}, {from}, {to}</div>
+                                </div>
+                              </div>
+                              <div id="notification_voice_color_card_title" class="welcome-card-title">Voice Embed Colors</div>
+                              <div class="notification-color-grid">
+                                <div class="field"><label>voiceJoinColor</label><input type="color" id="n_voiceJoinColor"></div>
+                                <div class="field"><label>voiceLeaveColor</label><input type="color" id="n_voiceLeaveColor"></div>
+                                <div class="field"><label>voiceMoveColor</label><input type="color" id="n_voiceMoveColor"></div>
+                              </div>
+                            </div>
+                            <div class="settings-group">
+                              <div id="notification_voice_preview_card_title" class="settings-group-title">Voice Embed Preview</div>
+                              <div id="notificationVoicePreviewCard" class="welcome-preview"></div>
+                            </div>
+                          </div>
+                          <div class="modal-actions">
+                            <button id="saveNotificationSettingsBtn" class="primary" type="button">Save Settings</button>
+                          </div>
+                        </div>
+                      </div>
                       </div>
 
                       <div class="tab-pane" data-pane="logs">

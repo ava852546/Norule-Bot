@@ -455,10 +455,17 @@ notifications:
   embed:
     member_join_title: "Member Joined"
     member_leave_title: "Member Left"
+    voice_join_title: "Voice Joined"
+    voice_leave_title: "Voice Left"
+    voice_move_title: "Voice Moved"
     user_field: "User"
+    voice_channel_field: "Voice Channel"
+    voice_from_field: "From Channel"
+    voice_to_field: "To Channel"
     account_created_field: "Account Created"
     join_notify_time_field: "Join Notify Time"
     leave_notify_time_field: "Leave Notify Time"
+    voice_notify_time_field: "Voice Notify Time"
   template:
     default:
       member_join: "{user} joined the server. Account created: {createdAt} ({accountAgeDays} days ago). ID: {id}"

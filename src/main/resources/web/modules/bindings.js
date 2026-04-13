@@ -13,6 +13,9 @@
   };
   if (byId('resetGeneralBtn')) byId('resetGeneralBtn').onclick = () => modules.getSettingsFormModule()?.resetSection('general');
   if (byId('resetNotificationsBtn')) byId('resetNotificationsBtn').onclick = () => modules.getSettingsFormModule()?.resetSection('notifications');
+  if (byId('openNotificationEditorBtn')) byId('openNotificationEditorBtn').onclick = () => modules.notificationsModule.openNotificationEditor();
+  if (byId('closeNotificationEditorBtn')) byId('closeNotificationEditorBtn').onclick = () => modules.notificationsModule.closeNotificationEditor();
+  if (byId('saveNotificationSettingsBtn')) byId('saveNotificationSettingsBtn').onclick = () => modules.notificationsModule.saveNotificationSettings().catch(() => {});
   if (byId('resetLogsBtn')) byId('resetLogsBtn').onclick = () => modules.getSettingsFormModule()?.resetSection('logs');
   if (byId('resetMusicBtn')) byId('resetMusicBtn').onclick = () => modules.getSettingsFormModule()?.resetSection('music');
   if (byId('resetPrivateRoomBtn')) byId('resetPrivateRoomBtn').onclick = () => modules.getSettingsFormModule()?.resetSection('privateRoom');
@@ -25,6 +28,7 @@
   if (byId('resetTicketBtn')) byId('resetTicketBtn').onclick = () => modules.getSettingsFormModule()?.resetSection('ticket');
   if (byId('s_language')) byId('s_language').addEventListener('change', () => {
     modules.i18nModule.applyNotificationTemplateDefaults();
+    modules.notificationsModule.renderNotificationPreview();
     modules.i18nModule.applyTicketPanelDefaultsIfEmpty();
     modules.welcomeModule.renderWelcomePreview();
   });
@@ -43,13 +47,22 @@
       modules.welcomeModule.closeWelcomeEditor();
     }
   };
+  if (byId('notificationEditorModal')) byId('notificationEditorModal').onclick = (event) => {
+    if (event.target === byId('notificationEditorModal')) {
+      modules.notificationsModule.closeNotificationEditor();
+    }
+  };
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && byId('welcomeEditorModal') && !byId('welcomeEditorModal').classList.contains('hidden')) {
       modules.welcomeModule.closeWelcomeEditor();
     }
+    if (event.key === 'Escape' && byId('notificationEditorModal') && !byId('notificationEditorModal').classList.contains('hidden')) {
+      modules.notificationsModule.closeNotificationEditor();
+    }
   });
   if (byId('t_supportRoleIds')) byId('t_supportRoleIds').addEventListener('change', updateSupportRoleCount);
   modules.ticketModule.bindTicketOptionEditorAutoSync();
+  modules.notificationsModule.bindNotificationPreviewAutoSync();
   modules.welcomeModule.bindWelcomePreviewAutoSync();
   refs.guildSelect.onchange = () => {
     const guildsModule = modules.getGuildsModule();

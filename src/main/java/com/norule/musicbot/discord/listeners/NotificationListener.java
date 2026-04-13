@@ -76,33 +76,60 @@ public class NotificationListener extends ListenerAdapter {
             return;
         }
         String lang = guildSettingsService.getLanguage(event.getGuild().getIdLong());
-
-        String message = null;
         if (event.getChannelLeft() == null && event.getChannelJoined() != null) {
-            message = formatVoiceTemplate(
+            String message = formatVoiceTemplate(
                     resolveVoiceTemplate(lang, config.getVoiceJoinMessage(), "join"),
                     event.getEntity().getAsMention(),
                     null,
                     event.getChannelJoined().getAsMention()
             );
+            sendVoiceMessage(
+                    event.getGuild(),
+                    config,
+                    lang,
+                    i18n.t(lang, "notifications.embed.voice_join_title"),
+                    message,
+                    config.getVoiceJoinColor(),
+                    event.getEntity().getAsMention(),
+                    null,
+                    event.getChannelJoined().getAsMention()
+            );
         } else if (event.getChannelLeft() != null && event.getChannelJoined() == null) {
-            message = formatVoiceTemplate(
+            String message = formatVoiceTemplate(
                     resolveVoiceTemplate(lang, config.getVoiceLeaveMessage(), "leave"),
                     event.getEntity().getAsMention(),
                     event.getChannelLeft().getAsMention(),
                     null
             );
+            sendVoiceMessage(
+                    event.getGuild(),
+                    config,
+                    lang,
+                    i18n.t(lang, "notifications.embed.voice_leave_title"),
+                    message,
+                    config.getVoiceLeaveColor(),
+                    event.getEntity().getAsMention(),
+                    event.getChannelLeft().getAsMention(),
+                    null
+            );
         } else if (event.getChannelLeft() != null && event.getChannelJoined() != null) {
-            message = formatVoiceTemplate(
+            String message = formatVoiceTemplate(
                     resolveVoiceTemplate(lang, config.getVoiceMoveMessage(), "move"),
                     event.getEntity().getAsMention(),
                     event.getChannelLeft().getAsMention(),
                     event.getChannelJoined().getAsMention()
             );
-        }
-
-        if (message != null && !message.isBlank()) {
-            sendVoiceMessage(event.getGuild(), config, message);
+            sendVoiceMessage(
+                    event.getGuild(),
+                    config,
+                    lang,
+                    i18n.t(lang, "notifications.embed.voice_move_title"),
+                    message,
+                    config.getVoiceMoveColor(),
+                    event.getEntity().getAsMention(),
+                    event.getChannelLeft().getAsMention(),
+                    event.getChannelJoined().getAsMention()
+            );
         }
     }
 
@@ -212,7 +239,17 @@ public class NotificationListener extends ListenerAdapter {
         return config.getMemberChannelId();
     }
 
-    private void sendVoiceMessage(Guild guild, BotConfig.Notifications config, String message) {
+    private void sendVoiceMessage(
+            Guild guild,
+            BotConfig.Notifications config,
+            String lang,
+            String title,
+            String message,
+            int color,
+            String userMention,
+            String fromChannel,
+            String toChannel
+    ) {
         Long channelId = config.getVoiceChannelId();
         if (channelId == null) {
             channelId = guildSettingsService.getMessageLogs(guild.getIdLong()).getChannelId();
@@ -222,9 +259,31 @@ public class NotificationListener extends ListenerAdapter {
         }
 
         TextChannel channel = guild.getTextChannelById(channelId);
-        if (channel != null) {
-            channel.sendMessage(message).queue();
+        if (channel == null) {
+            return;
         }
+        if (!guild.getSelfMember().hasPermission(channel,
+                Permission.VIEW_CHANNEL,
+                Permission.MESSAGE_SEND,
+                Permission.MESSAGE_EMBED_LINKS)) {
+            return;
+        }
+        EmbedBuilder eb = new EmbedBuilder()
+                .setColor(new Color(color & 0xFFFFFF))
+                .setTitle(title == null || title.isBlank() ? i18n.t(lang, "notifications.embed.voice_move_title") : title)
+                .setDescription(message)
+                .setTimestamp(Instant.now());
+        eb.addField(i18n.t(lang, "notifications.embed.user_field"), userMention, false);
+        if (fromChannel != null && toChannel != null) {
+            eb.addField(i18n.t(lang, "notifications.embed.voice_from_field"), fromChannel, true);
+            eb.addField(i18n.t(lang, "notifications.embed.voice_to_field"), toChannel, true);
+        } else if (toChannel != null) {
+            eb.addField(i18n.t(lang, "notifications.embed.voice_channel_field"), toChannel, true);
+        } else if (fromChannel != null) {
+            eb.addField(i18n.t(lang, "notifications.embed.voice_channel_field"), fromChannel, true);
+        }
+        eb.addField(i18n.t(lang, "notifications.embed.voice_notify_time_field"), discordTimestamp(Instant.now()), false);
+        channel.sendMessageEmbeds(eb.build()).queue();
     }
 
     private String formatUserTemplate(String template, User user, Guild guild) {

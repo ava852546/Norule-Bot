@@ -201,7 +201,9 @@ final class InteractionRouter {
             if (botChannel == null) {
                 owner.musicService().joinChannel(event.getGuild(), memberChannel);
             }
-            owner.musicService().rememberCommandChannel(event.getGuild().getIdLong(), request.channelId);
+            if (request.channelId != null) {
+                owner.musicService().rememberCommandChannel(event.getGuild().getIdLong(), request.channelId);
+            }
             String identifier = picked.getInfo().uri != null ? picked.getInfo().uri : picked.getInfo().title;
             String sourceLabel = owner.detectSource(picked);
             owner.musicService().queueTrackByIdentifier(
@@ -212,9 +214,11 @@ final class InteractionRouter {
                     event.getUser().getIdLong(),
                     event.getUser().getName()
             );
-            TextChannel panelChannel = event.getGuild().getTextChannelById(request.channelId);
-            if (panelChannel != null) {
-                owner.recreatePanelForChannel(event.getGuild(), panelChannel, lang);
+            if (request.channelId != null) {
+                TextChannel panelChannel = event.getGuild().getTextChannelById(request.channelId);
+                if (panelChannel != null) {
+                    owner.recreatePanelForChannel(event.getGuild(), panelChannel, lang);
+                }
             }
             event.editMessage(owner.musicUx(lang, "queue_added", Map.of("title", picked.getInfo().title)))
                     .setComponents(List.of())

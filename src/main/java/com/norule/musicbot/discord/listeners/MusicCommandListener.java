@@ -383,9 +383,10 @@ public class MusicCommandListener extends ListenerAdapter {
                 return;
             }
             String token = UUID.randomUUID().toString().replace("-", "");
+            Long requestChannelId = resolveSearchRequestChannelId(event);
             SearchRequest request = new SearchRequest(
                     event.getUser().getIdLong(),
-                    event.getChannel().asTextChannel().getIdLong(),
+                    requestChannelId,
                     query,
                     results,
                     Instant.now().plusSeconds(30)
@@ -400,6 +401,27 @@ public class MusicCommandListener extends ListenerAdapter {
                     .queue(message -> scheduler.schedule(() -> expireSearchMenu(token, event.getGuild().getIdLong(), message.getIdLong()),
                             30, TimeUnit.SECONDS));
         }, error -> event.getHook().sendMessage(i18n.t(lang, "music.load_failed", Map.of("error", error))).queue());
+    }
+
+    private Long resolveSearchRequestChannelId(SlashCommandInteractionEvent event) {
+        if (event == null || event.getGuild() == null) {
+            return null;
+        }
+        if (event.getChannelType() == ChannelType.TEXT) {
+            return event.getChannel().getIdLong();
+        }
+        BotConfig.Music configuredMusic = settingsService.getMusic(event.getGuild().getIdLong());
+        if (configuredMusic != null && configuredMusic.getCommandChannelId() != null) {
+            TextChannel configured = event.getGuild().getTextChannelById(configuredMusic.getCommandChannelId());
+            if (configured != null) {
+                return configured.getIdLong();
+            }
+        }
+        Long remembered = musicService.getLastCommandChannelId(event.getGuild().getIdLong());
+        if (remembered != null && event.getGuild().getTextChannelById(remembered) != null) {
+            return remembered;
+        }
+        return null;
     }
 
     String validateSettingsActionOptions(SlashCommandInteractionEvent event, String route, String lang) {
@@ -2284,6 +2306,9 @@ public class MusicCommandListener extends ListenerAdapter {
             return;
         }
         String lang = lang(guildId);
+        if (request.channelId == null) {
+            return;
+        }
         TextChannel channel = guild.getTextChannelById(request.channelId);
         if (channel == null) {
             return;
@@ -2868,16 +2893,26 @@ public class MusicCommandListener extends ListenerAdapter {
     }
 
     void createPanelMessageWithFeedback(Guild guild, TextChannel channel, String lang, Runnable onSuccess, java.util.function.Consumer<String> onError) {
+        String missing = formatMissingPermissions(guild.getSelfMember(), channel,
+                Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND, Permission.MESSAGE_EMBED_LINKS);
+        if (!"-".equals(missing)) {
+            onError.accept(i18n.t(lang, "general.missing_permissions", Map.of("permissions", missing)));
+            return;
+        }
         EmbedBuilder panel = panelEmbed(guild, lang);
-        channel.sendMessageEmbeds(panel.build())
-                .setComponents(panelRows(lang, guild.getIdLong()))
-                .queue(message -> {
-                    panelByGuild.put(guild.getIdLong(), new PanelRef(channel.getIdLong(), message.getIdLong()));
-                    panelLastSignature.put(guild.getIdLong(), panelSignature(guild));
-                    panelLastRefreshAt.put(guild.getIdLong(), System.currentTimeMillis());
-                    musicService.setGuildStateListener(guild.getIdLong(), () -> refreshPanel(guild.getIdLong()));
-                    onSuccess.run();
-                }, error -> onError.accept(error.getMessage()));
+        try {
+            channel.sendMessageEmbeds(panel.build())
+                    .setComponents(panelRows(lang, guild.getIdLong()))
+                    .queue(message -> {
+                        panelByGuild.put(guild.getIdLong(), new PanelRef(channel.getIdLong(), message.getIdLong()));
+                        panelLastSignature.put(guild.getIdLong(), panelSignature(guild));
+                        panelLastRefreshAt.put(guild.getIdLong(), System.currentTimeMillis());
+                        musicService.setGuildStateListener(guild.getIdLong(), () -> refreshPanel(guild.getIdLong()));
+                        onSuccess.run();
+                    }, error -> onError.accept(error.getMessage()));
+        } catch (Exception e) {
+            onError.accept(e.getMessage() == null ? "unknown error" : e.getMessage());
+        }
     }
 
     void refreshPanel(long guildId) {
@@ -4759,12 +4794,12 @@ public class MusicCommandListener extends ListenerAdapter {
 
     static class SearchRequest {
         final long requestUserId;
-        final long channelId;
+        final Long channelId;
         final String query;
         final List<AudioTrack> results;
         final Instant expiresAt;
 
-        SearchRequest(long requestUserId, long channelId, String query, List<AudioTrack> results, Instant expiresAt) {
+        SearchRequest(long requestUserId, Long channelId, String query, List<AudioTrack> results, Instant expiresAt) {
             this.requestUserId = requestUserId;
             this.channelId = channelId;
             this.query = query;
