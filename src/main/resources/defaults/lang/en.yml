@@ -1,4 +1,4 @@
-﻿lang: "English"
+lang: "English"
 general:
   only_guild: "This command can only be used in a server."
   no_permission: "You do not have permission to use this command."
@@ -305,6 +305,10 @@ settings:
   module_menu_desc: "Toggle modules from the dropdown menu. Each selection flips the current state."
   module_menu_column_left: "Module Column A"
   module_menu_column_right: "Module Column B"
+  module_section_core: "Core"
+  module_section_notifications: "Notifications"
+  module_section_logs: "Logs"
+  module_section_music_others: "Music & Others"
   module_menu_placeholder: "Choose module to toggle"
   module_menu_expired: "Module menu expired. Run `/settings module` again."
   status_label: "Status"

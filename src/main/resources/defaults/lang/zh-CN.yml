@@ -1,4 +1,4 @@
-﻿lang: "简体中文"
+lang: "简体中文"
 general:
   only_guild: "这个指令只能在服务器中使用。"
   no_permission: "你没有权限使用这个指令。"
@@ -307,6 +307,10 @@ settings:
   module_menu_desc: "请从下拉菜单切换模块。每次选择都会翻转当前状态。"
   module_menu_column_left: "模块栏 A"
   module_menu_column_right: "模块栏 B"
+  module_section_core: "核心模块"
+  module_section_notifications: "通知细项"
+  module_section_logs: "日志细项"
+  module_section_music_others: "音乐与其他"
   module_menu_placeholder: "选择要切换的模块"
   module_menu_expired: "模块菜单已过期，请重新执行 `/settings module`。"
   status_label: "状态"

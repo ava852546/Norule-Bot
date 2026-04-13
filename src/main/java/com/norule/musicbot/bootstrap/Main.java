@@ -390,7 +390,13 @@ public class Main {
         if (message == null || message.isBlank() || key.equals(message)) {
             message = fallback;
         }
-        System.out.println("[NoRule] " + sanitizeConsoleMessage(message));
+        String output = "[NoRule] " + sanitizeConsoleMessage(message);
+        try {
+            System.out.println(output);
+        } catch (RuntimeException ex) {
+            // Fallback for rare Jansi parse errors when ANSI output interleaves during shutdown.
+            System.err.println(output.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", ""));
+        }
     }
 
     private static String sanitizeConsoleMessage(String message) {
@@ -399,6 +405,8 @@ public class Main {
         }
         String sanitized = message
                 .replace("\uFEFF", "")
+                .replace("\u001B", "")
+                .replace("\u009B", "")
                 .replaceAll("\u001B\\[[;\\d]*[ -/]*[@-~]", "")
                 .replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", "");
         if (sanitized.isBlank()) {

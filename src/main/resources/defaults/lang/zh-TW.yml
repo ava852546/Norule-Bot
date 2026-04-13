@@ -1,4 +1,4 @@
-﻿lang: "繁體中文"
+lang: "繁體中文"
 general:
   only_guild: "這個指令只能在伺服器中使用。"
   no_permission: "你沒有權限使用這個指令。"
@@ -307,6 +307,10 @@ settings:
   module_menu_desc: "請從下拉選單切換模組。每次選擇都會翻轉目前狀態。"
   module_menu_column_left: "模組欄 A"
   module_menu_column_right: "模組欄 B"
+  module_section_core: "核心模組"
+  module_section_notifications: "通知細項"
+  module_section_logs: "日誌細項"
+  module_section_music_others: "音樂與其他"
   module_menu_placeholder: "選擇要切換的模組"
   module_menu_expired: "模組選單已過期，請重新執行 `/settings module`。"
   status_label: "狀態"

@@ -612,23 +612,23 @@ public class MusicCommandListener extends ListenerAdapter {
         GuildSettingsService.GuildSettings s = settingsService.getSettings(guild.getIdLong());
         boolean numberChainEnabled = moderationService.isNumberChainEnabled(guild.getIdLong());
         String overview = joinLines(
-                "**Core**",
+                "**" + i18n.t(lang, "settings.module_section_core") + "**",
                 moduleLine(lang, "settings.key_notifications_enabled", s.getNotifications().isEnabled()),
                 moduleLine(lang, "settings.key_messageLogs_enabled", s.getMessageLogs().isEnabled()),
                 moduleLine(lang, "settings.key_welcome_enabled", s.getWelcome().isEnabled()),
                 "",
-                "**Notifications**",
+                "**" + i18n.t(lang, "settings.module_section_notifications") + "**",
                 moduleLine(lang, "settings.key_notifications_memberJoinEnabled", s.getNotifications().isMemberJoinEnabled()),
                 moduleLine(lang, "settings.key_notifications_memberLeaveEnabled", s.getNotifications().isMemberLeaveEnabled()),
                 moduleLine(lang, "settings.key_notifications_voiceLogEnabled", s.getNotifications().isVoiceLogEnabled()),
                 "",
-                "**Logs**",
+                "**" + i18n.t(lang, "settings.module_section_logs") + "**",
                 moduleLine(lang, "settings.info_key_log_command_usage", s.getMessageLogs().isCommandUsageLogEnabled()),
                 moduleLine(lang, "settings.info_key_log_channel_lifecycle", s.getMessageLogs().isChannelLifecycleLogEnabled()),
                 moduleLine(lang, "settings.info_key_log_role", s.getMessageLogs().isRoleLogEnabled()),
                 moduleLine(lang, "settings.info_key_log_moderation", s.getMessageLogs().isModerationLogEnabled()),
                 "",
-                "**Music & Others**",
+                "**" + i18n.t(lang, "settings.module_section_music_others") + "**",
                 moduleLine(lang, "settings.key_music_autoLeaveEnabled", s.getMusic().isAutoLeaveEnabled()),
                 moduleLine(lang, "settings.key_music_autoplayEnabled", s.getMusic().isAutoplayEnabled()),
                 moduleLine(lang, "settings.key_numberChain_enabled", numberChainEnabled),
@@ -648,6 +648,10 @@ public class MusicCommandListener extends ListenerAdapter {
 
     private String moduleLine(String lang, String key, boolean value) {
         return keyIcon(key) + " " + i18n.t(lang, key) + ": " + moduleSwitchTextCode(lang, value);
+    }
+
+    private String moduleLinePlain(String lang, String key, boolean value) {
+        return keyIcon(key) + " " + i18n.t(lang, key) + ": " + moduleSwitchTextPlain(lang, value);
     }
 
     private String quotedSettingLine(String lang, String key, String labelKey, String value) {
@@ -1849,25 +1853,24 @@ public class MusicCommandListener extends ListenerAdapter {
                 .setThumbnail(event.getUser().getEffectiveAvatarUrl());
         event.replyEmbeds(preview.build()).setEphemeral(true).queue();
     }
-
     private String previewWelcomeText(String text, Guild guild, User user) {
         if (text == null || text.isBlank()) {
             return "";
         }
         return text
                 .replace("{user}", user.getAsMention())
-                .replace("{?�輻????, user.getAsMention())
+                .replace("{使用者}", user.getAsMention())
                 .replace("{username}", user.getName())
-                .replace("{?�輻?????�惦", user.getName())
+                .replace("{使用者名稱}", user.getName())
                 .replace("{guild}", guild.getName())
-                .replace("{?�斤???��?}", guild.getName())
+                .replace("{群組名稱}", guild.getName())
+                .replace("{群組名}", guild.getName())
                 .replace("{id}", user.getId())
                 .replace("{tag}", user.getAsTag())
                 .replace("{isBot}", String.valueOf(user.isBot()))
                 .replace("{createdAt}", "<t:" + user.getTimeCreated().toInstant().getEpochSecond() + ":F>")
                 .replace("{accountAgeDays}", String.valueOf(Math.max(0L, Duration.between(user.getTimeCreated().toInstant(), Instant.now()).toDays())));
     }
-
     void handleVolumeSlash(SlashCommandInteractionEvent event, String lang) {
         long guildId = event.getGuild().getIdLong();
         Integer raw = event.getOption("value") == null ? null : (int) event.getOption("value").getAsLong();
@@ -2114,10 +2117,10 @@ public class MusicCommandListener extends ListenerAdapter {
         long numberChainNext = moderationService.getNumberChainNext(guildId);
 
         String notifications = joinLines(
-                line(lang, "settings.info_key_enabled", compare(lang, boolText(lang, n.isEnabled()), boolText(lang, nDef.isEnabled()))),
-                line(lang, "settings.info_key_member_join_enabled", compare(lang, boolText(lang, n.isMemberJoinEnabled()), boolText(lang, nDef.isMemberJoinEnabled()))),
-                line(lang, "settings.info_key_member_leave_enabled", compare(lang, boolText(lang, n.isMemberLeaveEnabled()), boolText(lang, nDef.isMemberLeaveEnabled()))),
-                line(lang, "settings.info_key_voice_log_enabled", compare(lang, boolText(lang, n.isVoiceLogEnabled()), boolText(lang, nDef.isVoiceLogEnabled()))),
+                line(lang, "settings.info_key_enabled", compare(lang, moduleSwitchTextCode(lang, n.isEnabled()), moduleSwitchTextCode(lang, nDef.isEnabled()))),
+                line(lang, "settings.info_key_member_join_enabled", compare(lang, moduleSwitchTextCode(lang, n.isMemberJoinEnabled()), moduleSwitchTextCode(lang, nDef.isMemberJoinEnabled()))),
+                line(lang, "settings.info_key_member_leave_enabled", compare(lang, moduleSwitchTextCode(lang, n.isMemberLeaveEnabled()), moduleSwitchTextCode(lang, nDef.isMemberLeaveEnabled()))),
+                line(lang, "settings.info_key_voice_log_enabled", compare(lang, moduleSwitchTextCode(lang, n.isVoiceLogEnabled()), moduleSwitchTextCode(lang, nDef.isVoiceLogEnabled()))),
                 line(lang, "settings.info_key_member_channel_mode", compare(lang,
                         formatMemberChannelMode(lang, n),
                         formatMemberChannelMode(lang, nDef))),
@@ -2134,7 +2137,7 @@ public class MusicCommandListener extends ListenerAdapter {
                         formatTextChannelInfo(guild, n.getVoiceChannelId()),
                         formatTextChannelInfo(guild, nDef.getVoiceChannelId())))
         );
-        String notificationTemplates = joinLines(
+        String notificationTemplates = joinInfoBlocks(
                 templateCompareMarkdown(lang, "settings.info_key_member_join_template", n.getMemberJoinMessage(), nDef.getMemberJoinMessage()),
                 line(lang, "settings.info_key_member_join_color", compare(lang, formatColor(n.getMemberJoinColor()), formatColor(nDef.getMemberJoinColor()))),
                 templateCompareMarkdown(lang, "settings.info_key_member_leave_template", n.getMemberLeaveMessage(), nDef.getMemberLeaveMessage()),
@@ -2144,7 +2147,7 @@ public class MusicCommandListener extends ListenerAdapter {
                 templateCompareMarkdown(lang, "settings.info_key_voice_move_template", n.getVoiceMoveMessage(), nDef.getVoiceMoveMessage())
         );
         String messageLogs = joinLines(
-                line(lang, "settings.info_key_enabled", compare(lang, boolText(lang, logs.isEnabled()), boolText(lang, logsDef.isEnabled()))),
+                line(lang, "settings.info_key_enabled", compare(lang, moduleSwitchTextCode(lang, logs.isEnabled()), moduleSwitchTextCode(lang, logsDef.isEnabled()))),
                 line(lang, "settings.info_key_log_channel", compare(lang,
                         formatTextChannelInfo(guild, logs.getChannelId()),
                         formatTextChannelInfo(guild, logsDef.getChannelId()))),
@@ -2163,22 +2166,22 @@ public class MusicCommandListener extends ListenerAdapter {
                 line(lang, "settings.info_key_log_channel_events_channel", compare(lang,
                         formatTextChannelInfo(guild, logs.getChannelLifecycleChannelId()),
                         formatTextChannelInfo(guild, logsDef.getChannelLifecycleChannelId()))),
-                line(lang, "settings.info_key_log_role", compare(lang, boolText(lang, logs.isRoleLogEnabled()), boolText(lang, logsDef.isRoleLogEnabled()))),
-                line(lang, "settings.info_key_log_channel_lifecycle", compare(lang, boolText(lang, logs.isChannelLifecycleLogEnabled()), boolText(lang, logsDef.isChannelLifecycleLogEnabled()))),
-                line(lang, "settings.info_key_log_moderation", compare(lang, boolText(lang, logs.isModerationLogEnabled()), boolText(lang, logsDef.isModerationLogEnabled()))),
-                line(lang, "settings.info_key_log_command_usage", compare(lang, boolText(lang, logs.isCommandUsageLogEnabled()), boolText(lang, logsDef.isCommandUsageLogEnabled())))
+                line(lang, "settings.info_key_log_role", compare(lang, moduleSwitchTextCode(lang, logs.isRoleLogEnabled()), moduleSwitchTextCode(lang, logsDef.isRoleLogEnabled()))),
+                line(lang, "settings.info_key_log_channel_lifecycle", compare(lang, moduleSwitchTextCode(lang, logs.isChannelLifecycleLogEnabled()), moduleSwitchTextCode(lang, logsDef.isChannelLifecycleLogEnabled()))),
+                line(lang, "settings.info_key_log_moderation", compare(lang, moduleSwitchTextCode(lang, logs.isModerationLogEnabled()), moduleSwitchTextCode(lang, logsDef.isModerationLogEnabled()))),
+                line(lang, "settings.info_key_log_command_usage", compare(lang, moduleSwitchTextCode(lang, logs.isCommandUsageLogEnabled()), moduleSwitchTextCode(lang, logsDef.isCommandUsageLogEnabled())))
         );
         String musicInfo = joinLines(
-                line(lang, "settings.info_key_auto_leave_enabled", compare(lang, boolText(lang, music.isAutoLeaveEnabled()), boolText(lang, musicDef.isAutoLeaveEnabled()))),
+                line(lang, "settings.info_key_auto_leave_enabled", compare(lang, moduleSwitchTextCode(lang, music.isAutoLeaveEnabled()), moduleSwitchTextCode(lang, musicDef.isAutoLeaveEnabled()))),
                 line(lang, "settings.info_key_auto_leave_minutes", compare(lang, String.valueOf(music.getAutoLeaveMinutes()), String.valueOf(musicDef.getAutoLeaveMinutes()))),
-                line(lang, "settings.info_key_autoplay_enabled", compare(lang, boolText(lang, isAutoplayEnabled(guildId)), boolText(lang, true))),
+                line(lang, "settings.info_key_autoplay_enabled", compare(lang, moduleSwitchTextCode(lang, isAutoplayEnabled(guildId)), moduleSwitchTextCode(lang, true))),
                 line(lang, "settings.info_key_default_repeat_mode", compare(lang, music.getDefaultRepeatMode().name(), musicDef.getDefaultRepeatMode().name())),
                 line(lang, "settings.info_key_music_command_channel", compare(lang,
                         formatTextChannelInfo(guild, music.getCommandChannelId()),
                         formatTextChannelInfo(guild, musicDef.getCommandChannelId())))
         );
         String privateRoom = joinLines(
-                line(lang, "settings.info_key_enabled", compare(lang, boolText(lang, room.isEnabled()), boolText(lang, roomDef.isEnabled()))),
+                line(lang, "settings.info_key_enabled", compare(lang, moduleSwitchTextCode(lang, room.isEnabled()), moduleSwitchTextCode(lang, roomDef.isEnabled()))),
                 line(lang, "settings.info_key_trigger_channel", compare(lang,
                         formatVoiceChannelInfo(guild, room.getTriggerVoiceChannelId()),
                         formatVoiceChannelInfo(guild, roomDef.getTriggerVoiceChannelId()))),
@@ -2188,30 +2191,37 @@ public class MusicCommandListener extends ListenerAdapter {
                 line(lang, "settings.info_key_user_limit", compare(lang, String.valueOf(room.getUserLimit()), String.valueOf(roomDef.getUserLimit())))
         );
         String numberChainInfo = joinLines(
-                line(lang, "settings.info_key_number_chain_enabled", compare(lang, boolText(lang, numberChainEnabled), boolText(lang, false))),
+                line(lang, "settings.info_key_number_chain_enabled", compare(lang, moduleSwitchTextCode(lang, numberChainEnabled), moduleSwitchTextCode(lang, false))),
                 line(lang, "settings.info_key_number_chain_channel", compare(lang,
                         formatTextChannelInfo(guild, numberChainChannelId),
                         formatTextChannelInfo(guild, null))),
                 line(lang, "settings.info_key_number_chain_next", compare(lang, String.valueOf(numberChainNext), "1"))
         );
         String moduleInfo = joinLines(
-                line(lang, "settings.key_notifications_enabled", boolText(lang, n.isEnabled())),
-                line(lang, "settings.key_messageLogs_enabled", boolText(lang, logs.isEnabled())),
-                line(lang, "settings.key_notifications_memberJoinEnabled", boolText(lang, n.isMemberJoinEnabled())),
-                line(lang, "settings.key_welcome_enabled", boolText(lang, settings.getWelcome().isEnabled())),
-                line(lang, "settings.key_notifications_memberLeaveEnabled", boolText(lang, n.isMemberLeaveEnabled())),
-                line(lang, "settings.key_notifications_voiceLogEnabled", boolText(lang, n.isVoiceLogEnabled())),
-                line(lang, "settings.info_key_log_command_usage", boolText(lang, logs.isCommandUsageLogEnabled())),
-                line(lang, "settings.info_key_log_channel_lifecycle", boolText(lang, logs.isChannelLifecycleLogEnabled())),
-                line(lang, "settings.info_key_log_role", boolText(lang, logs.isRoleLogEnabled())),
-                line(lang, "settings.info_key_log_moderation", boolText(lang, logs.isModerationLogEnabled())),
-                line(lang, "settings.key_music_autoLeaveEnabled", boolText(lang, music.isAutoLeaveEnabled())),
-                line(lang, "settings.key_music_autoplayEnabled", boolText(lang, music.isAutoplayEnabled())),
-                line(lang, "settings.key_numberChain_enabled", boolText(lang, moderationService.isNumberChainEnabled(guildId))),
-                line(lang, "settings.key_ticket_enabled", boolText(lang, settings.getTicket().isEnabled())),
+                "**" + i18n.t(lang, "settings.module_section_core") + "**",
+                moduleLine(lang, "settings.key_notifications_enabled", n.isEnabled()),
+                moduleLine(lang, "settings.key_messageLogs_enabled", logs.isEnabled()),
+                moduleLine(lang, "settings.key_welcome_enabled", settings.getWelcome().isEnabled()),
+                "",
+                "**" + i18n.t(lang, "settings.module_section_notifications") + "**",
+                moduleLine(lang, "settings.key_notifications_memberJoinEnabled", n.isMemberJoinEnabled()),
+                moduleLine(lang, "settings.key_notifications_memberLeaveEnabled", n.isMemberLeaveEnabled()),
+                moduleLine(lang, "settings.key_notifications_voiceLogEnabled", n.isVoiceLogEnabled()),
+                "",
+                "**" + i18n.t(lang, "settings.module_section_logs") + "**",
+                moduleLine(lang, "settings.info_key_log_command_usage", logs.isCommandUsageLogEnabled()),
+                moduleLine(lang, "settings.info_key_log_channel_lifecycle", logs.isChannelLifecycleLogEnabled()),
+                moduleLine(lang, "settings.info_key_log_role", logs.isRoleLogEnabled()),
+                moduleLine(lang, "settings.info_key_log_moderation", logs.isModerationLogEnabled()),
+                "",
+                "**" + i18n.t(lang, "settings.module_section_music_others") + "**",
+                moduleLine(lang, "settings.key_music_autoLeaveEnabled", music.isAutoLeaveEnabled()),
+                moduleLine(lang, "settings.key_music_autoplayEnabled", music.isAutoplayEnabled()),
+                moduleLine(lang, "settings.key_numberChain_enabled", moderationService.isNumberChainEnabled(guildId)),
+                moduleLine(lang, "settings.key_ticket_enabled", settings.getTicket().isEnabled()),
                 line(lang, "settings.key_ticket_maxOpenPerUser", String.valueOf(settings.getTicket().getMaxOpenPerUser())),
                 line(lang, "settings.key_ticket_blacklistUserIds", String.valueOf(settings.getTicket().getBlacklistedUserIds().size())),
-                line(lang, "settings.key_privateRoom_enabled", boolText(lang, room.isEnabled()))
+                moduleLine(lang, "settings.key_privateRoom_enabled", room.isEnabled())
         );
 
         EmbedBuilder eb = new EmbedBuilder()
@@ -4632,9 +4642,7 @@ public class MusicCommandListener extends ListenerAdapter {
 
     private String templateCompareMarkdown(String lang, String titleKey, String effective, String defaults) {
         String effectiveText = localizeTemplateForDisplay(lang, trimTemplate(effective));
-        String defaultText = localizeTemplateForDisplay(lang, trimTemplate(defaults));
-        return "**" + i18n.t(lang, titleKey) + "**\n`" + effectiveText + "`\n"
-                + "> " + i18n.t(lang, "settings.info_default_prefix") + ": `" + defaultText + "`";
+        return "**" + i18n.t(lang, titleKey) + "**\n`" + effectiveText + "`";
     }
 
     private String localizeTemplateForDisplay(String lang, String template) {
@@ -4646,13 +4654,26 @@ public class MusicCommandListener extends ListenerAdapter {
         return icon + " " + i18n.t(lang, key) + ": " + value;
     }
 
+    private String joinInfoBlocks(String... values) {
+        StringBuilder sb = new StringBuilder();
+        for (String value : values) {
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append("\n\n");
+            }
+            sb.append(value);
+        }
+        return sb.toString();
+    }
+
     private String joinLines(String... values) {
         return String.join("\n", values);
     }
 
     private String compare(String lang, String effective, String defaults) {
-        return i18n.t(lang, "settings.info_compare_format",
-                Map.of("effective", safe(effective, 160), "default", safe(defaults, 160)));
+        return safe(effective, 160);
     }
 
     private boolean needsDefaultLogChannel(String action) {
@@ -4911,6 +4932,7 @@ public class MusicCommandListener extends ListenerAdapter {
         }
     }
 }
+
 
 
 
