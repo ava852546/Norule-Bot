@@ -323,7 +323,10 @@ final class GuildSettingsApiController {
                         .put("voiceChannelId", owner.toIdText(n.getVoiceChannelId()))
                         .put("voiceJoinMessage", n.getVoiceJoinMessage())
                         .put("voiceLeaveMessage", n.getVoiceLeaveMessage())
-                        .put("voiceMoveMessage", n.getVoiceMoveMessage()))
+                        .put("voiceMoveMessage", n.getVoiceMoveMessage())
+                        .put("voiceJoinColor", String.format("#%06X", n.getVoiceJoinColor()))
+                        .put("voiceLeaveColor", String.format("#%06X", n.getVoiceLeaveColor()))
+                        .put("voiceMoveColor", String.format("#%06X", n.getVoiceMoveColor())))
                 .put("welcome", DataObject.empty()
                         .put("enabled", settings.getWelcome().isEnabled())
                         .put("channelId", owner.toIdText(settings.getWelcome().getChannelId()))
@@ -438,7 +441,10 @@ final class GuildSettingsApiController {
                         .withVoiceChannelId(owner.idOrDefault(nMap, "voiceChannelId", n.getVoiceChannelId()))
                         .withVoiceJoinMessage(owner.stringOrDefault(nMap, "voiceJoinMessage", n.getVoiceJoinMessage()))
                         .withVoiceLeaveMessage(owner.stringOrDefault(nMap, "voiceLeaveMessage", n.getVoiceLeaveMessage()))
-                        .withVoiceMoveMessage(owner.stringOrDefault(nMap, "voiceMoveMessage", n.getVoiceMoveMessage()));
+                        .withVoiceMoveMessage(owner.stringOrDefault(nMap, "voiceMoveMessage", n.getVoiceMoveMessage()))
+                        .withVoiceJoinColor(owner.colorOrDefault(nMap, "voiceJoinColor", n.getVoiceJoinColor()))
+                        .withVoiceLeaveColor(owner.colorOrDefault(nMap, "voiceLeaveColor", n.getVoiceLeaveColor()))
+                        .withVoiceMoveColor(owner.colorOrDefault(nMap, "voiceMoveColor", n.getVoiceMoveColor()));
             }
 
             BotConfig.Welcome w = current.getWelcome();

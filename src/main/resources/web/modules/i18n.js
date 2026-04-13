@@ -6,6 +6,7 @@ export function createI18nModule(deps) {
   const {
     byId,
     getValue,
+    renderNotificationPreview,
     renderWelcomePreview,
     renderTicketOptions,
     renderMusicStats,
@@ -59,6 +60,7 @@ export function createI18nModule(deps) {
     getUiLanguage: store.getUiLanguage,
     getUiLanguages: store.getUiLanguages,
     getBotLanguages: store.getBotLanguages,
+    renderNotificationPreview,
     renderWelcomePreview,
     renderTicketOptions,
     renderMusicStats,

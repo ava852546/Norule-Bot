@@ -226,6 +226,9 @@ public class GuildSettingsService {
         notificationsMap.put("voiceJoinMessage", notifications.getVoiceJoinMessage());
         notificationsMap.put("voiceLeaveMessage", notifications.getVoiceLeaveMessage());
         notificationsMap.put("voiceMoveMessage", notifications.getVoiceMoveMessage());
+        notificationsMap.put("voiceJoinColor", String.format("#%06X", notifications.getVoiceJoinColor()));
+        notificationsMap.put("voiceLeaveColor", String.format("#%06X", notifications.getVoiceLeaveColor()));
+        notificationsMap.put("voiceMoveColor", String.format("#%06X", notifications.getVoiceMoveColor()));
         root.put("notifications", notificationsMap);
 
         BotConfig.Welcome welcome = settings.getWelcome();

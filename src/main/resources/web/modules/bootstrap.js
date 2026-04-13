@@ -1,4 +1,5 @@
 ﻿import { createWelcomeModule } from '/web/modules/welcome.js';
+import { createNotificationsModule } from '/web/modules/notifications.js';
 import { createMusicModule } from '/web/modules/music.js';
 import { createTicketModule } from '/web/modules/ticket.js';
 import { createI18nModule } from '/web/modules/i18n.js';
@@ -119,6 +120,16 @@ export function createAppRuntime() {
     saveSettings: () => settingsFormModule?.saveSettings()
   });
 
+  const notificationsModule = createNotificationsModule({
+    byId,
+    esc,
+    t: (key) => t(key),
+    getValue,
+    getChecked,
+    selectedGuildName,
+    saveSettings: () => settingsFormModule?.saveSettings()
+  });
+
   const ticketModule = createTicketModule({
     byId,
     esc,
@@ -138,6 +149,7 @@ export function createAppRuntime() {
   i18nModule = createI18nModule({
     byId,
     getValue,
+    renderNotificationPreview: () => notificationsModule.renderNotificationPreview(),
     renderWelcomePreview: () => welcomeModule.renderWelcomePreview(),
     renderTicketOptions: () => ticketModule.renderTicketOptions(),
     renderMusicStats,
@@ -175,6 +187,7 @@ export function createAppRuntime() {
       showToast,
       renderMusicStats,
       renderWelcomePreview: () => welcomeModule.renderWelcomePreview(),
+      renderNotificationPreview: () => notificationsModule.renderNotificationPreview(),
       applyNotificationTemplateDefaults: () => i18nModule.applyNotificationTemplateDefaults(),
       applyTicketPanelDefaultsIfEmpty: () => i18nModule.applyTicketPanelDefaultsIfEmpty(),
       ticketModule,
@@ -229,6 +242,7 @@ export function createAppRuntime() {
       getGuildsModule: () => guildsModule,
       getSettingsFormModule: () => settingsFormModule,
       musicModule,
+      notificationsModule,
       welcomeModule,
       ticketModule,
       i18nModule

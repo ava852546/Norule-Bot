@@ -457,10 +457,17 @@ notifications:
   embed:
     member_join_title: "成員加入"
     member_leave_title: "成員離開"
+    voice_join_title: "語音加入"
+    voice_leave_title: "語音離開"
+    voice_move_title: "語音移動"
     user_field: "使用者"
+    voice_channel_field: "語音頻道"
+    voice_from_field: "來源頻道"
+    voice_to_field: "目標頻道"
     account_created_field: "帳號建立時間"
     join_notify_time_field: "加入通知時間"
     leave_notify_time_field: "離開通知時間"
+    voice_notify_time_field: "語音通知時間"
   template:
     default:
       member_join: "{user} 已加入伺服器。帳號建立時間：{createdAt}（{accountAgeDays} 天前）。ID：{id}"
