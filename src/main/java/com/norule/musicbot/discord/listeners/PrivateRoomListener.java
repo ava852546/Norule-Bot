@@ -8,14 +8,27 @@ import com.norule.musicbot.web.*;
 import com.norule.musicbot.*;
 
 import net.dv8tion.jda.api.Permission;
+import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.channel.attribute.ICategorizableChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.Category;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
+import net.dv8tion.jda.api.events.session.ReadyEvent;
 import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.Yaml;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Writer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,10 +51,21 @@ public class PrivateRoomListener extends ListenerAdapter {
     private final Map<Long, Set<Long>> privateChannelsByGuild = new ConcurrentHashMap<>();
     private static final Map<Long, Set<Long>> PRIVATE_CHANNELS = new ConcurrentHashMap<>();
     private static final Map<Long, Map<Long, Long>> ROOM_OWNERS = new ConcurrentHashMap<>();
+    private static volatile PrivateRoomListener activeInstance;
+    private final Path cacheFile;
+    private final Object cacheLock = new Object();
 
     public PrivateRoomListener(GuildSettingsService settingsService, I18nService i18n) {
         this.settingsService = settingsService;
         this.i18n = i18n;
+        this.cacheFile = settingsService.getSettingsDirectory().resolve("private-room-cache.yml");
+        loadCacheFromDisk();
+        activeInstance = this;
+    }
+
+    @Override
+    public void onReady(ReadyEvent event) {
+        reconcileCachedRooms(event.getJDA().getGuilds());
     }
 
     @Override
@@ -92,6 +116,7 @@ public class PrivateRoomListener extends ListenerAdapter {
                     ROOM_OWNERS
                             .computeIfAbsent(created.getGuild().getIdLong(), id -> new ConcurrentHashMap<>())
                             .put(created.getIdLong(), member.getIdLong());
+                    persistCacheQuietly();
                     event.getGuild().moveVoiceMember(member, created).queue();
                 });
     }
@@ -114,15 +139,8 @@ public class PrivateRoomListener extends ListenerAdapter {
             return;
         }
         voice.delete().queue(v -> {
-            set.remove(voice.getIdLong());
-            Set<Long> globalSet = PRIVATE_CHANNELS.get(event.getGuild().getIdLong());
-            if (globalSet != null) {
-                globalSet.remove(voice.getIdLong());
-            }
-            Map<Long, Long> owners = ROOM_OWNERS.get(event.getGuild().getIdLong());
-            if (owners != null) {
-                owners.remove(voice.getIdLong());
-            }
+            removeManagedPrivateChannel(event.getGuild().getIdLong(), voice.getIdLong());
+            persistCacheQuietly();
         }, e -> {
         });
     }
@@ -151,10 +169,233 @@ public class PrivateRoomListener extends ListenerAdapter {
     }
 
     private void rememberPrivateChannel(VoiceChannel channel) {
-        privateChannelsByGuild.computeIfAbsent(channel.getGuild().getIdLong(), id -> ConcurrentHashMap.newKeySet())
-                .add(channel.getIdLong());
-        PRIVATE_CHANNELS.computeIfAbsent(channel.getGuild().getIdLong(), id -> ConcurrentHashMap.newKeySet())
-                .add(channel.getIdLong());
+        long guildId = channel.getGuild().getIdLong();
+        long channelId = channel.getIdLong();
+        privateChannelsByGuild.computeIfAbsent(guildId, id -> ConcurrentHashMap.newKeySet()).add(channelId);
+        PRIVATE_CHANNELS.computeIfAbsent(guildId, id -> ConcurrentHashMap.newKeySet()).add(channelId);
+    }
+
+    private void reconcileCachedRooms(List<Guild> guilds) {
+        Map<Long, Guild> guildById = new HashMap<>();
+        for (Guild guild : guilds) {
+            guildById.put(guild.getIdLong(), guild);
+        }
+
+        Map<Long, Set<Long>> snapshot = new HashMap<>();
+        for (Map.Entry<Long, Set<Long>> entry : privateChannelsByGuild.entrySet()) {
+            snapshot.put(entry.getKey(), new HashSet<>(entry.getValue()));
+        }
+
+        boolean changed = false;
+        for (Map.Entry<Long, Set<Long>> entry : snapshot.entrySet()) {
+            long guildId = entry.getKey();
+            Guild guild = guildById.get(guildId);
+            if (guild == null) {
+                for (Long channelId : entry.getValue()) {
+                    if (removeManagedPrivateChannel(guildId, channelId)) {
+                        changed = true;
+                    }
+                }
+                continue;
+            }
+
+            for (Long channelId : entry.getValue()) {
+                VoiceChannel channel = guild.getVoiceChannelById(channelId);
+                if (channel == null) {
+                    if (removeManagedPrivateChannel(guildId, channelId)) {
+                        changed = true;
+                    }
+                    continue;
+                }
+                if (channel.getMembers().isEmpty()) {
+                    long targetChannelId = channelId;
+                    channel.delete().queue(
+                            success -> {
+                                removeManagedPrivateChannel(guildId, targetChannelId);
+                                persistCacheQuietly();
+                            },
+                            error -> {
+                            }
+                    );
+                }
+            }
+        }
+
+        if (changed) {
+            persistCacheQuietly();
+        }
+    }
+
+    private boolean removeManagedPrivateChannel(long guildId, long channelId) {
+        boolean changed = false;
+        Set<Long> localSet = privateChannelsByGuild.get(guildId);
+        if (localSet != null) {
+            changed = localSet.remove(channelId) || changed;
+            if (localSet.isEmpty()) {
+                privateChannelsByGuild.remove(guildId);
+            }
+        }
+        Set<Long> globalSet = PRIVATE_CHANNELS.get(guildId);
+        if (globalSet != null) {
+            changed = globalSet.remove(channelId) || changed;
+            if (globalSet.isEmpty()) {
+                PRIVATE_CHANNELS.remove(guildId);
+            }
+        }
+        Map<Long, Long> owners = ROOM_OWNERS.get(guildId);
+        if (owners != null) {
+            changed = owners.remove(channelId) != null || changed;
+            if (owners.isEmpty()) {
+                ROOM_OWNERS.remove(guildId);
+            }
+        }
+        return changed;
+    }
+
+    private void loadCacheFromDisk() {
+        synchronized (cacheLock) {
+            if (!Files.exists(cacheFile)) {
+                return;
+            }
+            try (InputStream input = Files.newInputStream(cacheFile)) {
+                Object loaded = new Yaml().load(input);
+                Map<String, Object> root = asMap(loaded);
+                privateChannelsByGuild.clear();
+                PRIVATE_CHANNELS.clear();
+                ROOM_OWNERS.clear();
+                restorePrivateChannels(asMap(root.get("privateChannels")));
+                restoreRoomOwners(asMap(root.get("roomOwners")));
+            } catch (Exception e) {
+                System.err.println("[NoRule] Failed to load private room cache: " + e.getMessage());
+            }
+        }
+    }
+
+    private void restorePrivateChannels(Map<String, Object> channelsMap) {
+        for (Map.Entry<String, Object> entry : channelsMap.entrySet()) {
+            Long guildId = parseLong(entry.getKey());
+            if (guildId == null) {
+                continue;
+            }
+            Set<Long> channelIds = ConcurrentHashMap.newKeySet();
+            Object value = entry.getValue();
+            if (value instanceof Iterable<?> iterable) {
+                for (Object item : iterable) {
+                    Long channelId = parseLong(item);
+                    if (channelId != null) {
+                        channelIds.add(channelId);
+                    }
+                }
+            } else {
+                Long channelId = parseLong(value);
+                if (channelId != null) {
+                    channelIds.add(channelId);
+                }
+            }
+            if (!channelIds.isEmpty()) {
+                privateChannelsByGuild.put(guildId, channelIds);
+                Set<Long> globalSet = ConcurrentHashMap.newKeySet();
+                globalSet.addAll(channelIds);
+                PRIVATE_CHANNELS.put(guildId, globalSet);
+            }
+        }
+    }
+
+    private void restoreRoomOwners(Map<String, Object> ownersRoot) {
+        for (Map.Entry<String, Object> guildEntry : ownersRoot.entrySet()) {
+            Long guildId = parseLong(guildEntry.getKey());
+            if (guildId == null) {
+                continue;
+            }
+            Map<String, Object> ownersByChannel = asMap(guildEntry.getValue());
+            if (ownersByChannel.isEmpty()) {
+                continue;
+            }
+            Map<Long, Long> owners = new ConcurrentHashMap<>();
+            for (Map.Entry<String, Object> ownerEntry : ownersByChannel.entrySet()) {
+                Long channelId = parseLong(ownerEntry.getKey());
+                Long ownerId = parseLong(ownerEntry.getValue());
+                if (channelId != null && ownerId != null) {
+                    owners.put(channelId, ownerId);
+                }
+            }
+            if (!owners.isEmpty()) {
+                ROOM_OWNERS.put(guildId, owners);
+            }
+        }
+    }
+
+    private void persistCacheQuietly() {
+        synchronized (cacheLock) {
+            Map<String, Object> root = new LinkedHashMap<>();
+            root.put("privateChannels", snapshotPrivateChannels());
+            root.put("roomOwners", snapshotRoomOwners());
+            DumperOptions options = new DumperOptions();
+            options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+            options.setPrettyFlow(true);
+            options.setIndent(2);
+            Yaml yaml = new Yaml(options);
+            try {
+                Files.createDirectories(cacheFile.getParent());
+            } catch (IOException ignored) {
+            }
+            try (Writer writer = Files.newBufferedWriter(cacheFile)) {
+                yaml.dump(root, writer);
+            } catch (IOException e) {
+                System.err.println("[NoRule] Failed to persist private room cache: " + e.getMessage());
+            }
+        }
+    }
+
+    private Map<String, Object> snapshotPrivateChannels() {
+        Map<String, Object> map = new LinkedHashMap<>();
+        for (Map.Entry<Long, Set<Long>> entry : privateChannelsByGuild.entrySet()) {
+            if (entry.getValue() == null || entry.getValue().isEmpty()) {
+                continue;
+            }
+            List<String> channelIds = entry.getValue().stream().map(String::valueOf).sorted().toList();
+            map.put(String.valueOf(entry.getKey()), channelIds);
+        }
+        return map;
+    }
+
+    private Map<String, Object> snapshotRoomOwners() {
+        Map<String, Object> map = new LinkedHashMap<>();
+        for (Map.Entry<Long, Map<Long, Long>> entry : ROOM_OWNERS.entrySet()) {
+            Map<Long, Long> owners = entry.getValue();
+            if (owners == null || owners.isEmpty()) {
+                continue;
+            }
+            Map<String, Object> guildOwners = new LinkedHashMap<>();
+            for (Map.Entry<Long, Long> ownerEntry : owners.entrySet()) {
+                guildOwners.put(String.valueOf(ownerEntry.getKey()), String.valueOf(ownerEntry.getValue()));
+            }
+            map.put(String.valueOf(entry.getKey()), guildOwners);
+        }
+        return map;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asMap(Object value) {
+        if (value instanceof Map<?, ?> raw) {
+            return (Map<String, Object>) raw;
+        }
+        return Map.of();
+    }
+
+    private Long parseLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            String text = String.valueOf(value).trim();
+            if (text.isBlank()) {
+                return null;
+            }
+            return Long.parseLong(text);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     public static boolean isManagedPrivateRoom(long guildId, long channelId) {
@@ -178,6 +419,10 @@ public class PrivateRoomListener extends ListenerAdapter {
 
     public static void setRoomOwner(long guildId, long channelId, long userId) {
         ROOM_OWNERS.computeIfAbsent(guildId, id -> new ConcurrentHashMap<>()).put(channelId, userId);
+        PrivateRoomListener listener = activeInstance;
+        if (listener != null) {
+            listener.persistCacheQuietly();
+        }
     }
 
     public static long getRoomOwnerPermissionRaw() {

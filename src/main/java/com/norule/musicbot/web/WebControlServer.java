@@ -1336,21 +1336,18 @@ public class WebControlServer {
                     <div class="hero-copy">
                       <div class="brand-row">
                         <div class="brand-chip"><span class="brand-dot"></span> NoRule Control</div>
+                        <div class="hero-badge">Discord Web Admin</div>
                       </div>
                       <h1 id="titleMain">NoRule Bot Web Console</h1>
-                      <div id="subtitleMain" class="muted">Sign in with Discord. Manage your guild settings from web.</div>
-                      <div class="hero-metrics">
-                        <div class="metric">
-                          <div class="metric-label">Control</div>
-                          <div class="metric-value">Guild Settings</div>
+                      <div id="subtitleMain" class="muted hero-subtitle">Sign in with Discord. Manage your guild settings from web.</div>
+                      <div class="hero-intro-grid">
+                        <div class="hero-intro-card">
+                          <div class="hero-intro-label">Modules</div>
+                          <div class="hero-intro-value">Notifications / Music / Tickets</div>
                         </div>
-                        <div class="metric">
-                          <div class="metric-label">Modules</div>
-                          <div class="metric-value">Music / Tickets / Welcome</div>
-                        </div>
-                        <div class="metric">
-                          <div class="metric-label">Access</div>
-                          <div class="metric-value">Discord OAuth</div>
+                        <div class="hero-intro-card">
+                          <div class="hero-intro-label">Access</div>
+                          <div class="hero-intro-value">Discord OAuth Secure Session</div>
                         </div>
                       </div>
                     </div>
@@ -1363,11 +1360,13 @@ public class WebControlServer {
                         </div>
                         <div id="authBlock" class="row"><button id="loginBtn" class="primary">Sign in with Discord</button></div>
                         <div id="userBlock" class="hidden">
-                          <div class="user-profile">
+                          <div class="user-profile user-profile-inline">
                             <img id="meAvatar" class="user-avatar hidden" alt="avatar" loading="lazy" referrerpolicy="no-referrer" />
-                            <div id="meLine"></div>
+                            <div class="user-name-block">
+                              <div id="meLine"></div>
+                            </div>
+                            <button id="logoutBtn" class="logout-inline danger">Logout</button>
                           </div>
-                          <div class="row"><button id="logoutBtn">Logout</button></div>
                         </div>
                       </div>
                     </div>
@@ -1391,6 +1390,10 @@ public class WebControlServer {
                         <select id="guildSelect"></select>
                         <button id="guildReloadBtn">Reload Current Guild</button>
                         <div id="status" class="row"></div>
+                      </div>
+                      <div class="row settings-actions">
+                        <button id="loadSettingsBtn">Reload Form</button>
+                        <button id="saveSettingsBtn" class="primary">Save Settings</button>
                       </div>
 
                       <div class="tabs">
@@ -1544,16 +1547,24 @@ public class WebControlServer {
                         <h3>music.*</h3>
                         <button id="resetMusicBtn" class="danger reset-btn" type="button">Reset Section</button>
                       </div>
-                      <div class="grid3">
-                        <div class="toggle"><input type="checkbox" id="m_autoLeaveEnabled"><label for="m_autoLeaveEnabled">autoLeaveEnabled</label></div>
-                        <div class="field"><label>autoLeaveMinutes (1-60)</label><input type="number" min="1" max="60" id="m_autoLeaveMinutes"></div>
-                        <div class="toggle"><input type="checkbox" id="m_autoplayEnabled"><label for="m_autoplayEnabled">autoplayEnabled</label></div>
-                        <div class="field"><label>defaultRepeatMode</label><select id="m_defaultRepeatMode"><option value="OFF">OFF</option><option value="SINGLE">SINGLE</option><option value="ALL">ALL</option></select></div>
-                        <div class="field"><label>commandChannelId</label><select id="m_commandChannelId"></select></div>
-                      </div>
-                      <div class="settings-group">
-                        <div id="music_stats_title" class="settings-group-title">Music Stats</div>
-                        <div id="musicStatsCards" class="stats-grid"></div>
+                      <div class="welcome-shell module-shell">
+                        <div class="settings-group">
+                          <div id="music_settings_card_title" class="settings-group-title">Music Settings</div>
+                          <div class="welcome-lead">Configure auto leave, autoplay, repeat mode, and music command channel from one place.</div>
+                          <div class="notification-toggle-stack">
+                            <div class="grid2 module-settings-grid">
+                              <div class="toggle"><input type="checkbox" id="m_autoLeaveEnabled"><label for="m_autoLeaveEnabled">autoLeaveEnabled</label></div>
+                              <div class="field"><label>autoLeaveMinutes (1-60)</label><input type="number" min="1" max="60" id="m_autoLeaveMinutes"></div>
+                              <div class="toggle"><input type="checkbox" id="m_autoplayEnabled"><label for="m_autoplayEnabled">autoplayEnabled</label></div>
+                              <div class="field"><label>defaultRepeatMode</label><select id="m_defaultRepeatMode"><option value="OFF">OFF</option><option value="SINGLE">SINGLE</option><option value="ALL">ALL</option></select></div>
+                              <div class="field span-all"><label>commandChannelId</label><select id="m_commandChannelId"></select></div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="settings-group">
+                          <div id="music_stats_title" class="settings-group-title">Music Stats</div>
+                          <div id="musicStatsCards" class="stats-grid"></div>
+                        </div>
                       </div>
                       </div>
 
@@ -1672,123 +1683,127 @@ public class WebControlServer {
                         <h3>ticket.*</h3>
                         <button id="resetTicketBtn" class="danger reset-btn" type="button">Reset Section</button>
                       </div>
-                      <div class="settings-group">
-                        <div id="ticket_group_basic_title" class="settings-group-title">Basic Settings</div>
-                        <div class="grid3">
-                          <div class="toggle"><input type="checkbox" id="t_enabled"><label for="t_enabled">enabled</label></div>
-                          <div class="field"><label>autoCloseDays (1-365)</label><input type="number" min="1" max="365" id="t_autoCloseDays"></div>
-                          <div class="field"><label>maxOpenPerUser (1-20)</label><input type="number" min="1" max="20" id="t_maxOpenPerUser"></div>
-                          <div class="field span-all">
-                            <label>openUiMode</label>
-                            <select id="t_openUiMode">
-                              <option value="BUTTONS">BUTTONS</option>
-                              <option value="SELECT">SELECT</option>
-                            </select>
-                            <div id="hint_t_openUiMode" class="keyhint">BUTTONS: display open buttons. SELECT: use dropdown menu.</div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div class="settings-group">
-                        <div id="ticket_group_access_title" class="settings-group-title">Access & Blacklist</div>
-                        <div class="grid2">
-                          <div class="field role-field">
-                            <label>supportRoleIds</label>
-                            <div class="role-meta">
-                              <div id="hint_t_supportRoleIds" class="keyhint">Hold Ctrl/Cmd to select multiple roles.</div>
-                              <div id="t_supportRoleCount" class="role-count">0</div>
-                            </div>
-                            <select id="t_supportRoleIds" class="role-multi" multiple size="7"></select>
-                          </div>
-                          <div class="field">
-                            <label>blacklistedUserIds (comma separated)</label>
-                            <input type="text" id="t_blacklistedUserIds">
-                            <div id="hint_t_blacklistedUserIds" class="keyhint">Enter user IDs separated by commas.</div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div class="settings-group">
-                        <div id="ticket_group_panel_title" class="settings-group-title">Panel Settings</div>
-                        <div class="grid2">
-                          <div class="field span-all">
-                            <label>panelChannelId</label>
-                            <div class="field-inline">
-                              <select id="t_panelChannelId"></select>
-                              <button id="sendTicketPanelBtn" class="warn" type="button">Send Ticket Panel</button>
+                      <div class="welcome-shell module-shell">
+                        <div class="settings-group">
+                          <div id="ticket_group_basic_title" class="settings-group-title">Basic Settings</div>
+                          <div class="welcome-lead">Configure ticket module status, close policy, and open mode.</div>
+                          <div class="notification-toggle-stack">
+                            <div class="grid2 module-settings-grid">
+                              <div class="toggle"><input type="checkbox" id="t_enabled"><label for="t_enabled">enabled</label></div>
+                              <div class="field"><label>autoCloseDays (1-365)</label><input type="number" min="1" max="365" id="t_autoCloseDays"></div>
+                              <div class="field"><label>maxOpenPerUser (1-20)</label><input type="number" min="1" max="20" id="t_maxOpenPerUser"></div>
+                              <div class="field span-all">
+                                <label>openUiMode</label>
+                                <select id="t_openUiMode">
+                                  <option value="BUTTONS">BUTTONS</option>
+                                  <option value="SELECT">SELECT</option>
+                                </select>
+                                <div id="hint_t_openUiMode" class="keyhint">BUTTONS: display open buttons. SELECT: use dropdown menu.</div>
+                              </div>
                             </div>
                           </div>
-                          <div class="field span-all">
-                            <label id="label_t_panelTitle">panelTitle</label>
-                            <input type="text" id="t_panelTitle">
+                        </div>
+
+                        <div class="settings-group">
+                          <div id="ticket_group_access_title" class="settings-group-title">Access & Blacklist</div>
+                          <div class="grid2">
+                            <div class="field role-field">
+                              <label>supportRoleIds</label>
+                              <div class="role-meta">
+                                <div id="hint_t_supportRoleIds" class="keyhint">Hold Ctrl/Cmd to select multiple roles.</div>
+                                <div id="t_supportRoleCount" class="role-count">0</div>
+                              </div>
+                              <select id="t_supportRoleIds" class="role-multi" multiple size="7"></select>
+                            </div>
+                            <div class="field">
+                              <label>blacklistedUserIds (comma separated)</label>
+                              <input type="text" id="t_blacklistedUserIds">
+                              <div id="hint_t_blacklistedUserIds" class="keyhint">Enter user IDs separated by commas.</div>
+                            </div>
                           </div>
-                          <div class="field span-all">
-                            <label id="label_t_panelDescription">panelDescription</label>
-                            <textarea id="t_panelDescription"></textarea>
+                        </div>
+
+                        <div class="settings-group">
+                          <div id="ticket_group_panel_title" class="settings-group-title">Panel Settings</div>
+                          <div class="grid2">
+                            <div class="field span-all">
+                              <label>panelChannelId</label>
+                              <div class="field-inline">
+                                <select id="t_panelChannelId"></select>
+                                <button id="sendTicketPanelBtn" class="warn" type="button">Send Ticket Panel</button>
+                              </div>
+                            </div>
+                            <div class="field span-all">
+                              <label id="label_t_panelTitle">panelTitle</label>
+                              <input type="text" id="t_panelTitle">
+                            </div>
+                            <div class="field span-all">
+                              <label id="label_t_panelDescription">panelDescription</label>
+                              <textarea id="t_panelDescription"></textarea>
+                            </div>
+                            <div class="field">
+                              <label id="label_t_panelColor">panelColor</label>
+                              <input type="color" id="t_panelColor">
+                            </div>
+                            <div class="field">
+                              <label>panelButtonLimit (1-25)</label>
+                              <input type="number" min="1" max="25" id="t_panelButtonLimit">
+                            </div>
                           </div>
-                          <div class="field">
-                            <label id="label_t_panelColor">panelColor</label>
-                            <input type="color" id="t_panelColor">
+                        </div>
+
+                        <div class="settings-group">
+                          <div id="ticket_group_options_title" class="settings-group-title">Ticket Types</div>
+                          <div class="welcome-compact-actions">
+                            <button id="t_addOptionBtn" class="primary" type="button">Add Ticket Type</button>
+                            <button id="t_deleteOptionBtn" class="warn" type="button">Delete Ticket Type</button>
                           </div>
-                          <div class="field">
-                            <label>panelButtonLimit (1-25)</label>
-                            <input type="number" min="1" max="25" id="t_panelButtonLimit">
+                          <div id="hint_t_optionEditor" class="keyhint">Create each ticket type separately. Each one can have its own panel text, button style, welcome message, and pre-open form.</div>
+                          <div id="ticketOptionList" class="history-list"></div>
+                          <div class="grid2">
+                            <div class="field">
+                              <label id="label_t_optionLabel">Option label</label>
+                              <input type="text" id="t_optionLabel">
+                            </div>
+                            <div class="field">
+                              <label id="label_t_optionButtonStyle">Button style</label>
+                              <select id="t_optionButtonStyle">
+                                <option value="PRIMARY">PRIMARY</option>
+                                <option value="SECONDARY">SECONDARY</option>
+                                <option value="SUCCESS">SUCCESS</option>
+                                <option value="DANGER">DANGER</option>
+                              </select>
+                            </div>
+                            <div class="field span-all">
+                              <label id="label_t_optionPanelTitle">Panel title</label>
+                              <input type="text" id="t_optionPanelTitle">
+                            </div>
+                            <div class="field span-all">
+                              <label id="label_t_optionPanelDescription">Panel description</label>
+                              <textarea id="t_optionPanelDescription"></textarea>
+                            </div>
+                            <div class="field span-all">
+                              <label id="label_t_optionWelcomeMessage">Welcome message</label>
+                              <textarea id="t_optionWelcomeMessage"></textarea>
+                              <div id="hint_t_optionWelcomeMessage" class="keyhint">Available placeholders: {user}, {type}, {summary}</div>
+                            </div>
+                            <div class="toggle"><input type="checkbox" id="t_optionPreOpenFormEnabled"><label for="t_optionPreOpenFormEnabled" id="label_t_optionPreOpenFormEnabled">Enable pre-open form</label></div>
+                            <div></div>
+                            <div class="field">
+                              <label id="label_t_optionPreOpenFormTitle">Form title</label>
+                              <input type="text" id="t_optionPreOpenFormTitle">
+                            </div>
+                            <div class="field">
+                              <label id="label_t_optionPreOpenFormLabel">Form field label</label>
+                              <input type="text" id="t_optionPreOpenFormLabel">
+                            </div>
+                            <div class="field span-all">
+                              <label id="label_t_optionPreOpenFormPlaceholder">Form placeholder</label>
+                              <input type="text" id="t_optionPreOpenFormPlaceholder">
+                            </div>
                           </div>
                         </div>
                       </div>
-
-                      <div class="settings-group">
-                        <div id="ticket_group_options_title" class="settings-group-title">Ticket Types</div>
-                        <div class="row">
-                          <button id="t_addOptionBtn" class="primary" type="button">Add Ticket Type</button>
-                        </div>
-                        <div id="hint_t_optionEditor" class="keyhint">Create each ticket type separately. Each one can have its own panel text, button style, welcome message, and pre-open form.</div>
-                        <div id="ticketOptionList" class="history-list"></div>
-                        <div class="grid2">
-                          <div class="field">
-                            <label id="label_t_optionLabel">Option label</label>
-                            <input type="text" id="t_optionLabel">
-                          </div>
-                          <div class="field">
-                            <label id="label_t_optionButtonStyle">Button style</label>
-                            <select id="t_optionButtonStyle">
-                              <option value="PRIMARY">PRIMARY</option>
-                              <option value="SECONDARY">SECONDARY</option>
-                              <option value="SUCCESS">SUCCESS</option>
-                              <option value="DANGER">DANGER</option>
-                            </select>
-                          </div>
-                          <div class="field span-all">
-                            <label id="label_t_optionPanelTitle">Panel title</label>
-                            <input type="text" id="t_optionPanelTitle">
-                          </div>
-                          <div class="field span-all">
-                            <label id="label_t_optionPanelDescription">Panel description</label>
-                            <textarea id="t_optionPanelDescription"></textarea>
-                          </div>
-                          <div class="field span-all">
-                            <label id="label_t_optionWelcomeMessage">Welcome message</label>
-                            <textarea id="t_optionWelcomeMessage"></textarea>
-                            <div id="hint_t_optionWelcomeMessage" class="keyhint">Available placeholders: {user}, {type}, {summary}</div>
-                          </div>
-                          <div class="toggle"><input type="checkbox" id="t_optionPreOpenFormEnabled"><label for="t_optionPreOpenFormEnabled" id="label_t_optionPreOpenFormEnabled">Enable pre-open form</label></div>
-                          <div></div>
-                          <div class="field">
-                            <label id="label_t_optionPreOpenFormTitle">Form title</label>
-                            <input type="text" id="t_optionPreOpenFormTitle">
-                          </div>
-                          <div class="field">
-                            <label id="label_t_optionPreOpenFormLabel">Form field label</label>
-                            <input type="text" id="t_optionPreOpenFormLabel">
-                          </div>
-                          <div class="field span-all">
-                            <label id="label_t_optionPreOpenFormPlaceholder">Form placeholder</label>
-                            <input type="text" id="t_optionPreOpenFormPlaceholder">
-                          </div>
-                        </div>
-                        <div class="row">
-                          <button id="t_deleteOptionBtn" class="warn" type="button">Delete Ticket Type</button>
-                        </div>
                       </div>
 
                     </div>
@@ -1805,10 +1820,6 @@ public class WebControlServer {
                       </div>
                     </div>
 
-                      <div class="row">
-                        <button id="loadSettingsBtn">Reload Form</button>
-                        <button id="saveSettingsBtn" class="primary">Save Settings</button>
-                      </div>
                     </section>
                   </div>
                 </div>

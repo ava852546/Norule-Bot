@@ -26,9 +26,8 @@ export function createI18nModule(deps) {
 
   function updateMeLine() {
     const meLine = byId('meLine');
-    if (!meLine || !meLine.dataset.userId) return;
+    if (!meLine || !meLine.dataset.username) return;
     const username = meLine.dataset.username || '';
-    const userId = meLine.dataset.userId || '';
     const avatarUrl = meLine.dataset.avatarUrl || '';
     const meAvatar = byId('meAvatar');
     if (meAvatar) {
@@ -41,7 +40,7 @@ export function createI18nModule(deps) {
         meAvatar.classList.add('hidden');
       }
     }
-    meLine.textContent = `${store.t('signedInPrefix')}: ${username} (${userId})`;
+    meLine.textContent = `${store.t('signedInPrefix')}: ${username}`;
   }
 
   let applyModule = null;

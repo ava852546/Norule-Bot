@@ -18,11 +18,11 @@ export function createNotificationsModule(deps) {
   function applyVoicePreviewTemplate(value) {
     const guildName = selectedGuildName();
     return String(value || '')
-      .replace(/\{user\}|\{使用者\}/g, '@VoiceMember')
-      .replace(/\{channel\}/g, '#General')
-      .replace(/\{from\}/g, '#Lobby')
-      .replace(/\{to\}/g, '#Gaming')
-      .replace(/\{guild\}|\{群組名稱\}/g, guildName)
+      .replace(/\{user\}|\{使用?�\}/g, '@VoiceMember (ID: 123456789012345678)')
+      .replace(/\{channel\}/g, '#General (ID: 223456789012345678)')
+      .replace(/\{from\}/g, '#Lobby (ID: 323456789012345678)')
+      .replace(/\{to\}/g, '#Gaming (ID: 423456789012345678)')
+      .replace(/\{guild\}|\{群�??�稱\}/g, guildName)
       .replace(/\{id\}/g, '123456789012345678');
   }
 
@@ -124,3 +124,4 @@ export function createNotificationsModule(deps) {
     saveNotificationSettings
   };
 }
+

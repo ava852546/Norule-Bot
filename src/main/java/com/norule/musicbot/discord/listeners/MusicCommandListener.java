@@ -575,35 +575,35 @@ public class MusicCommandListener extends ListenerAdapter {
                 .setPlaceholder(i18n.t(lang, "settings.module_menu_placeholder"))
                 .addOptions(
                         SelectOption.of(i18n.t(lang, "settings.key_notifications_enabled"), "notifications-enable")
-                                .withDescription(boolText(lang, s.getNotifications().isEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getNotifications().isEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.key_messageLogs_enabled"), "message-log")
-                                .withDescription(boolText(lang, s.getMessageLogs().isEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getMessageLogs().isEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.key_notifications_memberJoinEnabled"), "member-join")
-                                .withDescription(boolText(lang, s.getNotifications().isMemberJoinEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getNotifications().isMemberJoinEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.key_welcome_enabled"), "welcome-enable")
-                                .withDescription(boolText(lang, s.getWelcome().isEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getWelcome().isEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.key_notifications_memberLeaveEnabled"), "member-leave")
-                                .withDescription(boolText(lang, s.getNotifications().isMemberLeaveEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getNotifications().isMemberLeaveEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.key_notifications_voiceLogEnabled"), "voice-log")
-                                .withDescription(boolText(lang, s.getNotifications().isVoiceLogEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getNotifications().isVoiceLogEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.info_key_log_command_usage"), "command-usage-log")
-                                .withDescription(boolText(lang, s.getMessageLogs().isCommandUsageLogEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getMessageLogs().isCommandUsageLogEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.info_key_log_channel_lifecycle"), "channel-events-log")
-                                .withDescription(boolText(lang, s.getMessageLogs().isChannelLifecycleLogEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getMessageLogs().isChannelLifecycleLogEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.info_key_log_role"), "role-events-log")
-                                .withDescription(boolText(lang, s.getMessageLogs().isRoleLogEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getMessageLogs().isRoleLogEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.info_key_log_moderation"), "moderation-log")
-                                .withDescription(boolText(lang, s.getMessageLogs().isModerationLogEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getMessageLogs().isModerationLogEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.key_music_autoLeaveEnabled"), "music-auto-leave")
-                                .withDescription(boolText(lang, s.getMusic().isAutoLeaveEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getMusic().isAutoLeaveEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.key_music_autoplayEnabled"), "music-autoplay")
-                                .withDescription(boolText(lang, s.getMusic().isAutoplayEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getMusic().isAutoplayEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.key_numberChain_enabled"), "number-chain-enable")
-                                .withDescription(boolText(lang, numberChainEnabled)),
+                                .withDescription(moduleSwitchTextPlain(lang, numberChainEnabled)),
                         SelectOption.of(i18n.t(lang, "settings.key_ticket_enabled"), "ticket-enable")
-                                .withDescription(boolText(lang, s.getTicket().isEnabled())),
+                                .withDescription(moduleSwitchTextPlain(lang, s.getTicket().isEnabled())),
                         SelectOption.of(i18n.t(lang, "settings.key_privateRoom_enabled"), "private-room-enable")
-                                .withDescription(boolText(lang, s.getPrivateRoom().isEnabled()))
+                                .withDescription(moduleSwitchTextPlain(lang, s.getPrivateRoom().isEnabled()))
                 )
                 .build();
     }
@@ -611,44 +611,35 @@ public class MusicCommandListener extends ListenerAdapter {
     private EmbedBuilder moduleMenuEmbed(Guild guild, String lang, String changedText) {
         GuildSettingsService.GuildSettings s = settingsService.getSettings(guild.getIdLong());
         boolean numberChainEnabled = moderationService.isNumberChainEnabled(guild.getIdLong());
-        List<String> lines = List.of(
+        String overview = joinLines(
+                "**Core**",
                 moduleLine(lang, "settings.key_notifications_enabled", s.getNotifications().isEnabled()),
                 moduleLine(lang, "settings.key_messageLogs_enabled", s.getMessageLogs().isEnabled()),
-                moduleLine(lang, "settings.key_notifications_memberJoinEnabled", s.getNotifications().isMemberJoinEnabled()),
                 moduleLine(lang, "settings.key_welcome_enabled", s.getWelcome().isEnabled()),
+                "",
+                "**Notifications**",
+                moduleLine(lang, "settings.key_notifications_memberJoinEnabled", s.getNotifications().isMemberJoinEnabled()),
                 moduleLine(lang, "settings.key_notifications_memberLeaveEnabled", s.getNotifications().isMemberLeaveEnabled()),
                 moduleLine(lang, "settings.key_notifications_voiceLogEnabled", s.getNotifications().isVoiceLogEnabled()),
+                "",
+                "**Logs**",
                 moduleLine(lang, "settings.info_key_log_command_usage", s.getMessageLogs().isCommandUsageLogEnabled()),
                 moduleLine(lang, "settings.info_key_log_channel_lifecycle", s.getMessageLogs().isChannelLifecycleLogEnabled()),
                 moduleLine(lang, "settings.info_key_log_role", s.getMessageLogs().isRoleLogEnabled()),
                 moduleLine(lang, "settings.info_key_log_moderation", s.getMessageLogs().isModerationLogEnabled()),
+                "",
+                "**Music & Others**",
                 moduleLine(lang, "settings.key_music_autoLeaveEnabled", s.getMusic().isAutoLeaveEnabled()),
                 moduleLine(lang, "settings.key_music_autoplayEnabled", s.getMusic().isAutoplayEnabled()),
                 moduleLine(lang, "settings.key_numberChain_enabled", numberChainEnabled),
                 moduleLine(lang, "settings.key_ticket_enabled", s.getTicket().isEnabled()),
                 moduleLine(lang, "settings.key_privateRoom_enabled", s.getPrivateRoom().isEnabled())
         );
-        StringBuilder left = new StringBuilder();
-        StringBuilder right = new StringBuilder();
-        for (int i = 0; i < lines.size(); i++) {
-            if (i % 2 == 0) {
-                if (left.length() > 0) {
-                    left.append("\n");
-                }
-                left.append(lines.get(i));
-            } else {
-                if (right.length() > 0) {
-                    right.append("\n");
-                }
-                right.append(lines.get(i));
-            }
-        }
         EmbedBuilder eb = new EmbedBuilder()
                 .setColor(new Color(52, 152, 219))
                 .setTitle(i18n.t(lang, "settings.module_menu_title"))
                 .setDescription(i18n.t(lang, "settings.module_menu_desc"));
-        eb.addField(i18n.t(lang, "settings.module_menu_column_left"), left.toString(), true);
-        eb.addField(i18n.t(lang, "settings.module_menu_column_right"), right.toString(), true);
+        eb.addField(i18n.t(lang, "settings.info_module"), overview, false);
         if (changedText != null && !changedText.isBlank()) {
             eb.addField(i18n.t(lang, "settings.template_updated"), changedText, false);
         }
@@ -656,7 +647,7 @@ public class MusicCommandListener extends ListenerAdapter {
     }
 
     private String moduleLine(String lang, String key, boolean value) {
-        return keyIcon(key) + " " + i18n.t(lang, key) + ": " + boolText(lang, value);
+        return keyIcon(key) + " " + i18n.t(lang, key) + ": " + moduleSwitchTextCode(lang, value);
     }
 
     private String quotedSettingLine(String lang, String key, String labelKey, String value) {
@@ -692,7 +683,7 @@ public class MusicCommandListener extends ListenerAdapter {
             return;
         }
         String keyText = i18n.t(lang, result.key);
-        String changed = i18n.t(lang, "general.settings_saved", Map.of("key", keyText, "value", boolText(lang, result.value)));
+        String changed = i18n.t(lang, "general.settings_saved", Map.of("key", keyText, "value", moduleSwitchTextCode(lang, result.value)));
         event.editMessageEmbeds(moduleMenuEmbed(event.getGuild(), lang, changed).build())
                 .setComponents(ActionRow.of(settingsModuleMenu(token, event.getGuild().getIdLong(), lang)))
                 .queue();
@@ -1865,11 +1856,11 @@ public class MusicCommandListener extends ListenerAdapter {
         }
         return text
                 .replace("{user}", user.getAsMention())
-                .replace("{雿輻?", user.getAsMention())
+                .replace("{?�輻????, user.getAsMention())
                 .replace("{username}", user.getName())
-                .replace("{雿輻??蝔惦", user.getName())
+                .replace("{?�輻?????�惦", user.getName())
                 .replace("{guild}", guild.getName())
-                .replace("{蝢斤??迂}", guild.getName())
+                .replace("{?�斤???��?}", guild.getName())
                 .replace("{id}", user.getId())
                 .replace("{tag}", user.getAsTag())
                 .replace("{isBot}", String.valueOf(user.isBot()))
@@ -2879,7 +2870,7 @@ public class MusicCommandListener extends ListenerAdapter {
 
     String renderTemplatePreview(String template, String guildName) {
         return template
-                .replace("{user}", "@NoRuleUser")
+                .replace("{user}", "@NoRuleUser (ID: 123456789012345678)")
                 .replace("{username}", "NoRuleUser")
                 .replace("{guild}", guildName)
                 .replace("{id}", "123456789012345678")
@@ -2887,9 +2878,9 @@ public class MusicCommandListener extends ListenerAdapter {
                 .replace("{isBot}", "false")
                 .replace("{createdAt}", "2024-01-01 12:00:00 UTC")
                 .replace("{accountAgeDays}", "999")
-                .replace("{channel}", "General Voice")
-                .replace("{from}", "Lobby")
-                .replace("{to}", "Gaming");
+                .replace("{channel}", "General Voice (ID: 234567890123456789)")
+                .replace("{from}", "Lobby (ID: 345678901234567890)")
+                .replace("{to}", "Gaming (ID: 456789012345678901)");
     }
 
     void createPanelMessageWithFeedback(Guild guild, TextChannel channel, String lang, Runnable onSuccess, java.util.function.Consumer<String> onError) {
@@ -4544,6 +4535,24 @@ public class MusicCommandListener extends ListenerAdapter {
         return value ? i18n.t(lang, "settings.info_bool_on") : i18n.t(lang, "settings.info_bool_off");
     }
 
+    private String moduleSwitchState(String lang, boolean enabled) {
+        return boolText(lang, enabled)
+                .replace("\u2705", "")
+                .replace("\u274C", "")
+                .replace("\u2714\uFE0F", "")
+                .replace("\u2716\uFE0F", "")
+                .trim();
+    }
+
+    private String moduleSwitchTextPlain(String lang, boolean enabled) {
+        String state = moduleSwitchState(lang, enabled);
+        return enabled ? "\uD83D\uDFE2 " + state : "\u26AA " + state;
+    }
+
+    private String moduleSwitchTextCode(String lang, boolean enabled) {
+        return "`" + moduleSwitchTextPlain(lang, enabled) + "`";
+    }
+
     private String formatTextChannel(Guild guild, Long id) {
         if (id == null) {
             return i18n.t(lang(guild.getIdLong()), "settings.info_channels_none");
@@ -4902,6 +4911,8 @@ public class MusicCommandListener extends ListenerAdapter {
         }
     }
 }
+
+
 
 
 

@@ -156,6 +156,10 @@ public class GuildSettingsService {
         return getSettings(guildId).getTicket();
     }
 
+    public Path getSettingsDirectory() {
+        return settingsDir;
+    }
+
     public GuildSettings updateSettings(long guildId, UnaryOperator<GuildSettings> updater) {
         GuildSettings current = getSettings(guildId);
         GuildSettings updated = updater.apply(current);

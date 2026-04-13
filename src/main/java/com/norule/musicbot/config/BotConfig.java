@@ -1,4 +1,4 @@
-﻿package com.norule.musicbot.config;
+package com.norule.musicbot.config;
 
 import com.norule.musicbot.*;
 import com.norule.musicbot.i18n.*;

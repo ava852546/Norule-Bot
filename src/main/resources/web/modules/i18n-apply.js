@@ -195,6 +195,7 @@
     setCheckboxLabel('m_autoplayEnabled', 'm_autoplayEnabled');
     setFieldLabel('m_defaultRepeatMode', 'm_defaultRepeatMode');
     setFieldLabel('m_commandChannelId', 'm_commandChannelId');
+    setText('music_settings_card_title', 'section_music');
     setText('music_stats_title', 'music_stats_title');
 
     setCheckboxLabel('p_enabled', 'p_enabled');

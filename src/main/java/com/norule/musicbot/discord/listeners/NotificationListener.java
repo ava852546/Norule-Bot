@@ -76,12 +76,19 @@ public class NotificationListener extends ListenerAdapter {
             return;
         }
         String lang = guildSettingsService.getLanguage(event.getGuild().getIdLong());
+        String userText = mentionWithId(event.getEntity().getAsMention(), event.getEntity().getId());
+        String fromText = event.getChannelLeft() == null
+                ? null
+                : mentionWithId(event.getChannelLeft().getAsMention(), event.getChannelLeft().getId());
+        String toText = event.getChannelJoined() == null
+                ? null
+                : mentionWithId(event.getChannelJoined().getAsMention(), event.getChannelJoined().getId());
         if (event.getChannelLeft() == null && event.getChannelJoined() != null) {
             String message = formatVoiceTemplate(
                     resolveVoiceTemplate(lang, config.getVoiceJoinMessage(), "join"),
-                    event.getEntity().getAsMention(),
+                    userText,
                     null,
-                    event.getChannelJoined().getAsMention()
+                    toText
             );
             sendVoiceMessage(
                     event.getGuild(),
@@ -90,15 +97,15 @@ public class NotificationListener extends ListenerAdapter {
                     i18n.t(lang, "notifications.embed.voice_join_title"),
                     message,
                     config.getVoiceJoinColor(),
-                    event.getEntity().getAsMention(),
+                    userText,
                     null,
-                    event.getChannelJoined().getAsMention()
+                    toText
             );
         } else if (event.getChannelLeft() != null && event.getChannelJoined() == null) {
             String message = formatVoiceTemplate(
                     resolveVoiceTemplate(lang, config.getVoiceLeaveMessage(), "leave"),
-                    event.getEntity().getAsMention(),
-                    event.getChannelLeft().getAsMention(),
+                    userText,
+                    fromText,
                     null
             );
             sendVoiceMessage(
@@ -108,16 +115,16 @@ public class NotificationListener extends ListenerAdapter {
                     i18n.t(lang, "notifications.embed.voice_leave_title"),
                     message,
                     config.getVoiceLeaveColor(),
-                    event.getEntity().getAsMention(),
-                    event.getChannelLeft().getAsMention(),
+                    userText,
+                    fromText,
                     null
             );
         } else if (event.getChannelLeft() != null && event.getChannelJoined() != null) {
             String message = formatVoiceTemplate(
                     resolveVoiceTemplate(lang, config.getVoiceMoveMessage(), "move"),
-                    event.getEntity().getAsMention(),
-                    event.getChannelLeft().getAsMention(),
-                    event.getChannelJoined().getAsMention()
+                    userText,
+                    fromText,
+                    toText
             );
             sendVoiceMessage(
                     event.getGuild(),
@@ -126,9 +133,9 @@ public class NotificationListener extends ListenerAdapter {
                     i18n.t(lang, "notifications.embed.voice_move_title"),
                     message,
                     config.getVoiceMoveColor(),
-                    event.getEntity().getAsMention(),
-                    event.getChannelLeft().getAsMention(),
-                    event.getChannelJoined().getAsMention()
+                    userText,
+                    fromText,
+                    toText
             );
         }
     }
@@ -336,6 +343,16 @@ public class NotificationListener extends ListenerAdapter {
         result = result.replace("{from}", fromChannel != null ? fromChannel : "");
         result = result.replace("{to}", toChannel != null ? toChannel : "");
         return result;
+    }
+
+    private String mentionWithId(String mention, String id) {
+        if (mention == null || mention.isBlank()) {
+            return id == null ? "" : "ID: " + id;
+        }
+        if (id == null || id.isBlank()) {
+            return mention;
+        }
+        return mention + " (ID: " + id + ")";
     }
 
     private String resolveVoiceTemplate(String lang, String template, String type) {

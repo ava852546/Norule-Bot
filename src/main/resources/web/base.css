@@ -136,6 +136,19 @@ body::before {
   box-shadow: 0 0 16px rgba(76, 141, 255, 0.6);
 }
 
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(54, 213, 141, 0.3);
+  background: rgba(54, 213, 141, 0.12);
+  color: #c4ffe3;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
 h1 {
   margin: 0 0 12px;
   font-size: clamp(32px, 4.2vw, 52px);
@@ -160,6 +173,10 @@ h3 {
   max-width: 720px;
 }
 
+.hero-subtitle {
+  margin-bottom: 8px;
+}
+
 .muted {
   color: var(--muted);
   font-size: 14px;
@@ -171,6 +188,34 @@ h3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 20px;
+}
+
+.hero-intro-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.hero-intro-card {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hero-intro-label {
+  font-size: 11px;
+  color: var(--accent-3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero-intro-value {
+  margin-top: 6px;
+  color: #eff6ff;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .metric {
@@ -371,6 +416,31 @@ h3 {
   gap: 12px;
 }
 
+.user-profile-inline {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.user-name-block {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-weight: 700;
+  color: #e5efff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.logout-inline {
+  width: auto;
+  margin-left: auto;
+  padding: 9px 13px;
+  min-height: 40px;
+}
+
 .user-avatar {
   width: 42px;
   height: 42px;
@@ -437,6 +507,27 @@ h3 {
   border: 1px solid rgba(255,255,255,.08);
   border-radius: 20px;
   background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+}
+
+.module-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.module-shell .settings-group {
+  margin-top: 0;
+}
+
+.module-settings-grid {
+  align-items: end;
+}
+
+.settings-actions {
+  margin-top: 24px;
+  margin-bottom: 14px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .pane-head {
@@ -550,17 +641,77 @@ h3 {
 
 .toggle {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: stretch;
   min-height: 46px;
-  padding: 10px 12px;
+  padding: 0;
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,.06);
   background: rgba(255,255,255,.025);
+  overflow: hidden;
 }
 
-.toggle input {
-  width: auto;
+.toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.toggle label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 64px 10px 12px;
+  cursor: pointer;
+  color: #d9e7fb;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.toggle label::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(100, 116, 139, 0.55);
+  transform: translateY(-50%);
+  transition: background .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+
+.toggle label::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 30px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #f8fafc;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transform: translateY(-50%);
+  transition: right .2s ease, background .2s ease;
+}
+
+.toggle input[type="checkbox"]:checked + label::before {
+  background: linear-gradient(135deg, #34d399, #10b981);
+  border-color: rgba(52, 211, 153, 0.9);
+}
+
+.toggle input[type="checkbox"]:checked + label::after {
+  right: 14px;
+  background: #ffffff;
+}
+
+.toggle input[type="checkbox"]:focus + label::before {
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2);
 }
 
 textarea {
@@ -701,6 +852,7 @@ button.saving {
   }
 
   .hero-metrics,
+  .hero-intro-grid,
   .grid2,
   .grid3,
   .stats-grid {
