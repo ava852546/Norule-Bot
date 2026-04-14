@@ -77,18 +77,22 @@ public class NotificationListener extends ListenerAdapter {
         }
         String lang = guildSettingsService.getLanguage(event.getGuild().getIdLong());
         String userText = mentionWithId(event.getEntity().getAsMention(), event.getEntity().getId());
+        String fromId = event.getChannelLeft() == null ? null : event.getChannelLeft().getId();
+        String toId = event.getChannelJoined() == null ? null : event.getChannelJoined().getId();
         String fromText = event.getChannelLeft() == null
                 ? null
-                : mentionWithId(event.getChannelLeft().getAsMention(), event.getChannelLeft().getId());
+                : event.getChannelLeft().getAsMention();
         String toText = event.getChannelJoined() == null
                 ? null
-                : mentionWithId(event.getChannelJoined().getAsMention(), event.getChannelJoined().getId());
+                : event.getChannelJoined().getAsMention();
         if (event.getChannelLeft() == null && event.getChannelJoined() != null) {
             String message = formatVoiceTemplate(
                     resolveVoiceTemplate(lang, config.getVoiceJoinMessage(), "join"),
                     userText,
                     null,
-                    toText
+                    toText,
+                    null,
+                    toId
             );
             sendVoiceMessage(
                     event.getGuild(),
@@ -96,16 +100,15 @@ public class NotificationListener extends ListenerAdapter {
                     lang,
                     i18n.t(lang, "notifications.embed.voice_join_title"),
                     message,
-                    config.getVoiceJoinColor(),
-                    userText,
-                    null,
-                    toText
+                    config.getVoiceJoinColor()
             );
         } else if (event.getChannelLeft() != null && event.getChannelJoined() == null) {
             String message = formatVoiceTemplate(
                     resolveVoiceTemplate(lang, config.getVoiceLeaveMessage(), "leave"),
                     userText,
                     fromText,
+                    null,
+                    fromId,
                     null
             );
             sendVoiceMessage(
@@ -114,17 +117,16 @@ public class NotificationListener extends ListenerAdapter {
                     lang,
                     i18n.t(lang, "notifications.embed.voice_leave_title"),
                     message,
-                    config.getVoiceLeaveColor(),
-                    userText,
-                    fromText,
-                    null
+                    config.getVoiceLeaveColor()
             );
         } else if (event.getChannelLeft() != null && event.getChannelJoined() != null) {
             String message = formatVoiceTemplate(
                     resolveVoiceTemplate(lang, config.getVoiceMoveMessage(), "move"),
                     userText,
                     fromText,
-                    toText
+                    toText,
+                    fromId,
+                    toId
             );
             sendVoiceMessage(
                     event.getGuild(),
@@ -132,10 +134,7 @@ public class NotificationListener extends ListenerAdapter {
                     lang,
                     i18n.t(lang, "notifications.embed.voice_move_title"),
                     message,
-                    config.getVoiceMoveColor(),
-                    userText,
-                    fromText,
-                    toText
+                    config.getVoiceMoveColor()
             );
         }
     }
@@ -252,10 +251,7 @@ public class NotificationListener extends ListenerAdapter {
             String lang,
             String title,
             String message,
-            int color,
-            String userMention,
-            String fromChannel,
-            String toChannel
+            int color
     ) {
         Long channelId = config.getVoiceChannelId();
         if (channelId == null) {
@@ -278,18 +274,7 @@ public class NotificationListener extends ListenerAdapter {
         EmbedBuilder eb = new EmbedBuilder()
                 .setColor(new Color(color & 0xFFFFFF))
                 .setTitle(title == null || title.isBlank() ? i18n.t(lang, "notifications.embed.voice_move_title") : title)
-                .setDescription(message)
-                .setTimestamp(Instant.now());
-        eb.addField(i18n.t(lang, "notifications.embed.user_field"), userMention, false);
-        if (fromChannel != null && toChannel != null) {
-            eb.addField(i18n.t(lang, "notifications.embed.voice_from_field"), fromChannel, true);
-            eb.addField(i18n.t(lang, "notifications.embed.voice_to_field"), toChannel, true);
-        } else if (toChannel != null) {
-            eb.addField(i18n.t(lang, "notifications.embed.voice_channel_field"), toChannel, true);
-        } else if (fromChannel != null) {
-            eb.addField(i18n.t(lang, "notifications.embed.voice_channel_field"), fromChannel, true);
-        }
-        eb.addField(i18n.t(lang, "notifications.embed.voice_notify_time_field"), discordTimestamp(Instant.now()), false);
+                .setDescription(message);
         channel.sendMessageEmbeds(eb.build()).queue();
     }
 
@@ -337,11 +322,19 @@ public class NotificationListener extends ListenerAdapter {
         return text.startsWith("http://") || text.startsWith("https://") ? text : null;
     }
 
-    private String formatVoiceTemplate(String template, String userMention, String fromChannel, String toChannel) {
+    private String formatVoiceTemplate(String template,
+                                       String userMention,
+                                       String fromChannel,
+                                       String toChannel,
+                                       String fromChannelId,
+                                       String toChannelId) {
         String result = template.replace("{user}", userMention);
         result = result.replace("{channel}", toChannel != null ? toChannel : fromChannel != null ? fromChannel : "");
+        result = result.replace("{channelID}", toChannelId != null ? toChannelId : fromChannelId != null ? fromChannelId : "");
         result = result.replace("{from}", fromChannel != null ? fromChannel : "");
+        result = result.replace("{fromID}", fromChannelId != null ? fromChannelId : "");
         result = result.replace("{to}", toChannel != null ? toChannel : "");
+        result = result.replace("{toID}", toChannelId != null ? toChannelId : "");
         return result;
     }
 

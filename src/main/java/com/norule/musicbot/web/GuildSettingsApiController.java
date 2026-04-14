@@ -74,7 +74,11 @@ final class GuildSettingsApiController {
         }
         if ("settings".equals(section)) {
             if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                handleSettingsGet(exchange, guild);
+                if (segments.length >= 3) {
+                    handleSettingsSectionGet(exchange, guild, segments[2]);
+                } else {
+                    handleSettingsGet(exchange, guild);
+                }
                 return;
             }
             if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -291,115 +295,176 @@ final class GuildSettingsApiController {
 
     void handleSettingsGet(HttpExchange exchange, Guild guild) throws IOException {
         GuildSettingsService.GuildSettings settings = owner.settingsService().getSettings(guild.getIdLong());
+        owner.sendJson(exchange, 200, buildFullSettingsPayload(guild, settings));
+    }
+
+    private void handleSettingsSectionGet(HttpExchange exchange, Guild guild, String sectionName) throws IOException {
+        GuildSettingsService.GuildSettings settings = owner.settingsService().getSettings(guild.getIdLong());
+        DataObject payload = buildSectionSettingsPayload(guild, settings, sectionName);
+        if (payload == null) {
+            owner.sendJson(exchange, 404, DataObject.empty().put("error", "Unknown settings section"));
+            return;
+        }
+        owner.sendJson(exchange, 200, payload);
+    }
+
+    private DataObject buildFullSettingsPayload(Guild guild, GuildSettingsService.GuildSettings settings) {
+        return DataObject.empty()
+                .put("language", settings.getLanguage())
+                .put("notifications", buildNotificationsPayload(settings))
+                .put("welcome", buildWelcomePayload(settings))
+                .put("messageLogs", buildMessageLogsPayload(settings))
+                .put("music", buildMusicPayload(settings))
+                .put("musicStats", buildMusicStatsPayload(guild))
+                .put("privateRoom", buildPrivateRoomPayload(settings))
+                .put("numberChain", buildNumberChainPayload(guild))
+                .put("ticket", buildTicketPayload(settings));
+    }
+
+    private DataObject buildSectionSettingsPayload(Guild guild, GuildSettingsService.GuildSettings settings, String sectionName) {
+        return switch (sectionName) {
+            case "general" -> DataObject.empty().put("language", settings.getLanguage());
+            case "notifications" -> DataObject.empty().put("notifications", buildNotificationsPayload(settings));
+            case "welcome" -> DataObject.empty().put("welcome", buildWelcomePayload(settings));
+            case "logs" -> DataObject.empty().put("messageLogs", buildMessageLogsPayload(settings));
+            case "music" -> DataObject.empty()
+                    .put("music", buildMusicPayload(settings))
+                    .put("musicStats", buildMusicStatsPayload(guild));
+            case "privateRoom" -> DataObject.empty().put("privateRoom", buildPrivateRoomPayload(settings));
+            case "numberChain" -> DataObject.empty().put("numberChain", buildNumberChainPayload(guild));
+            case "ticket" -> DataObject.empty().put("ticket", buildTicketPayload(settings));
+            default -> null;
+        };
+    }
+
+    private DataObject buildNotificationsPayload(GuildSettingsService.GuildSettings settings) {
         BotConfig.Notifications n = settings.getNotifications();
-        BotConfig.MessageLogs l = settings.getMessageLogs();
-        BotConfig.Music m = settings.getMusic();
-        BotConfig.PrivateRoom p = settings.getPrivateRoom();
-        BotConfig.Ticket t = settings.getTicket();
+        return DataObject.empty()
+                .put("enabled", n.isEnabled())
+                .put("memberJoinEnabled", n.isMemberJoinEnabled())
+                .put("memberLeaveEnabled", n.isMemberLeaveEnabled())
+                .put("voiceLogEnabled", n.isVoiceLogEnabled())
+                .put("memberChannelId", owner.toIdText(n.getMemberChannelId()))
+                .put("memberJoinChannelId", owner.toIdText(n.getMemberJoinChannelId()))
+                .put("memberLeaveChannelId", owner.toIdText(n.getMemberLeaveChannelId()))
+                .put("memberJoinTitle", n.getMemberJoinTitle())
+                .put("memberJoinMessage", n.getMemberJoinMessage())
+                .put("memberJoinThumbnailUrl", n.getMemberJoinThumbnailUrl())
+                .put("memberJoinImageUrl", n.getMemberJoinImageUrl())
+                .put("memberLeaveMessage", n.getMemberLeaveMessage())
+                .put("memberJoinColor", String.format("#%06X", n.getMemberJoinColor()))
+                .put("memberLeaveColor", String.format("#%06X", n.getMemberLeaveColor()))
+                .put("voiceChannelId", owner.toIdText(n.getVoiceChannelId()))
+                .put("voiceJoinMessage", n.getVoiceJoinMessage())
+                .put("voiceLeaveMessage", n.getVoiceLeaveMessage())
+                .put("voiceMoveMessage", n.getVoiceMoveMessage())
+                .put("voiceJoinColor", String.format("#%06X", n.getVoiceJoinColor()))
+                .put("voiceLeaveColor", String.format("#%06X", n.getVoiceLeaveColor()))
+                .put("voiceMoveColor", String.format("#%06X", n.getVoiceMoveColor()));
+    }
+
+    private DataObject buildWelcomePayload(GuildSettingsService.GuildSettings settings) {
+        BotConfig.Welcome welcome = settings.getWelcome();
+        return DataObject.empty()
+                .put("enabled", welcome.isEnabled())
+                .put("channelId", owner.toIdText(welcome.getChannelId()))
+                .put("title", welcome.getTitle())
+                .put("message", welcome.getMessage())
+                .put("thumbnailUrl", welcome.getThumbnailUrl())
+                .put("imageUrl", welcome.getImageUrl());
+    }
+
+    private DataObject buildMessageLogsPayload(GuildSettingsService.GuildSettings settings) {
+        BotConfig.MessageLogs logs = settings.getMessageLogs();
+        return DataObject.empty()
+                .put("enabled", logs.isEnabled())
+                .put("channelId", owner.toIdText(logs.getChannelId()))
+                .put("messageLogChannelId", owner.toIdText(logs.getMessageLogChannelId()))
+                .put("commandUsageChannelId", owner.toIdText(logs.getCommandUsageChannelId()))
+                .put("channelLifecycleChannelId", owner.toIdText(logs.getChannelLifecycleChannelId()))
+                .put("roleLogChannelId", owner.toIdText(logs.getRoleLogChannelId()))
+                .put("moderationLogChannelId", owner.toIdText(logs.getModerationLogChannelId()))
+                .put("roleLogEnabled", logs.isRoleLogEnabled())
+                .put("channelLifecycleLogEnabled", logs.isChannelLifecycleLogEnabled())
+                .put("moderationLogEnabled", logs.isModerationLogEnabled())
+                .put("commandUsageLogEnabled", logs.isCommandUsageLogEnabled());
+    }
+
+    private DataObject buildMusicPayload(GuildSettingsService.GuildSettings settings) {
+        BotConfig.Music music = settings.getMusic();
+        return DataObject.empty()
+                .put("autoLeaveEnabled", music.isAutoLeaveEnabled())
+                .put("autoLeaveMinutes", music.getAutoLeaveMinutes())
+                .put("autoplayEnabled", music.isAutoplayEnabled())
+                .put("defaultRepeatMode", music.getDefaultRepeatMode().name())
+                .put("commandChannelId", owner.toIdText(music.getCommandChannelId()));
+    }
+
+    private DataObject buildMusicStatsPayload(Guild guild) {
         MusicDataService.MusicStatsSnapshot musicStats = owner.musicService().getStats(guild.getIdLong());
         String topRequesterDisplay = "";
         if (musicStats.topRequesterId() != null) {
             Member topRequester = guild.getMemberById(musicStats.topRequesterId());
             topRequesterDisplay = topRequester != null ? topRequester.getEffectiveName() : musicStats.topRequesterId().toString();
         }
+        return DataObject.empty()
+                .put("topSongLabel", musicStats.topSongLabel() == null ? "" : musicStats.topSongLabel())
+                .put("topSongCount", musicStats.topSongCount())
+                .put("topRequesterDisplay", topRequesterDisplay)
+                .put("topRequesterCount", musicStats.topRequesterCount())
+                .put("todayPlaybackMillis", musicStats.todayPlaybackMillis())
+                .put("todayPlaybackDisplay", owner.formatDuration(musicStats.todayPlaybackMillis()))
+                .put("historyCount", musicStats.historyCount());
+    }
 
-        DataObject payload = DataObject.empty()
-                .put("language", settings.getLanguage())
-                .put("notifications", DataObject.empty()
-                        .put("enabled", n.isEnabled())
-                        .put("memberJoinEnabled", n.isMemberJoinEnabled())
-                        .put("memberLeaveEnabled", n.isMemberLeaveEnabled())
-                        .put("voiceLogEnabled", n.isVoiceLogEnabled())
-                        .put("memberChannelId", owner.toIdText(n.getMemberChannelId()))
-                        .put("memberJoinChannelId", owner.toIdText(n.getMemberJoinChannelId()))
-                        .put("memberLeaveChannelId", owner.toIdText(n.getMemberLeaveChannelId()))
-                        .put("memberJoinTitle", n.getMemberJoinTitle())
-                        .put("memberJoinMessage", n.getMemberJoinMessage())
-                        .put("memberJoinThumbnailUrl", n.getMemberJoinThumbnailUrl())
-                        .put("memberJoinImageUrl", n.getMemberJoinImageUrl())
-                        .put("memberLeaveMessage", n.getMemberLeaveMessage())
-                        .put("memberJoinColor", String.format("#%06X", n.getMemberJoinColor()))
-                        .put("memberLeaveColor", String.format("#%06X", n.getMemberLeaveColor()))
-                        .put("voiceChannelId", owner.toIdText(n.getVoiceChannelId()))
-                        .put("voiceJoinMessage", n.getVoiceJoinMessage())
-                        .put("voiceLeaveMessage", n.getVoiceLeaveMessage())
-                        .put("voiceMoveMessage", n.getVoiceMoveMessage())
-                        .put("voiceJoinColor", String.format("#%06X", n.getVoiceJoinColor()))
-                        .put("voiceLeaveColor", String.format("#%06X", n.getVoiceLeaveColor()))
-                        .put("voiceMoveColor", String.format("#%06X", n.getVoiceMoveColor())))
-                .put("welcome", DataObject.empty()
-                        .put("enabled", settings.getWelcome().isEnabled())
-                        .put("channelId", owner.toIdText(settings.getWelcome().getChannelId()))
-                        .put("title", settings.getWelcome().getTitle())
-                        .put("message", settings.getWelcome().getMessage())
-                        .put("thumbnailUrl", settings.getWelcome().getThumbnailUrl())
-                        .put("imageUrl", settings.getWelcome().getImageUrl()))
-                .put("messageLogs", DataObject.empty()
-                        .put("enabled", l.isEnabled())
-                        .put("channelId", owner.toIdText(l.getChannelId()))
-                        .put("messageLogChannelId", owner.toIdText(l.getMessageLogChannelId()))
-                        .put("commandUsageChannelId", owner.toIdText(l.getCommandUsageChannelId()))
-                        .put("channelLifecycleChannelId", owner.toIdText(l.getChannelLifecycleChannelId()))
-                        .put("roleLogChannelId", owner.toIdText(l.getRoleLogChannelId()))
-                        .put("moderationLogChannelId", owner.toIdText(l.getModerationLogChannelId()))
-                        .put("roleLogEnabled", l.isRoleLogEnabled())
-                        .put("channelLifecycleLogEnabled", l.isChannelLifecycleLogEnabled())
-                        .put("moderationLogEnabled", l.isModerationLogEnabled())
-                        .put("commandUsageLogEnabled", l.isCommandUsageLogEnabled()))
-                .put("music", DataObject.empty()
-                        .put("autoLeaveEnabled", m.isAutoLeaveEnabled())
-                        .put("autoLeaveMinutes", m.getAutoLeaveMinutes())
-                        .put("autoplayEnabled", m.isAutoplayEnabled())
-                        .put("defaultRepeatMode", m.getDefaultRepeatMode().name())
-                        .put("commandChannelId", owner.toIdText(m.getCommandChannelId())))
-                .put("musicStats", DataObject.empty()
-                        .put("topSongLabel", musicStats.topSongLabel() == null ? "" : musicStats.topSongLabel())
-                        .put("topSongCount", musicStats.topSongCount())
-                        .put("topRequesterDisplay", topRequesterDisplay)
-                        .put("topRequesterCount", musicStats.topRequesterCount())
-                        .put("todayPlaybackMillis", musicStats.todayPlaybackMillis())
-                        .put("todayPlaybackDisplay", owner.formatDuration(musicStats.todayPlaybackMillis()))
-                        .put("historyCount", musicStats.historyCount()))
-                .put("privateRoom", DataObject.empty()
-                        .put("enabled", p.isEnabled())
-                        .put("triggerVoiceChannelId", owner.toIdText(p.getTriggerVoiceChannelId()))
-                        .put("userLimit", p.getUserLimit()))
-                .put("numberChain", DataObject.empty()
-                        .put("enabled", owner.moderationService().isNumberChainEnabled(guild.getIdLong()))
-                        .put("channelId", owner.toIdText(owner.moderationService().getNumberChainChannelId(guild.getIdLong())))
-                        .put("nextNumber", owner.moderationService().getNumberChainNext(guild.getIdLong())))
-                .put("ticket", DataObject.empty()
-                        .put("enabled", t.isEnabled())
-                        .put("panelChannelId", owner.toIdText(t.getPanelChannelId()))
-                        .put("autoCloseDays", t.getAutoCloseDays())
-                        .put("maxOpenPerUser", t.getMaxOpenPerUser())
-                        .put("openUiMode", t.getOpenUiMode().name())
-                        .put("panelTitle", t.getPanelTitle())
-                        .put("panelDescription", t.getPanelDescription())
-                        .put("panelColor", String.format("#%06X", t.getPanelColor() & 0xFFFFFF))
-                        .put("panelButtonStyle", t.getPanelButtonStyle())
-                        .put("panelButtonLimit", t.getPanelButtonLimit())
-                        .put("preOpenFormEnabled", t.isPreOpenFormEnabled())
-                        .put("preOpenFormTitle", t.getPreOpenFormTitle())
-                        .put("preOpenFormLabel", t.getPreOpenFormLabel())
-                        .put("preOpenFormPlaceholder", t.getPreOpenFormPlaceholder())
-                        .put("welcomeMessage", t.getWelcomeMessage())
-                        .put("optionLabels", String.join(", ", t.getOptionLabels()))
-                        .put("options", DataArray.fromCollection(t.getOptions().stream().map(option -> DataObject.empty()
-                                .put("id", option.getId())
-                                .put("label", option.getLabel())
-                                .put("panelTitle", option.getPanelTitle())
-                                .put("panelDescription", option.getPanelDescription())
-                                .put("panelButtonStyle", option.getPanelButtonStyle())
-                                .put("welcomeMessage", option.getWelcomeMessage())
-                                .put("preOpenFormEnabled", option.isPreOpenFormEnabled())
-                                .put("preOpenFormTitle", option.getPreOpenFormTitle())
-                                .put("preOpenFormLabel", option.getPreOpenFormLabel())
-                                .put("preOpenFormPlaceholder", option.getPreOpenFormPlaceholder()))
-                                .toList()))
-                        .put("supportRoleIds", t.getSupportRoleIds().stream().map(String::valueOf).toList())
-                        .put("blacklistedUserIds", t.getBlacklistedUserIds().stream().map(String::valueOf).toList()));
-        owner.sendJson(exchange, 200, payload);
+    private DataObject buildPrivateRoomPayload(GuildSettingsService.GuildSettings settings) {
+        BotConfig.PrivateRoom privateRoom = settings.getPrivateRoom();
+        return DataObject.empty()
+                .put("enabled", privateRoom.isEnabled())
+                .put("triggerVoiceChannelId", owner.toIdText(privateRoom.getTriggerVoiceChannelId()))
+                .put("userLimit", privateRoom.getUserLimit());
+    }
+
+    private DataObject buildNumberChainPayload(Guild guild) {
+        return DataObject.empty()
+                .put("enabled", owner.moderationService().isNumberChainEnabled(guild.getIdLong()))
+                .put("channelId", owner.toIdText(owner.moderationService().getNumberChainChannelId(guild.getIdLong())))
+                .put("nextNumber", owner.moderationService().getNumberChainNext(guild.getIdLong()));
+    }
+
+    private DataObject buildTicketPayload(GuildSettingsService.GuildSettings settings) {
+        BotConfig.Ticket ticket = settings.getTicket();
+        return DataObject.empty()
+                .put("enabled", ticket.isEnabled())
+                .put("panelChannelId", owner.toIdText(ticket.getPanelChannelId()))
+                .put("autoCloseDays", ticket.getAutoCloseDays())
+                .put("maxOpenPerUser", ticket.getMaxOpenPerUser())
+                .put("openUiMode", ticket.getOpenUiMode().name())
+                .put("panelTitle", ticket.getPanelTitle())
+                .put("panelDescription", ticket.getPanelDescription())
+                .put("panelColor", String.format("#%06X", ticket.getPanelColor() & 0xFFFFFF))
+                .put("panelButtonStyle", ticket.getPanelButtonStyle())
+                .put("panelButtonLimit", ticket.getPanelButtonLimit())
+                .put("preOpenFormEnabled", ticket.isPreOpenFormEnabled())
+                .put("preOpenFormTitle", ticket.getPreOpenFormTitle())
+                .put("preOpenFormLabel", ticket.getPreOpenFormLabel())
+                .put("preOpenFormPlaceholder", ticket.getPreOpenFormPlaceholder())
+                .put("welcomeMessage", ticket.getWelcomeMessage())
+                .put("optionLabels", String.join(", ", ticket.getOptionLabels()))
+                .put("options", DataArray.fromCollection(ticket.getOptions().stream().map(option -> DataObject.empty()
+                        .put("id", option.getId())
+                        .put("label", option.getLabel())
+                        .put("panelTitle", option.getPanelTitle())
+                        .put("panelDescription", option.getPanelDescription())
+                        .put("panelButtonStyle", option.getPanelButtonStyle())
+                        .put("welcomeMessage", option.getWelcomeMessage())
+                        .put("preOpenFormEnabled", option.isPreOpenFormEnabled())
+                        .put("preOpenFormTitle", option.getPreOpenFormTitle())
+                        .put("preOpenFormLabel", option.getPreOpenFormLabel())
+                        .put("preOpenFormPlaceholder", option.getPreOpenFormPlaceholder()))
+                        .toList()))
+                .put("supportRoleIds", ticket.getSupportRoleIds().stream().map(String::valueOf).toList())
+                .put("blacklistedUserIds", ticket.getBlacklistedUserIds().stream().map(String::valueOf).toList());
     }
 
     void handleSettingsSave(HttpExchange exchange, Guild guild) throws IOException {

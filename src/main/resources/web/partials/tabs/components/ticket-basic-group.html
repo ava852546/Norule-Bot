@@ -1,0 +1,19 @@
+﻿<div class="settings-group">
+  <div id="ticket_group_basic_title" class="settings-group-title" data-i18n="ticket_group_basic_title">Basic Settings</div>
+  <div class="welcome-lead" data-i18n="ticket_settings_lead">Configure ticket module status, close policy, and open mode.</div>
+  <div class="notification-toggle-stack">
+    <div class="grid2 module-settings-grid">
+      <div class="toggle"><input type="checkbox" id="t_enabled"><label for="t_enabled" data-i18n="t_enabled">enabled</label></div>
+      <div class="field"><label data-i18n="t_autoCloseDays">autoCloseDays (1-365)</label><input type="number" min="1" max="365" id="t_autoCloseDays"></div>
+      <div class="field"><label data-i18n="t_maxOpenPerUser">maxOpenPerUser (1-20)</label><input type="number" min="1" max="20" id="t_maxOpenPerUser"></div>
+      <div class="field span-all">
+        <label data-i18n="t_openUiMode">openUiMode</label>
+        <select id="t_openUiMode">
+          <option value="BUTTONS">BUTTONS</option>
+          <option value="SELECT">SELECT</option>
+        </select>
+        <div id="hint_t_openUiMode" class="keyhint" data-i18n="t_openUiMode_hint">BUTTONS: display open buttons. SELECT: use dropdown menu.</div>
+      </div>
+    </div>
+  </div>
+</div>

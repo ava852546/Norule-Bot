@@ -1,0 +1,23 @@
+<div class="settings-group">
+  <div id="notification_member_template_card_title" class="settings-group-title" data-i18n="notification_member_template_card_title">Member Notification Embed</div>
+  <div class="grid2">
+    <div class="field">
+      <label data-i18n="n_memberJoinTitle">memberJoinTitle</label>
+      <input id="n_memberJoinTitle" type="text">
+      <div id="hint_n_memberJoinTitle" class="keyhint" data-i18n="n_memberJoinTitle_hint">Available placeholders: {user}, {guild}</div>
+    </div>
+    <div class="field">
+      <label data-i18n="n_memberJoinMessage">memberJoinMessage</label>
+      <textarea id="n_memberJoinMessage"></textarea>
+      <div id="hint_n_memberJoinMessage" class="keyhint" data-i18n="n_memberJoinMessage_hint">Available placeholders: {user}, {username}, {guild}, {id}, {tag}, {isBot}, {createdAt}, {accountAgeDays}</div>
+    </div>
+    <div class="field">
+      <label data-i18n="n_memberLeaveMessage">memberLeaveMessage</label>
+      <textarea id="n_memberLeaveMessage"></textarea>
+    </div>
+    <div class="notification-color-grid span-all">
+      <div class="field"><label data-i18n="n_memberJoinColor">memberJoinColor</label><input type="color" id="n_memberJoinColor"></div>
+      <div class="field"><label data-i18n="n_memberLeaveColor">memberLeaveColor</label><input type="color" id="n_memberLeaveColor"></div>
+    </div>
+  </div>
+</div>

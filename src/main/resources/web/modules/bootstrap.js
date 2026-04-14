@@ -1,4 +1,4 @@
-﻿import { createWelcomeModule } from '/web/modules/welcome.js';
+import { createWelcomeModule } from '/web/modules/welcome.js';
 import { createNotificationsModule } from '/web/modules/notifications.js';
 import { createMusicModule } from '/web/modules/music.js';
 import { createTicketModule } from '/web/modules/ticket.js';
@@ -6,6 +6,17 @@ import { createI18nModule } from '/web/modules/i18n.js';
 import { createGuildsModule } from '/web/modules/guilds.js';
 import { createSettingsFormModule } from '/web/modules/settings-form.js';
 import { createAppActionsModule } from '/web/modules/app-actions.js';
+import { createTabManager } from '/web/modules/tab-manager.js';
+import { createDirtyStateModule } from '/web/modules/dirty-state.js';
+import { createGeneralTab } from '/web/modules/sections/general-tab.js';
+import { createNotificationsTab } from '/web/modules/sections/notifications-tab.js';
+import { createLogsTab } from '/web/modules/sections/logs-tab.js';
+import { createMusicTab } from '/web/modules/sections/music-tab.js';
+import { createPrivateRoomTab } from '/web/modules/sections/private-room-tab.js';
+import { createWelcomeTab } from '/web/modules/sections/welcome-tab.js';
+import { createNumberChainTab } from '/web/modules/sections/number-chain-tab.js';
+import { createTicketTab } from '/web/modules/sections/ticket-tab.js';
+import { createCustomSelectComponent } from '/web/modules/components/custom-select.js';
 import {
   esc,
   createApi,
@@ -21,8 +32,7 @@ import {
   guildInitial,
   populateSelect,
   formatBytes,
-  formatDateTime,
-  initTabs
+  formatDateTime
 } from '/web/modules/ui-core.js';
 
 export function createAppRuntime() {
@@ -36,6 +46,7 @@ export function createAppRuntime() {
     guildSelect: byId('guildSelect'),
     guildList: byId('guildList')
   };
+  const guildSelectComponent = createCustomSelectComponent(refs.guildSelect);
   const state = {
     lastMusicStats: {}
   };
@@ -101,7 +112,9 @@ export function createAppRuntime() {
 
   let guildsModule = null;
   let settingsFormModule = null;
+  let tabManager = null;
   let i18nModule = null;
+  let dirtyStateModule = null;
   let t = (key) => key;
 
   const musicModule = createMusicModule({ byId, esc, t: (key) => t(key) });
@@ -158,6 +171,9 @@ export function createAppRuntime() {
     isGuildsVisible: () => !refs.guildsBlock.classList.contains('hidden')
   });
   t = (key) => i18nModule.t(key);
+  dirtyStateModule = createDirtyStateModule({
+    t: (key) => t(key)
+  });
 
   const appActions = createAppActionsModule({
     byId,
@@ -171,8 +187,8 @@ export function createAppRuntime() {
   });
 
   async function init() {
-    initTabs();
     const uiLang = localStorage.getItem('norule.web.ui.lang') || 'zh-TW';
+
     settingsFormModule = createSettingsFormModule({
       getValue,
       setValue,
@@ -191,8 +207,26 @@ export function createAppRuntime() {
       applyNotificationTemplateDefaults: () => i18nModule.applyNotificationTemplateDefaults(),
       applyTicketPanelDefaultsIfEmpty: () => i18nModule.applyTicketPanelDefaultsIfEmpty(),
       ticketModule,
+      dirtyStateModule,
       saveButtonId: 'saveSettingsBtn'
     });
+
+    tabManager = createTabManager({
+      defaultTab: 'general',
+      sections: [
+        createGeneralTab({ settingsFormModule, i18nModule, notificationsModule, welcomeModule, dirtyStateModule }),
+        createNotificationsTab({ settingsFormModule, notificationsModule, dirtyStateModule }),
+        createLogsTab({ settingsFormModule, dirtyStateModule }),
+        createMusicTab({ settingsFormModule, dirtyStateModule }),
+        createPrivateRoomTab({ settingsFormModule, dirtyStateModule }),
+        createWelcomeTab({ settingsFormModule, welcomeModule, actions: appActions, dirtyStateModule }),
+        createNumberChainTab({ settingsFormModule, actions: appActions, dirtyStateModule }),
+        createTicketTab({ settingsFormModule, ticketModule, updateSupportRoleCount, dirtyStateModule })
+      ]
+    });
+    tabManager.bind();
+    dirtyStateModule.bindBeforeUnload();
+
     guildsModule = createGuildsModule({
       byId,
       guildSelect: refs.guildSelect,
@@ -206,18 +240,28 @@ export function createAppRuntime() {
       textChannelSelectIds: TEXT_CHANNEL_SELECT_IDS,
       voiceChannelSelectIds: VOICE_CHANNEL_SELECT_IDS,
       getMultiSelectValues,
-      loadSettings: () => settingsFormModule?.loadSettings(),
-      loadTicketHistory: () => ticketModule.loadTicketHistory(),
-      updateSupportRoleCount
+      updateSupportRoleCount,
+      beforeGuildChange: async () => {
+        if (!dirtyStateModule?.hasDirty()) return true;
+        return dirtyStateModule.confirmDiscard();
+      },
+      onGuildChanged: async () => {
+        dirtyStateModule?.clearAll();
+        settingsFormModule.invalidateCurrentGuild();
+        await tabManager.onGuildChanged();
+      }
     });
+
     await i18nModule.loadWebI18n(api);
     i18nModule.setUiLanguage(uiLang);
+    dirtyStateModule.refreshLabels();
     try {
       const me = await api('/api/me');
       refs.authBlock.classList.add('hidden');
       refs.userBlock.classList.remove('hidden');
       refs.guildsBlock.classList.remove('hidden');
       refs.settingsBlock.classList.remove('hidden');
+      guildSelectComponent?.refresh();
       byId('meLine').dataset.username = me.username;
       byId('meLine').dataset.userId = me.id;
       byId('meLine').dataset.avatarUrl = me.avatarUrl || '';
@@ -226,6 +270,7 @@ export function createAppRuntime() {
     } catch (_) {
       i18nModule.setFallbackLanguages();
       i18nModule.applyUiLanguage();
+      dirtyStateModule.refreshLabels();
     }
   }
 
@@ -241,6 +286,9 @@ export function createAppRuntime() {
     modules: {
       getGuildsModule: () => guildsModule,
       getSettingsFormModule: () => settingsFormModule,
+      getTabManager: () => tabManager,
+      getDirtyStateModule: () => dirtyStateModule,
+      getGuildSelectComponent: () => guildSelectComponent,
       musicModule,
       notificationsModule,
       welcomeModule,

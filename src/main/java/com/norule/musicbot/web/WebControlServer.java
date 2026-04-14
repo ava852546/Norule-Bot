@@ -1319,517 +1319,184 @@ public class WebControlServer {
                 ? "<div class=\"bot-avatar-fallback\" aria-label=\"" + escapeHtmlAttr(botName) + "\">NR</div>"
                 : "<img class=\"bot-avatar\" src=\"" + escapeHtmlAttr(botAvatarUrl) + "\" alt=\"" + escapeHtmlAttr(botName) + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\" />";
 
-        String html = """
-                <!doctype html>
-                <html lang="en">
-                <head>
-                  <meta charset="UTF-8" />
-                  <meta name="viewport" content="width=device-width, initial-scale=1" />
-                  <title>NoRule Bot Web Console</title>
-                  <link rel="icon" type="image/png" href="__FAVICON_URL__" />
-                  <link rel="apple-touch-icon" href="__FAVICON_URL__" />
-                  <link rel="stylesheet" href="/web/app.css">
-                </head>
-                <body>
-                <div class="wrap app-shell">
-                  <section class="card hero-card">
-                    <div class="hero-copy">
-                      <div class="brand-row">
-                        <div class="brand-chip"><span class="brand-dot"></span> NoRule Control</div>
-                        <div class="hero-badge">Discord Web Admin</div>
-                      </div>
-                      <h1 id="titleMain">NoRule Bot Web Console</h1>
-                      <div id="subtitleMain" class="muted hero-subtitle">Sign in with Discord. Manage your guild settings from web.</div>
-                      <div class="hero-intro-grid">
-                        <div class="hero-intro-card">
-                          <div class="hero-intro-label">Modules</div>
-                          <div class="hero-intro-value">Notifications / Music / Tickets</div>
-                        </div>
-                        <div class="hero-intro-card">
-                          <div class="hero-intro-label">Access</div>
-                          <div class="hero-intro-value">Discord OAuth Secure Session</div>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="hero-panel">
-                      <div class="login-hero">__BOT_AVATAR_BLOCK__</div>
-                      <div class="auth-actions">
-                        <div class="row lang-switch">
-                          <span id="langLabel" class="muted">Language</span>
-                          <div id="uiLangButtons" class="row"></div>
-                        </div>
-                        <div id="authBlock" class="row"><button id="loginBtn" class="primary">Sign in with Discord</button></div>
-                        <div id="userBlock" class="hidden">
-                          <div class="user-profile user-profile-inline">
-                            <img id="meAvatar" class="user-avatar hidden" alt="avatar" loading="lazy" referrerpolicy="no-referrer" />
-                            <div class="user-name-block">
-                              <div id="meLine"></div>
-                            </div>
-                            <button id="logoutBtn" class="logout-inline danger">Logout</button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </section>
+        return renderTemplate("web/index.html", Map.of(
+                "__FAVICON_URL__", escapeHtmlAttr(faviconUrl),
+                "__HERO_SECTION__", buildHeroSection(botAvatarBlock),
+                "__SIDEBAR_SECTION__", buildSidebarSection(),
+                "__SETTINGS_SECTION__", buildSettingsSection()
+        ));
+    }
 
-                  <div class="dashboard-grid">
-                    <aside class="dashboard-side card sidebar-card hidden" id="guildsBlock">
-                      <div class="sidebar-head">
-                        <div class="section-kicker">Guilds</div>
-                        <h2 id="guildsTitle">Your Manageable Guilds</h2>
-                        <div id="guildsSubtitle" class="muted">Bot not in guild: Invite Bot. Bot in guild: click Manage.</div>
-                      </div>
-                      <div id="guildList" class="guild-grid"></div>
-                    </aside>
+    private String buildHeroSection(String botAvatarBlock) {
+        String heroCopy = loadWebTemplate("web/partials/components/hero-copy.html");
+        return renderTemplate("web/partials/hero.html", Map.of(
+                "__HERO_COPY__", heroCopy,
+                "__HERO_PANEL__", renderTemplate("web/partials/components/hero-panel.html", Map.of(
+                        "__BOT_AVATAR_BLOCK__", botAvatarBlock
+                ))
+        ));
+    }
 
-                    <section class="dashboard-main card main-card hidden" id="settingsBlock">
-                      <div class="section-kicker">Dashboard</div>
-                      <h2 id="settingsTitle">Guild Settings</h2>
-                      <div id="settingsSubtitle" class="muted">Use this page to configure this guild's features and notification settings.</div>
-                      <div class="control-bar">
-                        <select id="guildSelect"></select>
-                        <button id="guildReloadBtn">Reload Current Guild</button>
-                        <div id="status" class="row"></div>
-                      </div>
-                      <div class="row settings-actions">
-                        <button id="loadSettingsBtn">Reload Form</button>
-                        <button id="saveSettingsBtn" class="primary">Save Settings</button>
-                      </div>
+    private String buildSidebarSection() {
+        return renderTemplate("web/partials/sidebar.html", Map.of(
+                "__SIDEBAR_HEAD__", loadWebTemplate("web/partials/components/sidebar-head.html")
+        ));
+    }
 
-                      <div class="tabs">
-                      <button class="tab-btn active" data-tab="general">General</button>
-                      <button class="tab-btn" data-tab="notifications">Notifications</button>
-                      <button class="tab-btn" data-tab="logs">Logs</button>
-                      <button class="tab-btn" data-tab="music">Music</button>
-                      <button class="tab-btn" data-tab="privateRoom">Private Room</button>
-                      <button class="tab-btn" data-tab="welcome">Welcome</button>
-                      <button class="tab-btn" data-tab="numberChain">Number Chain</button>
-                      <button class="tab-btn" data-tab="ticket">Tickets</button>
-                      <button class="tab-btn" data-tab="ticketHistory">Ticket History</button>
-                      </div>
+    private String buildSettingsSection() {
+        return renderTemplate("web/partials/settings-shell.html", Map.of(
+                "__SETTINGS_HEAD__", loadWebTemplate("web/partials/components/settings-head.html"),
+                "__SETTINGS_TOOLBAR__", loadWebTemplate("web/partials/components/settings-toolbar.html"),
+                "__TAB_BUTTONS__", loadWebTemplate("web/partials/tab-buttons.html"),
+                "__TAB_PANES__", buildTabPanesHtml()
+        ));
+    }
 
-                      <div class="tab-pane active" data-pane="general">
-                      <div class="row pane-head">
-                        <h3>language</h3>
-                        <button id="resetGeneralBtn" class="danger reset-btn" type="button">Reset Section</button>
-                      </div>
-                      <div class="grid2">
-                        <div class="field">
-                          <label id="label_s_language">Language</label>
-                          <select id="s_language"></select>
-                          <div id="hint_s_language" class="keyhint">Default: zh-TW. Saving this will sync guild locale settings.</div>
-                        </div>
-                      </div>
-                      </div>
+    private String buildTabPanesHtml() {
+        List<String> tabIds = List.of(
+                "general",
+                "notifications",
+                "logs",
+                "music",
+                "private-room",
+                "welcome",
+                "number-chain",
+                "ticket"
+        );
+        StringBuilder html = new StringBuilder();
+        for (String tabId : tabIds) {
+            if (!html.isEmpty()) {
+                html.append(System.lineSeparator()).append(System.lineSeparator());
+            }
+            html.append(buildTabPaneHtml(tabId));
+        }
+        return html.toString();
+    }
 
-                      <div class="tab-pane" data-pane="notifications">
-                      <div class="row pane-head">
-                        <h3 id="notifications_group_title">notifications.*</h3>
-                      </div>
-                      <div class="welcome-shell">
-                        <div class="settings-group">
-                          <div id="notifications_message_card_title" class="settings-group-title">Notification Settings</div>
-                          <div id="notifications_message_lead" class="welcome-lead">Configure member and voice notification channels, templates, and embed styles.</div>
-                          <div class="notification-toggle-stack">
-                            <div class="grid2">
-                              <div class="toggle"><input type="checkbox" id="n_enabled"><label for="n_enabled">enabled</label></div>
-                              <div class="toggle"><input type="checkbox" id="n_voiceLogEnabled"><label for="n_voiceLogEnabled">voiceLogEnabled</label></div>
-                              <div class="toggle"><input type="checkbox" id="n_memberJoinEnabled"><label for="n_memberJoinEnabled">memberJoinEnabled</label></div>
-                              <div class="toggle"><input type="checkbox" id="n_memberLeaveEnabled"><label for="n_memberLeaveEnabled">memberLeaveEnabled</label></div>
-                            </div>
-                            <div class="grid2">
-                              <div class="field"><label>memberChannelId</label><select id="n_memberChannelId"></select></div>
-                              <div class="field"><label>voiceChannelId</label><select id="n_voiceChannelId"></select></div>
-                              <div class="field"><label>memberJoinChannelId</label><select id="n_memberJoinChannelId"></select></div>
-                              <div class="field"><label>memberLeaveChannelId</label><select id="n_memberLeaveChannelId"></select></div>
-                            </div>
-                          </div>
-                          <div class="welcome-compact-actions">
-                            <button id="resetNotificationsBtn" class="danger" type="button">Reset Section</button>
-                            <button id="openNotificationEditorBtn" class="warn" type="button">Configure Notification Embeds</button>
-                          </div>
-                        </div>
-                      </div>
-                      <input id="n_memberJoinThumbnailUrl" type="hidden">
-                      <input id="n_memberJoinImageUrl" type="hidden">
-                      <div id="notificationEditorModal" class="modal-backdrop hidden">
-                        <div class="modal-card">
-                          <div class="modal-head">
-                            <div id="notificationEditorTitle" class="modal-title">Configure Notification Embeds</div>
-                            <button id="closeNotificationEditorBtn" class="danger modal-close" type="button">Close</button>
-                          </div>
-                          <div class="modal-body">
-                            <div class="settings-group">
-                              <div id="notification_member_template_card_title" class="settings-group-title">Member Notification Embed</div>
-                              <div class="grid2">
-                                <div class="field">
-                                  <label>memberJoinTitle</label>
-                                  <input id="n_memberJoinTitle" type="text">
-                                  <div id="hint_n_memberJoinTitle" class="keyhint">Available placeholders: {user}, {guild}</div>
-                                </div>
-                                <div class="field">
-                                  <label>memberJoinMessage</label>
-                                  <textarea id="n_memberJoinMessage"></textarea>
-                                  <div id="hint_n_memberJoinMessage" class="keyhint">Available placeholders: {user}, {username}, {guild}, {id}, {tag}, {isBot}, {createdAt}, {accountAgeDays}</div>
-                                </div>
-                                <div class="field">
-                                  <label>memberLeaveMessage</label>
-                                  <textarea id="n_memberLeaveMessage"></textarea>
-                                </div>
-                                <div class="grid2">
-                                  <div class="field"><label>memberJoinColor</label><input type="color" id="n_memberJoinColor"></div>
-                                  <div class="field"><label>memberLeaveColor</label><input type="color" id="n_memberLeaveColor"></div>
-                                </div>
-                              </div>
-                            </div>
-                            <div class="settings-group">
-                              <div id="notification_voice_template_card_title" class="settings-group-title">Voice Notification Embed</div>
-                              <div class="grid2">
-                                <div class="field">
-                                  <label>voiceJoinMessage</label>
-                                  <textarea id="n_voiceJoinMessage"></textarea>
-                                  <div id="hint_n_voiceJoinMessage" class="keyhint">Available placeholders: {user}, {channel}, {from}, {to}</div>
-                                </div>
-                                <div class="field">
-                                  <label>voiceLeaveMessage</label>
-                                  <textarea id="n_voiceLeaveMessage"></textarea>
-                                  <div id="hint_n_voiceLeaveMessage" class="keyhint">Available placeholders: {user}, {channel}, {from}, {to}</div>
-                                </div>
-                                <div class="field">
-                                  <label>voiceMoveMessage</label>
-                                  <textarea id="n_voiceMoveMessage"></textarea>
-                                  <div id="hint_n_voiceMoveMessage" class="keyhint">Available placeholders: {user}, {channel}, {from}, {to}</div>
-                                </div>
-                              </div>
-                              <div id="notification_voice_color_card_title" class="welcome-card-title">Voice Embed Colors</div>
-                              <div class="notification-color-grid">
-                                <div class="field"><label>voiceJoinColor</label><input type="color" id="n_voiceJoinColor"></div>
-                                <div class="field"><label>voiceLeaveColor</label><input type="color" id="n_voiceLeaveColor"></div>
-                                <div class="field"><label>voiceMoveColor</label><input type="color" id="n_voiceMoveColor"></div>
-                              </div>
-                            </div>
-                            <div class="settings-group">
-                              <div id="notification_voice_preview_card_title" class="settings-group-title">Voice Embed Preview</div>
-                              <div id="notificationVoicePreviewCard" class="welcome-preview"></div>
-                            </div>
-                          </div>
-                          <div class="modal-actions">
-                            <button id="saveNotificationSettingsBtn" class="primary" type="button">Save Settings</button>
-                          </div>
-                        </div>
-                      </div>
-                      </div>
+    private String buildTabPaneHtml(String tabId) {
+        return switch (tabId) {
+            case "notifications" -> buildNotificationsTabHtml();
+            case "welcome" -> buildWelcomeTabHtml();
+            case "ticket" -> buildTicketTabHtml();
+            default -> loadWebTemplate("web/partials/tabs/" + tabId + ".html");
+        };
+    }
 
-                      <div class="tab-pane" data-pane="logs">
-                      <div class="row pane-head">
-                        <h3>messageLogs.*</h3>
-                        <button id="resetLogsBtn" class="danger reset-btn" type="button">Reset Section</button>
-                      </div>
-                      <div class="grid3">
-                        <div class="toggle"><input type="checkbox" id="l_enabled"><label for="l_enabled">enabled</label></div>
-                        <div class="toggle"><input type="checkbox" id="l_roleLogEnabled"><label for="l_roleLogEnabled">roleLogEnabled</label></div>
-                        <div class="toggle"><input type="checkbox" id="l_channelLifecycleLogEnabled"><label for="l_channelLifecycleLogEnabled">channelLifecycleLogEnabled</label></div>
-                        <div class="toggle"><input type="checkbox" id="l_moderationLogEnabled"><label for="l_moderationLogEnabled">moderationLogEnabled</label></div>
-                        <div class="toggle"><input type="checkbox" id="l_commandUsageLogEnabled"><label for="l_commandUsageLogEnabled">commandUsageLogEnabled</label></div>
-                      </div>
-                      <div class="grid3">
-                        <div class="field"><label>channelId (default)</label><select id="l_channelId"></select></div>
-                        <div class="field"><label>messageLogChannelId</label><select id="l_messageLogChannelId"></select></div>
-                        <div class="field"><label>commandUsageChannelId</label><select id="l_commandUsageChannelId"></select></div>
-                        <div class="field"><label>channelLifecycleChannelId</label><select id="l_channelLifecycleChannelId"></select></div>
-                        <div class="field"><label>roleLogChannelId</label><select id="l_roleLogChannelId"></select></div>
-                        <div class="field"><label>moderationLogChannelId</label><select id="l_moderationLogChannelId"></select></div>
-                      </div>
-                      </div>
+    private String buildNotificationsTabHtml() {
+        return renderTemplate("web/partials/tabs/notifications.html", Map.of(
+                "__PANE_HEAD__", buildPaneHead(
+                        "notifications_group_title",
+                        "section_notifications",
+                        "notifications.*",
+                        ""
+                ),
+                "__OVERVIEW_GROUP__", loadWebTemplate("web/partials/tabs/components/notifications-overview-group.html"),
+                "__MODAL_HEAD__", buildModalHead(
+                        "notificationEditorTitle",
+                        "notificationEditorTitle",
+                        "Configure Notification Embeds",
+                        "closeNotificationEditorBtn"
+                ),
+                "__MEMBER_GROUP__", loadWebTemplate("web/partials/tabs/components/notifications-member-group.html"),
+                "__VOICE_GROUP__", loadWebTemplate("web/partials/tabs/components/notifications-voice-group.html"),
+                "__PREVIEW_GROUP__", loadWebTemplate("web/partials/tabs/components/notifications-preview-group.html"),
+                "__MODAL_ACTIONS__", buildModalSaveActions("saveNotificationSettingsBtn")
+        ));
+    }
 
-                      <div class="tab-pane" data-pane="music">
-                      <div class="row pane-head">
-                        <h3>music.*</h3>
-                        <button id="resetMusicBtn" class="danger reset-btn" type="button">Reset Section</button>
-                      </div>
-                      <div class="welcome-shell module-shell">
-                        <div class="settings-group">
-                          <div id="music_settings_card_title" class="settings-group-title">Music Settings</div>
-                          <div class="welcome-lead">Configure auto leave, autoplay, repeat mode, and music command channel from one place.</div>
-                          <div class="notification-toggle-stack">
-                            <div class="grid2 module-settings-grid">
-                              <div class="toggle"><input type="checkbox" id="m_autoLeaveEnabled"><label for="m_autoLeaveEnabled">autoLeaveEnabled</label></div>
-                              <div class="field"><label>autoLeaveMinutes (1-60)</label><input type="number" min="1" max="60" id="m_autoLeaveMinutes"></div>
-                              <div class="toggle"><input type="checkbox" id="m_autoplayEnabled"><label for="m_autoplayEnabled">autoplayEnabled</label></div>
-                              <div class="field"><label>defaultRepeatMode</label><select id="m_defaultRepeatMode"><option value="OFF">OFF</option><option value="SINGLE">SINGLE</option><option value="ALL">ALL</option></select></div>
-                              <div class="field span-all"><label>commandChannelId</label><select id="m_commandChannelId"></select></div>
-                            </div>
-                          </div>
-                        </div>
-                        <div class="settings-group">
-                          <div id="music_stats_title" class="settings-group-title">Music Stats</div>
-                          <div id="musicStatsCards" class="stats-grid"></div>
-                        </div>
-                      </div>
-                      </div>
+    private String buildWelcomeTabHtml() {
+        return renderTemplate("web/partials/tabs/welcome.html", Map.of(
+                "__PANE_HEAD__", buildPaneHead(
+                        "welcome_group_title",
+                        "welcome_group_title",
+                        "welcome.*",
+                        buildResetButton("resetWelcomeBtn")
+                ),
+                "__OVERVIEW_GROUP__", loadWebTemplate("web/partials/tabs/components/welcome-overview-group.html"),
+                "__MODAL_HEAD__", buildModalHead(
+                        "welcomeEditorTitle",
+                        "welcomeEditorTitle",
+                        "Configure Welcome Message",
+                        "closeWelcomeEditorBtn"
+                ),
+                "__MESSAGE_GROUP__", loadWebTemplate("web/partials/tabs/components/welcome-message-group.html"),
+                "__MEDIA_GROUP__", loadWebTemplate("web/partials/tabs/components/welcome-media-group.html"),
+                "__PREVIEW_GROUP__", loadWebTemplate("web/partials/tabs/components/welcome-preview-group.html"),
+                "__MODAL_ACTIONS__", buildModalSaveActions("saveWelcomeSettingsBtn")
+        ));
+    }
 
-                      <div class="tab-pane" data-pane="privateRoom">
-                      <div class="row pane-head">
-                        <h3>privateRoom.*</h3>
-                        <button id="resetPrivateRoomBtn" class="danger reset-btn" type="button">Reset Section</button>
-                      </div>
-                      <div class="grid3">
-                        <div class="toggle"><input type="checkbox" id="p_enabled"><label for="p_enabled">enabled</label></div>
-                        <div class="field"><label>triggerVoiceChannelId</label><select id="p_triggerVoiceChannelId"></select></div>
-                        <div class="field"><label>userLimit (0-99)</label><input type="number" min="0" max="99" id="p_userLimit"></div>
-                      </div>
-                      </div>
-                      <div class="tab-pane" data-pane="welcome">
-                      <div class="row pane-head">
-                        <h3 id="welcome_group_title">welcome.*</h3>
-                      </div>
-                      <div class="welcome-shell">
-                        <div class="settings-group">
-                          <div id="welcome_message_card_title" class="settings-group-title">Welcome Message</div>
-                          <div id="welcome_message_lead" class="welcome-lead">Set the public welcome message shown to new members, including the target channel, title, and content.</div>
-                          <div class="welcome-toggle">
-                            <div class="welcome-topline">
-                              <div class="field"><label id="label_w_channelId">welcomeChannelId</label><select id="w_channelId"></select></div>
-                              <div class="toggle"><input type="checkbox" id="w_enabled"><label for="w_enabled">enabled</label></div>
-                            </div>
-                          </div>
-                        <div class="welcome-compact-actions">
-                          <button id="sendWelcomePreviewBtn" class="primary" type="button">Send Preview Message</button>
-                          <button id="openWelcomeEditorBtn" class="warn" type="button">Configure Welcome Message</button>
-                        </div>
-                      </div>
-""";
-        html += """
-                      <div id="welcomeEditorModal" class="modal-backdrop hidden">
-                        <div class="modal-card">
-                          <div class="modal-head">
-                            <div id="welcomeEditorTitle" class="modal-title">Configure Welcome Message</div>
-                            <button id="closeWelcomeEditorBtn" class="danger modal-close" type="button">Close</button>
-                            </div>
-                            <div class="modal-body">
-                              <div class="settings-group">
-                                <div id="welcome_message_card_title_modal" class="settings-group-title">Welcome Message</div>
-                                <div class="grid2">
-                                  <div class="field">
-                                    <label id="label_w_title">welcomeTitle</label>
-                                    <input id="w_title" type="text">
-                                    <div id="hint_w_title" class="keyhint">Available placeholders: {user}, {guild}</div>
-                                  </div>
-                                  <div class="field">
-                                    <label id="label_w_message">welcomeMessage</label>
-                                    <textarea id="w_message"></textarea>
-                                    <div id="hint_w_message" class="keyhint">Available placeholders: {user}, {username}, {guild}, {id}, {tag}, {isBot}, {createdAt}, {accountAgeDays}</div>
-                                  </div>
-                                </div>
-                              </div>
-                              <div class="settings-group">
-                                <div id="welcome_media_card_title" class="settings-group-title">Welcome Media</div>
-                                <div class="welcome-media-grid">
-                                  <div class="welcome-card">
-                                    <div id="welcome_thumbnail_card_title" class="welcome-card-title">Thumbnail</div>
-                                    <div class="field">
-                                      <label id="label_w_thumbnailUrl">welcomeThumbnailUrl</label>
-                                      <input id="w_thumbnailUrl" type="url">
-                                      <div id="hint_w_thumbnailUrl" class="keyhint">Use a direct `https://...` image URL for the small top-right thumbnail.</div>
-                                    </div>
-                                  </div>
-                                  <div class="welcome-card">
-                                    <div id="welcome_image_card_title" class="welcome-card-title">Large Image</div>
-                                    <div class="field">
-                                      <label id="label_w_imageUrl">welcomeImageUrl</label>
-                                      <input id="w_imageUrl" type="url">
-                                      <div id="hint_w_imageUrl" class="keyhint">Use a direct `https://...` image URL for the large image below the message.</div>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                              <div class="settings-group">
-                                <div id="welcome_preview_card_title" class="settings-group-title">Live Preview</div>
-                                <div id="welcomePreviewCard" class="welcome-preview"></div>
-                              </div>
-                            </div>
-                            <div class="modal-actions">
-                              <button id="saveWelcomeSettingsBtn" class="primary" type="button">Save Settings</button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+    private String buildTicketTabHtml() {
+        return renderTemplate("web/partials/tabs/ticket.html", Map.of(
+                "__PANE_HEAD__", buildPaneHead(
+                        null,
+                        "section_ticket",
+                        "ticket.*",
+                        buildResetButton("resetTicketBtn")
+                ),
+                "__BASIC_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-basic-group.html"),
+                "__HISTORY_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-history-group.html"),
+                "__ACCESS_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-access-group.html"),
+                "__PANEL_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-panel-group.html"),
+                "__OPTIONS_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-options-group.html")
+        ));
+    }
 
-                    <div class="tab-pane" data-pane="numberChain"> 
-                      <div class="row pane-head">
-                        <h3>numberChain.*</h3>
-                        <button id="resetNumberChainBtn" class="danger reset-btn" type="button">Reset Section</button>
-                      </div>
-                      <div class="grid3">
-                        <div class="toggle"><input type="checkbox" id="nc_enabled"><label for="nc_enabled">enabled</label></div>
-                        <div class="field">
-                          <label id="label_nc_channelId">channelId</label>
-                          <select id="nc_channelId"></select>
-                        </div>
-                        <div class="field">
-                          <label id="label_nc_nextNumber">nextNumber</label>
-                          <div class="field-inline">
-                            <input type="number" id="nc_nextNumber" readonly>
-                            <button id="resetNumberChainProgressBtn" class="warn" type="button">Reset Progress</button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+    private String buildPaneHead(String titleId, String titleKey, String fallbackText, String actionsHtml) {
+        String titleIdAttr = (titleId == null || titleId.isBlank())
+                ? ""
+                : " id=\"" + escapeHtmlAttr(titleId) + "\"";
+        String titleHtml = "<h3" + titleIdAttr + " data-i18n=\"" + escapeHtmlAttr(titleKey) + "\">"
+                + escapeHtmlAttr(fallbackText)
+                + "</h3>";
+        return renderTemplate("web/partials/components/pane-head.html", Map.of(
+                "__PANE_TITLE_HTML__", titleHtml,
+                "__PANE_ACTIONS_HTML__", actionsHtml == null ? "" : actionsHtml
+        ));
+    }
 
-                
-                    <div class="tab-pane" data-pane="ticket">
-                      <div class="row pane-head">
-                        <h3>ticket.*</h3>
-                        <button id="resetTicketBtn" class="danger reset-btn" type="button">Reset Section</button>
-                      </div>
-                      <div class="welcome-shell module-shell">
-                        <div class="settings-group">
-                          <div id="ticket_group_basic_title" class="settings-group-title">Basic Settings</div>
-                          <div class="welcome-lead">Configure ticket module status, close policy, and open mode.</div>
-                          <div class="notification-toggle-stack">
-                            <div class="grid2 module-settings-grid">
-                              <div class="toggle"><input type="checkbox" id="t_enabled"><label for="t_enabled">enabled</label></div>
-                              <div class="field"><label>autoCloseDays (1-365)</label><input type="number" min="1" max="365" id="t_autoCloseDays"></div>
-                              <div class="field"><label>maxOpenPerUser (1-20)</label><input type="number" min="1" max="20" id="t_maxOpenPerUser"></div>
-                              <div class="field span-all">
-                                <label>openUiMode</label>
-                                <select id="t_openUiMode">
-                                  <option value="BUTTONS">BUTTONS</option>
-                                  <option value="SELECT">SELECT</option>
-                                </select>
-                                <div id="hint_t_openUiMode" class="keyhint">BUTTONS: display open buttons. SELECT: use dropdown menu.</div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+    private String buildResetButton(String buttonId) {
+        return "<button id=\"" + escapeHtmlAttr(buttonId)
+                + "\" class=\"danger reset-btn\" type=\"button\" data-i18n=\"resetSectionBtn\">Reset Section</button>";
+    }
 
-                        <div class="settings-group">
-                          <div id="ticket_group_access_title" class="settings-group-title">Access & Blacklist</div>
-                          <div class="grid2">
-                            <div class="field role-field">
-                              <label>supportRoleIds</label>
-                              <div class="role-meta">
-                                <div id="hint_t_supportRoleIds" class="keyhint">Hold Ctrl/Cmd to select multiple roles.</div>
-                                <div id="t_supportRoleCount" class="role-count">0</div>
-                              </div>
-                              <select id="t_supportRoleIds" class="role-multi" multiple size="7"></select>
-                            </div>
-                            <div class="field">
-                              <label>blacklistedUserIds (comma separated)</label>
-                              <input type="text" id="t_blacklistedUserIds">
-                              <div id="hint_t_blacklistedUserIds" class="keyhint">Enter user IDs separated by commas.</div>
-                            </div>
-                          </div>
-                        </div>
+    private String buildModalHead(String titleId, String titleKey, String fallbackText, String closeButtonId) {
+        return renderTemplate("web/partials/components/modal-head.html", Map.of(
+                "__MODAL_TITLE_ID__", escapeHtmlAttr(titleId),
+                "__MODAL_TITLE_KEY__", escapeHtmlAttr(titleKey),
+                "__MODAL_TITLE_TEXT__", escapeHtmlAttr(fallbackText),
+                "__MODAL_CLOSE_ID__", escapeHtmlAttr(closeButtonId)
+        ));
+    }
 
-                        <div class="settings-group">
-                          <div id="ticket_group_panel_title" class="settings-group-title">Panel Settings</div>
-                          <div class="grid2">
-                            <div class="field span-all">
-                              <label>panelChannelId</label>
-                              <div class="field-inline">
-                                <select id="t_panelChannelId"></select>
-                                <button id="sendTicketPanelBtn" class="warn" type="button">Send Ticket Panel</button>
-                              </div>
-                            </div>
-                            <div class="field span-all">
-                              <label id="label_t_panelTitle">panelTitle</label>
-                              <input type="text" id="t_panelTitle">
-                            </div>
-                            <div class="field span-all">
-                              <label id="label_t_panelDescription">panelDescription</label>
-                              <textarea id="t_panelDescription"></textarea>
-                            </div>
-                            <div class="field">
-                              <label id="label_t_panelColor">panelColor</label>
-                              <input type="color" id="t_panelColor">
-                            </div>
-                            <div class="field">
-                              <label>panelButtonLimit (1-25)</label>
-                              <input type="number" min="1" max="25" id="t_panelButtonLimit">
-                            </div>
-                          </div>
-                        </div>
+    private String buildModalSaveActions(String saveButtonId) {
+        return renderTemplate("web/partials/components/modal-save-actions.html", Map.of(
+                "__SAVE_BUTTON_ID__", escapeHtmlAttr(saveButtonId)
+        ));
+    }
 
-                        <div class="settings-group">
-                          <div id="ticket_group_options_title" class="settings-group-title">Ticket Types</div>
-                          <div class="welcome-compact-actions">
-                            <button id="t_addOptionBtn" class="primary" type="button">Add Ticket Type</button>
-                            <button id="t_deleteOptionBtn" class="warn" type="button">Delete Ticket Type</button>
-                          </div>
-                          <div id="hint_t_optionEditor" class="keyhint">Create each ticket type separately. Each one can have its own panel text, button style, welcome message, and pre-open form.</div>
-                          <div id="ticketOptionList" class="history-list"></div>
-                          <div class="grid2">
-                            <div class="field">
-                              <label id="label_t_optionLabel">Option label</label>
-                              <input type="text" id="t_optionLabel">
-                            </div>
-                            <div class="field">
-                              <label id="label_t_optionButtonStyle">Button style</label>
-                              <select id="t_optionButtonStyle">
-                                <option value="PRIMARY">PRIMARY</option>
-                                <option value="SECONDARY">SECONDARY</option>
-                                <option value="SUCCESS">SUCCESS</option>
-                                <option value="DANGER">DANGER</option>
-                              </select>
-                            </div>
-                            <div class="field span-all">
-                              <label id="label_t_optionPanelTitle">Panel title</label>
-                              <input type="text" id="t_optionPanelTitle">
-                            </div>
-                            <div class="field span-all">
-                              <label id="label_t_optionPanelDescription">Panel description</label>
-                              <textarea id="t_optionPanelDescription"></textarea>
-                            </div>
-                            <div class="field span-all">
-                              <label id="label_t_optionWelcomeMessage">Welcome message</label>
-                              <textarea id="t_optionWelcomeMessage"></textarea>
-                              <div id="hint_t_optionWelcomeMessage" class="keyhint">Available placeholders: {user}, {type}, {summary}</div>
-                            </div>
-                            <div class="toggle"><input type="checkbox" id="t_optionPreOpenFormEnabled"><label for="t_optionPreOpenFormEnabled" id="label_t_optionPreOpenFormEnabled">Enable pre-open form</label></div>
-                            <div></div>
-                            <div class="field">
-                              <label id="label_t_optionPreOpenFormTitle">Form title</label>
-                              <input type="text" id="t_optionPreOpenFormTitle">
-                            </div>
-                            <div class="field">
-                              <label id="label_t_optionPreOpenFormLabel">Form field label</label>
-                              <input type="text" id="t_optionPreOpenFormLabel">
-                            </div>
-                            <div class="field span-all">
-                              <label id="label_t_optionPreOpenFormPlaceholder">Form placeholder</label>
-                              <input type="text" id="t_optionPreOpenFormPlaceholder">
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      </div>
+    private String renderTemplate(String resourcePath, Map<String, String> replacements) {
+        return renderTemplateString(loadWebTemplate(resourcePath), replacements);
+    }
 
-                    </div>
+    private String renderTemplateString(String template, Map<String, String> replacements) {
+        String rendered = template;
+        for (Map.Entry<String, String> entry : replacements.entrySet()) {
+            rendered = rendered.replace(entry.getKey(), entry.getValue());
+        }
+        return rendered;
+    }
 
-                    <div class="tab-pane" data-pane="ticketHistory">
-                      <h3>ticket.history</h3>
-                      <div class="settings-group">
-                        <div id="ticket_group_history_title" class="settings-group-title">Ticket History</div>
-                        <div class="row">
-                          <button id="loadTicketHistoryBtn" type="button">Load History</button>
-                        </div>
-                        <div id="ticketHistoryMeta" class="keyhint"></div>
-                        <div id="ticketHistoryList" class="history-list"></div>
-                      </div>
-                    </div>
-
-                    </section>
-                  </div>
-                </div>
-                <script type="module" src="/web/app.js"></script>
-                <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
-                </body>
-                </html>
-                """;
-        return html.replace("__BOT_AVATAR_BLOCK__", botAvatarBlock)
-                .replace("__FAVICON_URL__", escapeHtmlAttr(faviconUrl));
+    private String loadWebTemplate(String resourcePath) {
+        String normalizedPath = resourcePath.startsWith("/") ? resourcePath : "/" + resourcePath;
+        try (InputStream input = getClass().getResourceAsStream(normalizedPath)) {
+            if (input == null) {
+                throw new IllegalStateException("Missing web template: " + resourcePath);
+            }
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to load web template: " + resourcePath, exception);
+        }
     }
 
     static class OAuthState {
@@ -1856,6 +1523,7 @@ public class WebControlServer {
         }
     }
 }
+
 
 
 

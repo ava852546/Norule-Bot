@@ -1,7 +1,7 @@
 .notification-toggle-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .notification-toggle-stack .grid2 {
@@ -12,6 +12,10 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+
+.notification-color-shell {
+  margin-top: 16px;
 }
 
 .notification-color-grid .field input[type="color"] {
@@ -34,12 +38,12 @@
 
 .notification-preview-embed {
   border-left: 4px solid var(--embed-color, #5865f2);
-  border-radius: 12px;
+  border-radius: 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
-  padding: 12px;
+  padding: 14px;
 }
 
 .notification-preview-embed-title {

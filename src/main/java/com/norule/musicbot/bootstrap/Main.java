@@ -22,11 +22,16 @@ import net.dv8tion.jda.api.audio.AudioModuleConfig;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -40,6 +45,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class Main {
+    private static final DateTimeFormatter LOG_FILE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
+    private static final DateTimeFormatter CONSOLE_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final Set<String> SHUTDOWN_COMMANDS = Set.of("stop", "end");
     private static final Set<String> RELOAD_COMMANDS = Set.of("reload");
     private static final AtomicBoolean SHUTDOWN_STARTED = new AtomicBoolean(false);
@@ -52,12 +59,13 @@ public class Main {
 
     public static void main(String[] args) {
         Path configPath = resolveConfigPath();
-        BotConfig config = BotConfig.load(configPath);
-        RUNTIME_CONFIG.set(config);
-        String token = config.getToken();
         Path baseDir = configPath.toAbsolutePath().getParent() == null
                 ? Path.of(".").toAbsolutePath().normalize()
                 : configPath.toAbsolutePath().getParent().normalize();
+        installConsoleFileLogging(baseDir);
+        BotConfig config = BotConfig.load(configPath);
+        RUNTIME_CONFIG.set(config);
+        String token = config.getToken();
         Path guildSettingsPath = resolveDataPath(baseDir, config.getGuildSettingsDir());
         Path languagePath = resolveDataPath(baseDir, config.getLanguageDir());
         Path cachePath = resolveDataPath(baseDir, "cache");
@@ -461,6 +469,22 @@ public class Main {
         return baseDir.resolve(raw).normalize();
     }
 
+    private static void installConsoleFileLogging(Path baseDir) {
+        PrintStream originalOut = System.out;
+        PrintStream originalErr = System.err;
+        try {
+            Path logDir = resolveDataPath(baseDir, "LOG");
+            Files.createDirectories(logDir);
+            Path logFile = logDir.resolve("console-" + LocalDateTime.now().format(LOG_FILE_FORMAT) + ".log");
+            PrintStream fileStream = new PrintStream(Files.newOutputStream(logFile), true, StandardCharsets.UTF_8);
+            System.setOut(new PrintStream(new TeeOutputStream(originalOut, fileStream), true, StandardCharsets.UTF_8));
+            System.setErr(new PrintStream(new TeeOutputStream(originalErr, fileStream), true, StandardCharsets.UTF_8));
+            System.out.println("[NoRule] Console log file: " + logFile.toAbsolutePath());
+        } catch (Exception e) {
+            originalErr.println("[NoRule] Failed to initialize LOG console output: " + e.getMessage());
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static Path firstConfigWithToken(List<Path> candidates) {
         Yaml yaml = new Yaml();
@@ -480,6 +504,50 @@ public class Main {
             }
         }
         return null;
+    }
+
+    private static final class TeeOutputStream extends OutputStream {
+        private final OutputStream primary;
+        private final OutputStream secondary;
+        private boolean lineStart = true;
+
+        private TeeOutputStream(OutputStream primary, OutputStream secondary) {
+            this.primary = primary;
+            this.secondary = secondary;
+        }
+
+        @Override
+        public synchronized void write(int b) throws IOException {
+            writePrefixIfNeeded();
+            primary.write(b);
+            secondary.write(b);
+            if (b == '\n') {
+                lineStart = true;
+            }
+        }
+
+        @Override
+        public synchronized void write(byte[] b, int off, int len) throws IOException {
+            for (int i = 0; i < len; i++) {
+                write(b[off + i]);
+            }
+        }
+
+        @Override
+        public synchronized void flush() throws IOException {
+            primary.flush();
+            secondary.flush();
+        }
+
+        private void writePrefixIfNeeded() throws IOException {
+            if (!lineStart) {
+                return;
+            }
+            lineStart = false;
+            byte[] prefix = ("[" + LocalDateTime.now().format(CONSOLE_TIME_FORMAT) + "] ").getBytes(StandardCharsets.UTF_8);
+            primary.write(prefix);
+            secondary.write(prefix);
+        }
     }
 }
 

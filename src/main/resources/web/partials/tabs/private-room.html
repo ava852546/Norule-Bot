@@ -1,0 +1,18 @@
+<div class="tab-pane" data-pane="privateRoom">
+  <div class="pane-head">
+    <h3 data-i18n="section_privateRoom">privateRoom.*</h3>
+    <div class="pane-head-actions">
+      <button id="resetPrivateRoomBtn" class="danger reset-btn" type="button" data-i18n="resetSectionBtn">Reset Section</button>
+    </div>
+  </div>
+  <div class="module-shell">
+    <div class="settings-group">
+      <div class="settings-group-title" data-i18n="section_privateRoom">Private Room</div>
+      <div class="grid3 module-settings-grid">
+        <div class="toggle"><input type="checkbox" id="p_enabled"><label for="p_enabled" data-i18n="p_enabled">enabled</label></div>
+        <div class="field"><label data-i18n="p_triggerVoiceChannelId">triggerVoiceChannelId</label><select id="p_triggerVoiceChannelId"></select></div>
+        <div class="field"><label data-i18n="p_userLimit">userLimit (0-99)</label><input type="number" min="0" max="99" id="p_userLimit"></div>
+      </div>
+    </div>
+  </div>
+</div>

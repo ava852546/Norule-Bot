@@ -1,0 +1,27 @@
+<div class="tab-pane" data-pane="numberChain">
+  <div class="pane-head">
+    <h3 data-i18n="section_numberChain">numberChain.*</h3>
+    <div class="pane-head-actions">
+      <button id="resetNumberChainBtn" class="danger reset-btn" type="button" data-i18n="resetSectionBtn">Reset Section</button>
+    </div>
+  </div>
+  <div class="module-shell">
+    <div class="settings-group">
+      <div class="settings-group-title" data-i18n="section_numberChain">Number Chain</div>
+      <div class="grid3 module-settings-grid">
+        <div class="toggle"><input type="checkbox" id="nc_enabled"><label for="nc_enabled" data-i18n="nc_enabled">enabled</label></div>
+        <div class="field">
+          <label id="label_nc_channelId" data-i18n="nc_channelId">channelId</label>
+          <select id="nc_channelId"></select>
+        </div>
+        <div class="field">
+          <label id="label_nc_nextNumber" data-i18n="nc_nextNumber">nextNumber</label>
+          <div class="field-inline">
+            <input type="number" id="nc_nextNumber" readonly>
+            <button id="resetNumberChainProgressBtn" class="warn" type="button" data-i18n="resetNumberChainProgressBtn">Reset Progress</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

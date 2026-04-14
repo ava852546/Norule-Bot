@@ -1,3 +1,5 @@
+import { renderHistoryList } from '/web/modules/components/history-list.js';
+
 export function createTicketHistoryModule(deps) {
   const {
     byId,
@@ -14,12 +16,16 @@ export function createTicketHistoryModule(deps) {
   let pendingDeleteTranscriptName = '';
   let ticketHistoryRetentionDays = 90;
   let ticketHistoryCleanedCount = 0;
+  let loadedGuildId = '';
+  let historyLoaded = false;
 
   function resetTicketHistoryState() {
     ticketHistoryFilesState = [];
     pendingDeleteTranscriptName = '';
     ticketHistoryRetentionDays = 90;
     ticketHistoryCleanedCount = 0;
+    loadedGuildId = '';
+    historyLoaded = false;
   }
 
   function updateTicketHistoryMeta(countOverride = ticketHistoryFilesState.length) {
@@ -34,43 +40,45 @@ export function createTicketHistoryModule(deps) {
   function renderTicketHistoryList() {
     const listEl = byId('ticketHistoryList');
     if (!listEl) return;
-    listEl.innerHTML = '';
     const files = Array.isArray(ticketHistoryFilesState) ? ticketHistoryFilesState : [];
-    if (files.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'keyhint';
-      empty.textContent = t('ticket_history_empty');
-      listEl.appendChild(empty);
-      return;
-    }
-    files.forEach(file => {
-      const item = document.createElement('div');
-      item.className = 'history-item';
-      const mention = file.channelId && Number(file.channelId) > 0 ? `<#${file.channelId}>` : '-';
-      const encodedName = encodeURIComponent(String(file.name || ''));
-      const isConfirming = pendingDeleteTranscriptName === String(file.name || '');
-      item.innerHTML = `
-        <div>
-          <div><a href="${esc(file.url || '#')}" target="_blank" rel="noopener">${esc(file.name || '-')}</a></div>
-          <div class="history-meta">${esc(t('ticket_history_channel'))}: ${esc(mention)} | ${esc(t('ticket_history_time'))}: ${esc(formatDateTime(file.lastModifiedAt))}</div>
-        </div>
-        <div class="history-actions">
-          <div class="history-meta">${esc(formatBytes(file.size))}</div>
-          ${isConfirming
-            ? `<button type="button" class="warn" data-action="confirm-delete-transcript" data-file="${encodedName}" data-name="${encodedName}">${esc(t('ticket_history_delete_confirm'))}</button>
-               <button type="button" data-action="cancel-delete-transcript">${esc(t('ticket_history_delete_cancel'))}</button>`
-            : `<button type="button" class="warn" data-action="delete-transcript" data-file="${encodedName}" data-name="${encodedName}">${esc(t('ticket_history_delete'))}</button>`}
-        </div>
-      `;
-      listEl.appendChild(item);
+    renderHistoryList({
+      container: listEl,
+      items: files,
+      emptyText: t('ticket_history_empty'),
+      renderItem(file) {
+        const item = document.createElement('div');
+        item.className = 'history-item';
+        const mention = file.channelId && Number(file.channelId) > 0 ? `<#${file.channelId}>` : '-';
+        const encodedName = encodeURIComponent(String(file.name || ''));
+        const isConfirming = pendingDeleteTranscriptName === String(file.name || '');
+        item.innerHTML = `
+          <div>
+            <div><a href="${esc(file.url || '#')}" target="_blank" rel="noopener">${esc(file.name || '-')}</a></div>
+            <div class="history-meta">${esc(t('ticket_history_channel'))}: ${esc(mention)} | ${esc(t('ticket_history_time'))}: ${esc(formatDateTime(file.lastModifiedAt))}</div>
+          </div>
+          <div class="history-actions">
+            <div class="history-meta">${esc(formatBytes(file.size))}</div>
+            ${isConfirming
+              ? `<button type="button" class="warn" data-action="confirm-delete-transcript" data-file="${encodedName}" data-name="${encodedName}">${esc(t('ticket_history_delete_confirm'))}</button>
+                 <button type="button" data-action="cancel-delete-transcript">${esc(t('ticket_history_delete_cancel'))}</button>`
+              : `<button type="button" class="warn" data-action="delete-transcript" data-file="${encodedName}" data-name="${encodedName}">${esc(t('ticket_history_delete'))}</button>`}
+          </div>
+        `;
+        return item;
+      }
     });
   }
 
-  async function loadTicketHistory() {
+  async function loadTicketHistory(options = {}) {
     const guildId = selectedGuild();
     if (!guildId) return;
     const listEl = byId('ticketHistoryList');
     const metaEl = byId('ticketHistoryMeta');
+    if (!options.force && historyLoaded && loadedGuildId === guildId) {
+      updateTicketHistoryMeta();
+      renderTicketHistoryList();
+      return ticketHistoryFilesState;
+    }
     if (listEl) listEl.innerHTML = '';
     if (metaEl) metaEl.textContent = t('ticket_history_loading');
     try {
@@ -79,10 +87,14 @@ export function createTicketHistoryModule(deps) {
       ticketHistoryFilesState = files;
       ticketHistoryRetentionDays = Number(data?.retentionDays || 90);
       ticketHistoryCleanedCount = Number(data?.cleaned || 0);
+      loadedGuildId = guildId;
+      historyLoaded = true;
       updateTicketHistoryMeta(files.length);
       renderTicketHistoryList();
+      return files;
     } catch (e) {
       if (metaEl) metaEl.textContent = e.message || t('ticket_history_load_failed');
+      throw e;
     }
   }
 

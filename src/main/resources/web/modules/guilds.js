@@ -12,9 +12,9 @@ export function createGuildsModule(deps) {
     textChannelSelectIds,
     voiceChannelSelectIds,
     getMultiSelectValues,
-    loadSettings,
-    loadTicketHistory,
-    updateSupportRoleCount
+    updateSupportRoleCount,
+    beforeGuildChange,
+    onGuildChanged
   } = deps;
 
   let channelsCache = { textChannels: [], voiceChannels: [] };
@@ -22,6 +22,17 @@ export function createGuildsModule(deps) {
 
   function selectedGuild() {
     return guildSelect?.value || '';
+  }
+
+  function refreshGuildSelectUi() {
+    guildSelect?.dispatchEvent(new Event('custom-select:refresh'));
+  }
+
+  function syncActiveGuildState(guildId = selectedGuild()) {
+    guildList?.querySelectorAll('.guild-item').forEach((node) => {
+      const isActive = node.dataset.manageable === '1' && node.dataset.guildId === String(guildId || '');
+      node.classList.toggle('active', isActive);
+    });
   }
 
   async function loadChannels() {
@@ -57,11 +68,23 @@ export function createGuildsModule(deps) {
 
   async function onGuildSelected(gid) {
     if (!gid) return;
+    const previousGuildId = selectedGuild();
+    const allowed = await beforeGuildChange?.({
+      currentGuildId: previousGuildId,
+      nextGuildId: gid
+    });
+    if (allowed === false) {
+      guildSelect.value = previousGuildId;
+      refreshGuildSelectUi();
+      syncActiveGuildState(previousGuildId);
+      return;
+    }
     guildSelect.value = gid;
+    refreshGuildSelectUi();
+    syncActiveGuildState(gid);
     await loadChannels().catch(() => {});
     await loadRoles().catch(() => {});
-    await loadSettings().catch((e) => showStatus(e.message));
-    await loadTicketHistory().catch(() => {});
+    await onGuildChanged?.(gid).catch((error) => showStatus(error.message));
   }
 
   async function loadGuilds() {
@@ -74,7 +97,7 @@ export function createGuildsModule(deps) {
     allGuilds.forEach((item) => {
       const buttonHtml = item.botInGuild
         ? `<button class="primary" data-manage="${esc(item.id)}">${esc(t('manage'))}</button>`
-        : `<a href="${esc(item.inviteUrl)}" target="_blank" rel="noopener"><button class="warn">${esc(t('inviteBot'))}</button></a>`;
+        : `<a class="guild-link-button warn" href="${esc(item.inviteUrl)}" target="_blank" rel="noopener">${esc(t('inviteBot'))}</a>`;
       const badge = item.botInGuild
         ? (item.botCanManage ? t('badgeManageable') : t('badgeMissingPerm'))
         : t('badgeBotMissing');
@@ -82,8 +105,21 @@ export function createGuildsModule(deps) {
         ? `<img class="guild-icon" src="${esc(item.iconUrl)}" alt="${esc(item.name)}" loading="lazy" referrerpolicy="no-referrer" />`
         : `<div class="guild-icon guild-icon-fallback" aria-hidden="true">${esc(guildInitial(item.name))}</div>`;
       const block = document.createElement('div');
-      block.className = 'guild-item';
-      block.innerHTML = `<div class="guild-head">${iconHtml}<div><div class="guild-name">${esc(item.name)}</div><div class="badge">${esc(badge)}</div></div></div>${buttonHtml}`;
+      block.className = `guild-item ${item.botInGuild ? 'is-manageable' : 'is-invite'}`;
+      block.dataset.guildId = String(item.id ?? '');
+      block.dataset.manageable = item.botInGuild ? '1' : '0';
+      block.innerHTML = `
+        <div class="guild-card-top">
+          <div class="guild-head">
+            ${iconHtml}
+            <div class="guild-copy">
+              <div class="guild-name">${esc(item.name)}</div>
+              <div class="badge">${esc(badge)}</div>
+            </div>
+          </div>
+          <div class="guild-item-actions">${buttonHtml}</div>
+        </div>
+      `;
       guildList.appendChild(block);
     });
 
@@ -101,11 +137,14 @@ export function createGuildsModule(deps) {
       option.textContent = item.name;
       guildSelect.appendChild(option);
     });
+    refreshGuildSelectUi();
 
     if (!guildSelect.value) {
+      syncActiveGuildState('');
       showStatus(invitables.length > 0 ? t('noGuildWithBot') : t('noManageableGuild'));
       return;
     }
+    syncActiveGuildState(guildSelect.value);
     await onGuildSelected(guildSelect.value);
   }
 

@@ -1,0 +1,27 @@
+<div class="tab-pane" data-pane="music">
+  <div class="pane-head">
+    <h3 data-i18n="section_music">music.*</h3>
+    <div class="pane-head-actions">
+      <button id="resetMusicBtn" class="danger reset-btn" type="button" data-i18n="resetSectionBtn">Reset Section</button>
+    </div>
+  </div>
+  <div class="welcome-shell module-shell">
+    <div class="settings-group">
+      <div id="music_settings_card_title" class="settings-group-title" data-i18n="section_music">Music Settings</div>
+      <div class="welcome-lead" data-i18n="music_settings_lead">Configure auto leave, autoplay, repeat mode, and music command channel from one place.</div>
+      <div class="notification-toggle-stack">
+        <div class="grid2 module-settings-grid">
+          <div class="toggle"><input type="checkbox" id="m_autoLeaveEnabled"><label for="m_autoLeaveEnabled" data-i18n="m_autoLeaveEnabled">autoLeaveEnabled</label></div>
+          <div class="field"><label data-i18n="m_autoLeaveMinutes">autoLeaveMinutes (1-60)</label><input type="number" min="1" max="60" id="m_autoLeaveMinutes"></div>
+          <div class="toggle"><input type="checkbox" id="m_autoplayEnabled"><label for="m_autoplayEnabled" data-i18n="m_autoplayEnabled">autoplayEnabled</label></div>
+          <div class="field"><label data-i18n="m_defaultRepeatMode">defaultRepeatMode</label><select id="m_defaultRepeatMode"><option value="OFF">OFF</option><option value="SINGLE">SINGLE</option><option value="ALL">ALL</option></select></div>
+          <div class="field span-all"><label data-i18n="m_commandChannelId">commandChannelId</label><select id="m_commandChannelId"></select></div>
+        </div>
+      </div>
+    </div>
+    <div class="settings-group">
+      <div id="music_stats_title" class="settings-group-title" data-i18n="music_stats_title">Music Stats</div>
+      <div id="musicStatsCards" class="stats-grid"></div>
+    </div>
+  </div>
+</div>
