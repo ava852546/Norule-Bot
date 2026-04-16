@@ -22,7 +22,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <jda.version>6.3.1</jda.version>
         <lavaplayer.version>2.2.6</lavaplayer.version>
-        <youtube.source.version>1.17.0</youtube.source.version>
+        <youtube.source.version>1.18.0</youtube.source.version>
         <libdave.version>0.1.0</libdave.version>
         <snakeyaml.version>2.4</snakeyaml.version>
         <slf4j.version>2.0.17</slf4j.version>

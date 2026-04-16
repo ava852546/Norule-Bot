@@ -1,12 +1,54 @@
 ﻿<!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>NoRule Bot Web Console</title>
   <link rel="icon" type="image/png" href="__FAVICON_URL__" />
   <link rel="apple-touch-icon" href="__FAVICON_URL__" />
-  <link rel="stylesheet" href="/web/app.css">
+  <link rel="stylesheet" href="__WEB_APP_CSS_URL__">
+  <script>
+    // Tailwind Play CDN (utility-first). Preflight is disabled to avoid breaking existing styles during migration.
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
+      darkMode: ['class'],
+      corePlugins: { preflight: false },
+      theme: {
+        extend: {
+          colors: {
+            bg: 'var(--bg)',
+            'bg-2': 'var(--bg-2)',
+            'bg-3': 'var(--bg-3)',
+            panel: 'var(--panel)',
+            'panel-soft': 'var(--panel-soft)',
+            'panel-strong': 'var(--panel-strong)',
+            line: 'var(--line)',
+            'line-strong': 'var(--line-strong)',
+            text: 'var(--text)',
+            muted: 'var(--muted)',
+            accent: 'var(--accent)',
+            'accent-2': 'var(--accent-2)',
+            'accent-3': 'var(--accent-3)',
+            warn: 'var(--warn)',
+            danger: 'var(--danger)',
+            'danger-2': 'var(--danger-2)'
+          },
+          borderRadius: {
+            xl: 'var(--radius-xl)',
+            lg: 'var(--radius-lg)',
+            md: 'var(--radius-md)',
+            sm: 'var(--radius-sm)'
+          },
+          boxShadow: {
+            xl: 'var(--shadow-xl)',
+            lg: 'var(--shadow-lg)',
+            md: 'var(--shadow-md)'
+          }
+        }
+      }
+    };
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body>
 <div class="page-frame page-shell">
@@ -23,7 +65,7 @@
     </section>
   </main>
 </div>
-<script type="module" src="/web/app.js"></script>
+<script type="module" src="__WEB_APP_JS_URL__"></script>
 <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
 </body>
 </html>

@@ -42,6 +42,12 @@ final class InteractionRouter {
         }
 
         String lang = owner.lang(event.getGuild().getIdLong());
+        if (!owner.isBotReadyForSlashCommands()) {
+            event.reply(owner.i18nService().t(lang, "general.bot_starting_up"))
+                    .setEphemeral(true)
+                    .queue();
+            return;
+        }
         String commandName = owner.canonicalSlashName(event.getName());
         long remaining = owner.acquireCooldown(event.getUser().getIdLong());
         if (remaining > 0) {
@@ -74,37 +80,41 @@ final class InteractionRouter {
             case "history" -> event.replyEmbeds(owner.historyEmbed(event.getGuild(), lang).build()).queue();
             case "playlist" -> owner.handlePlaylistSlash(event, lang);
             case "join" -> {
-                event.deferReply().queue();
-                owner.handleJoin(event.getGuild(), event.getMember(),
+                event.deferReply().queue(success -> owner.handleJoin(event.getGuild(), event.getMember(),
                         text -> event.getHook().sendMessage(text)
-                                .queue(success -> owner.moveActivePanelToBottom(event.getGuild(),
-                                        event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null), error -> {
-                                }));
+                                .queue(message -> owner.moveActivePanelToBottom(event.getGuild(),
+                                                event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null),
+                                        error -> {
+                                        })), failure -> {
+                });
             }
             case "play" -> owner.handlePlaySlash(event, lang);
             case "skip" -> {
-                event.deferReply().queue();
-                owner.handleSkip(event.getGuild(),
+                event.deferReply().queue(success -> owner.handleSkip(event.getGuild(),
                         text -> event.getHook().sendMessage(text)
-                                .queue(success -> owner.moveActivePanelToBottom(event.getGuild(),
-                                        event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null), error -> {
-                                }));
+                                .queue(message -> owner.moveActivePanelToBottom(event.getGuild(),
+                                                event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null),
+                                        error -> {
+                                        })), failure -> {
+                });
             }
             case "stop" -> {
-                event.deferReply().queue();
-                owner.handleStop(event.getGuild(),
+                event.deferReply().queue(success -> owner.handleStop(event.getGuild(),
                         text -> event.getHook().sendMessage(text)
-                                .queue(success -> owner.moveActivePanelToBottom(event.getGuild(),
-                                        event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null), error -> {
-                                }));
+                                .queue(message -> owner.moveActivePanelToBottom(event.getGuild(),
+                                                event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null),
+                                        error -> {
+                                        })), failure -> {
+                });
             }
             case "leave" -> {
-                event.deferReply().queue();
-                owner.handleLeave(event.getGuild(),
+                event.deferReply().queue(success -> owner.handleLeave(event.getGuild(),
                         text -> event.getHook().sendMessage(text)
-                                .queue(success -> owner.moveActivePanelToBottom(event.getGuild(),
-                                        event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null), error -> {
-                                }));
+                                .queue(message -> owner.moveActivePanelToBottom(event.getGuild(),
+                                                event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null),
+                                        error -> {
+                                        })), failure -> {
+                });
             }
             case "music-panel" -> owner.musicPanelController().handlePanelSlashCommand(event, lang);
             case "repeat" -> {

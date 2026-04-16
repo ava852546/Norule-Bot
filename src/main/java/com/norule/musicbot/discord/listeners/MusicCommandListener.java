@@ -100,6 +100,7 @@ public class MusicCommandListener extends ListenerAdapter {
     static final String SUB_SETTINGS_TEMPLATE_ZH = "\u6a21\u677f\u7de8\u8f2f";
     static final String SUB_SETTINGS_MODULE_ZH = "\u6a21\u7d44\u958b\u95dc";
     static final String SUB_SETTINGS_LOGS_ZH = "\u65e5\u8a8c\u983b\u9053";
+    static final String SUB_SETTINGS_LOG_SETTINGS_ZH = "\u65e5\u8a8c\u8a2d\u5b9a";
     static final String SUB_SETTINGS_MUSIC_ZH = "\u97f3\u6a02\u8a2d\u5b9a";
     static final String SUB_SETTINGS_LANGUAGE_ZH = "\u8a9e\u8a00\u8a2d\u7f6e";
     static final String SUB_SETTINGS_NUMBER_CHAIN_ZH = "\u63a5\u9f8d\u904a\u6232";
@@ -179,6 +180,7 @@ public class MusicCommandListener extends ListenerAdapter {
     private final Map<Long, String> panelLastSignature = new ConcurrentHashMap<>();
     private final Map<Long, ScheduledFuture<?>> delayedPanelRefreshByGuild = new ConcurrentHashMap<>();
     private final Set<Long> panelRefreshingGuilds = ConcurrentHashMap.newKeySet();
+    private volatile boolean botReadyForSlashCommands;
     private static final long PANEL_PERIODIC_REFRESH_MS = 30000L;
     private static final long PANEL_MIN_EDIT_INTERVAL_MS = 3500L;
 
@@ -244,9 +246,14 @@ public class MusicCommandListener extends ListenerAdapter {
         return musicPanelController;
     }
 
+    boolean isBotReadyForSlashCommands() {
+        return botReadyForSlashCommands;
+    }
+
     @Override
     public void onReady(ReadyEvent event) {
         this.jda = event.getJDA();
+        this.botReadyForSlashCommands = true;
         commandRegistrar.registerOnReady(event.getJDA());
     }
 
@@ -370,14 +377,19 @@ public class MusicCommandListener extends ListenerAdapter {
     void handlePlaySlash(SlashCommandInteractionEvent event, String lang) {
         String query = Objects.requireNonNull(event.getOption("query")).getAsString();
         if (looksLikeUrl(query)) {
-            event.deferReply().queue();
             TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
-            directPlay(event.getGuild(), event.getMember(), query, text -> event.getHook().sendMessage(text).queue(), panelChannel);
+            event.deferReply().queue(success -> directPlay(
+                    event.getGuild(),
+                    event.getMember(),
+                    query,
+                    text -> event.getHook().sendMessage(text).queue(),
+                    panelChannel
+            ), failure -> {
+            });
             return;
         }
 
-        event.deferReply(true).queue();
-        musicService.searchTopTracks(query, 10, results -> {
+        event.deferReply(true).queue(success -> musicService.searchTopTracks(query, 10, results -> {
             if (results.isEmpty()) {
                 event.getHook().sendMessage(i18n.t(lang, "music.not_found", Map.of("query", query))).queue();
                 return;
@@ -400,7 +412,8 @@ public class MusicCommandListener extends ListenerAdapter {
                     .setComponents(ActionRow.of(buildSearchMenu(token, results)))
                     .queue(message -> scheduler.schedule(() -> expireSearchMenu(token, event.getGuild().getIdLong(), message.getIdLong()),
                             30, TimeUnit.SECONDS));
-        }, error -> event.getHook().sendMessage(i18n.t(lang, "music.load_failed", Map.of("error", error))).queue());
+        }, error -> event.getHook().sendMessage(mapMusicLoadError(lang, error)).queue()), failure -> {
+        });
     }
 
     private Long resolveSearchRequestChannelId(SlashCommandInteractionEvent event) {
@@ -429,16 +442,54 @@ public class MusicCommandListener extends ListenerAdapter {
         boolean hasChannel = event.getOption("channel") != null;
         boolean hasValue = event.getOption("value") != null;
         boolean hasReset = event.getOption("reset") != null;
+        boolean hasLogSetting = event.getOption("log-setting") != null;
+        boolean hasUser = event.getOption("user") != null;
+        boolean hasPrefix = event.getOption("prefix") != null;
+        String logSetting = event.getOption("log-setting") == null ? null : event.getOption("log-setting").getAsString();
 
         return switch (route) {
             case "language" -> {
                 if (hasChannel) yield settingsActionOptionError(lang, route, "channel");
                 if (hasValue) yield settingsActionOptionError(lang, route, "value");
                 if (hasReset) yield settingsActionOptionError(lang, route, "reset");
+                if (hasLogSetting) yield settingsActionOptionError(lang, route, "log-setting");
+                if (hasUser) yield settingsActionOptionError(lang, route, "user");
+                if (hasPrefix) yield settingsActionOptionError(lang, route, "prefix");
                 yield null;
             }
             case "number-chain" -> {
                 if (hasCode) yield settingsActionOptionError(lang, route, "code");
+                if (hasLogSetting) yield settingsActionOptionError(lang, route, "log-setting");
+                if (hasUser) yield settingsActionOptionError(lang, route, "user");
+                if (hasPrefix) yield settingsActionOptionError(lang, route, "prefix");
+                yield null;
+            }
+            case "log-settings" -> {
+                if (hasCode) yield settingsActionOptionError(lang, route, "code");
+                if (hasValue) yield settingsActionOptionError(lang, route, "value");
+                if (hasReset) yield settingsActionOptionError(lang, route, "reset");
+                if (!hasLogSetting) yield null;
+                switch (logSetting) {
+                    case "ignore-prefix" -> {
+                        if (hasUser) yield settingsActionOptionError(lang, route, "user");
+                        if (hasChannel) yield settingsActionOptionError(lang, route, "channel");
+                    }
+                    case "ignore-member" -> {
+                        if (hasPrefix) yield settingsActionOptionError(lang, route, "prefix");
+                        if (hasChannel) yield settingsActionOptionError(lang, route, "channel");
+                    }
+                    case "ignore-channel" -> {
+                        if (hasPrefix) yield settingsActionOptionError(lang, route, "prefix");
+                        if (hasUser) yield settingsActionOptionError(lang, route, "user");
+                    }
+                    case "view-ignore" -> {
+                        if (hasPrefix) yield settingsActionOptionError(lang, route, "prefix");
+                        if (hasUser) yield settingsActionOptionError(lang, route, "user");
+                        if (hasChannel) yield settingsActionOptionError(lang, route, "channel");
+                    }
+                    default -> {
+                    }
+                }
                 yield null;
             }
             default -> {
@@ -446,6 +497,9 @@ public class MusicCommandListener extends ListenerAdapter {
                 if (hasChannel) yield settingsActionOptionError(lang, route, "channel");
                 if (hasValue) yield settingsActionOptionError(lang, route, "value");
                 if (hasReset) yield settingsActionOptionError(lang, route, "reset");
+                if (hasLogSetting) yield settingsActionOptionError(lang, route, "log-setting");
+                if (hasUser) yield settingsActionOptionError(lang, route, "user");
+                if (hasPrefix) yield settingsActionOptionError(lang, route, "prefix");
                 yield null;
             }
         };
@@ -455,7 +509,7 @@ public class MusicCommandListener extends ListenerAdapter {
         return i18n.t(lang, "settings.option_not_allowed",
                 Map.of(
                         "action", settingsActionLabel(lang, route),
-                        "option", settingsOptionLabel(lang, option)
+                        "option", settingsOptionLabel(lang, route, option)
                 ));
     }
 
@@ -467,19 +521,25 @@ public class MusicCommandListener extends ListenerAdapter {
             case "template" -> i18n.t(lang, "settings.template");
             case "module" -> i18n.t(lang, "settings.module");
             case "logs" -> i18n.t(lang, "settings.logs");
+            case "log-settings" -> i18n.t(lang, "settings.log_settings.title");
             case "music" -> i18n.t(lang, "settings.music");
-            case "language" -> i18n.t(lang, "settings.language");
-            case "number-chain" -> i18n.t(lang, "number_chain");
+            case "language" -> i18n.t(lang, "settings.info_language");
+            case "number-chain" -> i18n.t(lang, "settings.info_number_chain");
             default -> route;
         };
     }
 
-    String settingsOptionLabel(String lang, String option) {
+    String settingsOptionLabel(String lang, String route, String option) {
         return switch (option) {
-            case "code" -> i18n.t(lang, "settings.language.code");
-            case "channel" -> i18n.t(lang, "number_chain.channel");
+            case "code" -> i18n.t(lang, "settings.language_code_label");
+            case "channel" -> "log-settings".equals(route)
+                    ? i18n.t(lang, "settings.log_settings.channel")
+                    : i18n.t(lang, "number_chain.channel");
             case "value" -> i18n.t(lang, "number_chain.value");
             case "reset" -> i18n.t(lang, "number_chain.reset");
+            case "log-setting" -> i18n.t(lang, "settings.log_settings.target");
+            case "user" -> i18n.t(lang, "settings.log_settings.user");
+            case "prefix" -> i18n.t(lang, "settings.log_settings.prefix");
             default -> option;
         };
     }
@@ -1549,7 +1609,7 @@ public class MusicCommandListener extends ListenerAdapter {
             if ("NO_MATCH".equals(response)) {
                 sink.send(i18n.t(lang, "music.not_found", Map.of("query", query)));
             } else if (response.startsWith("LOAD_FAILED:")) {
-                sink.send(i18n.t(lang, "music.load_failed", Map.of("error", response.substring("LOAD_FAILED:".length()))));
+                sink.send(mapMusicLoadError(lang, response.substring("LOAD_FAILED:".length())));
             } else {
                 sink.send(musicUx(lang, "queue_added", Map.of("title", response)));
                 if (panelChannel != null) {
@@ -2169,7 +2229,19 @@ public class MusicCommandListener extends ListenerAdapter {
                 line(lang, "settings.info_key_log_role", compare(lang, moduleSwitchTextCode(lang, logs.isRoleLogEnabled()), moduleSwitchTextCode(lang, logsDef.isRoleLogEnabled()))),
                 line(lang, "settings.info_key_log_channel_lifecycle", compare(lang, moduleSwitchTextCode(lang, logs.isChannelLifecycleLogEnabled()), moduleSwitchTextCode(lang, logsDef.isChannelLifecycleLogEnabled()))),
                 line(lang, "settings.info_key_log_moderation", compare(lang, moduleSwitchTextCode(lang, logs.isModerationLogEnabled()), moduleSwitchTextCode(lang, logsDef.isModerationLogEnabled()))),
-                line(lang, "settings.info_key_log_command_usage", compare(lang, moduleSwitchTextCode(lang, logs.isCommandUsageLogEnabled()), moduleSwitchTextCode(lang, logsDef.isCommandUsageLogEnabled())))
+                line(lang, "settings.info_key_log_command_usage", compare(lang, moduleSwitchTextCode(lang, logs.isCommandUsageLogEnabled()), moduleSwitchTextCode(lang, logsDef.isCommandUsageLogEnabled()))),
+                line(lang, "settings.info_key_log_ignored_members", compare(lang,
+                        formatIgnoredMembersInfo(lang, logs.getIgnoredMemberIds()),
+                        formatIgnoredMembersInfo(lang, logsDef.getIgnoredMemberIds()))),
+                lineLabel("\uD83C\uDFF7\uFE0F", ignoredRolesInfoLabel(lang), compare(lang,
+                        formatIgnoredRolesInfo(lang, logs.getIgnoredRoleIds()),
+                        formatIgnoredRolesInfo(lang, logsDef.getIgnoredRoleIds()))),
+                line(lang, "settings.info_key_log_ignored_channels", compare(lang,
+                        formatIgnoredChannelsInfo(lang, logs.getIgnoredChannelIds()),
+                        formatIgnoredChannelsInfo(lang, logsDef.getIgnoredChannelIds()))),
+                line(lang, "settings.info_key_log_ignored_prefixes", compare(lang,
+                        formatIgnoredPrefixesInfo(lang, logs.getIgnoredPrefixes()),
+                        formatIgnoredPrefixesInfo(lang, logsDef.getIgnoredPrefixes())))
         );
         String musicInfo = joinLines(
                 line(lang, "settings.info_key_auto_leave_enabled", compare(lang, moduleSwitchTextCode(lang, music.isAutoLeaveEnabled()), moduleSwitchTextCode(lang, musicDef.isAutoLeaveEnabled()))),
@@ -3449,6 +3521,7 @@ public class MusicCommandListener extends ListenerAdapter {
                         new Command.Choice(zh ? SUB_SETTINGS_TEMPLATE_ZH : "template", "template"),
                         new Command.Choice(zh ? SUB_SETTINGS_MODULE_ZH : "module", "module"),
                         new Command.Choice(zh ? SUB_SETTINGS_LOGS_ZH : "logs", "logs"),
+                        new Command.Choice(zh ? SUB_SETTINGS_LOG_SETTINGS_ZH : "log-settings", "log-settings"),
                         new Command.Choice(zh ? SUB_SETTINGS_MUSIC_ZH : "music", "music"),
                         new Command.Choice(zh ? SUB_SETTINGS_NUMBER_CHAIN_ZH : "number-chain", "number-chain"),
                         new Command.Choice(zh ? SUB_SETTINGS_LANGUAGE_ZH : "language", "language")
@@ -3458,6 +3531,61 @@ public class MusicCommandListener extends ListenerAdapter {
             option.setNameLocalization(DiscordLocale.CHINESE_CHINA, "\u9009\u9879");
         }
         return option;
+    }
+
+    private OptionData buildSettingsLogSettingOption() {
+        return localizedOptionDescription(
+                localizedOptionName(
+                        new OptionData(OptionType.STRING, "log-setting", "Log setting target", false)
+                                .addChoices(
+                                        localizedChoice("Ignore Prefix", "ignore-prefix", "\u5ffd\u7565\u524d\u7db4", "\u5ffd\u7565\u524d\u7f00"),
+                                        localizedChoice("Ignore Member", "ignore-member", "\u5ffd\u7565\u6210\u54e1", "\u5ffd\u7565\u6210\u5458"),
+                                        localizedChoice("Ignore Channel", "ignore-channel", "\u5ffd\u7565\u983b\u9053", "\u5ffd\u7565\u9891\u9053"),
+                                        localizedChoice("View Ignore List", "view-ignore", "\u67e5\u770b\u5ffd\u7565", "\u67e5\u770b\u5ffd\u7565")
+                                ),
+                        "\u5b50\u9078\u9805",
+                        "\u5b50\u9009\u9879"
+                ),
+                "\u9078\u64c7\u8981\u8abf\u6574\u7684\u65e5\u8a8c\u5ffd\u7565\u9805\u76ee",
+                "\u9009\u62e9\u8981\u8c03\u6574\u7684\u65e5\u5fd7\u5ffd\u7565\u9879\u76ee"
+        );
+    }
+
+    private OptionData buildSettingsUserOption() {
+        return localizedOptionDescription(
+                localizedOptionName(
+                        new OptionData(OptionType.USER, "user", "Target member", false),
+                        "\u6210\u54e1",
+                        "\u6210\u5458"
+                ),
+                "\u8981\u52a0\u5165\u6216\u79fb\u51fa\u5ffd\u7565\u540d\u55ae\u7684\u6210\u54e1",
+                "\u8981\u52a0\u5165\u6216\u79fb\u51fa\u5ffd\u7565\u540d\u5355\u7684\u6210\u5458"
+        );
+    }
+
+    private OptionData buildSettingsChannelOption() {
+        return localizedOptionDescription(
+                localizedOptionName(
+                        new OptionData(OptionType.CHANNEL, "channel", "Target text channel", false)
+                                .setChannelTypes(ChannelType.TEXT),
+                        "\u983b\u9053",
+                        "\u9891\u9053"
+                ),
+                "\u8981\u52a0\u5165\u6216\u79fb\u51fa\u5ffd\u7565\u540d\u55ae\u7684\u6587\u5b57\u983b\u9053",
+                "\u8981\u52a0\u5165\u6216\u79fb\u51fa\u5ffd\u7565\u540d\u5355\u7684\u6587\u5b57\u9891\u9053"
+        );
+    }
+
+    private OptionData buildSettingsPrefixOption() {
+        return localizedOptionDescription(
+                localizedOptionName(
+                        new OptionData(OptionType.STRING, "prefix", "Ignored prefix", false),
+                        "\u524d\u7db4",
+                        "\u524d\u7f00"
+                ),
+                "\u4ee5\u6b64\u524d\u7db4\u958b\u982d\u7684\u8a0a\u606f\u4e0d\u6703\u8a18\u9304\u5230\u65e5\u8a8c",
+                "\u4ee5\u6b64\u524d\u7f00\u5f00\u5934\u7684\u6d88\u606f\u4e0d\u4f1a\u8bb0\u5f55\u5230\u65e5\u5fd7"
+        );
     }
 
     private OptionData buildWarningsActionOption(boolean zh) {
@@ -3864,12 +3992,13 @@ public class MusicCommandListener extends ListenerAdapter {
         }
         String normalized = i18n.normalizeLanguage(code);
         settingsService.updateSettings(event.getGuild().getIdLong(), s -> s.withLanguage(normalized));
+        String languageDisplay = languageDisplayText(normalized);
         event.editMessageEmbeds(new EmbedBuilder()
                         .setColor(new Color(46, 204, 113))
                         .setTitle(i18n.t(normalized, "settings.language_menu_title"))
-                        .setDescription(i18n.t(normalized, "settings.language_updated", Map.of("language", normalized)))
+                        .setDescription(i18n.t(normalized, "settings.language_updated", Map.of("language", languageDisplay)))
                         .build())
-                .setComponents(List.of())
+                .setComponents(ActionRow.of(settingsLanguageMenu(token, event.getGuild().getIdLong(), normalized)))
                 .queue();
     }
 
@@ -3933,6 +4062,7 @@ public class MusicCommandListener extends ListenerAdapter {
             case SUB_SETTINGS_TEMPLATE_ZH -> "template";
             case SUB_SETTINGS_MODULE_ZH -> "module";
             case SUB_SETTINGS_LOGS_ZH -> "logs";
+            case SUB_SETTINGS_LOG_SETTINGS_ZH -> "log-settings";
             case SUB_SETTINGS_MUSIC_ZH -> "music";
             case SUB_SETTINGS_LANGUAGE_ZH -> "language";
             case SUB_SETTINGS_NUMBER_CHAIN_ZH -> "number-chain";
@@ -4272,13 +4402,14 @@ public class MusicCommandListener extends ListenerAdapter {
             return i18n.t(lang, "music.autoplay_notice_no_match");
         }
         if (notice.startsWith("LOAD_FAILED:")) {
-            String error = notice.substring("LOAD_FAILED:".length()).trim();
-            if (error.isBlank()) {
-                error = "-";
-            }
-            return i18n.t(lang, "music.autoplay_notice_load_failed", Map.of("error", safe(error, 140)));
+            return i18n.t(lang, "music.autoplay_notice_load_failed",
+                    Map.of("error", safe(mapMusicLoadError(lang, notice.substring("LOAD_FAILED:".length())), 140)));
         }
         return safe(notice, 160);
+    }
+
+    private String mapMusicLoadError(String lang, String rawError) {
+        return i18n.t(lang, YoutubePlaybackErrorMapper.toMessageKey(rawError));
     }
 
     EmbedBuilder historyEmbed(Guild guild, String lang) {
@@ -4579,6 +4710,42 @@ public class MusicCommandListener extends ListenerAdapter {
         return channel == null ? "#" + id : channel.getAsMention();
     }
 
+    private String formatIgnoredMembersInfo(String lang, List<Long> ids) {
+        return formatCompactList(lang, ids == null ? List.of() : ids.stream()
+                .map(id -> "<@" + id + ">")
+                .toList());
+    }
+
+    private String formatIgnoredRolesInfo(String lang, List<Long> ids) {
+        return formatCompactList(lang, ids == null ? List.of() : ids.stream()
+                .map(id -> "<@&" + id + ">")
+                .toList());
+    }
+
+    private String formatIgnoredChannelsInfo(String lang, List<Long> ids) {
+        return formatCompactList(lang, ids == null ? List.of() : ids.stream()
+                .map(id -> "<#" + id + ">")
+                .toList());
+    }
+
+    private String formatIgnoredPrefixesInfo(String lang, List<String> prefixes) {
+        return formatCompactList(lang, prefixes == null ? List.of() : prefixes.stream()
+                .map(prefix -> "`" + prefix.replace("`", "'") + "`")
+                .toList());
+    }
+
+    private String formatCompactList(String lang, List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return i18n.t(lang, "settings.info_channels_none");
+        }
+        int limit = Math.min(5, values.size());
+        String result = String.join(", ", values.subList(0, limit));
+        if (values.size() > limit) {
+            result += " +" + (values.size() - limit);
+        }
+        return result;
+    }
+
     private String formatTextChannelById(long guildId, Long id) {
         Guild guild = jda == null ? null : jda.getGuildById(guildId);
         if (guild == null) {
@@ -4652,6 +4819,10 @@ public class MusicCommandListener extends ListenerAdapter {
     private String line(String lang, String key, String value) {
         String icon = keyIcon(key);
         return icon + " " + i18n.t(lang, key) + ": " + value;
+    }
+
+    private String lineLabel(String icon, String label, String value) {
+        return icon + " " + label + ": " + value;
     }
 
     private String joinInfoBlocks(String... values) {
@@ -4805,6 +4976,25 @@ public class MusicCommandListener extends ListenerAdapter {
             case "settings.key_privateRoom_userLimit", "settings.info_key_user_limit" -> "\uD83D\uDC64";
             default -> "\u25AB\uFE0F";
         };
+    }
+
+    private String languageDisplayText(String languageCode) {
+        String normalized = i18n.normalizeLanguage(languageCode);
+        String display = i18n.getAvailableLanguages().get(normalized);
+        if (display == null || display.isBlank()) {
+            return normalized;
+        }
+        return display + " (" + normalized + ")";
+    }
+
+    private String ignoredRolesInfoLabel(String lang) {
+        if ("zh-CN".equalsIgnoreCase(lang)) {
+            return "忽略身份组";
+        }
+        if (lang != null && lang.toLowerCase().startsWith("zh")) {
+            return "忽略身分組";
+        }
+        return "Ignored Roles";
     }
 
     @FunctionalInterface

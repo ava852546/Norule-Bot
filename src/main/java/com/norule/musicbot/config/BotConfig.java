@@ -898,6 +898,10 @@ public class BotConfig {
         private final boolean channelLifecycleLogEnabled;
         private final boolean moderationLogEnabled;
         private final boolean commandUsageLogEnabled;
+        private final List<Long> ignoredMemberIds;
+        private final List<Long> ignoredRoleIds;
+        private final List<Long> ignoredChannelIds;
+        private final List<String> ignoredPrefixes;
 
         private MessageLogs(boolean enabled,
                             Long channelId,
@@ -909,7 +913,11 @@ public class BotConfig {
                             boolean roleLogEnabled,
                             boolean channelLifecycleLogEnabled,
                             boolean moderationLogEnabled,
-                            boolean commandUsageLogEnabled) {
+                            boolean commandUsageLogEnabled,
+                            List<Long> ignoredMemberIds,
+                            List<Long> ignoredRoleIds,
+                            List<Long> ignoredChannelIds,
+                            List<String> ignoredPrefixes) {
             this.enabled = enabled;
             this.channelId = channelId;
             this.messageLogChannelId = messageLogChannelId;
@@ -921,6 +929,23 @@ public class BotConfig {
             this.channelLifecycleLogEnabled = channelLifecycleLogEnabled;
             this.moderationLogEnabled = moderationLogEnabled;
             this.commandUsageLogEnabled = commandUsageLogEnabled;
+            this.ignoredMemberIds = ignoredMemberIds == null ? List.of() : ignoredMemberIds.stream()
+                    .filter(value -> value != null && value > 0L)
+                    .distinct()
+                    .toList();
+            this.ignoredRoleIds = ignoredRoleIds == null ? List.of() : ignoredRoleIds.stream()
+                    .filter(value -> value != null && value > 0L)
+                    .distinct()
+                    .toList();
+            this.ignoredChannelIds = ignoredChannelIds == null ? List.of() : ignoredChannelIds.stream()
+                    .filter(value -> value != null && value > 0L)
+                    .distinct()
+                    .toList();
+            this.ignoredPrefixes = ignoredPrefixes == null ? List.of() : ignoredPrefixes.stream()
+                    .map(value -> value == null ? "" : value.trim())
+                    .filter(value -> !value.isBlank())
+                    .distinct()
+                    .toList();
         }
 
         public static MessageLogs fromMap(Map<String, Object> map, MessageLogs fallback) {
@@ -936,56 +961,76 @@ public class BotConfig {
                     getBoolean(map, "roleLogEnabled", defaults.isRoleLogEnabled()),
                     getBoolean(map, "channelLifecycleLogEnabled", defaults.isChannelLifecycleLogEnabled()),
                     getBoolean(map, "moderationLogEnabled", defaults.isModerationLogEnabled()),
-                    getBoolean(map, "commandUsageLogEnabled", defaults.isCommandUsageLogEnabled())
+                    getBoolean(map, "commandUsageLogEnabled", defaults.isCommandUsageLogEnabled()),
+                    getLongList(map, "ignoredMemberIds", defaults.getIgnoredMemberIds()),
+                    getLongList(map, "ignoredRoleIds", defaults.getIgnoredRoleIds()),
+                    getLongList(map, "ignoredChannelIds", defaults.getIgnoredChannelIds()),
+                    getStringList(map, "ignoredPrefixes", defaults.getIgnoredPrefixes())
             );
         }
 
         public static MessageLogs defaultValues() {
-            return new MessageLogs(true, null, null, null, null, null, null, true, true, true, true);
+            return new MessageLogs(true, null, null, null, null, null, null, true, true, true, true, List.of(), List.of(), List.of(), List.of());
         }
 
         public MessageLogs withEnabled(boolean enabled) {
-            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled);
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
         }
 
         public MessageLogs withChannelId(Long channelId) {
-            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled);
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
         }
 
         public MessageLogs withMessageLogChannelId(Long messageLogChannelId) {
-            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled);
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
         }
 
         public MessageLogs withCommandUsageChannelId(Long commandUsageChannelId) {
-            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled);
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
         }
 
         public MessageLogs withChannelLifecycleChannelId(Long channelLifecycleChannelId) {
-            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled);
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
         }
 
         public MessageLogs withRoleLogChannelId(Long roleLogChannelId) {
-            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled);
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
         }
 
         public MessageLogs withModerationLogChannelId(Long moderationLogChannelId) {
-            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled);
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
         }
 
         public MessageLogs withRoleLogEnabled(boolean value) {
-            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, value, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled);
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, value, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
         }
 
         public MessageLogs withChannelLifecycleLogEnabled(boolean value) {
-            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, value, moderationLogEnabled, commandUsageLogEnabled);
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, value, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
         }
 
         public MessageLogs withModerationLogEnabled(boolean value) {
-            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, value, commandUsageLogEnabled);
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, value, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
         }
 
         public MessageLogs withCommandUsageLogEnabled(boolean value) {
-            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, value);
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, value, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
+        }
+
+        public MessageLogs withIgnoredMemberIds(List<Long> ignoredMemberIds) {
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
+        }
+
+        public MessageLogs withIgnoredRoleIds(List<Long> ignoredRoleIds) {
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
+        }
+
+        public MessageLogs withIgnoredChannelIds(List<Long> ignoredChannelIds) {
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
+        }
+
+        public MessageLogs withIgnoredPrefixes(List<String> ignoredPrefixes) {
+            return new MessageLogs(enabled, channelId, messageLogChannelId, commandUsageChannelId, channelLifecycleChannelId, roleLogChannelId, moderationLogChannelId, roleLogEnabled, channelLifecycleLogEnabled, moderationLogEnabled, commandUsageLogEnabled, ignoredMemberIds, ignoredRoleIds, ignoredChannelIds, ignoredPrefixes);
         }
 
         public boolean isEnabled() {
@@ -1030,6 +1075,22 @@ public class BotConfig {
 
         public boolean isCommandUsageLogEnabled() {
             return commandUsageLogEnabled;
+        }
+
+        public List<Long> getIgnoredMemberIds() {
+            return ignoredMemberIds;
+        }
+
+        public List<Long> getIgnoredRoleIds() {
+            return ignoredRoleIds;
+        }
+
+        public List<Long> getIgnoredChannelIds() {
+            return ignoredChannelIds;
+        }
+
+        public List<String> getIgnoredPrefixes() {
+            return ignoredPrefixes;
         }
     }
 
