@@ -1,11 +1,15 @@
 .welcome-shell { display: flex; flex-direction: column; gap: 16px; }
 .welcome-compact-actions {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
   margin-top: 14px;
 }
-.welcome-compact-actions button { width: auto; min-width: 170px; }
+.welcome-compact-actions button {
+  width: auto;
+  min-width: 190px;
+  padding-inline: 24px;
+}
 .welcome-lead {
   margin: -2px 0 4px;
   color: #93c5fd;

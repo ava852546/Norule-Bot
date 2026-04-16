@@ -104,6 +104,7 @@ public class WebControlServer {
     private final GuildSettingsApiController guildSettingsApiController;
     private final TicketTranscriptApiController ticketTranscriptApiController;
     private final WelcomePreviewService welcomePreviewService;
+    private final String webAssetVersion = String.valueOf(System.currentTimeMillis());
 
     private volatile HttpServer server;
     private volatile String bindHost = "";
@@ -1321,6 +1322,8 @@ public class WebControlServer {
 
         return renderTemplate("web/index.html", Map.of(
                 "__FAVICON_URL__", escapeHtmlAttr(faviconUrl),
+                "__WEB_APP_CSS_URL__", "/web/app.css?v=" + webAssetVersion,
+                "__WEB_APP_JS_URL__", "/web/app.js?v=" + webAssetVersion,
                 "__HERO_SECTION__", buildHeroSection(botAvatarBlock),
                 "__SIDEBAR_SECTION__", buildSidebarSection(),
                 "__SETTINGS_SECTION__", buildSettingsSection()

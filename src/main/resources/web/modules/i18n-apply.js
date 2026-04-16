@@ -78,10 +78,38 @@ export function createI18nApplyModule(deps) {
       if (!code) return;
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'lang-btn';
+      button.className = [
+        'inline-flex',
+        'items-center',
+        'justify-center',
+        'min-h-[38px]',
+        'px-3',
+        'py-2',
+        'min-w-[72px]',
+        'rounded-[12px]',
+        'border',
+        'border-[rgba(255,255,255,0.12)]',
+        'bg-[linear-gradient(180deg,rgba(7,15,28,0.96),rgba(10,18,33,0.94))]',
+        'text-[#f9fbff]',
+        'font-extrabold',
+        'text-[12px]',
+        'tracking-[0.06em]',
+        'transition',
+        'shadow-[0_12px_24px_rgba(0,0,0,0.12)]',
+        'hover:translate-y-[-1px]',
+        'active:translate-y-0',
+        'hover:border-[rgba(255,255,255,0.18)]'
+      ].join(' ');
       button.textContent = label;
       button.dataset.lang = code;
-      button.classList.toggle('active', getUiLanguage() === code);
+      if (getUiLanguage() === code) {
+        button.classList.add(
+          'bg-gradient-to-r',
+          'from-[var(--accent-2)]',
+          'to-[var(--accent)]',
+          'border-transparent'
+        );
+      }
       button.onclick = () => setUiLanguage(code);
       root.appendChild(button);
     });
@@ -112,6 +140,8 @@ export function createI18nApplyModule(deps) {
   }
 
   function applyUiLanguage() {
+    const uiLang = getUiLanguage() || 'en';
+    document.documentElement.lang = uiLang;
     document.title = t('titleMain');
     applyDataI18n(document);
     renderUiLanguageButtons();

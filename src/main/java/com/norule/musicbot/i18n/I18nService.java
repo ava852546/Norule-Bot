@@ -22,6 +22,9 @@ public class I18nService {
 
     public static I18nService load(Path languageDir, String defaultLanguage) {
         Map<String, Map<String, String>> bundles = new HashMap<>();
+        putDefaultBundle(bundles, "zh-TW", "defaults/lang/zh-TW.yml");
+        putDefaultBundle(bundles, "zh-CN", "defaults/lang/zh-CN.yml");
+        putDefaultBundle(bundles, "en", "defaults/lang/en.yml");
         try {
             Files.createDirectories(languageDir);
             Files.list(languageDir)
@@ -36,26 +39,11 @@ public class I18nService {
                         String language = dot > 0 ? fileName.substring(0, dot) : fileName;
                         Map<String, String> bundle = readBundle(path);
                         if (!bundle.isEmpty()) {
-                            bundles.put(normalize(language), bundle);
+                            String normalizedLanguage = normalize(language);
+                            bundles.put(normalizedLanguage, mergeBundle(bundles.get(normalizedLanguage), bundle));
                         }
                     });
         } catch (IOException ignored) {
-        }
-        if (!bundles.containsKey("zh-TW") || bundles.get("zh-TW").isEmpty()) {
-            Map<String, String> zhFallback = readBundleResource("defaults/lang/zh-TW.yml");
-            if (!zhFallback.isEmpty()) {
-                bundles.put("zh-TW", zhFallback);
-            }
-        }
-        if (!bundles.containsKey("zh-CN") || bundles.get("zh-CN").isEmpty()) {
-            Map<String, String> zhCnFallback = readBundleResource("defaults/lang/zh-CN.yml");
-            if (!zhCnFallback.isEmpty()) {
-                bundles.put("zh-CN", zhCnFallback);
-            }
-        }
-        if (!bundles.containsKey("en") || bundles.get("en").isEmpty()) {
-            Map<String, String> enFallback = readBundleResource("defaults/lang/en.yml");
-            bundles.put("en", enFallback.isEmpty() ? Map.of() : enFallback);
         }
         return new I18nService(defaultLanguage, bundles);
     }
@@ -66,7 +54,10 @@ public class I18nService {
 
     public boolean hasLanguage(String language) {
         String normalized = normalize(language);
-        return isBotLanguage(normalized) && bundles.containsKey(normalized);
+        if (!isBotLanguage(normalized)) {
+            return false;
+        }
+        return isStandardLanguage(normalized) || bundles.containsKey(normalized);
     }
 
     public String t(String language, String key) {
@@ -75,16 +66,29 @@ public class I18nService {
         if (value != null) {
             return value;
         }
+        if (!normalized.equals(defaultLanguage)) {
+            value = lookup(defaultLanguage, key);
+            if (value != null) {
+                return value;
+            }
+        }
+        if (!"en".equals(normalized)) {
+            value = lookup("en", key);
+            if (value != null) {
+                return value;
+            }
+        }
+        if (!"zh-TW".equalsIgnoreCase(normalized)) {
+            value = lookup("zh-TW", key);
+            if (value != null) {
+                return value;
+            }
+        }
         value = lookup("zh-TW", key);
         if (value != null) {
             return value;
         }
-        value = lookup(defaultLanguage, key);
-        if (value != null) {
-            return value;
-        }
-        value = lookup("en", key);
-        return value == null ? key : value;
+        return key;
     }
 
     public String t(String language, String key, Map<String, String> placeholders) {
@@ -96,15 +100,16 @@ public class I18nService {
     }
 
     public Map<String, String> getAvailableLanguages() {
-        return bundles.keySet().stream()
-                .sorted()
+        LinkedHashMap<String, String> languages = new LinkedHashMap<>();
+        addAvailableLanguage(languages, "zh-TW");
+        addAvailableLanguage(languages, "zh-CN");
+        addAvailableLanguage(languages, "en");
+        bundles.keySet().stream()
                 .filter(I18nService::isBotLanguage)
-                .collect(Collectors.toMap(
-                        lang -> lang,
-                        this::resolveLanguageDisplayName,
-                        (a, b) -> a,
-                        LinkedHashMap::new
-                ));
+                .filter(lang -> !languages.containsKey(lang))
+                .sorted()
+                .forEach(lang -> languages.put(lang, resolveLanguageDisplayName(lang)));
+        return languages;
     }
 
     @SuppressWarnings("unchecked")
@@ -157,6 +162,16 @@ public class I18nService {
     }
 
     private String resolveLanguageDisplayName(String language) {
+        String normalized = normalize(language);
+        if ("zh-TW".equals(normalized)) {
+            return "繁體中文";
+        }
+        if ("zh-CN".equals(normalized)) {
+            return "简体中文";
+        }
+        if ("en".equals(normalized)) {
+            return "English";
+        }
         Map<String, String> bundle = bundles.get(language);
         if (bundle == null || bundle.isEmpty()) {
             return language;
@@ -172,15 +187,58 @@ public class I18nService {
         return language;
     }
 
+    private static void putDefaultBundle(Map<String, Map<String, String>> bundles, String language, String resourcePath) {
+        Map<String, String> defaults = readBundleResource(resourcePath);
+        if (!defaults.isEmpty()) {
+            bundles.put(normalize(language), defaults);
+        }
+    }
+
+    private static Map<String, String> mergeBundle(Map<String, String> base, Map<String, String> override) {
+        if ((base == null || base.isEmpty()) && (override == null || override.isEmpty())) {
+            return Map.of();
+        }
+        Map<String, String> merged = new HashMap<>();
+        if (base != null && !base.isEmpty()) {
+            merged.putAll(base);
+        }
+        if (override != null && !override.isEmpty()) {
+            merged.putAll(override);
+        }
+        return merged;
+    }
+
     private static String normalize(String language) {
         if (language == null || language.isBlank()) {
             return "en";
         }
-        return language.trim();
+        String trimmed = language.trim();
+        String normalized = trimmed.replace('_', '-').toLowerCase();
+        if (normalized.startsWith("en")) {
+            return "en";
+        }
+        if (normalized.equals("zh-tw") || normalized.equals("zh-hant") || normalized.equals("zh-hk")) {
+            return "zh-TW";
+        }
+        if (normalized.equals("zh-cn") || normalized.equals("zh-hans") || normalized.equals("zh-sg")) {
+            return "zh-CN";
+        }
+        if (normalized.equals("zh")) {
+            return "zh-TW";
+        }
+        return trimmed;
     }
 
     private static boolean isBotLanguage(String language) {
         return !language.toLowerCase().startsWith("web-");
+    }
+
+    private void addAvailableLanguage(Map<String, String> languages, String language) {
+        languages.put(language, resolveLanguageDisplayName(language));
+    }
+
+    private static boolean isStandardLanguage(String language) {
+        return "zh-TW".equals(language) || "zh-CN".equals(language) || "en".equals(language);
     }
 }
 

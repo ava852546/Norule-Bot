@@ -9,6 +9,7 @@ import com.norule.musicbot.*;
 
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.message.MessageDeleteEvent;
@@ -41,15 +42,17 @@ public class MessageLogListener extends ListenerAdapter {
         final String authorTag;
         final String authorId;
         final boolean authorIsBot;
+        final List<Long> authorRoleIds;
         final String content;
         final String attachments;
         final long cachedAtMillis;
 
-        CachedMessage(long channelId, String authorTag, String authorId, boolean authorIsBot, String content, String attachments, long cachedAtMillis) {
+        CachedMessage(long channelId, String authorTag, String authorId, boolean authorIsBot, List<Long> authorRoleIds, String content, String attachments, long cachedAtMillis) {
             this.channelId = channelId;
             this.authorTag = authorTag;
             this.authorId = authorId;
             this.authorIsBot = authorIsBot;
+            this.authorRoleIds = authorRoleIds == null ? List.of() : authorRoleIds;
             this.content = content;
             this.attachments = attachments;
             this.cachedAtMillis = cachedAtMillis;
@@ -81,6 +84,12 @@ public class MessageLogListener extends ListenerAdapter {
             return;
         }
         Message msg = event.getMessage();
+        BotConfig.MessageLogs cfg = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        List<Long> authorRoleIds = resolveRoleIds(event.getMember());
+        if (shouldIgnoreMessage(cfg, event.getChannel().getIdLong(), event.getAuthor().getId(), authorRoleIds, msg.getContentRaw())) {
+            cache.remove(msg.getIdLong());
+            return;
+        }
         long now = System.currentTimeMillis();
         pruneExpired(now);
         cache.put(msg.getIdLong(), new CachedMessage(
@@ -88,6 +97,7 @@ public class MessageLogListener extends ListenerAdapter {
                 event.getAuthor().getAsTag(),
                 event.getAuthor().getId(),
                 event.getAuthor().isBot(),
+                authorRoleIds,
                 msg.getContentRaw(),
                 formatAttachments(msg),
                 now
@@ -112,12 +122,19 @@ public class MessageLogListener extends ListenerAdapter {
         CachedMessage old = cache.get(event.getMessageIdLong());
         String afterRawContent = event.getMessage().getContentRaw();
         String afterRawAttachments = formatAttachments(event.getMessage());
+        List<Long> authorRoleIds = resolveRoleIds(event.getMember());
+        if (shouldIgnoreMessage(cfg, event.getChannel().getIdLong(), event.getAuthor().getId(), authorRoleIds, afterRawContent)) {
+            cache.remove(event.getMessageIdLong());
+            saveCache();
+            return;
+        }
 
         cache.put(event.getMessageIdLong(), new CachedMessage(
                 event.getChannel().getIdLong(),
                 event.getAuthor().getAsTag(),
                 event.getAuthor().getId(),
                 event.getAuthor().isBot(),
+                authorRoleIds,
                 afterRawContent,
                 afterRawAttachments,
                 now
@@ -171,6 +188,9 @@ public class MessageLogListener extends ListenerAdapter {
             return;
         }
         if (old.authorIsBot || event.getJDA().getSelfUser().getId().equals(old.authorId)) {
+            return;
+        }
+        if (shouldIgnoreMessage(cfg, old.channelId, old.authorId, old.authorRoleIds, old.content)) {
             return;
         }
         String author = "<@" + old.authorId + "> (`" + old.authorTag + "`, `" + old.authorId + "`)";
@@ -260,6 +280,49 @@ public class MessageLogListener extends ListenerAdapter {
         }
     }
 
+    private boolean shouldIgnoreMessage(BotConfig.MessageLogs cfg, long channelId, String authorId, List<Long> authorRoleIds, String content) {
+        if (cfg.getIgnoredChannelIds().contains(channelId)) {
+            return true;
+        }
+        Long authorIdLong = parseLong(authorId);
+        if (authorIdLong != null && cfg.getIgnoredMemberIds().contains(authorIdLong)) {
+            return true;
+        }
+        if (authorRoleIds != null && !authorRoleIds.isEmpty()) {
+            for (Long roleId : authorRoleIds) {
+                if (roleId != null && cfg.getIgnoredRoleIds().contains(roleId)) {
+                    return true;
+                }
+            }
+        }
+        String raw = content == null ? "" : content;
+        for (String prefix : cfg.getIgnoredPrefixes()) {
+            if (prefix != null && !prefix.isBlank() && raw.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<Long> resolveRoleIds(Member member) {
+        if (member == null || member.getRoles().isEmpty()) {
+            return List.of();
+        }
+        return member.getRoles().stream()
+                .map(role -> role == null ? null : role.getIdLong())
+                .filter(roleId -> roleId != null && roleId > 0L)
+                .distinct()
+                .toList();
+    }
+
+    private Long parseLong(String value) {
+        try {
+            return value == null ? null : Long.parseLong(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
     private String trimForField(String text) {
         if (text == null || text.isBlank()) {
             return EMPTY_TEXT;
@@ -311,13 +374,14 @@ public class MessageLogListener extends ListenerAdapter {
                 String authorTag = readString(row.get("authorTag"));
                 String authorId = readString(row.get("authorId"));
                 boolean authorIsBot = readBoolean(row.get("authorIsBot"));
+                List<Long> authorRoleIds = readLongList(row.get("authorRoleIds"));
                 String content = readString(row.get("content"));
                 String attachments = readString(row.get("attachments"));
                 Long cachedAt = readLong(row.get("cachedAtMillis"));
                 if (messageId == null || channelId == null || authorId.isBlank() || cachedAt == null) {
                     continue;
                 }
-                cache.put(messageId, new CachedMessage(channelId, authorTag, authorId, authorIsBot, content, attachments, cachedAt));
+                cache.put(messageId, new CachedMessage(channelId, authorTag, authorId, authorIsBot, authorRoleIds, content, attachments, cachedAt));
             }
         } catch (Exception ignored) {
         }
@@ -336,6 +400,7 @@ public class MessageLogListener extends ListenerAdapter {
                 row.put("authorTag", value.authorTag);
                 row.put("authorId", value.authorId);
                 row.put("authorIsBot", value.authorIsBot);
+                row.put("authorRoleIds", value.authorRoleIds);
                 row.put("content", value.content);
                 row.put("attachments", value.attachments);
                 row.put("cachedAtMillis", value.cachedAtMillis);
@@ -392,6 +457,20 @@ public class MessageLogListener extends ListenerAdapter {
             return b;
         }
         return Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private List<Long> readLongList(Object value) {
+        if (!(value instanceof Iterable<?> iterable)) {
+            return List.of();
+        }
+        List<Long> result = new ArrayList<>();
+        for (Object item : iterable) {
+            Long parsed = readLong(item);
+            if (parsed != null && parsed > 0L) {
+                result.add(parsed);
+            }
+        }
+        return result.stream().distinct().toList();
     }
 }
 

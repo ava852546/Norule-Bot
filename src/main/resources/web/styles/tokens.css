@@ -1,4 +1,22 @@
 :root {
+  --font-sans:
+    "Aptos",
+    "Segoe UI Variable Text",
+    "Bahnschrift",
+    "Trebuchet MS",
+    sans-serif;
+  --font-sans-zh:
+    "Microsoft JhengHei UI",
+    "Microsoft JhengHei",
+    "PingFang TC",
+    "Noto Sans TC",
+    "Heiti TC",
+    "Segoe UI Variable Text",
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  --font-ui: var(--font-sans);
   --bg: #04101d;
   --bg-2: #08192a;
   --bg-3: #0a2035;
@@ -41,12 +59,26 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  font-family: "Aptos", "Segoe UI Variable Text", "Bahnschrift", "Trebuchet MS", sans-serif;
+  font-family: var(--font-ui);
   background:
     radial-gradient(circle at 10% 12%, rgba(76, 141, 255, 0.18), transparent 25%),
     radial-gradient(circle at 84% 8%, rgba(54, 213, 141, 0.16), transparent 22%),
     radial-gradient(circle at 70% 68%, rgba(139, 224, 255, 0.08), transparent 20%),
     linear-gradient(180deg, var(--bg-3) 0%, var(--bg-2) 26%, var(--bg) 100%);
+}
+
+body:lang(zh) {
+  font-family: var(--font-sans-zh);
+}
+
+html:lang(zh-TW),
+html:lang(zh-CN),
+html:lang(zh),
+body:lang(zh-TW),
+body:lang(zh-CN),
+body:lang(zh) {
+  --font-ui: var(--font-sans-zh);
+  font-family: var(--font-ui);
 }
 
 body::before {

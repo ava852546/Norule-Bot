@@ -15,6 +15,11 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import java.util.Map;
 
 public class NumberChainListener extends ListenerAdapter {
+    private static final String EMOJI_ACCEPTED_DEFAULT = "\u2705"; // ✅
+    private static final String EMOJI_ACCEPTED_100 = "\uD83D\uDCAF"; // 💯
+    private static final String EMOJI_ACCEPTED_101_200 = "\u2611\uFE0F"; // ☑️
+    private static final String EMOJI_REJECTED = "\u274C"; // ❌
+
     private final GuildSettingsService settingsService;
     private final ModerationService moderationService;
     private final I18nService i18n;
@@ -45,7 +50,7 @@ public class NumberChainListener extends ListenerAdapter {
         }
 
         if (result.getType() == ModerationService.NumberChainType.ACCEPTED) {
-            event.getMessage().addReaction(Emoji.fromUnicode("\u2705")).queue(ignored -> {
+            event.getMessage().addReaction(Emoji.fromUnicode(acceptedEmoji(result.getExpected()))).queue(ignored -> {
             }, error -> {
             });
             return;
@@ -55,7 +60,7 @@ public class NumberChainListener extends ListenerAdapter {
         Member member = event.getMember();
         String user = member == null ? event.getAuthor().getAsTag() : member.getAsMention();
         if (result.getType() == ModerationService.NumberChainType.REJECT_SAME_USER) {
-            event.getMessage().addReaction(Emoji.fromUnicode("\u274C")).queue(ignored -> {
+            event.getMessage().addReaction(Emoji.fromUnicode(EMOJI_REJECTED)).queue(ignored -> {
             }, error -> {
             });
             event.getChannel().sendMessage(i18n.t(lang, "number_chain.same_user_reset_notice",
@@ -68,7 +73,7 @@ public class NumberChainListener extends ListenerAdapter {
 
         String input = result.getParsedValue() == null ? i18n.t(lang, "number_chain.invalid_input")
                 : String.valueOf(result.getParsedValue());
-        event.getMessage().addReaction(Emoji.fromUnicode("\u274C")).queue(ignored -> {
+        event.getMessage().addReaction(Emoji.fromUnicode(EMOJI_REJECTED)).queue(ignored -> {
         }, error -> {
         });
         event.getChannel().sendMessage(i18n.t(lang, "number_chain.reset_notice",
@@ -77,6 +82,16 @@ public class NumberChainListener extends ListenerAdapter {
                         "expected", String.valueOf(result.getExpected()),
                         "input", input
                 ))).queue();
+    }
+
+    private static String acceptedEmoji(long acceptedNumber) {
+        if (acceptedNumber == 100L) {
+            return EMOJI_ACCEPTED_100;
+        }
+        if (acceptedNumber >= 101L && acceptedNumber <= 200L) {
+            return EMOJI_ACCEPTED_101_200;
+        }
+        return EMOJI_ACCEPTED_DEFAULT;
     }
 }
 

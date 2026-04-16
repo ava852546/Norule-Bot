@@ -87,7 +87,7 @@ public class ServerLogListener extends ListenerAdapter {
             return;
         }
         Channel channel = event.getChannel();
-        EmbedBuilder eb = base(event.getGuild(), "??儭?" + t(event.getGuild(), "logs.channel_deleted"), new Color(231, 76, 60))
+        EmbedBuilder eb = base(event.getGuild(), "\uD83D\uDDD1\uFE0F " + t(event.getGuild(), "logs.channel_deleted"), new Color(231, 76, 60))
                 .addField(t(event.getGuild(), "logs.channel"), "`" + channel.getName() + "` (`" + channel.getType().name() + "`)", false);
         send(event.getGuild(), logs.getChannelLifecycleChannelId(), eb);
     }
@@ -104,7 +104,7 @@ public class ServerLogListener extends ListenerAdapter {
         Channel channel = event.getChannel();
         String before = event.getOldValue() == null ? "-" : event.getOldValue();
         String after = event.getNewValue() == null ? "-" : event.getNewValue();
-        EmbedBuilder eb = base(event.getGuild(), "?? " + t(event.getGuild(), "logs.channel_renamed"), new Color(155, 89, 182))
+        EmbedBuilder eb = base(event.getGuild(), "\u270F\uFE0F " + t(event.getGuild(), "logs.channel_renamed"), new Color(155, 89, 182))
                 .addField(t(event.getGuild(), "logs.channel"), channel.getAsMention() + " (`" + channel.getType().name() + "`)", false)
                 .addField(t(event.getGuild(), "logs.before"), "`" + before.replace("`", "") + "`", true)
                 .addField(t(event.getGuild(), "logs.after"), "`" + after.replace("`", "") + "`", true);
@@ -117,7 +117,7 @@ public class ServerLogListener extends ListenerAdapter {
         if (!logs.isEnabled() || !logs.isModerationLogEnabled()) {
             return;
         }
-        EmbedBuilder eb = base(event.getGuild(), "? " + t(event.getGuild(), "logs.user_banned"), new Color(192, 57, 43))
+        EmbedBuilder eb = base(event.getGuild(), "\u26D4 " + t(event.getGuild(), "logs.user_banned"), new Color(192, 57, 43))
                 .addField(t(event.getGuild(), "logs.user"), event.getUser().getAsMention() + " (`" + event.getUser().getAsTag() + "`)", false);
         send(event.getGuild(), logs.getModerationLogChannelId(), eb);
     }
@@ -128,7 +128,7 @@ public class ServerLogListener extends ListenerAdapter {
         if (!logs.isEnabled() || !logs.isModerationLogEnabled()) {
             return;
         }
-        EmbedBuilder eb = base(event.getGuild(), "? " + t(event.getGuild(), "logs.user_unbanned"), new Color(39, 174, 96))
+        EmbedBuilder eb = base(event.getGuild(), "\u2705 " + t(event.getGuild(), "logs.user_unbanned"), new Color(39, 174, 96))
                 .addField(t(event.getGuild(), "logs.user"), event.getUser().getAsMention() + " (`" + event.getUser().getAsTag() + "`)", false);
         send(event.getGuild(), logs.getModerationLogChannelId(), eb);
     }
@@ -147,7 +147,7 @@ public class ServerLogListener extends ListenerAdapter {
                 : target.getAsMention() + " (`" + target.getAsTag() + "`)";
         User actor = event.getEntry().getUser();
         String actorText = actor == null ? "-" : actor.getAsMention() + " (`" + actor.getAsTag() + "`)";
-        EmbedBuilder eb = base(event.getGuild(), "? " + t(event.getGuild(), "logs.user_kicked"), new Color(230, 126, 34))
+        EmbedBuilder eb = base(event.getGuild(), "\uD83D\uDC62 " + t(event.getGuild(), "logs.user_kicked"), new Color(230, 126, 34))
                 .addField(t(event.getGuild(), "logs.target"), targetText, false)
                 .addField(t(event.getGuild(), "logs.moderator"), actorText, false);
         send(event.getGuild(), logs.getModerationLogChannelId(), eb);

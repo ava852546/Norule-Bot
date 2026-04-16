@@ -283,11 +283,14 @@ public class NotificationListener extends ListenerAdapter {
         long accountAgeDays = ChronoUnit.DAYS.between(createdAt, Instant.now());
         return template
                 .replace("{user}", user.getAsMention())
-                .replace("{雿輻?", user.getAsMention())
+                .replace("{使用者}", user.getAsMention())
+                .replace("{用户}", user.getAsMention())
                 .replace("{username}", user.getName())
-                .replace("{雿輻??蝔惦", user.getName())
+                .replace("{使用者名稱}", user.getName())
+                .replace("{用户名}", user.getName())
                 .replace("{guild}", guild.getName())
-                .replace("{蝢斤??迂}", guild.getName())
+                .replace("{伺服器}", guild.getName())
+                .replace("{服务器}", guild.getName())
                 .replace("{id}", user.getId())
                 .replace("{tag}", user.getAsTag())
                 .replace("{isBot}", String.valueOf(user.isBot()))

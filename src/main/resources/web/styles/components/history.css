@@ -3,7 +3,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   padding: 14px;
   border: 1px solid rgba(255,255,255,.08);
@@ -11,11 +11,48 @@
   background: linear-gradient(180deg, rgba(15,23,42,.56), rgba(15,23,42,.42));
   box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
 }
-.history-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.history-actions button { width: auto; }
+.history-item > :first-child {
+  flex: 1 1 520px;
+  min-width: 0;
+}
+
+.history-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
+.history-actions button {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 54px;
+  padding-inline: 24px;
+  border-radius: 18px;
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+#loadTicketHistoryBtn {
+  min-height: 54px;
+  padding-inline: 24px;
+  border-radius: 18px;
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.3;
+}
+
 .history-item a { color: #93c5fd; text-decoration: none; word-break: break-all; }
 .history-item a:hover { text-decoration: underline; }
 .history-meta { color: #9ca3af; font-size: 12px; margin-top: 4px; }
+
+.history-actions .history-meta {
+  margin-top: 0;
+  white-space: nowrap;
+}
 
 .option-card {
   padding: 15px;
@@ -59,5 +96,10 @@ select[multiple].role-multi:focus { outline: none; box-shadow: 0 0 0 2px rgba(59
 @media (max-width: 960px) {
   .option-card-grid {
     grid-template-columns: 1fr;
+  }
+
+  .history-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 }

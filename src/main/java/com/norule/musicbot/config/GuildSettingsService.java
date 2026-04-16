@@ -258,6 +258,10 @@ public class GuildSettingsService {
         logsMap.put("channelLifecycleLogEnabled", logs.isChannelLifecycleLogEnabled());
         logsMap.put("moderationLogEnabled", logs.isModerationLogEnabled());
         logsMap.put("commandUsageLogEnabled", logs.isCommandUsageLogEnabled());
+        logsMap.put("ignoredMemberIds", new ArrayList<>(logs.getIgnoredMemberIds()));
+        logsMap.put("ignoredRoleIds", new ArrayList<>(logs.getIgnoredRoleIds()));
+        logsMap.put("ignoredChannelIds", new ArrayList<>(logs.getIgnoredChannelIds()));
+        logsMap.put("ignoredPrefixes", new ArrayList<>(logs.getIgnoredPrefixes()));
         root.put("messageLogs", logsMap);
 
         BotConfig.Music music = settings.getMusic();

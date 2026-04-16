@@ -142,6 +142,10 @@ h3 {
 .control-bar button,
 .settings-actions button {
   width: auto;
+  min-height: 54px;
+  padding-inline: 24px;
+  font-size: 16px;
+  border-radius: 18px;
 }
 
 #status {
@@ -162,6 +166,7 @@ h3 {
   margin: 0;
   padding-top: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 14px;
 }
 
 .tabs-shell {
@@ -282,6 +287,32 @@ h3 {
   margin-top: 14px;
 }
 
+.ticket-option-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.ticket-option-editor-section {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+  padding: 16px;
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,.016));
+}
+
+.ticket-option-editor-section > .field,
+.ticket-option-editor-section > .toggle {
+  min-width: 0;
+}
+
+.ticket-option-editor-text {
+  align-self: stretch;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -329,7 +360,8 @@ h3 {
 @media (max-width: 960px) {
   .grid2,
   .grid3,
-  .stats-grid {
+  .stats-grid,
+  .ticket-option-editor-section {
     grid-template-columns: 1fr;
   }
 
