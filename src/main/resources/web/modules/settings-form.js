@@ -88,7 +88,11 @@ export function createSettingsFormModule(deps) {
         { id: 'l_roleLogEnabled', path: 'messageLogs.roleLogEnabled', type: 'checked', default: true },
         { id: 'l_channelLifecycleLogEnabled', path: 'messageLogs.channelLifecycleLogEnabled', type: 'checked', default: true },
         { id: 'l_moderationLogEnabled', path: 'messageLogs.moderationLogEnabled', type: 'checked', default: true },
-        { id: 'l_commandUsageLogEnabled', path: 'messageLogs.commandUsageLogEnabled', type: 'checked', default: true }
+        { id: 'l_commandUsageLogEnabled', path: 'messageLogs.commandUsageLogEnabled', type: 'checked', default: true },
+        { id: 'l_ignoredMemberIds', path: 'messageLogs.ignoredMemberIds', type: 'value', default: '' },
+        { id: 'l_ignoredRoleIds', path: 'messageLogs.ignoredRoleIds', type: 'value', default: '' },
+        { id: 'l_ignoredChannelIds', path: 'messageLogs.ignoredChannelIds', type: 'value', default: '' },
+        { id: 'l_ignoredPrefixes', path: 'messageLogs.ignoredPrefixes', type: 'value', default: '' }
       ]
     },
     music: {

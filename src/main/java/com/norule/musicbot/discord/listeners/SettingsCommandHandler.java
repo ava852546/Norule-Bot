@@ -89,7 +89,7 @@ final class SettingsCommandHandler {
                 event.replyEmbeds(new EmbedBuilder()
                                 .setColor(new Color(46, 204, 113))
                                 .setTitle(owner.i18nService().t(lang, "settings.info_title"))
-                                .setDescription("??" + owner.i18nService().t(lang, "settings.reload_done"))
+                                .setDescription("\u2705 " + owner.i18nService().t(lang, "settings.reload_done"))
                                 .build())
                         .setEphemeral(true)
                         .queue();

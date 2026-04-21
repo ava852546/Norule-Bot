@@ -15,6 +15,7 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.IMentionable;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
+import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.MessageHistory;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildChannel;
@@ -100,12 +101,31 @@ public class MusicCommandListener extends ListenerAdapter {
     static final String SUB_SETTINGS_TEMPLATE_ZH = "\u6a21\u677f\u7de8\u8f2f";
     static final String SUB_SETTINGS_MODULE_ZH = "\u6a21\u7d44\u958b\u95dc";
     static final String SUB_SETTINGS_LOGS_ZH = "\u65e5\u8a8c\u983b\u9053";
-    static final String SUB_SETTINGS_LOG_SETTINGS_ZH = "\u65e5\u8a8c\u8a2d\u5b9a";
+    static final String SUB_SETTINGS_LOG_SETTINGS_ZH = "\u65e5\u8a8c\u5ffd\u7565";
     static final String SUB_SETTINGS_MUSIC_ZH = "\u97f3\u6a02\u8a2d\u5b9a";
     static final String SUB_SETTINGS_LANGUAGE_ZH = "\u8a9e\u8a00\u8a2d\u7f6e";
     static final String SUB_SETTINGS_NUMBER_CHAIN_ZH = "\u63a5\u9f8d\u904a\u6232";
     static final String SUB_GENERIC_ENABLE_ZH = "\u555f\u7528";
     static final String SUB_GENERIC_STATUS_ZH = "\u72c0\u614b";
+    static final String SUB_MUSIC_STATS_ZH = "\u7d71\u8a08";
+    static final String SUB_PLAYLIST_SAVE_ZH = "\u5132\u5b58";
+    static final String SUB_PLAYLIST_LOAD_ZH = "\u8f09\u5165";
+    static final String SUB_PLAYLIST_DELETE_ZH = "\u522a\u9664";
+    static final String SUB_PLAYLIST_LIST_ZH = "\u5217\u8868";
+    static final String SUB_PLAYLIST_EXPORT_ZH = "\u532f\u51fa";
+    static final String SUB_PLAYLIST_IMPORT_ZH = "\u532f\u5165";
+    static final String SUB_PLAYLIST_VIEW_ZH = "\u67e5\u770b";
+    static final String SUB_PLAYLIST_REMOVE_TRACK_ZH = "\u522a\u9664\u6b4c\u66f2";
+    private static final String PLAYLIST_SCOPE_MINE = "mine";
+    private static final String PLAYLIST_SCOPE_ALL = "all";
+    static final String PLAYLIST_LIST_BUTTON_PREFIX = "playlist:list:";
+    static final String PLAYLIST_VIEW_BUTTON_PREFIX = "playlist:view:";
+    static final String PLAYLIST_TRACK_REMOVE_CONFIRM_PREFIX = "playlist:track:remove:confirm:";
+    static final String PLAYLIST_TRACK_REMOVE_CANCEL_PREFIX = "playlist:track:remove:cancel:";
+    private static final int PLAYLIST_LIST_PAGE_SIZE = 10;
+    static final String HISTORY_BUTTON_PREFIX = "history:";
+    private static final int HISTORY_FETCH_LIMIT = 50;
+    static final String OPTION_VOLUME_VALUE_ZH = "\u97f3\u91cf";
     static final String SUB_DELETE_CHANNEL_ZH = "\u983b\u9053";
     static final String SUB_DELETE_USER_ZH = "\u4f7f\u7528\u8005";
     static final String HELP_SELECT_ID = "help:select";
@@ -148,6 +168,7 @@ public class MusicCommandListener extends ListenerAdapter {
     static final String PANEL_VOLUME_DOWN = "panel:volume:down";
     static final String PANEL_VOLUME_UP = "panel:volume:up";
     static final String PANEL_REFRESH = "panel:refresh";
+    static final String PANEL_SHUFFLE = "panel:shuffle";
 
     private final MusicPlayerService musicService;
     private final ModerationService moderationService;
@@ -158,6 +179,8 @@ public class MusicCommandListener extends ListenerAdapter {
     private final Map<Long, PanelRef> panelByGuild = new ConcurrentHashMap<>();
     private final Map<String, SearchRequest> searchRequests = new ConcurrentHashMap<>();
     private final Map<String, DeleteRequest> deleteRequests = new ConcurrentHashMap<>();
+    private final Map<String, PlaylistViewRequest> playlistViewRequests = new ConcurrentHashMap<>();
+    private final Map<String, PlaylistTrackRemoveRequest> playlistTrackRemoveRequests = new ConcurrentHashMap<>();
     private final Map<String, WarningActionRequest> warningActionRequests = new ConcurrentHashMap<>();
     private final Map<String, Long> commandCooldowns = new ConcurrentHashMap<>();
     private final Map<String, Long> panelButtonCooldowns = new ConcurrentHashMap<>();
@@ -180,6 +203,8 @@ public class MusicCommandListener extends ListenerAdapter {
     private final Map<Long, String> panelLastSignature = new ConcurrentHashMap<>();
     private final Map<Long, ScheduledFuture<?>> delayedPanelRefreshByGuild = new ConcurrentHashMap<>();
     private final Set<Long> panelRefreshingGuilds = ConcurrentHashMap.newKeySet();
+    private final Map<Long, Long> playbackFailureLastAt = new ConcurrentHashMap<>();
+    private final Map<Long, String> playbackFailureLastSig = new ConcurrentHashMap<>();
     private volatile boolean botReadyForSlashCommands;
     private static final long PANEL_PERIODIC_REFRESH_MS = 30000L;
     private static final long PANEL_MIN_EDIT_INTERVAL_MS = 3500L;
@@ -194,11 +219,58 @@ public class MusicCommandListener extends ListenerAdapter {
         this.settingsService = settingsService;
         this.i18n = I18nService.load(java.nio.file.Path.of(config.getLanguageDir()), config.getDefaultLanguage());
         this.musicService.setAutoplayEnabledChecker(guildId -> settingsService.getMusic(guildId).isAutoplayEnabled());
+        this.musicService.setPlaybackFailureListener(this::reportPlaybackFailure);
         this.commandRegistrar = new CommandRegistrar(this);
         this.settingsCommandHandler = new SettingsCommandHandler(this);
         this.musicPanelController = new MusicPanelController(this);
         this.interactionRouter = new InteractionRouter(this);
         this.scheduler.scheduleAtFixedRate(this::refreshAllPanelsSafely, 5, 30, TimeUnit.SECONDS);
+    }
+
+    private void reportPlaybackFailure(long guildId, MusicPlayerService.PlaybackFailure failure) {
+        if (failure == null || failure.rawError() == null || failure.rawError().isBlank()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        String sig = (failure.title() == null ? "-" : failure.title()) + "|" + failure.rawError().trim();
+        Long lastAt = playbackFailureLastAt.get(guildId);
+        String lastSig = playbackFailureLastSig.get(guildId);
+        if (lastAt != null && now - lastAt < 8000L && sig.equals(lastSig)) {
+            return;
+        }
+        playbackFailureLastAt.put(guildId, now);
+        playbackFailureLastSig.put(guildId, sig);
+
+        if (jda == null) {
+            return;
+        }
+        Guild guild = jda.getGuildById(guildId);
+        if (guild == null) {
+            return;
+        }
+        Long channelId = musicService.getLastCommandChannelId(guildId);
+        if (channelId == null) {
+            PanelRef ref = panelByGuild.get(guildId);
+            if (ref != null) {
+                channelId = ref.channelId;
+            }
+        }
+        if (channelId == null) {
+            return;
+        }
+        TextChannel channel = guild.getTextChannelById(channelId);
+        if (channel == null || !channel.canTalk()) {
+            return;
+        }
+        String lang = lang(guildId);
+        String mapped = mapMusicLoadError(lang, failure.rawError());
+        channel.sendMessage(i18n.t(lang, "music.playback_failed", Map.of(
+                        "title", safe(failure.title(), 80),
+                        "error", safe(mapped, 180)
+                )))
+                .queue(success -> {
+                }, error -> {
+                });
     }
 
     public void reloadRuntimeConfig(BotConfig newConfig) {
@@ -389,7 +461,7 @@ public class MusicCommandListener extends ListenerAdapter {
             return;
         }
 
-        event.deferReply(true).queue(success -> musicService.searchTopTracks(query, 10, results -> {
+        event.deferReply().queue(success -> musicService.searchTopTracks(query, 10, results -> {
             if (results.isEmpty()) {
                 event.getHook().sendMessage(i18n.t(lang, "music.not_found", Map.of("query", query))).queue();
                 return;
@@ -1919,12 +1991,12 @@ public class MusicCommandListener extends ListenerAdapter {
         }
         return text
                 .replace("{user}", user.getAsMention())
-                .replace("{使用者}", user.getAsMention())
+                .replace("{雿輻?", user.getAsMention())
                 .replace("{username}", user.getName())
-                .replace("{使用者名稱}", user.getName())
+                .replace("{雿輻??蝔惦", user.getName())
                 .replace("{guild}", guild.getName())
-                .replace("{群組名稱}", guild.getName())
-                .replace("{群組名}", guild.getName())
+                .replace("{蝢斤??迂}", guild.getName())
+                .replace("{蝢斤??", guild.getName())
                 .replace("{id}", user.getId())
                 .replace("{tag}", user.getAsTag())
                 .replace("{isBot}", String.valueOf(user.isBot()))
@@ -1933,7 +2005,8 @@ public class MusicCommandListener extends ListenerAdapter {
     }
     void handleVolumeSlash(SlashCommandInteractionEvent event, String lang) {
         long guildId = event.getGuild().getIdLong();
-        Integer raw = event.getOption("value") == null ? null : (int) event.getOption("value").getAsLong();
+        var volumeOption = slashOption(event, "value", OPTION_VOLUME_VALUE_ZH);
+        Integer raw = volumeOption == null ? null : (int) volumeOption.getAsLong();
         if (raw == null) {
             event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
             return;
@@ -1942,13 +2015,12 @@ public class MusicCommandListener extends ListenerAdapter {
         refreshPanel(guildId);
         TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
         event.reply(musicUx(lang, "volume_set", Map.of("value", String.valueOf(applied))))
-                .setEphemeral(true)
                 .queue(success -> moveActivePanelToBottom(event.getGuild(), panelChannel), error -> {
                 });
     }
 
     void handleMusicSlash(SlashCommandInteractionEvent event, String lang) {
-        String sub = event.getSubcommandName();
+        String sub = canonicalMusicSubcommand(event.getSubcommandName());
         if (sub == null || sub.isBlank()) {
             event.replyEmbeds(musicStatsEmbed(event.getGuild(), lang).build()).queue();
             return;
@@ -1961,28 +2033,44 @@ public class MusicCommandListener extends ListenerAdapter {
     }
 
     void handlePlaylistSlash(SlashCommandInteractionEvent event, String lang) {
-        String sub = event.getSubcommandName();
+        String sub = canonicalPlaylistSubcommand(event.getSubcommandName());
         if (sub == null || sub.isBlank()) {
             event.replyEmbeds(playlistListEmbed(event.getGuild(), lang).build()).setEphemeral(true).queue();
             return;
         }
         String playlistSourceLabel = musicText(lang, "playlist_source");
         String playlistName = event.getOption("name") == null ? "" : event.getOption("name").getAsString().trim();
+        String playlistCode = event.getOption("code") == null ? "" : event.getOption("code").getAsString().trim();
+        String playlistScope = event.getOption("scope") == null ? PLAYLIST_SCOPE_MINE : event.getOption("scope").getAsString().trim();
         switch (sub) {
-            case "list" -> event.replyEmbeds(playlistListEmbed(event.getGuild(), lang).build()).setEphemeral(true).queue();
+            case "list" -> {
+                Long ownerIdFilter = resolvePlaylistOwnerFilter(playlistScope, event.getUser().getIdLong());
+                event.replyEmbeds(playlistListEmbed(event.getGuild(), lang, ownerIdFilter, 0).build())
+                        .addComponents(ActionRow.of(playlistListButtons(lang, playlistScope, event.getUser().getIdLong(), 0, playlistListTotalPages(event.getGuild(), ownerIdFilter))))
+                        .setEphemeral(true)
+                        .queue();
+            }
             case "save" -> {
                 if (playlistName.isBlank()) {
                     event.reply(musicText(lang, "playlist_name_required")).setEphemeral(true).queue();
                     return;
                 }
-                int saved = musicService.saveCurrentPlaylist(event.getGuild(), playlistName);
-                if (saved <= 0) {
-                    event.reply(musicText(lang, "playlist_save_empty")).setEphemeral(true).queue();
-                    return;
+                MusicDataService.PlaylistSaveResult saved = musicService.saveCurrentPlaylist(
+                        event.getGuild(),
+                        playlistName,
+                        event.getUser().getIdLong(),
+                        event.getMember() == null ? event.getUser().getName() : event.getMember().getEffectiveName()
+                );
+                switch (saved.status()) {
+                    case SUCCESS -> event.reply(musicText(lang, "playlist_save_success", Map.of(
+                                    "name", saved.playlistName(),
+                                    "count", String.valueOf(saved.trackCount())
+                            )))
+                            .setEphemeral(true)
+                            .queue();
+                    case NAME_CONFLICT -> event.reply(playlistNameConflictText(lang, saved.playlistName(), saved.ownerName())).setEphemeral(true).queue();
+                    default -> event.reply(musicText(lang, "playlist_save_empty")).setEphemeral(true).queue();
                 }
-                event.reply(musicText(lang, "playlist_save_success", Map.of("name", playlistName, "count", String.valueOf(saved))))
-                        .setEphemeral(true)
-                        .queue();
             }
             case "load" -> {
                 if (playlistName.isBlank()) {
@@ -2017,16 +2105,136 @@ public class MusicCommandListener extends ListenerAdapter {
                         });
             }
             case "delete" -> {
+                boolean allowManageOverride = event.getMember() != null && event.getMember().hasPermission(Permission.MANAGE_SERVER);
                 if (playlistName.isBlank()) {
                     event.reply(musicText(lang, "playlist_name_required")).setEphemeral(true).queue();
                     return;
                 }
-                boolean removed = musicService.deletePlaylist(event.getGuild().getIdLong(), playlistName);
-                if (!removed) {
-                    event.reply(musicText(lang, "playlist_delete_missing", Map.of("name", playlistName))).setEphemeral(true).queue();
+                MusicDataService.PlaylistDeleteResult removed = musicService.deletePlaylist(
+                        event.getGuild().getIdLong(),
+                        playlistName,
+                        event.getUser().getIdLong(),
+                        allowManageOverride
+                );
+                switch (removed.status()) {
+                    case SUCCESS -> event.reply(musicText(lang, "playlist_delete_success", Map.of("name", removed.playlistName()))).setEphemeral(true).queue();
+                    case NOT_OWNER -> event.reply(playlistDeleteForbiddenText(lang, removed.playlistName(), removed.ownerName())).setEphemeral(true).queue();
+                    default -> event.reply(musicText(lang, "playlist_delete_missing", Map.of("name", playlistName))).setEphemeral(true).queue();
+                }
+            }
+            case "remove-track" -> {
+                if (playlistName.isBlank()) {
+                    event.reply(musicText(lang, "playlist_name_required")).setEphemeral(true).queue();
                     return;
                 }
-                event.reply(musicText(lang, "playlist_delete_success", Map.of("name", playlistName))).setEphemeral(true).queue();
+                long guildId = event.getGuild().getIdLong();
+                int index = event.getOption("index") == null ? 0 : (int) event.getOption("index").getAsLong();
+                MusicDataService.PlaylistSummary summary = musicService.getPlaylistSummary(guildId, playlistName);
+                if (summary == null) {
+                    event.reply(musicText(lang, "playlist_view_missing", Map.of("name", playlistName))).setEphemeral(true).queue();
+                    return;
+                }
+                long requesterId = event.getUser().getIdLong();
+                if (summary.ownerId() != null && summary.ownerId() != requesterId) {
+                    event.reply(musicText(lang, "playlist_track_remove_not_owner", Map.of(
+                                    "name", summary.name(),
+                                    "owner", summary.ownerName() == null || summary.ownerName().isBlank() ? "-" : summary.ownerName()
+                            )))
+                            .setEphemeral(true)
+                            .queue();
+                    return;
+                }
+                List<MusicDataService.PlaybackEntry> tracks = musicService.getPlaylistTracks(guildId, summary.name());
+                if (tracks.isEmpty()) {
+                    event.reply(musicText(lang, "playlist_view_empty")).setEphemeral(true).queue();
+                    return;
+                }
+                if (index <= 0 || index > tracks.size()) {
+                    event.reply(musicText(lang, "playlist_track_remove_invalid_index", Map.of(
+                                    "index", String.valueOf(index),
+                                    "count", String.valueOf(tracks.size())
+                            )) + "\n" + musicText(lang, "playlist_track_remove_hint", Map.of("name", summary.name())))
+                            .setEphemeral(true)
+                            .queue();
+                    return;
+                }
+                MusicDataService.PlaybackEntry target = tracks.get(index - 1);
+                String title = target == null ? "-" : safe(target.title(), 80);
+                String token = rememberPlaylistTrackRemoveRequest(guildId, requesterId, summary.name(), index);
+                event.replyEmbeds(new EmbedBuilder()
+                                .setColor(new Color(231, 76, 60))
+                                .setTitle("\uD83D\uDDD1\uFE0F " + musicText(lang, "playlist_track_remove_confirm_title"))
+                                .setDescription(musicText(lang, "playlist_track_remove_confirm_desc", Map.of(
+                                        "name", summary.name(),
+                                        "index", String.valueOf(index),
+                                        "title", title
+                                )))
+                                .build())
+                        .addComponents(ActionRow.of(
+                                Button.danger(PLAYLIST_TRACK_REMOVE_CONFIRM_PREFIX + token, i18n.t(lang, "delete.confirm_button")),
+                                Button.secondary(PLAYLIST_TRACK_REMOVE_CANCEL_PREFIX + token, i18n.t(lang, "delete.cancel_button"))
+                        ))
+                        .setEphemeral(true)
+                        .queue();
+            }
+            case "export" -> {
+                if (playlistName.isBlank()) {
+                    event.reply(musicText(lang, "playlist_name_required")).setEphemeral(true).queue();
+                    return;
+                }
+                MusicDataService.PlaylistShareCode share = musicService.exportPlaylist(event.getGuild().getIdLong(), playlistName);
+                if (share == null) {
+                    event.reply(musicText(lang, "playlist_export_missing", Map.of("name", playlistName))).setEphemeral(true).queue();
+                    return;
+                }
+                event.reply(musicText(lang, "playlist_export_success", Map.of(
+                                "name", share.playlistName(),
+                                "count", String.valueOf(share.trackCount()),
+                                "code", share.code(),
+                                "minutes", "3"
+                        )))
+                        .setEphemeral(true)
+                        .queue();
+            }
+            case "import" -> {
+                if (playlistCode.isBlank()) {
+                    event.reply(musicText(lang, "playlist_code_required")).setEphemeral(true).queue();
+                    return;
+                }
+                MusicDataService.PlaylistImportResult imported = musicService.importPlaylist(
+                        event.getGuild().getIdLong(),
+                        playlistCode,
+                        playlistName,
+                        event.getUser().getIdLong(),
+                        event.getMember() == null ? event.getUser().getName() : event.getMember().getEffectiveName()
+                );
+                switch (imported.status()) {
+                    case SUCCESS -> event.reply(musicText(lang, "playlist_import_success", Map.of(
+                                    "name", imported.playlistName(),
+                                    "count", String.valueOf(imported.trackCount()),
+                                    "code", playlistCode
+                            )))
+                            .setEphemeral(true)
+                            .queue();
+                    case NAME_CONFLICT -> event.reply(playlistNameConflictText(lang, imported.playlistName(), imported.ownerName())).setEphemeral(true).queue();
+                    default -> event.reply(musicText(lang, "playlist_import_invalid_code", Map.of("code", playlistCode))).setEphemeral(true).queue();
+                }
+            }
+            case "view" -> {
+                if (playlistName.isBlank()) {
+                    event.reply(musicText(lang, "playlist_name_required")).setEphemeral(true).queue();
+                    return;
+                }
+                String token = rememberPlaylistViewRequest(event.getGuild().getIdLong(), event.getUser().getIdLong(), playlistName);
+                EmbedBuilder embed = playlistViewEmbed(event.getGuild(), lang, playlistName, 0);
+                if (embed == null) {
+                    event.reply(musicText(lang, "playlist_view_missing", Map.of("name", playlistName))).setEphemeral(true).queue();
+                    return;
+                }
+                event.replyEmbeds(embed.build())
+                        .addComponents(ActionRow.of(playlistViewButtons(lang, token, 0, playlistViewTotalPages(event.getGuild(), playlistName))))
+                        .setEphemeral(true)
+                        .queue();
             }
             default -> event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
         }
@@ -2035,20 +2243,38 @@ public class MusicCommandListener extends ListenerAdapter {
     private void handlePlaylistPrefix(MessageReceivedEvent event, Guild guild, String arg, String lang) {
         String[] parts = arg == null ? new String[0] : arg.trim().split("\\s+", 2);
         String action = parts.length == 0 ? "" : parts[0].toLowerCase(Locale.ROOT);
-        String playlistName = parts.length > 1 ? parts[1].trim() : "";
+        String actionArg = parts.length > 1 ? parts[1].trim() : "";
+        String playlistName = actionArg;
         switch (action) {
-            case "", "list" -> event.getChannel().sendMessageEmbeds(playlistListEmbed(guild, lang).build()).queue();
+            case "", "list" -> {
+                Long ownerIdFilter = isOwnPlaylistScope(actionArg) ? event.getAuthor().getIdLong() : null;
+                String scope = ownerIdFilter == null ? PLAYLIST_SCOPE_ALL : PLAYLIST_SCOPE_MINE;
+                event.getChannel().sendMessageEmbeds(playlistListEmbed(guild, lang, ownerIdFilter, 0).build())
+                        .setComponents(ActionRow.of(playlistListButtons(lang, scope, event.getAuthor().getIdLong(), 0, playlistListTotalPages(guild, ownerIdFilter))))
+                        .queue();
+            }
             case "save" -> {
                 if (playlistName.isBlank()) {
                     event.getChannel().sendMessage(musicUx(lang, "playlist_usage")).queue();
                     return;
                 }
-                int saved = musicService.saveCurrentPlaylist(guild, playlistName);
-                if (saved <= 0) {
-                    event.getChannel().sendMessage(musicUx(lang, "playlist_save_empty")).queue();
-                    return;
+                MusicDataService.PlaylistSaveResult saved = musicService.saveCurrentPlaylist(
+                        guild,
+                        playlistName,
+                        event.getAuthor().getIdLong(),
+                        event.getMember() == null ? event.getAuthor().getName() : event.getMember().getEffectiveName()
+                );
+                switch (saved.status()) {
+                    case SUCCESS -> event.getChannel().sendMessage(musicUx(lang, "playlist_save_success", Map.of(
+                            "name", saved.playlistName(),
+                            "count", String.valueOf(saved.trackCount())
+                    ))).queue();
+                    case NAME_CONFLICT -> event.getChannel().sendMessage(musicUx(lang, "playlist_name_conflict", Map.of(
+                            "name", saved.playlistName(),
+                            "owner", saved.ownerName()
+                    ))).queue();
+                    default -> event.getChannel().sendMessage(musicUx(lang, "playlist_save_empty")).queue();
                 }
-                event.getChannel().sendMessage(musicUx(lang, "playlist_save_success", Map.of("name", playlistName, "count", String.valueOf(saved)))).queue();
             }
             case "load" -> {
                 if (playlistName.isBlank()) {
@@ -2078,12 +2304,76 @@ public class MusicCommandListener extends ListenerAdapter {
                     event.getChannel().sendMessage(musicUx(lang, "playlist_usage")).queue();
                     return;
                 }
-                boolean removed = musicService.deletePlaylist(guild.getIdLong(), playlistName);
-                if (!removed) {
-                    event.getChannel().sendMessage(musicUx(lang, "playlist_delete_missing", Map.of("name", playlistName))).queue();
+                boolean allowManageOverride = event.getMember() != null && event.getMember().hasPermission(Permission.MANAGE_SERVER);
+                MusicDataService.PlaylistDeleteResult removed = musicService.deletePlaylist(guild.getIdLong(), playlistName, event.getAuthor().getIdLong(), allowManageOverride);
+                switch (removed.status()) {
+                    case SUCCESS -> event.getChannel().sendMessage(musicUx(lang, "playlist_delete_success", Map.of("name", removed.playlistName()))).queue();
+                    case NOT_OWNER -> event.getChannel().sendMessage(musicUx(lang, "playlist_delete_not_owner", Map.of(
+                            "name", removed.playlistName(),
+                            "owner", removed.ownerName()
+                    ))).queue();
+                    default -> event.getChannel().sendMessage(musicUx(lang, "playlist_delete_missing", Map.of("name", playlistName))).queue();
+                }
+            }
+            case "view" -> {
+                if (playlistName.isBlank()) {
+                    event.getChannel().sendMessage(musicUx(lang, "playlist_usage")).queue();
                     return;
                 }
-                event.getChannel().sendMessage(musicUx(lang, "playlist_delete_success", Map.of("name", playlistName))).queue();
+                String token = rememberPlaylistViewRequest(guild.getIdLong(), event.getAuthor().getIdLong(), playlistName);
+                EmbedBuilder embed = playlistViewEmbed(guild, lang, playlistName, 0);
+                if (embed == null) {
+                    event.getChannel().sendMessage(musicUx(lang, "playlist_view_missing", Map.of("name", playlistName))).queue();
+                    return;
+                }
+                event.getChannel().sendMessageEmbeds(embed.build())
+                        .setComponents(ActionRow.of(playlistViewButtons(lang, token, 0, playlistViewTotalPages(guild, playlistName))))
+                        .queue();
+            }
+            case "export" -> {
+                if (playlistName.isBlank()) {
+                    event.getChannel().sendMessage(musicUx(lang, "playlist_usage")).queue();
+                    return;
+                }
+                MusicDataService.PlaylistShareCode share = musicService.exportPlaylist(guild.getIdLong(), playlistName);
+                if (share == null) {
+                    event.getChannel().sendMessage(musicUx(lang, "playlist_export_missing", Map.of("name", playlistName))).queue();
+                    return;
+                }
+                event.getChannel().sendMessage(musicUx(lang, "playlist_export_success", Map.of(
+                        "name", share.playlistName(),
+                        "count", String.valueOf(share.trackCount()),
+                        "code", share.code(),
+                        "minutes", "3"
+                ))).queue();
+            }
+            case "import" -> {
+                String[] importParts = actionArg.isBlank() ? new String[0] : actionArg.split("\\s+", 2);
+                String code = importParts.length > 0 ? importParts[0].trim() : "";
+                String targetName = importParts.length > 1 ? importParts[1].trim() : "";
+                if (code.isBlank()) {
+                    event.getChannel().sendMessage(musicUx(lang, "playlist_usage")).queue();
+                    return;
+                }
+                MusicDataService.PlaylistImportResult imported = musicService.importPlaylist(
+                        guild.getIdLong(),
+                        code,
+                        targetName,
+                        event.getAuthor().getIdLong(),
+                        event.getMember() == null ? event.getAuthor().getName() : event.getMember().getEffectiveName()
+                );
+                switch (imported.status()) {
+                    case SUCCESS -> event.getChannel().sendMessage(musicUx(lang, "playlist_import_success", Map.of(
+                            "name", imported.playlistName(),
+                            "count", String.valueOf(imported.trackCount()),
+                            "code", code
+                    ))).queue();
+                    case NAME_CONFLICT -> event.getChannel().sendMessage(musicUx(lang, "playlist_name_conflict", Map.of(
+                            "name", imported.playlistName(),
+                            "owner", imported.ownerName()
+                    ))).queue();
+                    default -> event.getChannel().sendMessage(musicUx(lang, "playlist_import_invalid_code", Map.of("code", code))).queue();
+                }
             }
             default -> event.getChannel().sendMessage(musicUx(lang, "playlist_usage")).queue();
         }
@@ -2103,7 +2393,216 @@ public class MusicCommandListener extends ListenerAdapter {
         return true;
     }
 
+    private String playlistNameConflictText(String lang, String playlistName, String ownerName) {
+        return musicText(lang, "playlist_name_conflict", Map.of(
+                "name", playlistName,
+                "owner", ownerName == null || ownerName.isBlank() ? "-" : ownerName
+        ));
+    }
+
+    private String playlistDeleteForbiddenText(String lang, String playlistName, String ownerName) {
+        return musicText(lang, "playlist_delete_not_owner", Map.of(
+                "name", playlistName,
+                "owner", ownerName == null || ownerName.isBlank() ? "-" : ownerName
+        ));
+    }
+
+    private Long resolvePlaylistOwnerFilter(String scope, long userId) {
+        return PLAYLIST_SCOPE_ALL.equalsIgnoreCase(scope) ? null : userId;
+    }
+
+    private boolean isOwnPlaylistScope(String scope) {
+        if (scope == null || scope.isBlank()) {
+            return false;
+        }
+        String normalized = scope.trim().toLowerCase(Locale.ROOT);
+        return normalized.equals("mine")
+                || normalized.equals("my")
+                || normalized.equals("me")
+                || normalized.equals("\u6211\u7684")
+                || normalized.equals("\u81ea\u5df1");
+    }
+
+    void handlePlaylistListButtons(ButtonInteractionEvent event, String lang) {
+        String[] parts = event.getComponentId().split(":");
+        if (parts.length < 6) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        long requesterId;
+        int page;
+        try {
+            requesterId = Long.parseLong(parts[5]);
+            page = Integer.parseInt(parts[4]);
+        } catch (NumberFormatException ex) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        if (event.getUser().getIdLong() != requesterId) {
+            event.reply(i18n.t(lang, "delete.only_requester")).setEphemeral(true).queue();
+            return;
+        }
+        String scope = parts[2];
+        Long ownerIdFilter = resolvePlaylistOwnerFilter(scope, requesterId);
+        int totalPages = playlistListTotalPages(event.getGuild(), ownerIdFilter);
+        int safePage = Math.max(0, Math.min(page, totalPages - 1));
+        event.editMessageEmbeds(playlistListEmbed(event.getGuild(), lang, ownerIdFilter, safePage).build())
+                .setComponents(ActionRow.of(playlistListButtons(lang, scope, requesterId, safePage, totalPages)))
+                .queue();
+    }
+
+    private int playlistListTotalPages(Guild guild, Long ownerIdFilter) {
+        int size = musicService.listPlaylists(guild.getIdLong(), ownerIdFilter).size();
+        return Math.max(1, (size + PLAYLIST_LIST_PAGE_SIZE - 1) / PLAYLIST_LIST_PAGE_SIZE);
+    }
+
+    private List<Button> playlistListButtons(String lang, String scope, long requesterId, int page, int totalPages) {
+        int lastPage = Math.max(0, totalPages - 1);
+        int prevPage = Math.max(0, page - 1);
+        int nextPage = Math.min(lastPage, page + 1);
+        return List.of(
+                Button.secondary(PLAYLIST_LIST_BUTTON_PREFIX + scope + ":prev:" + prevPage + ":" + requesterId, musicText(lang, "playlist_prev_page"))
+                        .withDisabled(page <= 0),
+                Button.secondary(PLAYLIST_LIST_BUTTON_PREFIX + scope + ":next:" + nextPage + ":" + requesterId, musicText(lang, "playlist_next_page"))
+                        .withDisabled(page >= lastPage)
+        );
+    }
+
+    void handlePlaylistViewButtons(ButtonInteractionEvent event, String lang) {
+        String token = event.getComponentId().substring(PLAYLIST_VIEW_BUTTON_PREFIX.length());
+        String[] parts = token.split(":");
+        if (parts.length < 3) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        PlaylistViewRequest request = playlistViewRequests.get(parts[0]);
+        if (request == null || Instant.now().isAfter(request.expiresAt)) {
+            playlistViewRequests.remove(parts[0]);
+            event.reply(musicText(lang, "playlist_view_expired")).setEphemeral(true).queue();
+            return;
+        }
+        if (event.getUser().getIdLong() != request.requestUserId) {
+            event.reply(i18n.t(lang, "delete.only_requester")).setEphemeral(true).queue();
+            return;
+        }
+        int page;
+        try {
+            page = Integer.parseInt(parts[2]);
+        } catch (NumberFormatException ex) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        if (event.getGuild().getIdLong() != request.guildId) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        int totalPages = playlistViewTotalPages(event.getGuild(), request.playlistName);
+        int safePage = Math.max(0, Math.min(page, totalPages - 1));
+        EmbedBuilder embed = playlistViewEmbed(event.getGuild(), lang, request.playlistName, safePage);
+        if (embed == null) {
+            playlistViewRequests.remove(parts[0]);
+            event.editMessage(musicText(lang, "playlist_view_missing", Map.of("name", request.playlistName)))
+                    .setComponents(List.of())
+                    .queue();
+            return;
+        }
+        event.editMessageEmbeds(embed.build())
+                .setComponents(ActionRow.of(playlistViewButtons(lang, parts[0], safePage, totalPages)))
+                .queue();
+    }
+
+    private String rememberPlaylistViewRequest(long guildId, long requestUserId, String playlistName) {
+        String token = UUID.randomUUID().toString().replace("-", "");
+        playlistViewRequests.put(token, new PlaylistViewRequest(requestUserId, guildId, playlistName, Instant.now().plusSeconds(120)));
+        return token;
+    }
+
+    private int playlistViewTotalPages(Guild guild, String playlistName) {
+        int size = musicService.getPlaylistTracks(guild.getIdLong(), playlistName).size();
+        return Math.max(1, (size + PLAYLIST_LIST_PAGE_SIZE - 1) / PLAYLIST_LIST_PAGE_SIZE);
+    }
+
+    private List<Button> playlistViewButtons(String lang, String token, int page, int totalPages) {
+        int lastPage = Math.max(0, totalPages - 1);
+        int prevPage = Math.max(0, page - 1);
+        int nextPage = Math.min(lastPage, page + 1);
+        return List.of(
+                Button.secondary(PLAYLIST_VIEW_BUTTON_PREFIX + token + ":prev:" + prevPage, musicText(lang, "playlist_prev_page"))
+                        .withDisabled(page <= 0),
+                Button.secondary(PLAYLIST_VIEW_BUTTON_PREFIX + token + ":next:" + nextPage, musicText(lang, "playlist_next_page"))
+                        .withDisabled(page >= lastPage)
+        );
+    }
+
+    private String rememberPlaylistTrackRemoveRequest(long guildId, long requestUserId, String playlistName, int index) {
+        String token = UUID.randomUUID().toString().replace("-", "");
+        playlistTrackRemoveRequests.put(token, new PlaylistTrackRemoveRequest(requestUserId, guildId, playlistName, index, Instant.now().plusSeconds(120)));
+        return token;
+    }
+
+    void handlePlaylistTrackRemoveButtons(ButtonInteractionEvent event, String lang) {
+        String id = event.getComponentId();
+        boolean confirm = id.startsWith(PLAYLIST_TRACK_REMOVE_CONFIRM_PREFIX);
+        String token = id.substring(confirm ? PLAYLIST_TRACK_REMOVE_CONFIRM_PREFIX.length() : PLAYLIST_TRACK_REMOVE_CANCEL_PREFIX.length());
+        PlaylistTrackRemoveRequest request = playlistTrackRemoveRequests.get(token);
+        if (request == null || Instant.now().isAfter(request.expiresAt)) {
+            playlistTrackRemoveRequests.remove(token);
+            event.reply(musicText(lang, "playlist_track_remove_expired")).setEphemeral(true).queue();
+            return;
+        }
+        if (event.getGuild() == null || event.getGuild().getIdLong() != request.guildId) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        if (event.getUser().getIdLong() != request.requestUserId) {
+            event.reply(i18n.t(lang, "delete.only_requester")).setEphemeral(true).queue();
+            return;
+        }
+        if (!confirm) {
+            playlistTrackRemoveRequests.remove(token);
+            event.editMessage(musicText(lang, "playlist_track_remove_cancelled")).setComponents(List.of()).queue();
+            return;
+        }
+        MusicDataService.PlaylistTrackRemoveResult removed = musicService.removePlaylistTrack(
+                request.guildId,
+                request.playlistName,
+                request.index,
+                request.requestUserId
+        );
+        playlistTrackRemoveRequests.remove(token);
+        switch (removed.status()) {
+            case SUCCESS -> event.editMessage(musicText(lang, "playlist_track_remove_success", Map.of(
+                            "name", removed.playlistName(),
+                            "index", String.valueOf(removed.removedIndex()),
+                            "title", removed.removedTitle() == null || removed.removedTitle().isBlank() ? "-" : removed.removedTitle(),
+                            "count", String.valueOf(removed.trackCount())
+                    )))
+                    .setComponents(List.of())
+                    .queue();
+            case NOT_OWNER -> event.editMessage(musicText(lang, "playlist_track_remove_not_owner", Map.of(
+                            "name", removed.playlistName(),
+                            "owner", removed.ownerName() == null || removed.ownerName().isBlank() ? "-" : removed.ownerName()
+                    )))
+                    .setComponents(List.of())
+                    .queue();
+            case INVALID_INDEX -> event.editMessage(musicText(lang, "playlist_track_remove_invalid_index", Map.of(
+                            "index", String.valueOf(removed.removedIndex()),
+                            "count", String.valueOf(removed.trackCount())
+                    )) + "\n" + musicText(lang, "playlist_track_remove_hint", Map.of("name", removed.playlistName())))
+                    .setComponents(List.of())
+                    .queue();
+            default -> event.editMessage(musicText(lang, "playlist_view_missing", Map.of("name", request.playlistName)))
+                    .setComponents(List.of())
+                    .queue();
+        }
+    }
+
     void handlePlaylistAutocomplete(CommandAutoCompleteInteractionEvent event) {
+        String sub = canonicalPlaylistSubcommand(event.getSubcommandName());
+        if ("import".equals(sub)) {
+            event.replyChoices(List.of()).queue();
+            return;
+        }
         String focused = event.getFocusedOption().getValue().toLowerCase(Locale.ROOT).trim();
         long guildId = event.getGuild() == null ? 0L : event.getGuild().getIdLong();
         List<Command.Choice> choices = new ArrayList<>();
@@ -3114,7 +3613,8 @@ public class MusicCommandListener extends ListenerAdapter {
                 || PANEL_AUTOPLAY_TOGGLE.equals(componentId)
                 || PANEL_VOLUME_DOWN.equals(componentId)
                 || PANEL_VOLUME_UP.equals(componentId)
-                || PANEL_REFRESH.equals(componentId);
+                || PANEL_REFRESH.equals(componentId)
+                || PANEL_SHUFFLE.equals(componentId);
     }
 
     private EmbedBuilder panelEmbed(Guild guild, String lang) {
@@ -3174,6 +3674,7 @@ public class MusicCommandListener extends ListenerAdapter {
         boolean autoplayEnabled = isAutoplayEnabled(guildId);
         Guild guild = jda == null ? null : jda.getGuildById(guildId);
         int currentVolume = guild == null ? 100 : musicService.getVolume(guild);
+        boolean hasQueue = guild != null && !musicService.getQueueSnapshot(guild).isEmpty();
         buttons.add(Button.primary(PANEL_PLAY_PAUSE, "\u23EF " + musicUx(lang, "btn_play_pause")));
         buttons.add(Button.primary(PANEL_SKIP, "\u23ED " + musicUx(lang, "btn_skip")));
         buttons.add(Button.danger(PANEL_STOP, "\u23F9 " + musicUx(lang, "btn_stop")));
@@ -3197,6 +3698,9 @@ public class MusicCommandListener extends ListenerAdapter {
         buttons.add("ALL".equalsIgnoreCase(repeatMode)
                 ? Button.success(PANEL_REPEAT_ALL, "\uD83D\uDD01 " + musicUx(lang, "btn_repeat_all"))
                 : Button.secondary(PANEL_REPEAT_ALL, "\uD83D\uDD01 " + musicUx(lang, "btn_repeat_all")));
+        buttons.add(hasQueue
+                ? Button.secondary(PANEL_SHUFFLE, "\uD83D\uDD00 " + musicUx(lang, "btn_shuffle"))
+                : Button.secondary(PANEL_SHUFFLE, "\uD83D\uDD00 " + musicUx(lang, "btn_shuffle")).asDisabled());
         return buttons;
     }
 
@@ -3205,7 +3709,7 @@ public class MusicCommandListener extends ListenerAdapter {
         return List.of(
                 ActionRow.of(buttons.subList(0, 4)),
                 ActionRow.of(buttons.subList(4, 8)),
-                ActionRow.of(buttons.subList(8, 11))
+                ActionRow.of(buttons.subList(8, 12))
         );
     }
 
@@ -3344,7 +3848,11 @@ public class MusicCommandListener extends ListenerAdapter {
                 .addOptions(new OptionData(OptionType.INTEGER, "value", "0-200", true).setRequiredRange(0, 200)));
         commands.add(Commands.slash(CMD_VOLUME_ZH, "\u8a2d\u5b9a\u64ad\u653e\u97f3\u91cf")
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
-                .addOptions(new OptionData(OptionType.INTEGER, "\u97f3\u91cf", "0-200", true).setRequiredRange(0, 200)));
+                .addOptions(localizedOptionName(
+                        new OptionData(OptionType.INTEGER, "value", "0-200", true).setRequiredRange(0, 200),
+                        OPTION_VOLUME_VALUE_ZH,
+                        OPTION_VOLUME_VALUE_ZH
+                )));
         commands.add(Commands.slash("history", "Show recently played tracks")
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED));
         commands.add(Commands.slash(CMD_HISTORY_ZH, "\u986f\u793a\u6700\u8fd1\u64ad\u653e\u7684\u6b4c\u66f2")
@@ -3357,7 +3865,11 @@ public class MusicCommandListener extends ListenerAdapter {
         commands.add(Commands.slash(CMD_MUSIC_ZH, "\u97f3\u6a02\u5de5\u5177\u6307\u4ee4")
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
                 .addSubcommands(
-                        new SubcommandData("\u7d71\u8a08", "\u986f\u793a\u97f3\u6a02\u7d71\u8a08")
+                        localizedSubcommandName(
+                                new SubcommandData("stats", "\u986f\u793a\u97f3\u6a02\u7d71\u8a08"),
+                                SUB_MUSIC_STATS_ZH,
+                                SUB_MUSIC_STATS_ZH
+                        )
                 ));
         commands.add(buildPlaylistCommand("playlist"));
         commands.add(buildPlaylistCommand(CMD_PLAYLIST_ZH));
@@ -3424,10 +3936,35 @@ public class MusicCommandListener extends ListenerAdapter {
                 .addOptions(new OptionData(OptionType.STRING, "name", zh ? "\u6b4c\u55ae\u540d\u7a31" : "Playlist name", true)
                         .setAutoComplete(true));
         SubcommandData list = new SubcommandData(zh ? "\u5217\u8868" : "list",
-                zh ? "\u5217\u51fa\u5df2\u5132\u5b58\u6b4c\u55ae" : "List saved playlists");
+                zh ? "\u5217\u51fa\u5df2\u5132\u5b58\u6b4c\u55ae" : "List saved playlists")
+                .addOptions(new OptionData(OptionType.STRING, "scope", zh ? "\u986f\u793a\u7bc4\u570d" : "Display scope", false)
+                        .addChoice(zh ? "\u53ea\u986f\u793a\u81ea\u5df1\u7684" : "Only mine", PLAYLIST_SCOPE_MINE)
+                        .addChoice(zh ? "\u5168\u90e8\u6b4c\u55ae" : "All playlists", PLAYLIST_SCOPE_ALL));
+        SubcommandData view = new SubcommandData(zh ? "\u67e5\u770b" : "view",
+                zh ? "\u67e5\u770b\u6b4c\u55ae\u5167\u7684\u6b4c\u66f2" : "View tracks inside a playlist")
+                .addOptions(new OptionData(OptionType.STRING, "name", zh ? "\u6b4c\u55ae\u540d\u7a31" : "Playlist name", true)
+                        .setAutoComplete(true));
+        SubcommandData removeTrack = new SubcommandData(zh ? SUB_PLAYLIST_REMOVE_TRACK_ZH : "remove-track",
+                zh ? "\u522a\u9664\u6b4c\u55ae\u5167\u7684\u6b4c\u66f2\uff08\u5148\u4f7f\u7528 /" + CMD_PLAYLIST_ZH + " " + SUB_PLAYLIST_VIEW_ZH + " \u67e5\u770b\u7de8\u865f\uff09"
+                        : "Remove a track from a playlist (use /playlist view to find the track number)")
+                .addOptions(
+                        new OptionData(OptionType.STRING, "name", zh ? "\u6b4c\u55ae\u540d\u7a31" : "Playlist name", true).setAutoComplete(true),
+                        new OptionData(OptionType.INTEGER, "index", zh ? "\u6b4c\u66f2\u7de8\u865f\uff081 \u958b\u59cb\uff09" : "Track number (starting at 1)", true)
+                                .setRequiredRange(1, 10000)
+                );
+        SubcommandData export = new SubcommandData(zh ? "\u532f\u51fa" : "export",
+                zh ? "\u7522\u751f 6 \u4f4d\u6578\u4ee3\u78bc\u4f9b\u8de8\u4f3a\u670d\u5668\u532f\u5165" : "Generate a 6-digit code for cross-server import")
+                .addOptions(new OptionData(OptionType.STRING, "name", zh ? "\u6b4c\u55ae\u540d\u7a31" : "Playlist name", true)
+                        .setAutoComplete(true));
+        SubcommandData importSub = new SubcommandData(zh ? "\u532f\u5165" : "import",
+                zh ? "\u4f7f\u7528 6 \u4f4d\u6578\u4ee3\u78bc\u532f\u5165\u6b4c\u55ae" : "Import playlist using a 6-digit code")
+                .addOptions(
+                        new OptionData(OptionType.STRING, "code", zh ? "\u516d\u4f4d\u6578\u4ee3\u78bc" : "6-digit code", true),
+                        new OptionData(OptionType.STRING, "name", zh ? "\u65b0\u6b4c\u55ae\u540d\u7a31\uff08\u9078\u586b\uff09" : "New playlist name (optional)", false)
+                );
         return Commands.slash(commandName, zh ? "\u6b4c\u55ae\u7ba1\u7406" : "Playlist management")
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
-                .addSubcommands(save, load, delete, list);
+                .addSubcommands(save, load, delete, list, view, removeTrack, export, importSub);
     }
 
     private SlashCommandData buildDeleteCommand() {
@@ -4078,6 +4615,41 @@ public class MusicCommandListener extends ListenerAdapter {
         };
     }
 
+    private String canonicalMusicSubcommand(String sub) {
+        return switch (sub) {
+            case SUB_MUSIC_STATS_ZH -> "stats";
+            default -> sub;
+        };
+    }
+
+    private String canonicalPlaylistSubcommand(String sub) {
+        return switch (sub) {
+            case SUB_PLAYLIST_SAVE_ZH -> "save";
+            case SUB_PLAYLIST_LOAD_ZH -> "load";
+            case SUB_PLAYLIST_DELETE_ZH -> "delete";
+            case SUB_PLAYLIST_LIST_ZH -> "list";
+            case SUB_PLAYLIST_VIEW_ZH -> "view";
+            case SUB_PLAYLIST_REMOVE_TRACK_ZH -> "remove-track";
+            case SUB_PLAYLIST_EXPORT_ZH -> "export";
+            case SUB_PLAYLIST_IMPORT_ZH -> "import";
+            default -> sub;
+        };
+    }
+
+    private net.dv8tion.jda.api.interactions.commands.OptionMapping slashOption(SlashCommandInteractionEvent event, String primaryName, String... fallbackNames) {
+        var option = event.getOption(primaryName);
+        if (option != null) {
+            return option;
+        }
+        for (String fallbackName : fallbackNames) {
+            option = event.getOption(fallbackName);
+            if (option != null) {
+                return option;
+            }
+        }
+        return null;
+    }
+
     String lang(long guildId) {
         return settingsService.getLanguage(guildId);
     }
@@ -4165,6 +4737,10 @@ public class MusicCommandListener extends ListenerAdapter {
             sub = canonicalSettingsSubcommand(sub);
         } else if ("settings".equals(command) && event.getOption("action") != null) {
             sub = canonicalSettingsSubcommand(event.getOption("action").getAsString());
+        } else if ("music".equals(command) && sub != null) {
+            sub = canonicalMusicSubcommand(sub);
+        } else if ("playlist".equals(command) && sub != null) {
+            sub = canonicalPlaylistSubcommand(sub);
         }
         if (("warnings".equals(command) || "anti-duplicate".equals(command) || "ticket".equals(command))
                 && sub == null && event.getOption("action") != null) {
@@ -4412,47 +4988,138 @@ public class MusicCommandListener extends ListenerAdapter {
         return i18n.t(lang, YoutubePlaybackErrorMapper.toMessageKey(rawError));
     }
 
-    EmbedBuilder historyEmbed(Guild guild, String lang) {
-        List<MusicDataService.PlaybackEntry> history = musicService.getRecentHistory(guild.getIdLong(), 10);
-        String body;
-        if (history.isEmpty()) {
-            body = musicText(lang, "history_empty");
-        } else {
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < history.size(); i++) {
-                MusicDataService.PlaybackEntry entry = history.get(i);
-                long epochSeconds = Math.max(0L, entry.playedAtEpochMillis() / 1000L);
-                String requester = entry.requesterId() == null ? safe(entry.requesterName(), 40) : "<@" + entry.requesterId() + ">";
-                sb.append(i + 1)
-                        .append(". ")
-                        .append(safe(entry.title(), 60))
-                        .append(" - ")
-                        .append(safe(entry.author(), 40))
-                        .append('\n')
-                        .append("   ")
-                        .append(musicText(lang, "history_source"))
-                        .append(": ")
-                        .append(safe(entry.source(), 20))
-                        .append(" | ")
-                        .append(musicText(lang, "history_duration"))
-                        .append(": ")
-                        .append(formatDuration(entry.durationMillis()))
-                        .append(" | ")
-                        .append(musicText(lang, "history_requester"))
-                        .append(": ")
-                        .append(requester)
-                        .append(" | <t:")
-                        .append(epochSeconds)
-                        .append(":R>\n");
-            }
-            body = sb.toString().trim();
+    void handleHistorySlash(SlashCommandInteractionEvent event, String lang) {
+        int totalPages = historyTotalPages(event.getGuild(), lang);
+        var reply = event.replyEmbeds(historyEmbed(event.getGuild(), lang, 0).build());
+        if (totalPages > 1) {
+            reply.addComponents(ActionRow.of(historyButtons(lang, event.getUser().getIdLong(), 0, totalPages)));
         }
-        return new EmbedBuilder()
+        reply.queue();
+    }
+
+    void handleHistoryButtons(ButtonInteractionEvent event, String lang) {
+        String[] parts = event.getComponentId().split(":");
+        if (parts.length < 4) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        int page;
+        long requesterId;
+        try {
+            page = Integer.parseInt(parts[2]);
+            requesterId = Long.parseLong(parts[3]);
+        } catch (NumberFormatException ex) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        if (event.getUser().getIdLong() != requesterId) {
+            event.reply(i18n.t(lang, "delete.only_requester")).setEphemeral(true).queue();
+            return;
+        }
+
+        int totalPages = historyTotalPages(event.getGuild(), lang);
+        int safePage = Math.max(0, Math.min(page, totalPages - 1));
+        event.editMessageEmbeds(historyEmbed(event.getGuild(), lang, safePage).build())
+                .setComponents(totalPages > 1 ? List.of(ActionRow.of(historyButtons(lang, requesterId, safePage, totalPages))) : List.of())
+                .queue();
+    }
+
+    EmbedBuilder historyEmbed(Guild guild, String lang) {
+        return historyEmbed(guild, lang, 0);
+    }
+
+    private EmbedBuilder historyEmbed(Guild guild, String lang, int page) {
+        List<String> pages = historyPageBodies(guild, lang);
+        int totalPages = pages.size();
+        int safePage = Math.max(0, Math.min(page, totalPages - 1));
+        EmbedBuilder embed = new EmbedBuilder()
                 .setColor(new Color(52, 152, 219))
                 .setTitle("\uD83D\uDD58 " + musicText(lang, "history_title"))
                 .setDescription(musicText(lang, "history_desc"))
-                .addField(musicText(lang, "history_field"), body, false)
+                .addField(musicText(lang, "history_field"), pages.get(safePage), false)
                 .setTimestamp(Instant.now());
+        if (totalPages > 1) {
+            embed.setFooter(musicText(lang, "playlist_page_indicator", Map.of(
+                    "current", String.valueOf(safePage + 1),
+                    "total", String.valueOf(totalPages)
+            )));
+        }
+        return embed;
+    }
+
+    private int historyTotalPages(Guild guild, String lang) {
+        return historyPageBodies(guild, lang).size();
+    }
+
+    private List<Button> historyButtons(String lang, long requesterId, int page, int totalPages) {
+        int lastPage = Math.max(0, totalPages - 1);
+        int prevPage = Math.max(0, page - 1);
+        int nextPage = Math.min(lastPage, page + 1);
+        return List.of(
+                Button.secondary(HISTORY_BUTTON_PREFIX + "prev:" + prevPage + ":" + requesterId, musicText(lang, "playlist_prev_page"))
+                        .withDisabled(page <= 0),
+                Button.secondary(HISTORY_BUTTON_PREFIX + "next:" + nextPage + ":" + requesterId, musicText(lang, "playlist_next_page"))
+                        .withDisabled(page >= lastPage)
+        );
+    }
+
+    private List<String> historyPageBodies(Guild guild, String lang) {
+        List<MusicDataService.PlaybackEntry> history = musicService.getRecentHistory(guild.getIdLong(), HISTORY_FETCH_LIMIT);
+        if (history.isEmpty()) {
+            return List.of(musicText(lang, "history_empty"));
+        }
+
+        List<String> pages = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        for (int i = 0; i < history.size(); i++) {
+            String line = historyLine(lang, history.get(i), i + 1);
+            int separatorLength = current.isEmpty() ? 0 : 1;
+            if (!current.isEmpty() && current.length() + separatorLength + line.length() > MessageEmbed.VALUE_MAX_LENGTH) {
+                pages.add(current.toString().trim());
+                current.setLength(0);
+                separatorLength = 0;
+            }
+            if (line.length() > MessageEmbed.VALUE_MAX_LENGTH) {
+                pages.add(safeEmbedFieldValue(line));
+                continue;
+            }
+            if (separatorLength > 0) {
+                current.append('\n');
+            }
+            current.append(line);
+        }
+        if (!current.isEmpty()) {
+            pages.add(current.toString().trim());
+        }
+        return pages.isEmpty() ? List.of(musicText(lang, "history_empty")) : pages;
+    }
+
+    private String historyLine(String lang, MusicDataService.PlaybackEntry entry, int index) {
+        long epochSeconds = Math.max(0L, entry.playedAtEpochMillis() / 1000L);
+        String requester = entry.requesterId() == null ? safe(entry.requesterName(), 40) : "<@" + entry.requesterId() + ">";
+        return new StringBuilder()
+                .append(index)
+                .append(". ")
+                .append(safe(entry.title(), 60))
+                .append(" - ")
+                .append(safe(entry.author(), 40))
+                .append('\n')
+                .append("   ")
+                .append(musicText(lang, "history_source"))
+                .append(": ")
+                .append(safe(entry.source(), 20))
+                .append(" | ")
+                .append(musicText(lang, "history_duration"))
+                .append(": ")
+                .append(formatDuration(entry.durationMillis()))
+                .append(" | ")
+                .append(musicText(lang, "history_requester"))
+                .append(": ")
+                .append(requester)
+                .append(" | <t:")
+                .append(epochSeconds)
+                .append(":R>")
+                .toString();
     }
 
 
@@ -4476,15 +5143,29 @@ public class MusicCommandListener extends ListenerAdapter {
     }
 
     private EmbedBuilder playlistListEmbed(Guild guild, String lang) {
-        List<MusicDataService.PlaylistSummary> playlists = musicService.listPlaylists(guild.getIdLong());
-        String description = playlists.isEmpty() ? musicText(lang, "playlist_list_empty") : musicText(lang, "playlist_list_desc");
+        return playlistListEmbed(guild, lang, null, 0);
+    }
+
+    private EmbedBuilder playlistListEmbed(Guild guild, String lang, Long ownerIdFilter) {
+        return playlistListEmbed(guild, lang, ownerIdFilter, 0);
+    }
+
+    private EmbedBuilder playlistListEmbed(Guild guild, String lang, Long ownerIdFilter, int page) {
+        boolean ownOnly = ownerIdFilter != null;
+        List<MusicDataService.PlaylistSummary> playlists = musicService.listPlaylists(guild.getIdLong(), ownerIdFilter);
+        String description = playlists.isEmpty()
+                ? musicText(lang, ownOnly ? "playlist_list_empty_mine" : "playlist_list_empty_all")
+                : musicText(lang, ownOnly ? "playlist_list_desc_mine" : "playlist_list_desc_all");
         String body;
         if (playlists.isEmpty()) {
-            body = musicText(lang, "playlist_list_empty");
+            body = description;
         } else {
             StringBuilder sb = new StringBuilder();
-            int max = Math.min(15, playlists.size());
-            for (int i = 0; i < max; i++) {
+            int totalPages = Math.max(1, (playlists.size() + PLAYLIST_LIST_PAGE_SIZE - 1) / PLAYLIST_LIST_PAGE_SIZE);
+            int safePage = Math.max(0, Math.min(page, totalPages - 1));
+            int startIndex = safePage * PLAYLIST_LIST_PAGE_SIZE;
+            int endIndex = Math.min(startIndex + PLAYLIST_LIST_PAGE_SIZE, playlists.size());
+            for (int i = startIndex; i < endIndex; i++) {
                 MusicDataService.PlaylistSummary playlist = playlists.get(i);
                 long epochSeconds = Math.max(0L, playlist.updatedAtEpochMillis() / 1000L);
                 sb.append(i + 1)
@@ -4493,6 +5174,10 @@ public class MusicCommandListener extends ListenerAdapter {
                         .append(" (`")
                         .append(playlist.trackCount())
                         .append("`)\n   ")
+                        .append(musicText(lang, "playlist_owner"))
+                        .append(": ")
+                        .append(safe(playlist.ownerName(), 30))
+                        .append(" | ")
                         .append(musicText(lang, "playlist_updated"))
                         .append(": <t:")
                         .append(epochSeconds)
@@ -4502,9 +5187,80 @@ public class MusicCommandListener extends ListenerAdapter {
         }
         return new EmbedBuilder()
                 .setColor(new Color(46, 204, 113))
-                .setTitle("?? " + musicText(lang, "playlist_title"))
+                .setTitle("\uD83D\uDCC1 " + musicText(lang, "playlist_title"))
                 .setDescription(description)
                 .addField(musicText(lang, "playlist_field"), body, false)
+                .setFooter(musicText(lang, "playlist_page_indicator", Map.of(
+                        "current", String.valueOf(Math.max(1, Math.min(page + 1, Math.max(1, (playlists.size() + PLAYLIST_LIST_PAGE_SIZE - 1) / PLAYLIST_LIST_PAGE_SIZE)))),
+                        "total", String.valueOf(Math.max(1, (playlists.size() + PLAYLIST_LIST_PAGE_SIZE - 1) / PLAYLIST_LIST_PAGE_SIZE))
+                )))
+                .setTimestamp(Instant.now());
+    }
+
+    private EmbedBuilder playlistViewEmbed(Guild guild, String lang, String playlistName, int page) {
+        MusicDataService.PlaylistSummary summary = musicService.getPlaylistSummary(guild.getIdLong(), playlistName);
+        if (summary == null) {
+            return null;
+        }
+        List<MusicDataService.PlaybackEntry> tracks = musicService.getPlaylistTracks(guild.getIdLong(), playlistName);
+        String body;
+        if (tracks.isEmpty()) {
+            body = musicText(lang, "playlist_view_empty");
+        } else {
+            StringBuilder sb = new StringBuilder();
+            int totalPages = Math.max(1, (tracks.size() + PLAYLIST_LIST_PAGE_SIZE - 1) / PLAYLIST_LIST_PAGE_SIZE);
+            int safePage = Math.max(0, Math.min(page, totalPages - 1));
+            int startIndex = safePage * PLAYLIST_LIST_PAGE_SIZE;
+            int endIndex = Math.min(startIndex + PLAYLIST_LIST_PAGE_SIZE, tracks.size());
+            int shown = 0;
+            for (int i = startIndex; i < endIndex; i++) {
+                MusicDataService.PlaybackEntry track = tracks.get(i);
+                String author = track.author() == null || track.author().isBlank() ? "" : " - " + safe(track.author(), 30);
+                String line = new StringBuilder()
+                        .append(i + 1)
+                        .append(". ")
+                        .append(safe(track.title(), 60))
+                        .append(author)
+                        .append(" (`")
+                        .append(formatDuration(track.durationMillis()))
+                        .append("`)")
+                        .toString();
+                int hiddenByLimit = endIndex - (i + 1);
+                String moreText = hiddenByLimit > 0
+                        ? "\n\n" + musicText(lang, "playlist_view_more", Map.of("count", String.valueOf(hiddenByLimit)))
+                        : "";
+                int requiredLength = sb.length() + line.length() + 1 + moreText.length();
+                if (requiredLength > 1024) {
+                    break;
+                }
+                if (!sb.isEmpty()) {
+                    sb.append('\n');
+                }
+                sb.append(line);
+                shown++;
+            }
+            int hiddenCount = endIndex - startIndex - shown;
+            if (hiddenCount > 0) {
+                if (!sb.isEmpty()) {
+                    sb.append('\n').append('\n');
+                }
+                sb.append(musicText(lang, "playlist_view_more", Map.of("count", String.valueOf(hiddenCount))));
+            }
+            body = sb.toString().trim();
+        }
+        long epochSeconds = Math.max(0L, summary.updatedAtEpochMillis() / 1000L);
+        return new EmbedBuilder()
+                .setColor(new Color(52, 152, 219))
+                .setTitle("\uD83D\uDCC4 " + musicText(lang, "playlist_view_title", Map.of("name", summary.name())))
+                .setDescription(musicText(lang, "playlist_view_desc", Map.of("name", summary.name())))
+                .addField(musicText(lang, "playlist_owner"), safe(summary.ownerName(), 30), true)
+                .addField(musicText(lang, "playlist_track_count"), String.valueOf(summary.trackCount()), true)
+                .addField(musicText(lang, "playlist_updated"), "<t:" + epochSeconds + ":R>", true)
+                .addField(musicText(lang, "playlist_track_list"), body, false)
+                .setFooter(musicText(lang, "playlist_page_indicator", Map.of(
+                        "current", String.valueOf(Math.max(1, Math.min(page + 1, Math.max(1, (tracks.size() + PLAYLIST_LIST_PAGE_SIZE - 1) / PLAYLIST_LIST_PAGE_SIZE)))),
+                        "total", String.valueOf(Math.max(1, (tracks.size() + PLAYLIST_LIST_PAGE_SIZE - 1) / PLAYLIST_LIST_PAGE_SIZE))
+                )))
                 .setTimestamp(Instant.now());
     }
 
@@ -4513,6 +5269,17 @@ public class MusicCommandListener extends ListenerAdapter {
             return "-";
         }
         return s.length() <= max ? s : s.substring(0, max - 1);
+    }
+
+    private String safeEmbedFieldValue(String value) {
+        if (value == null || value.isBlank()) {
+            return "-";
+        }
+        int max = MessageEmbed.VALUE_MAX_LENGTH;
+        if (value.length() <= max) {
+            return value;
+        }
+        return value.substring(0, max - 4).stripTrailing() + "\n...";
     }
 
     private Integer parseIntSafe(String value) {
@@ -4568,7 +5335,7 @@ public class MusicCommandListener extends ListenerAdapter {
         String value = switch (key) {
             case "volume_usage" -> zhCn ? "\u8BF7\u4F7F\u7528 `!volume <0-200>`\u3002" : (zh ? "\u8ACB\u4F7F\u7528 `!volume <0-200>`\u3002" : "Use `!volume <0-200>`.");
             case "volume_set" -> zhCn ? "\u97F3\u91CF\u5DF2\u8BBE\u7F6E\u4E3A `{value}%`\u3002" : (zh ? "\u97F3\u91CF\u5DF2\u8A2D\u5B9A\u70BA `{value}%`\u3002" : "Volume set to `{value}%`.");
-            case "playlist_usage" -> zhCn ? "\u8BF7\u4F7F\u7528 `!playlist <save|load|delete|list> [name]`\u3002" : (zh ? "\u8ACB\u4F7F\u7528 `!playlist <save|load|delete|list> [name]`\u3002" : "Use `!playlist <save|load|delete|list> [name]`.");
+            case "playlist_usage" -> zhCn ? "\u8BF7\u4F7F\u7528 `!playlist <save|load|delete|list|view|export> [name]`\u3001`!playlist list <mine|all>` \u6216 `!playlist import <code> [name]`\u3002" : (zh ? "\u8ACB\u4F7F\u7528 `!playlist <save|load|delete|list|view|export> [name]`\u3001`!playlist list <mine|all>` \u6216 `!playlist import <code> [name]`\u3002" : "Use `!playlist <save|load|delete|list|view|export> [name]`, `!playlist list <mine|all>`, or `!playlist import <code> [name]`.");
             case "playlist_name_required" -> zhCn ? "\u8BF7\u63D0\u4F9B\u6B4C\u5355\u540D\u79F0\u3002" : (zh ? "\u8ACB\u63D0\u4F9B\u6B4C\u55AE\u540D\u7A31\u3002" : "Please provide a playlist name.");
             case "playlist_save_empty" -> zhCn ? "\u76EE\u524D\u6CA1\u6709\u53EF\u4FDD\u5B58\u7684\u6B4C\u66F2\u6216\u961F\u5217\u3002" : (zh ? "\u76EE\u524D\u6C92\u6709\u53EF\u5132\u5B58\u7684\u6B4C\u66F2\u6216\u4F47\u5217\u3002" : "There is no current track or queue to save.");
             case "playlist_save_success" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u4FDD\u5B58\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u5132\u5B58\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : "Playlist `{name}` saved with `{count}` tracks.");
@@ -4576,12 +5343,35 @@ public class MusicCommandListener extends ListenerAdapter {
             case "playlist_load_success" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u52A0\u5165\u961F\u5217\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u52A0\u5165\u4F47\u5217\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : "Playlist `{name}` queued with `{count}` tracks.");
             case "playlist_delete_missing" -> zhCn ? "\u627E\u4E0D\u5230\u6B4C\u5355 `{name}`\u3002" : (zh ? "\u627E\u4E0D\u5230\u6B4C\u55AE `{name}`\u3002" : "Playlist `{name}` was not found.");
             case "playlist_delete_success" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u5220\u9664\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u522A\u9664\u3002" : "Playlist `{name}` deleted.");
+            case "playlist_export_missing" -> zhCn ? "\u627E\u4E0D\u5230\u53EF\u532F\u51FA\u7684\u6B4C\u5355 `{name}`\u3002" : (zh ? "\u627E\u4E0D\u5230\u53EF\u532F\u51FA\u7684\u6B4C\u55AE `{name}`\u3002" : "Playlist `{name}` was not found for export.");
+            case "playlist_export_success" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u751F\u6210 6 \u4F4D\u6570\u532F\u51FA\u4EE3\u7801 `{code}`\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002\u4EE3\u7801 `{minutes}` \u5206\u949F\u5185\u6709\u6548\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u7522\u751F 6 \u4F4D\u6578\u532F\u51FA\u4EE3\u78BC `{code}`\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002\u4EE3\u78BC `{minutes}` \u5206\u9418\u5167\u6709\u6548\u3002" : "Playlist `{name}` generated 6-digit export code `{code}` with `{count}` tracks. The code is valid for `{minutes}` minutes.");
+            case "playlist_code_required" -> zhCn ? "\u8BF7\u63D0\u4F9B 6 \u4F4D\u6570\u532F\u5165\u4EE3\u7801\u3002" : (zh ? "\u8ACB\u63D0\u4F9B 6 \u4F4D\u6578\u532F\u5165\u4EE3\u78BC\u3002" : "Please provide a 6-digit import code.");
+            case "playlist_import_invalid_code" -> zhCn ? "\u532F\u5165\u4EE3\u7801 `{code}` \u65E0\u6548\u3001\u5DF2\u8FC7\u671F\u6216\u4E0D\u5B58\u5728\u3002" : (zh ? "\u532F\u5165\u4EE3\u78BC `{code}` \u7121\u6548\u3001\u5DF2\u904E\u671F\u6216\u4E0D\u5B58\u5728\u3002" : "Import code `{code}` is invalid, expired, or unavailable.");
+            case "playlist_import_success" -> zhCn ? "\u5DF2\u4ECE\u4EE3\u7801 `{code}` \u532F\u5165\u6B4C\u5355 `{name}`\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : (zh ? "\u5DF2\u5F9E\u4EE3\u78BC `{code}` \u532F\u5165\u6B4C\u55AE `{name}`\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : "Imported playlist `{name}` from code `{code}` with `{count}` tracks.");
+            case "playlist_name_conflict" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u5B58\u5728\uff0c\u7531 `{owner}` \u5EFA\u7ACB\u3002\u8BF7\u66F4\u6539\u540D\u79F0\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u5B58\u5728\uff0c\u7531 `{owner}` \u5EFA\u7ACB\u3002\u8ACB\u66F4\u6539\u540D\u7A31\u3002" : "Playlist `{name}` already exists and was created by `{owner}`. Please choose a different name.");
+            case "playlist_delete_not_owner" -> zhCn ? "\u6B4C\u5355 `{name}` \u7531 `{owner}` \u5EFA\u7ACB\uff0c\u53EA\u6709\u5EFA\u7ACB\u8005\u53EF\u4EE5\u5220\u9664\u6216\u8986\u76D6\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u7531 `{owner}` \u5EFA\u7ACB\uff0c\u53EA\u6709\u5EFA\u7ACB\u8005\u53EF\u4EE5\u522A\u9664\u6216\u8986\u84CB\u3002" : "Playlist `{name}` was created by `{owner}`. Only the creator can delete or overwrite it.");
             case "playlist_title" -> zhCn ? "\u5DF2\u4FDD\u5B58\u6B4C\u5355" : (zh ? "\u5DF2\u5132\u5B58\u6B4C\u55AE" : "Saved Playlists");
             case "playlist_desc" -> zhCn ? "\u4FDD\u5B58\u76EE\u524D\u64AD\u653E\u6B4C\u66F2\u4E0E\u961F\u5217\uFF0C\u4E4B\u540E\u53EF\u968F\u65F6\u91CD\u65B0\u8F7D\u5165\u3002" : (zh ? "\u5132\u5B58\u76EE\u524D\u64AD\u653E\u6B4C\u66F2\u8207\u4F47\u5217\uFF0C\u4E4B\u5F8C\u53EF\u96A8\u6642\u91CD\u65B0\u8F09\u5165\u3002" : "Save the current track and queue, then load them again anytime.");
             case "playlist_field" -> zhCn ? "\u6B4C\u5355\u5217\u8868" : (zh ? "\u6B4C\u55AE\u5217\u8868" : "Playlists");
             case "playlist_list_desc" -> zhCn ? "\u8FD9\u4E2A\u670D\u52A1\u5668\u5DF2\u4FDD\u5B58\u7684\u6B4C\u5355\u3002" : (zh ? "\u9019\u500B\u4F3A\u670D\u5668\u5DF2\u5132\u5B58\u7684\u6B4C\u55AE\u3002" : "Saved playlists for this server.");
             case "playlist_list_empty" -> zhCn ? "\u76EE\u524D\u8FD8\u6CA1\u6709\u4FDD\u5B58\u4EFB\u4F55\u6B4C\u5355\u3002" : (zh ? "\u76EE\u524D\u9084\u6C92\u6709\u5132\u5B58\u4EFB\u4F55\u6B4C\u55AE\u3002" : "No playlists saved yet.");
+            case "playlist_list_desc_all" -> zhCn ? "\u8FD9\u4E2A\u670D\u52A1\u5668\u7684\u6240\u6709\u6B4C\u5355\u3002" : (zh ? "\u9019\u500B\u4F3A\u670D\u5668\u7684\u5168\u90E8\u6B4C\u55AE\u3002" : "All playlists saved in this server.");
+            case "playlist_list_desc_mine" -> zhCn ? "\u4F60\u5728\u8FD9\u4E2A\u670D\u52A1\u5668\u5EFA\u7ACB\u7684\u6B4C\u5355\u3002" : (zh ? "\u4F60\u5728\u9019\u500B\u4F3A\u670D\u5668\u5EFA\u7ACB\u7684\u6B4C\u55AE\u3002" : "Playlists you created in this server.");
+            case "playlist_list_empty_all" -> zhCn ? "\u76EE\u524D\u8FD8\u6CA1\u6709\u4EFB\u4F55\u6B4C\u5355\u3002" : (zh ? "\u76EE\u524D\u9084\u6C92\u6709\u4EFB\u4F55\u6B4C\u55AE\u3002" : "There are no playlists in this server yet.");
+            case "playlist_list_empty_mine" -> zhCn ? "\u4F60\u8FD8\u6CA1\u6709\u5728\u8FD9\u4E2A\u670D\u52A1\u5668\u5EFA\u7ACB\u4EFB\u4F55\u6B4C\u5355\u3002" : (zh ? "\u4F60\u9084\u6C92\u6709\u5728\u9019\u500B\u4F3A\u670D\u5668\u5EFA\u7ACB\u4EFB\u4F55\u6B4C\u55AE\u3002" : "You have not created any playlists in this server yet.");
+            case "playlist_owner" -> zhCn ? "\u521B\u5EFA\u8005" : (zh ? "\u5EFA\u7ACB\u8005" : "Owner");
             case "playlist_updated" -> zhCn ? "\u5DF2\u66F4\u65B0" : (zh ? "\u5DF2\u66F4\u65B0" : "Updated");
+            case "playlist_view_title" -> zhCn ? "\u6B4C\u5355\uff1A{name}" : (zh ? "\u6B4C\u55AE\uff1A{name}" : "Playlist: {name}");
+            case "playlist_view_desc" -> zhCn ? "\u4EE5\u4E0B\u4E3A\u6B4C\u5355 `{name}` \u7684\u66F2\u76EE\u5185\u5BB9\u3002" : (zh ? "\u4EE5\u4E0B\u70BA\u6B4C\u55AE `{name}` \u7684\u66F2\u76EE\u5167\u5BB9\u3002" : "Tracks inside playlist `{name}`.");
+            case "playlist_view_missing" -> zhCn ? "\u627E\u4E0D\u5230\u6B4C\u5355 `{name}`\u3002" : (zh ? "\u627E\u4E0D\u5230\u6B4C\u55AE `{name}`\u3002" : "Playlist `{name}` was not found.");
+            case "playlist_view_empty" -> zhCn ? "\u8FD9\u4E2A\u6B4C\u5355\u76EE\u524D\u6CA1\u6709\u66F2\u76EE\u3002" : (zh ? "\u9019\u500B\u6B4C\u55AE\u76EE\u524D\u6C92\u6709\u66F2\u76EE\u3002" : "This playlist is currently empty.");
+            case "playlist_view_expired" -> zhCn ? "\u6B4C\u5355\u67E5\u770B\u5206\u9875\u5DF2\u8FC7\u671F\uff0c\u8BF7\u91CD\u65B0\u6267\u884C\u6307\u4EE4\u3002" : (zh ? "\u6B4C\u55AE\u67E5\u770B\u5206\u9801\u5DF2\u904E\u671F\uff0C\u8ACB\u91CD\u65B0\u57F7\u884C\u6307\u4EE4\u3002" : "The playlist view pagination has expired. Please run the command again.");
+            case "playlist_track_count" -> zhCn ? "\u66F2\u76EE\u6570" : (zh ? "\u66F2\u76EE\u6578" : "Tracks");
+            case "playlist_track_list" -> zhCn ? "\u66F2\u76EE\u5185\u5BB9" : (zh ? "\u66F2\u76EE\u5167\u5BB9" : "Track List");
+            case "playlist_view_more" -> zhCn ? "\u8FD8\u6709 `{count}` \u9996\u672A\u663E\u793A\u3002" : (zh ? "\u9084\u6709 `{count}` \u9996\u672A\u986F\u793A\u3002" : "`{count}` more not shown.");
+            case "playlist_prev_page" -> zhCn ? "\u4E0A\u4E00\u9875" : (zh ? "\u4E0A\u4E00\u9801" : "Previous");
+            case "playlist_next_page" -> zhCn ? "\u4E0B\u4E00\u9875" : (zh ? "\u4E0B\u4E00\u9801" : "Next");
+            case "playlist_page_indicator" -> zhCn ? "\u7B2C `{current}` / `{total}` \u9875" : (zh ? "\u7B2C `{current}` / `{total}` \u9801" : "Page `{current}` / `{total}`");
             case "playlist_source" -> zhCn ? "\u6B4C\u5355" : (zh ? "\u6B4C\u55AE" : "Playlist");
             case "queue_added" -> zhCn ? "\u5DF2\u52A0\u5165\u961F\u5217\uFF1A`{title}`" : (zh ? "\u5DF2\u52A0\u5165\u4F47\u5217\uFF1A`{title}`" : "Queued: `{title}`");
             case "panel_autoplay" -> zhCn ? "\u81EA\u52A8\u63A8\u8350" : (zh ? "\u81EA\u52D5\u63A8\u85A6" : "Autoplay");
@@ -4613,6 +5403,7 @@ public class MusicCommandListener extends ListenerAdapter {
             case "btn_repeat_all" -> zhCn ? "\u961F\u5217\u5FAA\u73AF" : (zh ? "\u4F47\u5217\u5FAA\u74B0" : "Repeat Queue");
             case "btn_repeat_off" -> zhCn ? "\u5173\u95ED\u5FAA\u73AF" : (zh ? "\u95DC\u9589\u5FAA\u74B0" : "Disable Repeat");
             case "btn_refresh" -> zhCn ? "\u5237\u65B0" : (zh ? "\u5237\u65B0" : "Refresh");
+            case "btn_shuffle" -> zhCn ? "\u968F\u673A\u6253\u4E71" : (zh ? "\u96A8\u6A5F\u6253\u4E82" : "Shuffle");
             case "panel_volume" -> zhCn ? "\u97F3\u91CF" : (zh ? "\u97F3\u91CF" : "Volume");
             case "panel_author" -> zhCn ? "\u4E0A\u4F20\u8005" : (zh ? "\u4E0A\u50B3\u8005" : "Uploader");
             case "panel_duration" -> zhCn ? "\u65F6\u957F" : (zh ? "\u6642\u9577" : "Duration");
@@ -4989,10 +5780,10 @@ public class MusicCommandListener extends ListenerAdapter {
 
     private String ignoredRolesInfoLabel(String lang) {
         if ("zh-CN".equalsIgnoreCase(lang)) {
-            return "忽略身份组";
+            return "\u5ffd\u7565\u7684\u8eab\u5206\u7ec4";
         }
         if (lang != null && lang.toLowerCase().startsWith("zh")) {
-            return "忽略身分組";
+            return "\u5ffd\u7565\u7684\u8eab\u5206\u7d44";
         }
         return "Ignored Roles";
     }
@@ -5039,6 +5830,36 @@ public class MusicCommandListener extends ListenerAdapter {
             this.channelId = channelId;
             this.targetUserId = targetUserId;
             this.amount = amount;
+        }
+    }
+
+    private static class PlaylistViewRequest {
+        private final long requestUserId;
+        private final long guildId;
+        private final String playlistName;
+        private final Instant expiresAt;
+
+        private PlaylistViewRequest(long requestUserId, long guildId, String playlistName, Instant expiresAt) {
+            this.requestUserId = requestUserId;
+            this.guildId = guildId;
+            this.playlistName = playlistName;
+            this.expiresAt = expiresAt;
+        }
+    }
+
+    private static class PlaylistTrackRemoveRequest {
+        private final long requestUserId;
+        private final long guildId;
+        private final String playlistName;
+        private final int index;
+        private final Instant expiresAt;
+
+        private PlaylistTrackRemoveRequest(long requestUserId, long guildId, String playlistName, int index, Instant expiresAt) {
+            this.requestUserId = requestUserId;
+            this.guildId = guildId;
+            this.playlistName = playlistName;
+            this.index = index;
+            this.expiresAt = expiresAt;
         }
     }
 

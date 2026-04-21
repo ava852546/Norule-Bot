@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.LongPredicate;
 import java.util.regex.Matcher;
@@ -49,6 +50,7 @@ public class MusicPlayerService {
     private final Map<Long, Runnable> guildStateListeners = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastCommandChannelByGuild = new ConcurrentHashMap<>();
     private final Map<Long, String> autoplayNoticeByGuild = new ConcurrentHashMap<>();
+    private volatile BiConsumer<Long, PlaybackFailure> playbackFailureListener;
     private volatile LongPredicate autoplayEnabledChecker = guildId -> true;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8))
@@ -69,7 +71,8 @@ public class MusicPlayerService {
                     () -> notifyStateChanged(id),
                     endedTrack -> handleQueueExhausted(id, endedTrack),
                     startedTrack -> handleTrackStarted(id, startedTrack),
-                    finishedTrack -> handleTrackFinished(id, finishedTrack)
+                    finishedTrack -> handleTrackFinished(id, finishedTrack),
+                    (track, exception) -> handleTrackException(id, track, exception)
             );
             manager.getPlayer().setVolume(musicDataService.getVolume(id));
             guild.getAudioManager().setSendingHandler(manager.getSendHandler());
@@ -79,6 +82,10 @@ public class MusicPlayerService {
 
     public void setAutoplayEnabledChecker(LongPredicate autoplayEnabledChecker) {
         this.autoplayEnabledChecker = autoplayEnabledChecker == null ? (id -> true) : autoplayEnabledChecker;
+    }
+
+    public void setPlaybackFailureListener(BiConsumer<Long, PlaybackFailure> playbackFailureListener) {
+        this.playbackFailureListener = playbackFailureListener;
     }
 
     public void setGuildStateListener(long guildId, Runnable listener) {
@@ -323,6 +330,10 @@ public class MusicPlayerService {
         return getGuildMusicManager(guild).getScheduler().snapshotQueue();
     }
 
+    public int shuffleQueue(Guild guild) {
+        return getGuildMusicManager(guild).getScheduler().shuffleQueue();
+    }
+
     public int getVolume(Guild guild) {
         return getGuildMusicManager(guild).getPlayer().getVolume();
     }
@@ -354,7 +365,23 @@ public class MusicPlayerService {
         return musicDataService.listPlaylists(guildId);
     }
 
-    public int saveCurrentPlaylist(Guild guild, String playlistName) {
+    public List<MusicDataService.PlaylistSummary> listPlaylists(long guildId, Long ownerIdFilter) {
+        return musicDataService.listPlaylists(guildId, ownerIdFilter);
+    }
+
+    public MusicDataService.PlaylistSummary getPlaylistSummary(long guildId, String playlistName) {
+        return musicDataService.getPlaylistSummary(guildId, playlistName);
+    }
+
+    public MusicDataService.PlaylistShareCode exportPlaylist(long guildId, String playlistName) {
+        return musicDataService.exportPlaylist(guildId, playlistName);
+    }
+
+    public MusicDataService.PlaylistImportResult importPlaylist(long guildId, String code, String playlistName, Long requesterId, String requesterName) {
+        return musicDataService.importPlaylist(guildId, code, playlistName, requesterId, requesterName);
+    }
+
+    public MusicDataService.PlaylistSaveResult saveCurrentPlaylist(Guild guild, String playlistName, Long requesterId, String requesterName) {
         List<MusicDataService.PlaybackEntry> snapshot = new ArrayList<>();
         MusicDataService.PlaybackEntry current = snapshotTrack(getCurrentTrack(guild));
         if (current != null) {
@@ -366,11 +393,19 @@ public class MusicPlayerService {
                 snapshot.add(entry);
             }
         }
-        return musicDataService.savePlaylist(guild.getIdLong(), playlistName, snapshot);
+        return musicDataService.savePlaylist(guild.getIdLong(), playlistName, snapshot, requesterId, requesterName);
     }
 
-    public boolean deletePlaylist(long guildId, String playlistName) {
-        return musicDataService.deletePlaylist(guildId, playlistName);
+    public MusicDataService.PlaylistDeleteResult deletePlaylist(long guildId, String playlistName, Long requesterId) {
+        return musicDataService.deletePlaylist(guildId, playlistName, requesterId);
+    }
+
+    public MusicDataService.PlaylistDeleteResult deletePlaylist(long guildId, String playlistName, Long requesterId, boolean allowManageOverride) {
+        return musicDataService.deletePlaylist(guildId, playlistName, requesterId, allowManageOverride);
+    }
+
+    public MusicDataService.PlaylistTrackRemoveResult removePlaylistTrack(long guildId, String playlistName, int index, Long requesterId) {
+        return musicDataService.removePlaylistTrack(guildId, playlistName, index, requesterId);
     }
 
     public List<MusicDataService.PlaybackEntry> getPlaylistTracks(long guildId, String playlistName) {
@@ -441,6 +476,19 @@ public class MusicPlayerService {
         long position = Math.max(0L, track.getPosition());
         long playedMillis = duration > 0L ? Math.min(duration, position) : position;
         musicDataService.recordTrackFinished(guildId, playedMillis);
+    }
+
+    private void handleTrackException(long guildId, AudioTrack track, Throwable exception) {
+        String msg = exception == null || exception.getMessage() == null ? "-" : exception.getMessage().trim();
+        setAutoplayNotice(guildId, "LOAD_FAILED:" + msg);
+        BiConsumer<Long, PlaybackFailure> listener = playbackFailureListener;
+        if (listener != null) {
+            String title = track == null || track.getInfo() == null || track.getInfo().title == null ? "-" : track.getInfo().title;
+            listener.accept(guildId, new PlaybackFailure(title, msg));
+        }
+    }
+
+    public record PlaybackFailure(String title, String rawError) {
     }
 
     private void handleQueueExhausted(long guildId, AudioTrack endedTrack) {

@@ -77,7 +77,7 @@ final class InteractionRouter {
             case "welcome" -> owner.handleWelcomeSlash(event, lang);
             case "number-chain" -> owner.settingsCommandHandler().handleSettingsNumberChain(event, lang);
             case "volume" -> owner.handleVolumeSlash(event, lang);
-            case "history" -> event.replyEmbeds(owner.historyEmbed(event.getGuild(), lang).build()).queue();
+            case "history" -> owner.handleHistorySlash(event, lang);
             case "playlist" -> owner.handlePlaylistSlash(event, lang);
             case "join" -> {
                 event.deferReply().queue(success -> owner.handleJoin(event.getGuild(), event.getMember(),
@@ -233,7 +233,9 @@ final class InteractionRouter {
             event.editMessage(owner.musicUx(lang, "queue_added", Map.of("title", picked.getInfo().title)))
                     .setComponents(List.of())
                     .queue();
+            return;
         }
+
     }
 
     void onModalInteraction(ModalInteractionEvent event) {
@@ -267,6 +269,23 @@ final class InteractionRouter {
 
         if (id.startsWith(MusicCommandListener.DELETE_CONFIRM_PREFIX) || id.startsWith(MusicCommandListener.DELETE_CANCEL_PREFIX)) {
             owner.handleDeleteButtons(event, lang);
+            return;
+        }
+        if (id.startsWith(MusicCommandListener.PLAYLIST_LIST_BUTTON_PREFIX)) {
+            owner.handlePlaylistListButtons(event, lang);
+            return;
+        }
+        if (id.startsWith(MusicCommandListener.HISTORY_BUTTON_PREFIX)) {
+            owner.handleHistoryButtons(event, lang);
+            return;
+        }
+        if (id.startsWith(MusicCommandListener.PLAYLIST_VIEW_BUTTON_PREFIX)) {
+            owner.handlePlaylistViewButtons(event, lang);
+            return;
+        }
+        if (id.startsWith(MusicCommandListener.PLAYLIST_TRACK_REMOVE_CONFIRM_PREFIX)
+                || id.startsWith(MusicCommandListener.PLAYLIST_TRACK_REMOVE_CANCEL_PREFIX)) {
+            owner.handlePlaylistTrackRemoveButtons(event, lang);
             return;
         }
         if (owner.settingsCommandHandler().handleButtonInteraction(event, lang)) {

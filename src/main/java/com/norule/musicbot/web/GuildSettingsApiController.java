@@ -387,7 +387,11 @@ final class GuildSettingsApiController {
                 .put("roleLogEnabled", logs.isRoleLogEnabled())
                 .put("channelLifecycleLogEnabled", logs.isChannelLifecycleLogEnabled())
                 .put("moderationLogEnabled", logs.isModerationLogEnabled())
-                .put("commandUsageLogEnabled", logs.isCommandUsageLogEnabled());
+                .put("commandUsageLogEnabled", logs.isCommandUsageLogEnabled())
+                .put("ignoredMemberIds", logs.getIgnoredMemberIds())
+                .put("ignoredRoleIds", logs.getIgnoredRoleIds())
+                .put("ignoredChannelIds", logs.getIgnoredChannelIds())
+                .put("ignoredPrefixes", logs.getIgnoredPrefixes());
     }
 
     private DataObject buildMusicPayload(GuildSettingsService.GuildSettings settings) {
@@ -555,7 +559,11 @@ final class GuildSettingsApiController {
                         .withRoleLogEnabled(owner.boolOrDefault(lMap, "roleLogEnabled", l.isRoleLogEnabled()))
                         .withChannelLifecycleLogEnabled(owner.boolOrDefault(lMap, "channelLifecycleLogEnabled", l.isChannelLifecycleLogEnabled()))
                         .withModerationLogEnabled(owner.boolOrDefault(lMap, "moderationLogEnabled", l.isModerationLogEnabled()))
-                        .withCommandUsageLogEnabled(owner.boolOrDefault(lMap, "commandUsageLogEnabled", l.isCommandUsageLogEnabled()));
+                        .withCommandUsageLogEnabled(owner.boolOrDefault(lMap, "commandUsageLogEnabled", l.isCommandUsageLogEnabled()))
+                        .withIgnoredMemberIds(owner.parseLongCsvOrDefault(lMap, "ignoredMemberIds", l.getIgnoredMemberIds()))
+                        .withIgnoredRoleIds(owner.parseLongCsvOrDefault(lMap, "ignoredRoleIds", l.getIgnoredRoleIds()))
+                        .withIgnoredChannelIds(owner.parseLongCsvOrDefault(lMap, "ignoredChannelIds", l.getIgnoredChannelIds()))
+                        .withIgnoredPrefixes(owner.parseCsvOrDefault(lMap, "ignoredPrefixes", l.getIgnoredPrefixes()));
             }
 
             BotConfig.Music m = current.getMusic();
