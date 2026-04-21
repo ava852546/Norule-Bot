@@ -6,13 +6,16 @@ import com.norule.musicbot.*;
 
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
 import com.sedmelluq.discord.lavaplayer.player.event.AudioEventAdapter;
+import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackEndReason;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 public class TrackScheduler extends AudioEventAdapter {
@@ -27,6 +30,7 @@ public class TrackScheduler extends AudioEventAdapter {
     private volatile Consumer<AudioTrack> queueExhaustedListener;
     private volatile Consumer<AudioTrack> trackStartListener;
     private volatile Consumer<AudioTrack> trackEndListener;
+    private volatile BiConsumer<AudioTrack, FriendlyException> trackExceptionListener;
 
     public TrackScheduler(AudioPlayer player) {
         this.player = player;
@@ -47,6 +51,20 @@ public class TrackScheduler extends AudioEventAdapter {
     public void clear() {
         queue.clear();
         notifyStateChanged();
+    }
+
+    public int shuffleQueue() {
+        List<AudioTrack> tracks = new ArrayList<>(queue);
+        if (tracks.size() <= 1) {
+            return tracks.size();
+        }
+        Collections.shuffle(tracks);
+        queue.clear();
+        for (AudioTrack track : tracks) {
+            queue.offer(track);
+        }
+        notifyStateChanged();
+        return tracks.size();
     }
 
     public String getRepeatModeName() {
@@ -80,6 +98,10 @@ public class TrackScheduler extends AudioEventAdapter {
 
     public void setTrackEndListener(Consumer<AudioTrack> trackEndListener) {
         this.trackEndListener = trackEndListener;
+    }
+
+    public void setTrackExceptionListener(BiConsumer<AudioTrack, FriendlyException> trackExceptionListener) {
+        this.trackExceptionListener = trackExceptionListener;
     }
 
     @Override
@@ -126,6 +148,26 @@ public class TrackScheduler extends AudioEventAdapter {
                 listener.accept(track.makeClone());
             }
         }
+        notifyStateChanged();
+    }
+
+    @Override
+    public void onTrackException(AudioPlayer player, AudioTrack track, FriendlyException exception) {
+        BiConsumer<AudioTrack, FriendlyException> listener = trackExceptionListener;
+        if (listener != null) {
+            listener.accept(track, exception);
+        }
+        nextTrack();
+        notifyStateChanged();
+    }
+
+    @Override
+    public void onTrackStuck(AudioPlayer player, AudioTrack track, long thresholdMs) {
+        BiConsumer<AudioTrack, FriendlyException> listener = trackExceptionListener;
+        if (listener != null) {
+            listener.accept(track, new FriendlyException("Track got stuck", FriendlyException.Severity.SUSPICIOUS, null));
+        }
+        nextTrack();
         notifyStateChanged();
     }
 

@@ -21,6 +21,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class MusicDataService {
@@ -65,13 +66,79 @@ public class MusicDataService {
     public record PlaylistSummary(
             String name,
             int trackCount,
-            long updatedAtEpochMillis
+            long updatedAtEpochMillis,
+            Long ownerId,
+            String ownerName
+    ) {
+    }
+
+    public enum PlaylistMutationStatus {
+        SUCCESS,
+        EMPTY,
+        NOT_FOUND,
+        NAME_CONFLICT,
+        NOT_OWNER,
+        INVALID_CODE,
+        INVALID_INDEX
+    }
+
+    public record PlaylistSaveResult(
+            PlaylistMutationStatus status,
+            String playlistName,
+            int trackCount,
+            Long ownerId,
+            String ownerName
+    ) {
+    }
+
+    public record PlaylistDeleteResult(
+            PlaylistMutationStatus status,
+            String playlistName,
+            Long ownerId,
+            String ownerName
+    ) {
+    }
+
+    public record PlaylistTrackRemoveResult(
+            PlaylistMutationStatus status,
+            String playlistName,
+            int removedIndex,
+            String removedTitle,
+            int trackCount,
+            Long ownerId,
+            String ownerName
+    ) {
+    }
+
+    public record PlaylistShareCode(
+            String code,
+            String playlistName,
+            int trackCount,
+            long expiresAtEpochMillis
+    ) {
+    }
+
+    public record PlaylistImportResult(
+            PlaylistMutationStatus status,
+            String playlistName,
+            int trackCount,
+            Long ownerId,
+            String ownerName
     ) {
     }
 
     private static class PlaylistData {
         String name = "";
         long updatedAtEpochMillis = 0L;
+        Long ownerId = null;
+        String ownerName = "";
+        List<PlaybackEntry> tracks = new ArrayList<>();
+    }
+
+    private static class SharedPlaylistData {
+        String code = "";
+        String playlistName = "";
+        long expiresAtEpochMillis = 0L;
         List<PlaybackEntry> tracks = new ArrayList<>();
     }
 
@@ -88,9 +155,11 @@ public class MusicDataService {
 
     private static final int MAX_HISTORY = 50;
     private static final int MAX_PLAYLIST_TRACKS = 100;
+    private static final long PLAYLIST_SHARE_TTL_MILLIS = 180_000L;
 
     private final Path dir;
     private final Map<Long, GuildMusicData> cache = new ConcurrentHashMap<>();
+    private final Map<String, SharedPlaylistData> playlistShares = new ConcurrentHashMap<>();
 
     public MusicDataService(Path dir) {
         this.dir = dir;
@@ -216,16 +285,28 @@ public class MusicDataService {
         }
     }
 
-    public int savePlaylist(long guildId, String name, List<PlaybackEntry> tracks) {
+    public PlaylistSaveResult savePlaylist(long guildId, String name, List<PlaybackEntry> tracks, Long requesterId, String requesterName) {
         String normalized = normalizePlaylistName(name);
         if (normalized.isBlank() || tracks == null || tracks.isEmpty()) {
-            return 0;
+            return new PlaylistSaveResult(PlaylistMutationStatus.EMPTY, safePlaylistDisplayName(name), 0, null, "");
         }
         GuildMusicData data = get(guildId);
         synchronized (data) {
+            PlaylistData existing = data.playlists.get(normalized);
+            if (existing != null && existing.ownerId != null && !existing.ownerId.equals(requesterId)) {
+                return new PlaylistSaveResult(
+                        PlaylistMutationStatus.NAME_CONFLICT,
+                        existing.name,
+                        existing.tracks == null ? 0 : existing.tracks.size(),
+                        existing.ownerId,
+                        safePlaylistOwnerName(existing.ownerName)
+                );
+            }
             PlaylistData playlist = new PlaylistData();
             playlist.name = safePlaylistDisplayName(name);
             playlist.updatedAtEpochMillis = Instant.now().toEpochMilli();
+            playlist.ownerId = requesterId;
+            playlist.ownerName = safePlaylistOwnerName(requesterName);
             for (PlaybackEntry track : tracks) {
                 if (track == null) {
                     continue;
@@ -236,31 +317,109 @@ public class MusicDataService {
                 }
             }
             if (playlist.tracks.isEmpty()) {
-                return 0;
+                return new PlaylistSaveResult(PlaylistMutationStatus.EMPTY, playlist.name, 0, requesterId, playlist.ownerName);
             }
             data.playlists.put(normalized, playlist);
             save(guildId, data);
-            return playlist.tracks.size();
+            return new PlaylistSaveResult(
+                    PlaylistMutationStatus.SUCCESS,
+                    playlist.name,
+                    playlist.tracks.size(),
+                    playlist.ownerId,
+                    playlist.ownerName
+            );
         }
     }
 
-    public boolean deletePlaylist(long guildId, String name) {
+    public PlaylistDeleteResult deletePlaylist(long guildId, String name, Long requesterId) {
+        return deletePlaylist(guildId, name, requesterId, false);
+    }
+
+    public PlaylistDeleteResult deletePlaylist(long guildId, String name, Long requesterId, boolean allowManageOverride) {
         String normalized = normalizePlaylistName(name);
         if (normalized.isBlank()) {
-            return false;
+            return new PlaylistDeleteResult(PlaylistMutationStatus.NOT_FOUND, safePlaylistDisplayName(name), null, "");
         }
         GuildMusicData data = get(guildId);
         synchronized (data) {
-            PlaylistData removed = data.playlists.remove(normalized);
-            if (removed != null) {
-                save(guildId, data);
-                return true;
+            PlaylistData existing = data.playlists.get(normalized);
+            if (existing == null) {
+                return new PlaylistDeleteResult(PlaylistMutationStatus.NOT_FOUND, safePlaylistDisplayName(name), null, "");
             }
-            return false;
+            if (!allowManageOverride && existing.ownerId != null && !existing.ownerId.equals(requesterId)) {
+                return new PlaylistDeleteResult(
+                        PlaylistMutationStatus.NOT_OWNER,
+                        existing.name,
+                        existing.ownerId,
+                        safePlaylistOwnerName(existing.ownerName)
+                );
+            }
+            data.playlists.remove(normalized);
+            save(guildId, data);
+            return new PlaylistDeleteResult(
+                    PlaylistMutationStatus.SUCCESS,
+                    existing.name,
+                    existing.ownerId,
+                    safePlaylistOwnerName(existing.ownerName)
+            );
+        }
+    }
+
+    public PlaylistTrackRemoveResult removePlaylistTrack(long guildId, String name, int index, Long requesterId) {
+        String normalized = normalizePlaylistName(name);
+        if (normalized.isBlank()) {
+            return new PlaylistTrackRemoveResult(PlaylistMutationStatus.NOT_FOUND, safePlaylistDisplayName(name), index, "", 0, null, "");
+        }
+        int safeIndex = Math.max(1, index);
+        GuildMusicData data = get(guildId);
+        synchronized (data) {
+            PlaylistData existing = data.playlists.get(normalized);
+            if (existing == null || existing.tracks == null || existing.tracks.isEmpty()) {
+                return new PlaylistTrackRemoveResult(PlaylistMutationStatus.NOT_FOUND, safePlaylistDisplayName(name), safeIndex, "", 0, null, "");
+            }
+            if (existing.ownerId != null && !existing.ownerId.equals(requesterId)) {
+                return new PlaylistTrackRemoveResult(
+                        PlaylistMutationStatus.NOT_OWNER,
+                        existing.name,
+                        safeIndex,
+                        "",
+                        existing.tracks.size(),
+                        existing.ownerId,
+                        safePlaylistOwnerName(existing.ownerName)
+                );
+            }
+            int idx = safeIndex - 1;
+            if (idx < 0 || idx >= existing.tracks.size()) {
+                return new PlaylistTrackRemoveResult(
+                        PlaylistMutationStatus.INVALID_INDEX,
+                        existing.name,
+                        safeIndex,
+                        "",
+                        existing.tracks.size(),
+                        existing.ownerId,
+                        safePlaylistOwnerName(existing.ownerName)
+                );
+            }
+            PlaybackEntry removed = existing.tracks.remove(idx);
+            existing.updatedAtEpochMillis = Instant.now().toEpochMilli();
+            save(guildId, data);
+            return new PlaylistTrackRemoveResult(
+                    PlaylistMutationStatus.SUCCESS,
+                    existing.name,
+                    safeIndex,
+                    removed == null ? "" : safePlaylistDisplayName(removed.title()),
+                    existing.tracks.size(),
+                    existing.ownerId,
+                    safePlaylistOwnerName(existing.ownerName)
+            );
         }
     }
 
     public List<PlaylistSummary> listPlaylists(long guildId) {
+        return listPlaylists(guildId, null);
+    }
+
+    public List<PlaylistSummary> listPlaylists(long guildId, Long ownerIdFilter) {
         GuildMusicData data = get(guildId);
         synchronized (data) {
             List<PlaylistSummary> result = new ArrayList<>();
@@ -268,15 +427,41 @@ public class MusicDataService {
                 if (playlist == null || playlist.name == null || playlist.name.isBlank()) {
                     continue;
                 }
+                if (ownerIdFilter != null && !ownerIdFilter.equals(playlist.ownerId)) {
+                    continue;
+                }
                 result.add(new PlaylistSummary(
                         playlist.name,
                         playlist.tracks == null ? 0 : playlist.tracks.size(),
-                        playlist.updatedAtEpochMillis
+                        playlist.updatedAtEpochMillis,
+                        playlist.ownerId,
+                        safePlaylistOwnerName(playlist.ownerName)
                 ));
             }
             result.sort(Comparator.comparingLong(PlaylistSummary::updatedAtEpochMillis).reversed()
                     .thenComparing(PlaylistSummary::name, String.CASE_INSENSITIVE_ORDER));
             return result;
+        }
+    }
+
+    public PlaylistSummary getPlaylistSummary(long guildId, String name) {
+        String normalized = normalizePlaylistName(name);
+        if (normalized.isBlank()) {
+            return null;
+        }
+        GuildMusicData data = get(guildId);
+        synchronized (data) {
+            PlaylistData playlist = data.playlists.get(normalized);
+            if (playlist == null || playlist.name == null || playlist.name.isBlank()) {
+                return null;
+            }
+            return new PlaylistSummary(
+                    playlist.name,
+                    playlist.tracks == null ? 0 : playlist.tracks.size(),
+                    playlist.updatedAtEpochMillis,
+                    playlist.ownerId,
+                    safePlaylistOwnerName(playlist.ownerName)
+            );
         }
     }
 
@@ -293,6 +478,65 @@ public class MusicDataService {
             }
             return new ArrayList<>(playlist.tracks);
         }
+    }
+
+    public PlaylistShareCode exportPlaylist(long guildId, String name) {
+        String normalized = normalizePlaylistName(name);
+        if (normalized.isBlank()) {
+            return null;
+        }
+        GuildMusicData data = get(guildId);
+        synchronized (data) {
+            cleanupExpiredPlaylistShares();
+            PlaylistData playlist = data.playlists.get(normalized);
+            if (playlist == null || playlist.tracks == null || playlist.tracks.isEmpty()) {
+                return null;
+            }
+            SharedPlaylistData shared = new SharedPlaylistData();
+            shared.code = generatePlaylistShareCode();
+            shared.playlistName = safePlaylistDisplayName(playlist.name);
+            shared.expiresAtEpochMillis = Instant.now().toEpochMilli() + PLAYLIST_SHARE_TTL_MILLIS;
+            for (PlaybackEntry track : playlist.tracks) {
+                if (track == null) {
+                    continue;
+                }
+                shared.tracks.add(track);
+                if (shared.tracks.size() >= MAX_PLAYLIST_TRACKS) {
+                    break;
+                }
+            }
+            if (shared.tracks.isEmpty()) {
+                return null;
+            }
+            playlistShares.put(shared.code, shared);
+            return new PlaylistShareCode(
+                    shared.code,
+                    shared.playlistName,
+                    shared.tracks.size(),
+                    shared.expiresAtEpochMillis
+            );
+        }
+    }
+
+    public PlaylistImportResult importPlaylist(long guildId, String code, String targetName, Long requesterId, String requesterName) {
+        String normalizedCode = normalizePlaylistShareCode(code);
+        if (normalizedCode.isBlank()) {
+            return new PlaylistImportResult(PlaylistMutationStatus.INVALID_CODE, safePlaylistDisplayName(targetName), 0, null, "");
+        }
+        cleanupExpiredPlaylistShares();
+        SharedPlaylistData shared = playlistShares.get(normalizedCode);
+        if (shared == null || shared.tracks == null || shared.tracks.isEmpty()) {
+            return new PlaylistImportResult(PlaylistMutationStatus.INVALID_CODE, safePlaylistDisplayName(targetName), 0, null, "");
+        }
+        String playlistName = safePlaylistDisplayName(targetName == null || targetName.isBlank() ? shared.playlistName : targetName);
+        PlaylistSaveResult saved = savePlaylist(guildId, playlistName, shared.tracks, requesterId, requesterName);
+        return new PlaylistImportResult(
+                saved.status(),
+                saved.playlistName(),
+                saved.trackCount(),
+                saved.ownerId(),
+                saved.ownerName()
+        );
     }
 
     private GuildMusicData get(long guildId) {
@@ -377,6 +621,8 @@ public class MusicDataService {
                     PlaylistData playlist = new PlaylistData();
                     playlist.name = playlistName;
                     playlist.updatedAtEpochMillis = readLong(map.get("updatedAtEpochMillis"), 0L);
+                    playlist.ownerId = readNullableLong(map.get("ownerId"));
+                    playlist.ownerName = safePlaylistOwnerName(readText(map.get("ownerName")));
                     Object tracksObj = map.get("tracks");
                     if (tracksObj instanceof List<?> tracksList) {
                         for (Object trackItem : tracksList) {
@@ -453,6 +699,8 @@ public class MusicDataService {
             Map<String, Object> playlistMap = new LinkedHashMap<>();
             playlistMap.put("name", playlist.name);
             playlistMap.put("updatedAtEpochMillis", playlist.updatedAtEpochMillis);
+            playlistMap.put("ownerId", playlist.ownerId == null ? "" : String.valueOf(playlist.ownerId));
+            playlistMap.put("ownerName", safePlaylistOwnerName(playlist.ownerName));
             List<Map<String, Object>> tracks = new ArrayList<>();
             for (PlaybackEntry entry : playlist.tracks) {
                 Map<String, Object> map = new LinkedHashMap<>();
@@ -562,6 +810,25 @@ public class MusicDataService {
         return Math.max(0, Math.min(200, volume));
     }
 
+    private void cleanupExpiredPlaylistShares() {
+        long now = Instant.now().toEpochMilli();
+        playlistShares.entrySet().removeIf(entry -> {
+            SharedPlaylistData shared = entry.getValue();
+            return shared == null || shared.expiresAtEpochMillis <= now;
+        });
+    }
+
+    private String generatePlaylistShareCode() {
+        for (int attempt = 0; attempt < 1000; attempt++) {
+            String code = String.format("%06d", ThreadLocalRandom.current().nextInt(0, 1_000_000));
+            SharedPlaylistData existing = playlistShares.get(code);
+            if (existing == null || existing.expiresAtEpochMillis <= Instant.now().toEpochMilli()) {
+                return code;
+            }
+        }
+        throw new IllegalStateException("Unable to allocate playlist share code");
+    }
+
     private String normalizePlaylistName(String name) {
         if (name == null) {
             return "";
@@ -569,11 +836,33 @@ public class MusicDataService {
         return name.trim().toLowerCase(Locale.ROOT);
     }
 
+    private String normalizePlaylistShareCode(String code) {
+        if (code == null) {
+            return "";
+        }
+        String digits = code.trim();
+        return digits.matches("\\d{6}") ? digits : "";
+    }
+
     private String safePlaylistDisplayName(String name) {
         if (name == null) {
             return "";
         }
         String trimmed = name.trim();
+        if (trimmed.length() <= 60) {
+            return trimmed;
+        }
+        return trimmed.substring(0, 60);
+    }
+
+    private String safePlaylistOwnerName(String ownerName) {
+        if (ownerName == null) {
+            return "-";
+        }
+        String trimmed = ownerName.trim();
+        if (trimmed.isBlank()) {
+            return "-";
+        }
         if (trimmed.length() <= 60) {
             return trimmed;
         }

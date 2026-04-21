@@ -168,6 +168,15 @@ final class MusicPanelController {
                 event.deferEdit().queue();
                 owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), true);
             }
+            case MusicCommandListener.PANEL_SHUFFLE -> {
+                if (owner.musicService().getQueueSnapshot(guild).isEmpty()) {
+                    event.reply(owner.i18nService().t(lang, "music.queue_empty")).setEphemeral(true).queue();
+                    return true;
+                }
+                owner.musicService().shuffleQueue(guild);
+                event.deferEdit().queue();
+                owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), true);
+            }
             default -> {
             }
         }
@@ -186,7 +195,8 @@ final class MusicPanelController {
                 MusicCommandListener.PANEL_AUTOPLAY_TOGGLE,
                 MusicCommandListener.PANEL_VOLUME_DOWN,
                 MusicCommandListener.PANEL_VOLUME_UP,
-                MusicCommandListener.PANEL_REFRESH
+                MusicCommandListener.PANEL_REFRESH,
+                MusicCommandListener.PANEL_SHUFFLE
         ).contains(componentId);
     }
 }

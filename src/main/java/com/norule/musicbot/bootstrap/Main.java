@@ -27,12 +27,14 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.Reader;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -477,8 +479,8 @@ public class Main {
             Files.createDirectories(logDir);
             Path logFile = logDir.resolve("console-" + LocalDateTime.now().format(LOG_FILE_FORMAT) + ".log");
             PrintStream fileStream = new PrintStream(Files.newOutputStream(logFile), true, StandardCharsets.UTF_8);
-            System.setOut(new PrintStream(new TeeOutputStream(originalOut, fileStream), true, StandardCharsets.UTF_8));
-            System.setErr(new PrintStream(new TeeOutputStream(originalErr, fileStream), true, StandardCharsets.UTF_8));
+            System.setOut(new PrintStream(new TeeOutputStream(originalOut, fileStream, StandardCharsets.UTF_8), true, StandardCharsets.UTF_8));
+            System.setErr(new PrintStream(new TeeOutputStream(originalErr, fileStream, StandardCharsets.UTF_8), true, StandardCharsets.UTF_8));
             System.out.println("[NoRule] Console log file: " + logFile.toAbsolutePath());
         } catch (Exception e) {
             originalErr.println("[NoRule] Failed to initialize LOG console output: " + e.getMessage());
@@ -509,20 +511,31 @@ public class Main {
     private static final class TeeOutputStream extends OutputStream {
         private final OutputStream primary;
         private final OutputStream secondary;
-        private boolean lineStart = true;
+        private final Charset charset;
+        private final boolean prettyStackTraces;
 
-        private TeeOutputStream(OutputStream primary, OutputStream secondary) {
+        private boolean primaryLineStart = true;
+        private boolean secondaryLineStart = true;
+        private byte[] lineBuffer = new byte[256];
+        private int lineBufferLen = 0;
+
+        private boolean inExceptionBlock = false;
+        private int keptStackFrames = 0;
+        private int suppressedStackFrames = 0;
+
+        private TeeOutputStream(OutputStream primary, OutputStream secondary, Charset charset) {
             this.primary = primary;
             this.secondary = secondary;
+            this.charset = charset == null ? StandardCharsets.UTF_8 : charset;
+            this.prettyStackTraces = !"false".equalsIgnoreCase(System.getProperty("norule.prettyStackTraces", "true"));
         }
 
         @Override
         public synchronized void write(int b) throws IOException {
-            writePrefixIfNeeded();
-            primary.write(b);
-            secondary.write(b);
+            ensureCapacity(1);
+            lineBuffer[lineBufferLen++] = (byte) b;
             if (b == '\n') {
-                lineStart = true;
+                flushLineBuffer();
             }
         }
 
@@ -535,18 +548,131 @@ public class Main {
 
         @Override
         public synchronized void flush() throws IOException {
+            if (lineBufferLen > 0) {
+                flushLineBuffer();
+            }
             primary.flush();
             secondary.flush();
         }
 
-        private void writePrefixIfNeeded() throws IOException {
-            if (!lineStart) {
+        private void ensureCapacity(int additional) {
+            int required = lineBufferLen + additional;
+            if (required <= lineBuffer.length) {
                 return;
             }
-            lineStart = false;
-            byte[] prefix = ("[" + LocalDateTime.now().format(CONSOLE_TIME_FORMAT) + "] ").getBytes(StandardCharsets.UTF_8);
+            int nextSize = Math.max(required, lineBuffer.length * 2);
+            lineBuffer = Arrays.copyOf(lineBuffer, nextSize);
+        }
+
+        private void flushLineBuffer() throws IOException {
+            byte[] raw = Arrays.copyOf(lineBuffer, lineBufferLen);
+            lineBufferLen = 0;
+
+            String rawLine = new String(raw, charset);
+            boolean endsWithNewline = rawLine.endsWith("\n") || rawLine.endsWith("\r\n");
+            String content = rawLine.replace("\r", "").replace("\n", "");
+
+            boolean isLogHeader = isSimpleLoggerHeader(content);
+            if (isLogHeader && inExceptionBlock) {
+                writeSuppressedFramesSummary();
+                inExceptionBlock = false;
+                keptStackFrames = 0;
+                suppressedStackFrames = 0;
+            }
+
+            // Secondary (file): always write as-is (with prefix)
+            writePrefixSecondaryIfNeeded();
+            secondary.write(raw);
+            if (endsWithNewline) {
+                secondaryLineStart = true;
+            }
+
+            // Primary (console): optionally shorten stack traces
+            if (prettyStackTraces) {
+                if (startsExceptionBlock(content)) {
+                    inExceptionBlock = true;
+                    keptStackFrames = 0;
+                    suppressedStackFrames = 0;
+                }
+                if (inExceptionBlock && isStackFrameLine(content)) {
+                    if (keptStackFrames < 4) {
+                        keptStackFrames++;
+                    } else {
+                        suppressedStackFrames++;
+                        return;
+                    }
+                }
+            }
+
+            writePrefixPrimaryIfNeeded();
+            primary.write(raw);
+            if (endsWithNewline) {
+                primaryLineStart = true;
+            }
+        }
+
+        private void writeSuppressedFramesSummary() throws IOException {
+            if (!prettyStackTraces || suppressedStackFrames <= 0) {
+                return;
+            }
+            writePrefixPrimaryIfNeeded();
+            primary.write(("... (" + suppressedStackFrames + " stack frames suppressed; see LOG file for full trace)").getBytes(charset));
+            primary.write("\n".getBytes(charset));
+            primaryLineStart = true;
+        }
+
+        private void writePrefixPrimaryIfNeeded() throws IOException {
+            if (!primaryLineStart) {
+                return;
+            }
+            primaryLineStart = false;
+            byte[] prefix = ("[" + LocalDateTime.now().format(CONSOLE_TIME_FORMAT) + "] ").getBytes(charset);
             primary.write(prefix);
+        }
+
+        private void writePrefixSecondaryIfNeeded() throws IOException {
+            if (!secondaryLineStart) {
+                return;
+            }
+            secondaryLineStart = false;
+            byte[] prefix = ("[" + LocalDateTime.now().format(CONSOLE_TIME_FORMAT) + "] ").getBytes(charset);
             secondary.write(prefix);
+        }
+
+        private boolean isSimpleLoggerHeader(String line) {
+            if (line == null) {
+                return false;
+            }
+            String s = line.trim();
+            if (!s.startsWith("[")) {
+                return false;
+            }
+            return s.contains("] INFO ")
+                    || s.contains("] WARN ")
+                    || s.contains("] ERROR ")
+                    || s.contains("] DEBUG ")
+                    || s.contains("] TRACE ");
+        }
+
+        private boolean startsExceptionBlock(String line) {
+            if (line == null) {
+                return false;
+            }
+            String s = line.trim();
+            if (s.isBlank() || s.startsWith("[")) {
+                return false;
+            }
+            return s.matches("^[\\w.$]+(Exception|Error)(:.*)?$");
+        }
+
+        private boolean isStackFrameLine(String line) {
+            if (line == null) {
+                return false;
+            }
+            String s = line.trim();
+            return s.startsWith("at ")
+                    || s.startsWith("Caused by:")
+                    || s.startsWith("Suppressed:");
         }
     }
 }

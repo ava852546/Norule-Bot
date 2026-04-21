@@ -9,22 +9,36 @@ export function createNotificationsModule(deps) {
     saveSettings
   } = deps;
 
+  const LEGACY_PLACEHOLDER_ALIASES = new Map([
+    ['\u007b\u96ff\u8f3b\ue705\u003f\uf148\u007d', '{user}'],
+    ['\u007b\u8762\u65a4\u003f\u003f\uf699\u8fc2\u007d', '{guild}']
+  ]);
+
   function normalizeColor(value, fallback) {
     const text = String(value || '').trim();
     if (/^#[0-9a-f]{6}$/i.test(text)) return text.toUpperCase();
     return fallback;
   }
 
+  function normalizeLegacyPlaceholders(value) {
+    let next = String(value || '');
+    for (const [legacy, modern] of LEGACY_PLACEHOLDER_ALIASES.entries()) {
+      next = next.split(legacy).join(modern);
+    }
+    return next;
+  }
+
   function applyVoicePreviewTemplate(value) {
     const guildName = selectedGuildName();
-    return String(value || '')
-      .replace(/\{user\}|\{‰ΩøÁî®?Ö\}/g, '@VoiceMember (ID: 123456789012345678)')
+    return normalizeLegacyPlaceholders(value)
+      .replace(/\{user\}|\{\u4F7F\u7528\u8005\}/g, '@VoiceMember (ID: 123456789012345678)')
       .replace(/\{channel\}/g, '#General (ID: 223456789012345678)')
       .replace(/\{from\}/g, '#Lobby (ID: 323456789012345678)')
       .replace(/\{to\}/g, '#Gaming (ID: 423456789012345678)')
-      .replace(/\{guild\}|\{Áæ§Á??çÁ®±\}/g, guildName)
+      .replace(/\{guild\}|\{\u7FA4\u7D44\u540D\u7A31\}|\{\u7FA4\u7EC4\u540D\u79F0\}/g, guildName)
       .replace(/\{id\}/g, '123456789012345678');
   }
+
 
   function renderVoiceEmbed(titleKey, messageId, defaultTemplateKey, colorId, fallbackColor) {
     const title = t(titleKey);

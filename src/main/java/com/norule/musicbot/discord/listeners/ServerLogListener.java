@@ -43,7 +43,7 @@ public class ServerLogListener extends ListenerAdapter {
             return;
         }
         String roles = event.getRoles().stream().map(r -> r.getAsMention()).collect(Collectors.joining(", "));
-        EmbedBuilder eb = base(event.getGuild(), "?儭?" + t(event.getGuild(), "logs.role_added"), new Color(46, 204, 113))
+        EmbedBuilder eb = base(event.getGuild(), "\u2795 " + t(event.getGuild(), "logs.role_added"), new Color(46, 204, 113))
                 .addField(t(event.getGuild(), "logs.user"), event.getMember().getAsMention(), false)
                 .addField(t(event.getGuild(), "logs.roles"), roles, false);
         sendRoleChangeToConfiguredLogs(event.getGuild(), logs, eb);
@@ -56,7 +56,7 @@ public class ServerLogListener extends ListenerAdapter {
             return;
         }
         String roles = event.getRoles().stream().map(r -> r.getAsMention()).collect(Collectors.joining(", "));
-        EmbedBuilder eb = base(event.getGuild(), "?儭?" + t(event.getGuild(), "logs.role_removed"), new Color(231, 76, 60))
+        EmbedBuilder eb = base(event.getGuild(), "\u2796 " + t(event.getGuild(), "logs.role_removed"), new Color(231, 76, 60))
                 .addField(t(event.getGuild(), "logs.user"), event.getMember().getAsMention(), false)
                 .addField(t(event.getGuild(), "logs.roles"), roles, false);
         sendRoleChangeToConfiguredLogs(event.getGuild(), logs, eb);
@@ -72,7 +72,7 @@ public class ServerLogListener extends ListenerAdapter {
             return;
         }
         Channel channel = event.getChannel();
-        EmbedBuilder eb = base(event.getGuild(), "??儭?" + t(event.getGuild(), "logs.channel_created"), new Color(52, 152, 219))
+        EmbedBuilder eb = base(event.getGuild(), "\uD83C\uDD95 " + t(event.getGuild(), "logs.channel_created"), new Color(52, 152, 219))
                 .addField(t(event.getGuild(), "logs.channel"), channel.getAsMention() + " (`" + channel.getType().name() + "`)", false);
         send(event.getGuild(), logs.getChannelLifecycleChannelId(), eb);
     }
