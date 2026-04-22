@@ -1,20 +1,5 @@
 package com.norule.musicbot.discord.listeners;
 
-import com.norule.musicbot.config.*;
-import com.norule.musicbot.domain.music.*;
-import com.norule.musicbot.i18n.*;
-import com.norule.musicbot.web.*;
-
-import com.norule.musicbot.*;
-
-import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
-import net.dv8tion.jda.api.EmbedBuilder;
-import net.dv8tion.jda.api.Permission;
-import net.dv8tion.jda.api.components.actionrow.ActionRow;
-import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.entities.channel.ChannelType;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
-import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.CommandAutoCompleteInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
@@ -22,11 +7,7 @@ import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.EntitySelectInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
 
-import java.time.Instant;
-import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
 
 final class InteractionRouter {
     private final MusicCommandListener owner;
@@ -65,68 +46,20 @@ final class InteractionRouter {
             owner.logCommandUsage(event.getGuild(), event.getMember(), "/" + owner.buildSlashRoute(event), event.getChannel().getIdLong());
         }
         switch (commandName) {
-            case "help" -> event.replyEmbeds(owner.helpEmbed(event.getGuild(), lang, "general").build())
-                    .addComponents(
-                            ActionRow.of(owner.helpMenu(lang)),
-                            ActionRow.of(owner.helpButtonsPrimary(lang, "general")),
-                            ActionRow.of(owner.helpButtonsSecondary(lang, "general"))
-                    )
-                    .setEphemeral(true)
-                    .queue();
-            case "ping" -> owner.handlePingSlash(event, lang);
-            case "welcome" -> owner.handleWelcomeSlash(event, lang);
+            case "help" -> owner.helpCommandHandler().handleHelpSlash(event, lang);
+            case "ping" -> owner.pingCommandHandler().handlePingSlash(event, lang);
+            case "welcome" -> owner.welcomeCommandHandler().handleWelcomeSlash(event, lang);
             case "number-chain" -> owner.settingsCommandHandler().handleSettingsNumberChain(event, lang);
-            case "volume" -> owner.handleVolumeSlash(event, lang);
-            case "history" -> owner.handleHistorySlash(event, lang);
-            case "playlist" -> owner.handlePlaylistSlash(event, lang);
-            case "join" -> {
-                event.deferReply().queue(success -> owner.handleJoin(event.getGuild(), event.getMember(),
-                        text -> event.getHook().sendMessage(text)
-                                .queue(message -> owner.moveActivePanelToBottom(event.getGuild(),
-                                                event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null),
-                                        error -> {
-                                        })), failure -> {
-                });
-            }
-            case "play" -> owner.handlePlaySlash(event, lang);
-            case "skip" -> {
-                event.deferReply().queue(success -> owner.handleSkip(event.getGuild(),
-                        text -> event.getHook().sendMessage(text)
-                                .queue(message -> owner.moveActivePanelToBottom(event.getGuild(),
-                                                event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null),
-                                        error -> {
-                                        })), failure -> {
-                });
-            }
-            case "stop" -> {
-                event.deferReply().queue(success -> owner.handleStop(event.getGuild(),
-                        text -> event.getHook().sendMessage(text)
-                                .queue(message -> owner.moveActivePanelToBottom(event.getGuild(),
-                                                event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null),
-                                        error -> {
-                                        })), failure -> {
-                });
-            }
-            case "leave" -> {
-                event.deferReply().queue(success -> owner.handleLeave(event.getGuild(),
-                        text -> event.getHook().sendMessage(text)
-                                .queue(message -> owner.moveActivePanelToBottom(event.getGuild(),
-                                                event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null),
-                                        error -> {
-                                        })), failure -> {
-                });
-            }
+            case "volume" -> owner.playbackCommandHandler().handleVolumeSlash(event, lang);
+            case "history" -> owner.historyCommandHandler().handleHistorySlash(event, lang);
+            case "playlist" -> owner.playlistCommandHandler().handlePlaylistSlash(event, lang);
+            case "join" -> owner.playbackCommandHandler().handleJoinSlash(event);
+            case "play" -> owner.playbackCommandHandler().handlePlaySlash(event, lang);
+            case "skip" -> owner.playbackCommandHandler().handleSkipSlash(event);
+            case "stop" -> owner.playbackCommandHandler().handleStopSlash(event);
+            case "leave" -> owner.playbackCommandHandler().handleLeaveSlash(event);
             case "music-panel" -> owner.musicPanelController().handlePanelSlashCommand(event, lang);
-            case "repeat" -> {
-                String mode = Objects.requireNonNull(event.getOption("mode")).getAsString();
-                owner.setRepeat(event.getGuild(), mode);
-                owner.refreshPanel(event.getGuild().getIdLong());
-                TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
-                event.reply(owner.mapRepeatLabel(lang, owner.musicService().getRepeatMode(event.getGuild())))
-                        .setEphemeral(true)
-                        .queue(success -> owner.moveActivePanelToBottom(event.getGuild(), panelChannel), error -> {
-                        });
-            }
+            case "repeat" -> owner.playbackCommandHandler().handleRepeatSlash(event, lang);
             case "music" -> owner.handleMusicSlash(event, lang);
             case "settings" -> owner.settingsCommandHandler().handleSettings(event, lang);
             case "private-room-settings" -> owner.handlePrivateRoomSettingsCommand(event, lang);
@@ -143,7 +76,7 @@ final class InteractionRouter {
     void onCommandAutoCompleteInteraction(CommandAutoCompleteInteractionEvent event) {
         String commandName = owner.canonicalSlashName(event.getName());
         if ("playlist".equals(commandName) && "name".equals(event.getFocusedOption().getName())) {
-            owner.handlePlaylistAutocomplete(event);
+            owner.playlistCommandHandler().handlePlaylistAutocomplete(event);
         }
     }
 
@@ -155,14 +88,7 @@ final class InteractionRouter {
         String componentId = event.getComponentId();
 
         if (MusicCommandListener.HELP_SELECT_ID.equals(componentId)) {
-            String value = event.getValues().isEmpty() ? "general" : event.getValues().get(0);
-            event.editMessageEmbeds(owner.helpEmbed(event.getGuild(), lang, value).build())
-                    .setComponents(
-                            ActionRow.of(owner.helpMenu(lang)),
-                            ActionRow.of(owner.helpButtonsPrimary(lang, value)),
-                            ActionRow.of(owner.helpButtonsSecondary(lang, value))
-                    )
-                    .queue();
+            owner.helpCommandHandler().handleHelpSelect(event, lang);
             return;
         }
 
@@ -173,66 +99,8 @@ final class InteractionRouter {
             owner.handleRoomSettingsSelect(event, lang);
             return;
         }
-        if (componentId.startsWith(MusicCommandListener.PLAY_PICK_PREFIX)) {
-            String token = componentId.substring(MusicCommandListener.PLAY_PICK_PREFIX.length());
-            MusicCommandListener.SearchRequest request = owner.searchRequests().remove(token);
-            if (request == null) {
-                event.reply(owner.i18nService().t(lang, "music.search_expired")).setEphemeral(true).queue();
-                return;
-            }
-            if (Instant.now().isAfter(request.expiresAt)) {
-                event.editMessage(owner.i18nService().t(lang, "music.search_expired")).setComponents(List.of()).queue();
-                return;
-            }
-            if (event.getUser().getIdLong() != request.requestUserId) {
-                event.reply(owner.i18nService().t(lang, "delete.only_requester")).setEphemeral(true).queue();
-                return;
-            }
-            int index = Integer.parseInt(event.getValues().get(0));
-            if (index < 0 || index >= request.results.size()) {
-                event.reply(owner.i18nService().t(lang, "music.not_found", Map.of("query", request.query))).setEphemeral(true).queue();
-                return;
-            }
-            AudioTrack picked = request.results.get(index);
-            Member member = event.getMember();
-            if (member == null || member.getVoiceState() == null || member.getVoiceState().getChannel() == null) {
-                event.reply(owner.i18nService().t(lang, "music.join_first")).setEphemeral(true).queue();
-                return;
-            }
-            AudioChannel memberChannel = member.getVoiceState().getChannel();
-            AudioChannel botChannel = event.getGuild().getAudioManager().getConnectedChannel();
-            if (botChannel != null && botChannel.getIdLong() != memberChannel.getIdLong()) {
-                event.reply(owner.i18nService().t(lang, "music.join_bot_voice_channel",
-                                Map.of("channel", botChannel.getAsMention())))
-                        .setEphemeral(true)
-                        .queue();
-                return;
-            }
-            if (botChannel == null) {
-                owner.musicService().joinChannel(event.getGuild(), memberChannel);
-            }
-            if (request.channelId != null) {
-                owner.musicService().rememberCommandChannel(event.getGuild().getIdLong(), request.channelId);
-            }
-            String identifier = picked.getInfo().uri != null ? picked.getInfo().uri : picked.getInfo().title;
-            String sourceLabel = owner.detectSource(picked);
-            owner.musicService().queueTrackByIdentifier(
-                    event.getGuild(),
-                    identifier,
-                    sourceLabel,
-                    ignored -> owner.refreshPanel(event.getGuild().getIdLong()),
-                    event.getUser().getIdLong(),
-                    event.getUser().getName()
-            );
-            if (request.channelId != null) {
-                TextChannel panelChannel = event.getGuild().getTextChannelById(request.channelId);
-                if (panelChannel != null) {
-                    owner.recreatePanelForChannel(event.getGuild(), panelChannel, lang);
-                }
-            }
-            event.editMessage(owner.musicUx(lang, "queue_added", Map.of("title", picked.getInfo().title)))
-                    .setComponents(List.of())
-                    .queue();
+        if (componentId.startsWith(MusicPlaybackCommandHandler.PLAY_PICK_PREFIX)) {
+            owner.playbackCommandHandler().handlePlayPick(event, lang);
             return;
         }
 
@@ -255,7 +123,7 @@ final class InteractionRouter {
             return;
         }
         if (MusicCommandListener.WELCOME_MODAL_ID.equals(event.getModalId())) {
-            owner.handleWelcomeModal(event, lang);
+            owner.welcomeCommandHandler().handleWelcomeModal(event, lang);
             return;
         }
     }
@@ -271,35 +139,28 @@ final class InteractionRouter {
             owner.handleDeleteButtons(event, lang);
             return;
         }
-        if (id.startsWith(MusicCommandListener.PLAYLIST_LIST_BUTTON_PREFIX)) {
-            owner.handlePlaylistListButtons(event, lang);
+        if (id.startsWith(PlaylistCommandHandler.LIST_BUTTON_PREFIX)) {
+            owner.playlistCommandHandler().handlePlaylistListButtons(event, lang);
             return;
         }
-        if (id.startsWith(MusicCommandListener.HISTORY_BUTTON_PREFIX)) {
-            owner.handleHistoryButtons(event, lang);
+        if (id.startsWith(HistoryCommandHandler.HISTORY_BUTTON_PREFIX)) {
+            owner.historyCommandHandler().handleHistoryButtons(event, lang);
             return;
         }
-        if (id.startsWith(MusicCommandListener.PLAYLIST_VIEW_BUTTON_PREFIX)) {
-            owner.handlePlaylistViewButtons(event, lang);
+        if (id.startsWith(PlaylistCommandHandler.VIEW_BUTTON_PREFIX)) {
+            owner.playlistCommandHandler().handlePlaylistViewButtons(event, lang);
             return;
         }
-        if (id.startsWith(MusicCommandListener.PLAYLIST_TRACK_REMOVE_CONFIRM_PREFIX)
-                || id.startsWith(MusicCommandListener.PLAYLIST_TRACK_REMOVE_CANCEL_PREFIX)) {
-            owner.handlePlaylistTrackRemoveButtons(event, lang);
+        if (id.startsWith(PlaylistCommandHandler.TRACK_REMOVE_CONFIRM_PREFIX)
+                || id.startsWith(PlaylistCommandHandler.TRACK_REMOVE_CANCEL_PREFIX)) {
+            owner.playlistCommandHandler().handlePlaylistTrackRemoveButtons(event, lang);
             return;
         }
         if (owner.settingsCommandHandler().handleButtonInteraction(event, lang)) {
             return;
         }
         if (id.startsWith(MusicCommandListener.HELP_BUTTON_PREFIX)) {
-            String category = id.substring(MusicCommandListener.HELP_BUTTON_PREFIX.length());
-            event.editMessageEmbeds(owner.helpEmbed(event.getGuild(), lang, category).build())
-                    .setComponents(
-                            ActionRow.of(owner.helpMenu(lang)),
-                            ActionRow.of(owner.helpButtonsPrimary(lang, category)),
-                            ActionRow.of(owner.helpButtonsSecondary(lang, category))
-                    )
-                    .queue();
+            owner.helpCommandHandler().handleHelpButton(event, lang);
             return;
         }
         if (owner.musicPanelController().handlePanelButtonInteraction(event, lang)) {

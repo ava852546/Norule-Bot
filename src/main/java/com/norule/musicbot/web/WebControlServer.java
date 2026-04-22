@@ -28,20 +28,14 @@ import net.dv8tion.jda.api.components.selections.SelectOption;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.utils.data.DataArray;
 import net.dv8tion.jda.api.utils.data.DataObject;
-import org.yaml.snakeyaml.Yaml;
 
 import java.awt.Color;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.Reader;
 import java.io.ByteArrayInputStream;
 import java.net.InetSocketAddress;
-import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -55,13 +49,11 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.Comparator;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -78,9 +70,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class WebControlServer {
-    private static final String SESSION_COOKIE = "norule_session";
-    private static final Duration OAUTH_STATE_TTL = Duration.ofMinutes(5);
-    private static final int DEFAULT_TIMEOUT_SECONDS = 15;
     private static final int TICKET_HISTORY_RETENTION_DAYS = 90;
     private static final BigInteger ADMINISTRATOR_BIT = new BigInteger("8");
     private static final BigInteger MANAGE_GUILD_BIT = new BigInteger("32");
@@ -92,15 +81,17 @@ public class WebControlServer {
     private final TicketService ticketService;
     private final Supplier<BotConfig> configSupplier;
     private final I18nService i18n;
-    private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(DEFAULT_TIMEOUT_SECONDS)).build();
     private final ScheduledExecutorService cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "NoRule-Web-Cleanup");
         t.setDaemon(true);
         return t;
     });
-    private final Map<String, OAuthState> oauthStates = new ConcurrentHashMap<>();
-    private final Map<String, WebSession> sessions = new ConcurrentHashMap<>();
+    private final WebSessionManager sessionManager = new WebSessionManager();
     private final WebAuthController webAuthController;
+    private final WebMetadataController webMetadataController;
+    private final WebStaticAssetController webStaticAssetController;
+    private final WebLanguageBundleService webLanguageBundleService;
+    private final DiscordOAuthClient discordOAuthClient = new DiscordOAuthClient();
     private final GuildSettingsApiController guildSettingsApiController;
     private final TicketTranscriptApiController ticketTranscriptApiController;
     private final WelcomePreviewService welcomePreviewService;
@@ -125,10 +116,13 @@ public class WebControlServer {
         this.configSupplier = configSupplier;
         this.i18n = i18n;
         this.webAuthController = new WebAuthController(this);
+        this.webMetadataController = new WebMetadataController(this);
+        this.webStaticAssetController = new WebStaticAssetController(this);
+        this.webLanguageBundleService = new WebLanguageBundleService(configSupplier);
         this.guildSettingsApiController = new GuildSettingsApiController(this);
         this.ticketTranscriptApiController = new TicketTranscriptApiController(this);
         this.welcomePreviewService = new WelcomePreviewService(this);
-        cleanupExecutor.scheduleAtFixedRate(this::cleanupExpired, 5, 5, TimeUnit.MINUTES);
+        cleanupExecutor.scheduleAtFixedRate(sessionManager::cleanupExpired, 5, 5, TimeUnit.MINUTES);
     }
 
     public synchronized void syncWithConfig() {
@@ -174,11 +168,11 @@ public class WebControlServer {
             created.createContext("/auth/callback", webAuthController::handleAuthCallback);
             created.createContext("/auth/logout", webAuthController::handleAuthLogout);
             created.createContext("/api/me", webAuthController::handleApiMe);
-            created.createContext("/api/guilds", this::handleApiGuilds);
-            created.createContext("/api/web/i18n", this::handleApiWebI18n);
+            created.createContext("/api/guilds", webMetadataController::handleApiGuilds);
+            created.createContext("/api/web/i18n", webMetadataController::handleApiWebI18n);
             created.createContext("/api/guild/", guildSettingsApiController::handleApiGuildRoute);
-            created.createContext("/web/", this::handleWebAsset);
-            created.createContext("/", this::handleRoot);
+            created.createContext("/web/", webStaticAssetController::handleWebAsset);
+            created.createContext("/", webStaticAssetController::handleRoot);
             created.setExecutor(Executors.newCachedThreadPool(r -> {
                 Thread t = new Thread(r, "NoRule-Web");
                 t.setDaemon(true);
@@ -360,128 +354,6 @@ public class WebControlServer {
         return Path.of("").toAbsolutePath().resolve(certDir).normalize();
     }
 
-    private void handleRoot(HttpExchange exchange) throws IOException {
-        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) || !"/".equals(exchange.getRequestURI().getPath())) {
-            sendText(exchange, 404, "Not Found");
-            return;
-        }
-        sendHtml(exchange, 200, buildRootHtml());
-    }
-
-    private void handleWebAsset(HttpExchange exchange) throws IOException {
-        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) && !"HEAD".equalsIgnoreCase(exchange.getRequestMethod())) {
-            sendText(exchange, 405, "Method Not Allowed");
-            return;
-        }
-        String requestPath = exchange.getRequestURI().getPath();
-        if (requestPath == null || !requestPath.startsWith("/web/") || requestPath.contains("..")) {
-            sendText(exchange, 404, "Not Found");
-            return;
-        }
-        String resourcePath = requestPath;
-        try (InputStream in = getClass().getResourceAsStream(resourcePath)) {
-            if (in == null) {
-                sendText(exchange, 404, "Not Found");
-                return;
-            }
-            byte[] body = in.readAllBytes();
-            exchange.getResponseHeaders().set("Content-Type", webAssetContentType(resourcePath));
-            exchange.getResponseHeaders().set("Cache-Control", "no-store");
-            if ("HEAD".equalsIgnoreCase(exchange.getRequestMethod())) {
-                exchange.sendResponseHeaders(200, -1);
-                exchange.close();
-                return;
-            }
-            exchange.sendResponseHeaders(200, body.length);
-            exchange.getResponseBody().write(body);
-            exchange.close();
-        }
-    }
-
-    void handleApiWebI18n(HttpExchange exchange) throws IOException {
-        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-            sendJson(exchange, 405, DataObject.empty().put("error", "Method Not Allowed"));
-            return;
-        }
-        Map<String, Map<String, String>> bundles = loadWebBundles();
-        DataArray uiLanguages = DataArray.empty();
-        for (Map.Entry<String, Map<String, String>> entry : bundles.entrySet()) {
-            String code = entry.getKey();
-            Map<String, String> bundle = entry.getValue();
-            String label = bundle.getOrDefault("lang", bundle.getOrDefault("language.name", code));
-            uiLanguages.add(DataObject.empty()
-                    .put("code", code)
-                    .put("label", label));
-        }
-        DataArray botLanguages = DataArray.empty();
-        for (Map.Entry<String, String> entry : i18n.getAvailableLanguages().entrySet()) {
-            botLanguages.add(DataObject.empty()
-                    .put("code", entry.getKey())
-                    .put("label", entry.getValue()));
-        }
-        DataObject bundlesJson = DataObject.empty();
-        for (Map.Entry<String, Map<String, String>> entry : bundles.entrySet()) {
-            DataObject one = DataObject.empty();
-            for (Map.Entry<String, String> kv : entry.getValue().entrySet()) {
-                one.put(kv.getKey(), kv.getValue());
-            }
-            bundlesJson.put(entry.getKey(), one);
-        }
-        String defaultUiLang = bundles.containsKey("zh-TW")
-                ? "zh-TW"
-                : (bundles.isEmpty() ? "en" : bundles.keySet().iterator().next());
-        sendJson(exchange, 200, DataObject.empty()
-                .put("defaultLanguage", defaultUiLang)
-                .put("uiLanguages", uiLanguages)
-                .put("botLanguages", botLanguages)
-                .put("bundles", bundlesJson));
-    }
-
-    void handleApiGuilds(HttpExchange exchange) throws IOException {
-        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-            sendJson(exchange, 405, DataObject.empty().put("error", "Method Not Allowed"));
-            return;
-        }
-        WebSession session = requireSession(exchange);
-        if (session == null || session.accessToken == null || session.accessToken.isBlank()) {
-            sendJson(exchange, 401, DataObject.empty().put("error", "Unauthorized"));
-            return;
-        }
-
-        try {
-            DataArray userGuilds = fetchUserGuilds(session.accessToken);
-            DataArray guilds = DataArray.empty();
-            for (int i = 0; i < userGuilds.length(); i++) {
-                DataObject rawGuild = userGuilds.getObject(i);
-                String guildId = rawGuild.getString("id", "");
-                if (guildId.isBlank()) {
-                    continue;
-                }
-                String permissions = rawGuild.getString("permissions_new", rawGuild.getString("permissions", "0"));
-                if (!hasManagePermissionInGuild(permissions)) {
-                    continue;
-                }
-                String guildName = rawGuild.getString("name", "Unknown Guild");
-                String icon = rawGuild.getString("icon", "");
-                Guild botGuild = jda.getGuildById(guildId);
-                boolean botInGuild = botGuild != null;
-                boolean botCanManage = botInGuild && botGuild.getSelfMember().hasPermission(Permission.MANAGE_SERVER);
-
-                guilds.add(DataObject.empty()
-                        .put("id", guildId)
-                        .put("name", guildName)
-                        .put("iconUrl", buildGuildIconUrl(guildId, icon))
-                        .put("botInGuild", botInGuild)
-                        .put("botCanManage", botCanManage)
-                        .put("manageUrl", "/?guild=" + guildId)
-                        .put("inviteUrl", buildBotInviteUrl(guildId)));
-            }
-            sendJson(exchange, 200, DataObject.empty().put("guilds", guilds));
-        } catch (Exception e) {
-            sendJson(exchange, 401, DataObject.empty().put("error", "Failed to load user guilds. Please login again."));
-        }
-    }
-
     JDA jda() {
         return jda;
     }
@@ -510,16 +382,20 @@ public class WebControlServer {
         return i18n;
     }
 
-    HttpClient httpClient() {
-        return httpClient;
+    String webAssetVersion() {
+        return webAssetVersion;
     }
 
-    Map<String, OAuthState> oauthStates() {
-        return oauthStates;
+    WebLanguageBundleService webLanguageBundleService() {
+        return webLanguageBundleService;
     }
 
-    Map<String, WebSession> sessions() {
-        return sessions;
+    WebSessionManager sessionManager() {
+        return sessionManager;
+    }
+
+    DiscordOAuthClient discordOAuthClient() {
+        return discordOAuthClient;
     }
 
     TicketTranscriptApiController ticketTranscriptApiController() {
@@ -528,44 +404,6 @@ public class WebControlServer {
 
     WelcomePreviewService welcomePreviewService() {
         return welcomePreviewService;
-    }
-
-    private String webAssetContentType(String resourcePath) {
-        if (resourcePath.endsWith(".js")) {
-            return "text/javascript; charset=UTF-8";
-        }
-        if (resourcePath.endsWith(".css")) {
-            return "text/css; charset=UTF-8";
-        }
-        if (resourcePath.endsWith(".html")) {
-            return "text/html; charset=UTF-8";
-        }
-        if (resourcePath.endsWith(".json")) {
-            return "application/json; charset=UTF-8";
-        }
-        return "text/plain; charset=UTF-8";
-    }
-
-    private String resolveBotAvatarUrl() {
-        try {
-            if (jda == null || jda.getSelfUser() == null) {
-                return "";
-            }
-            String url = jda.getSelfUser().getEffectiveAvatarUrl();
-            return url == null ? "" : url;
-        } catch (Exception ignored) {
-            return "";
-        }
-    }
-
-    private String escapeHtmlAttr(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replace("&", "&amp;")
-                .replace("\"", "&quot;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;");
     }
 
     Member resolveMember(Guild guild, long userId) {
@@ -587,51 +425,6 @@ public class WebControlServer {
         return member.hasPermission(Permission.ADMINISTRATOR) || member.hasPermission(Permission.MANAGE_SERVER);
     }
 
-    WebSession requireSession(HttpExchange exchange) {
-        cleanupExpired();
-        String cookie = exchange.getRequestHeaders().getFirst("Cookie");
-        if (cookie == null || cookie.isBlank()) {
-            return null;
-        }
-        String sessionId = null;
-        for (String part : cookie.split(";")) {
-            String[] kv = part.trim().split("=", 2);
-            if (kv.length == 2 && SESSION_COOKIE.equals(kv[0].trim())) {
-                sessionId = kv[1].trim();
-                break;
-            }
-        }
-        if (sessionId == null || sessionId.isBlank()) {
-            return null;
-        }
-        WebSession session = sessions.get(sessionId);
-        if (session == null || session.expiresAtMillis < System.currentTimeMillis()) {
-            sessions.remove(sessionId);
-            return null;
-        }
-        return session;
-    }
-
-    void setSessionCookie(HttpExchange exchange, String sessionId, BotConfig.Web web) {
-        boolean secure = web.getSsl().isEnabled()
-                || (web.getBaseUrl() != null && web.getBaseUrl().toLowerCase().startsWith("https://"));
-        String sameSite = secure ? "None" : "Lax";
-        int maxAge = Math.max(300, web.getSessionExpireMinutes() * 60);
-        String cookie = SESSION_COOKIE + "=" + sessionId
-                + "; Path=/; Max-Age=" + maxAge
-                + "; HttpOnly; SameSite=" + sameSite
-                + (secure ? "; Secure" : "");
-        exchange.getResponseHeaders().add("Set-Cookie", cookie);
-    }
-
-    void clearSessionCookie(HttpExchange exchange, BotConfig.Web web) {
-        boolean secure = web.getSsl().isEnabled()
-                || (web.getBaseUrl() != null && web.getBaseUrl().toLowerCase().startsWith("https://"));
-        String sameSite = secure ? "None" : "Lax";
-        String cookie = SESSION_COOKIE + "=; Path=/; Max-Age=0; HttpOnly; SameSite=" + sameSite + (secure ? "; Secure" : "");
-        exchange.getResponseHeaders().add("Set-Cookie", cookie);
-    }
-
     String resolveHomeUrl(BotConfig.Web web) {
         String base = web.getBaseUrl();
         if (base == null || base.isBlank()) {
@@ -639,12 +432,6 @@ public class WebControlServer {
         }
         String trimmed = base.trim();
         return trimmed.endsWith("/") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
-    }
-
-    void cleanupExpired() {
-        long now = System.currentTimeMillis();
-        oauthStates.entrySet().removeIf(e -> e.getValue().expiresAtMillis < now);
-        sessions.entrySet().removeIf(e -> e.getValue().expiresAtMillis < now);
     }
 
     String readBody(HttpExchange exchange) throws IOException {
@@ -673,123 +460,6 @@ public class WebControlServer {
             return (Map<String, Object>) m;
         }
         return Map.of();
-    }
-
-    private Map<String, Map<String, String>> loadWebBundles() {
-        Map<String, Map<String, String>> bundles = new LinkedHashMap<>();
-        String langDir = configSupplier.get().getLanguageDir();
-        Path base = Path.of(langDir == null || langDir.isBlank() ? "lang" : langDir);
-        Path webBase = base.resolve("web");
-        if (Files.exists(webBase)) {
-            try (var stream = Files.list(webBase)) {
-                stream.filter(Files::isRegularFile)
-                        .map(Path::getFileName)
-                        .map(Path::toString)
-                        .filter(name -> name.startsWith("web-"))
-                        .filter(name -> name.endsWith(".yml") || name.endsWith(".yaml"))
-                        .sorted()
-                        .forEach(fileName -> {
-                            String code = parseWebLanguageCode(fileName);
-                            if (code.isBlank()) {
-                                return;
-                            }
-                            Map<String, String> bundle = readFlatYaml(webBase.resolve(fileName));
-                            if (!bundle.isEmpty()) {
-                                bundles.put(code, bundle);
-                            }
-                        });
-            } catch (IOException ignored) {
-            }
-        }
-
-        if (!bundles.containsKey("zh-TW")) {
-            Map<String, String> zh = readFlatYamlResource("defaults/lang/web/web-zh-TW.yml");
-            if (!zh.isEmpty()) {
-                bundles.put("zh-TW", zh);
-            }
-        }
-        if (!bundles.containsKey("zh-CN")) {
-            Map<String, String> zhCn = readFlatYamlResource("defaults/lang/web/web-zh-CN.yml");
-            if (!zhCn.isEmpty()) {
-                bundles.put("zh-CN", zhCn);
-            }
-        }
-        if (!bundles.containsKey("en")) {
-            Map<String, String> en = readFlatYamlResource("defaults/lang/web/web-en.yml");
-            if (!en.isEmpty()) {
-                bundles.put("en", en);
-            }
-        }
-        if (bundles.isEmpty()) {
-            bundles.put("zh-TW", Map.of());
-            bundles.put("en", Map.of());
-        }
-        return bundles;
-    }
-
-    private String parseWebLanguageCode(String fileName) {
-        if (fileName == null || !fileName.startsWith("web-")) {
-            return "";
-        }
-        String name = fileName;
-        if (name.endsWith(".yml")) {
-            name = name.substring(0, name.length() - 4);
-        } else if (name.endsWith(".yaml")) {
-            name = name.substring(0, name.length() - 5);
-        }
-        if (name.length() <= 4) {
-            return "";
-        }
-        return name.substring(4);
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, String> readFlatYaml(Path file) {
-        if (file == null || !Files.exists(file)) {
-            return Map.of();
-        }
-        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            Object root = new Yaml().load(reader);
-            if (!(root instanceof Map<?, ?> map)) {
-                return Map.of();
-            }
-            Map<String, String> out = new LinkedHashMap<>();
-            flattenMap("", (Map<String, Object>) map, out);
-            return out;
-        } catch (Exception ignored) {
-            return Map.of();
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, String> readFlatYamlResource(String resourcePath) {
-        try (InputStream in = WebControlServer.class.getClassLoader().getResourceAsStream(resourcePath)) {
-            if (in == null) {
-                return Map.of();
-            }
-            Object root = new Yaml().load(in);
-            if (!(root instanceof Map<?, ?> map)) {
-                return Map.of();
-            }
-            Map<String, String> out = new LinkedHashMap<>();
-            flattenMap("", (Map<String, Object>) map, out);
-            return out;
-        } catch (Exception ignored) {
-            return Map.of();
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private void flattenMap(String prefix, Map<String, Object> source, Map<String, String> target) {
-        for (Map.Entry<String, Object> entry : source.entrySet()) {
-            String key = prefix.isBlank() ? entry.getKey() : prefix + "." + entry.getKey();
-            Object value = entry.getValue();
-            if (value instanceof Map<?, ?> child) {
-                flattenMap(key, (Map<String, Object>) child, target);
-            } else {
-                target.put(key, value == null ? "" : String.valueOf(value));
-            }
-        }
     }
 
     String toIdText(Long value) {
@@ -1023,55 +693,6 @@ public class WebControlServer {
                 .withVoiceMoveMessage(i18n.t(language, "notifications.template.default.voice_move"));
     }
 
-    String exchangeToken(BotConfig.Web web, String code) throws IOException, InterruptedException {
-        String body = "client_id=" + encode(web.getDiscordClientId())
-                + "&client_secret=" + encode(web.getDiscordClientSecret())
-                + "&grant_type=authorization_code"
-                + "&code=" + encode(code)
-                + "&redirect_uri=" + encode(web.getDiscordRedirectUri());
-        HttpRequest request = HttpRequest.newBuilder(URI.create("https://discord.com/api/oauth2/token"))
-                .timeout(Duration.ofSeconds(DEFAULT_TIMEOUT_SECONDS))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IllegalStateException("token exchange failed: HTTP " + response.statusCode());
-        }
-        DataObject json = DataObject.fromJson(response.body());
-        String token = json.getString("access_token", "");
-        if (token.isBlank()) {
-            throw new IllegalStateException("access_token missing");
-        }
-        return token;
-    }
-
-    DataObject fetchMe(String accessToken) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(URI.create("https://discord.com/api/users/@me"))
-                .timeout(Duration.ofSeconds(DEFAULT_TIMEOUT_SECONDS))
-                .header("Authorization", "Bearer " + accessToken)
-                .GET()
-                .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IllegalStateException("failed to load profile: HTTP " + response.statusCode());
-        }
-        return DataObject.fromJson(response.body());
-    }
-
-    DataArray fetchUserGuilds(String accessToken) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(URI.create("https://discord.com/api/users/@me/guilds"))
-                .timeout(Duration.ofSeconds(DEFAULT_TIMEOUT_SECONDS))
-                .header("Authorization", "Bearer " + accessToken)
-                .GET()
-                .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IllegalStateException("failed to load guilds: HTTP " + response.statusCode());
-        }
-        return DataArray.fromJson(response.body());
-    }
-
     boolean hasManagePermissionInGuild(String raw) {
         if (raw == null || raw.isBlank()) {
             return false;
@@ -1285,19 +906,6 @@ public class WebControlServer {
         exchange.close();
     }
 
-    private void sendHtml(HttpExchange exchange, int statusCode, String html) throws IOException {
-        byte[] body = html.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
-        if ("HEAD".equalsIgnoreCase(exchange.getRequestMethod())) {
-            exchange.sendResponseHeaders(statusCode, -1);
-            exchange.close();
-            return;
-        }
-        exchange.sendResponseHeaders(statusCode, body.length);
-        exchange.getResponseBody().write(body);
-        exchange.close();
-    }
-
     void sendText(HttpExchange exchange, int statusCode, String text) throws IOException {
         byte[] body = text.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=UTF-8");
@@ -1310,221 +918,7 @@ public class WebControlServer {
         exchange.getResponseBody().write(body);
         exchange.close();
     }
-    private String buildRootHtml() {
-        String botName = (jda != null && jda.getSelfUser() != null) ? jda.getSelfUser().getName() : "NoRule Bot";
-        String botAvatarUrl = resolveBotAvatarUrl();
-        String faviconUrl = botAvatarUrl.isBlank()
-                ? "https://cdn.discordapp.com/embed/avatars/0.png"
-                : botAvatarUrl;
-        String botAvatarBlock = botAvatarUrl.isBlank()
-                ? "<div class=\"bot-avatar-fallback\" aria-label=\"" + escapeHtmlAttr(botName) + "\">NR</div>"
-                : "<img class=\"bot-avatar\" src=\"" + escapeHtmlAttr(botAvatarUrl) + "\" alt=\"" + escapeHtmlAttr(botName) + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\" />";
 
-        return renderTemplate("web/index.html", Map.of(
-                "__FAVICON_URL__", escapeHtmlAttr(faviconUrl),
-                "__WEB_APP_CSS_URL__", "/web/app.css?v=" + webAssetVersion,
-                "__WEB_APP_JS_URL__", "/web/app.js?v=" + webAssetVersion,
-                "__HERO_SECTION__", buildHeroSection(botAvatarBlock),
-                "__SIDEBAR_SECTION__", buildSidebarSection(),
-                "__SETTINGS_SECTION__", buildSettingsSection()
-        ));
-    }
-
-    private String buildHeroSection(String botAvatarBlock) {
-        String heroCopy = loadWebTemplate("web/partials/components/hero-copy.html");
-        return renderTemplate("web/partials/hero.html", Map.of(
-                "__HERO_COPY__", heroCopy,
-                "__HERO_PANEL__", renderTemplate("web/partials/components/hero-panel.html", Map.of(
-                        "__BOT_AVATAR_BLOCK__", botAvatarBlock
-                ))
-        ));
-    }
-
-    private String buildSidebarSection() {
-        return renderTemplate("web/partials/sidebar.html", Map.of(
-                "__SIDEBAR_HEAD__", loadWebTemplate("web/partials/components/sidebar-head.html")
-        ));
-    }
-
-    private String buildSettingsSection() {
-        return renderTemplate("web/partials/settings-shell.html", Map.of(
-                "__SETTINGS_HEAD__", loadWebTemplate("web/partials/components/settings-head.html"),
-                "__SETTINGS_TOOLBAR__", loadWebTemplate("web/partials/components/settings-toolbar.html"),
-                "__TAB_BUTTONS__", loadWebTemplate("web/partials/tab-buttons.html"),
-                "__TAB_PANES__", buildTabPanesHtml()
-        ));
-    }
-
-    private String buildTabPanesHtml() {
-        List<String> tabIds = List.of(
-                "general",
-                "notifications",
-                "logs",
-                "music",
-                "private-room",
-                "welcome",
-                "number-chain",
-                "ticket"
-        );
-        StringBuilder html = new StringBuilder();
-        for (String tabId : tabIds) {
-            if (!html.isEmpty()) {
-                html.append(System.lineSeparator()).append(System.lineSeparator());
-            }
-            html.append(buildTabPaneHtml(tabId));
-        }
-        return html.toString();
-    }
-
-    private String buildTabPaneHtml(String tabId) {
-        return switch (tabId) {
-            case "notifications" -> buildNotificationsTabHtml();
-            case "welcome" -> buildWelcomeTabHtml();
-            case "ticket" -> buildTicketTabHtml();
-            default -> loadWebTemplate("web/partials/tabs/" + tabId + ".html");
-        };
-    }
-
-    private String buildNotificationsTabHtml() {
-        return renderTemplate("web/partials/tabs/notifications.html", Map.of(
-                "__PANE_HEAD__", buildPaneHead(
-                        "notifications_group_title",
-                        "section_notifications",
-                        "notifications.*",
-                        ""
-                ),
-                "__OVERVIEW_GROUP__", loadWebTemplate("web/partials/tabs/components/notifications-overview-group.html"),
-                "__MODAL_HEAD__", buildModalHead(
-                        "notificationEditorTitle",
-                        "notificationEditorTitle",
-                        "Configure Notification Embeds",
-                        "closeNotificationEditorBtn"
-                ),
-                "__MEMBER_GROUP__", loadWebTemplate("web/partials/tabs/components/notifications-member-group.html"),
-                "__VOICE_GROUP__", loadWebTemplate("web/partials/tabs/components/notifications-voice-group.html"),
-                "__PREVIEW_GROUP__", loadWebTemplate("web/partials/tabs/components/notifications-preview-group.html"),
-                "__MODAL_ACTIONS__", buildModalSaveActions("saveNotificationSettingsBtn")
-        ));
-    }
-
-    private String buildWelcomeTabHtml() {
-        return renderTemplate("web/partials/tabs/welcome.html", Map.of(
-                "__PANE_HEAD__", buildPaneHead(
-                        "welcome_group_title",
-                        "welcome_group_title",
-                        "welcome.*",
-                        buildResetButton("resetWelcomeBtn")
-                ),
-                "__OVERVIEW_GROUP__", loadWebTemplate("web/partials/tabs/components/welcome-overview-group.html"),
-                "__MODAL_HEAD__", buildModalHead(
-                        "welcomeEditorTitle",
-                        "welcomeEditorTitle",
-                        "Configure Welcome Message",
-                        "closeWelcomeEditorBtn"
-                ),
-                "__MESSAGE_GROUP__", loadWebTemplate("web/partials/tabs/components/welcome-message-group.html"),
-                "__MEDIA_GROUP__", loadWebTemplate("web/partials/tabs/components/welcome-media-group.html"),
-                "__PREVIEW_GROUP__", loadWebTemplate("web/partials/tabs/components/welcome-preview-group.html"),
-                "__MODAL_ACTIONS__", buildModalSaveActions("saveWelcomeSettingsBtn")
-        ));
-    }
-
-    private String buildTicketTabHtml() {
-        return renderTemplate("web/partials/tabs/ticket.html", Map.of(
-                "__PANE_HEAD__", buildPaneHead(
-                        null,
-                        "section_ticket",
-                        "ticket.*",
-                        buildResetButton("resetTicketBtn")
-                ),
-                "__BASIC_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-basic-group.html"),
-                "__HISTORY_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-history-group.html"),
-                "__ACCESS_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-access-group.html"),
-                "__PANEL_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-panel-group.html"),
-                "__OPTIONS_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-options-group.html")
-        ));
-    }
-
-    private String buildPaneHead(String titleId, String titleKey, String fallbackText, String actionsHtml) {
-        String titleIdAttr = (titleId == null || titleId.isBlank())
-                ? ""
-                : " id=\"" + escapeHtmlAttr(titleId) + "\"";
-        String titleHtml = "<h3" + titleIdAttr + " data-i18n=\"" + escapeHtmlAttr(titleKey) + "\">"
-                + escapeHtmlAttr(fallbackText)
-                + "</h3>";
-        return renderTemplate("web/partials/components/pane-head.html", Map.of(
-                "__PANE_TITLE_HTML__", titleHtml,
-                "__PANE_ACTIONS_HTML__", actionsHtml == null ? "" : actionsHtml
-        ));
-    }
-
-    private String buildResetButton(String buttonId) {
-        return "<button id=\"" + escapeHtmlAttr(buttonId)
-                + "\" class=\"danger reset-btn\" type=\"button\" data-i18n=\"resetSectionBtn\">Reset Section</button>";
-    }
-
-    private String buildModalHead(String titleId, String titleKey, String fallbackText, String closeButtonId) {
-        return renderTemplate("web/partials/components/modal-head.html", Map.of(
-                "__MODAL_TITLE_ID__", escapeHtmlAttr(titleId),
-                "__MODAL_TITLE_KEY__", escapeHtmlAttr(titleKey),
-                "__MODAL_TITLE_TEXT__", escapeHtmlAttr(fallbackText),
-                "__MODAL_CLOSE_ID__", escapeHtmlAttr(closeButtonId)
-        ));
-    }
-
-    private String buildModalSaveActions(String saveButtonId) {
-        return renderTemplate("web/partials/components/modal-save-actions.html", Map.of(
-                "__SAVE_BUTTON_ID__", escapeHtmlAttr(saveButtonId)
-        ));
-    }
-
-    private String renderTemplate(String resourcePath, Map<String, String> replacements) {
-        return renderTemplateString(loadWebTemplate(resourcePath), replacements);
-    }
-
-    private String renderTemplateString(String template, Map<String, String> replacements) {
-        String rendered = template;
-        for (Map.Entry<String, String> entry : replacements.entrySet()) {
-            rendered = rendered.replace(entry.getKey(), entry.getValue());
-        }
-        return rendered;
-    }
-
-    private String loadWebTemplate(String resourcePath) {
-        String normalizedPath = resourcePath.startsWith("/") ? resourcePath : "/" + resourcePath;
-        try (InputStream input = getClass().getResourceAsStream(normalizedPath)) {
-            if (input == null) {
-                throw new IllegalStateException("Missing web template: " + resourcePath);
-            }
-            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to load web template: " + resourcePath, exception);
-        }
-    }
-
-    static class OAuthState {
-        final long expiresAtMillis;
-
-        OAuthState(long expiresAtMillis) {
-            this.expiresAtMillis = expiresAtMillis;
-        }
-    }
-
-    static class WebSession {
-        final String userId;
-        final String username;
-        final String avatarUrl;
-        final String accessToken;
-        final long expiresAtMillis;
-
-        WebSession(String userId, String username, String avatarUrl, String accessToken, long expiresAtMillis) {
-            this.userId = userId;
-            this.username = username;
-            this.avatarUrl = avatarUrl;
-            this.accessToken = accessToken;
-            this.expiresAtMillis = expiresAtMillis;
-        }
-    }
 }
 
 

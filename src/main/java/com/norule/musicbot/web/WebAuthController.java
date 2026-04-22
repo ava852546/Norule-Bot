@@ -29,7 +29,7 @@ final class WebAuthController {
         }
         BotConfig.Web web = owner.configSupplier().get().getWeb();
         String state = UUID.randomUUID().toString().replace("-", "");
-        owner.oauthStates().put(state, new WebControlServer.OAuthState(System.currentTimeMillis() + OAUTH_STATE_TTL_MILLIS));
+        owner.sessionManager().oauthStates().put(state, new WebSessionManager.OAuthState(System.currentTimeMillis() + OAUTH_STATE_TTL_MILLIS));
 
         String authorizeUrl = "https://discord.com/oauth2/authorize"
                 + "?response_type=code"
@@ -55,7 +55,7 @@ final class WebAuthController {
             return;
         }
 
-        WebControlServer.OAuthState stateData = owner.oauthStates().remove(state);
+        WebSessionManager.OAuthState stateData = owner.sessionManager().oauthStates().remove(state);
         if (stateData == null || stateData.expiresAtMillis < System.currentTimeMillis()) {
             owner.sendText(exchange, 401, "OAuth state expired");
             return;
@@ -63,8 +63,8 @@ final class WebAuthController {
 
         BotConfig.Web web = owner.configSupplier().get().getWeb();
         try {
-            String accessToken = owner.exchangeToken(web, code);
-            DataObject me = owner.fetchMe(accessToken);
+            String accessToken = owner.discordOAuthClient().exchangeToken(web, code);
+            DataObject me = owner.discordOAuthClient().fetchMe(accessToken);
             String userId = me.getString("id", "");
             String username = me.getString("username", "");
             String avatarUrl = owner.buildAvatarUrl(me);
@@ -75,14 +75,14 @@ final class WebAuthController {
 
             long ttlMillis = Math.max(5, web.getSessionExpireMinutes()) * 60_000L;
             String sessionId = UUID.randomUUID().toString().replace("-", "");
-            owner.sessions().put(sessionId, new WebControlServer.WebSession(
+            owner.sessionManager().sessions().put(sessionId, new WebSessionManager.WebSession(
                     userId,
                     username,
                     avatarUrl,
                     accessToken,
                     System.currentTimeMillis() + ttlMillis
             ));
-            owner.setSessionCookie(exchange, sessionId, web);
+            owner.sessionManager().setSessionCookie(exchange, sessionId, web);
             owner.redirect(exchange, owner.resolveHomeUrl(web));
         } catch (Exception e) {
             owner.sendText(exchange, 401, "OAuth failed: " + e.getMessage());
@@ -94,7 +94,7 @@ final class WebAuthController {
             owner.sendText(exchange, 405, "Method Not Allowed");
             return;
         }
-        owner.clearSessionCookie(exchange, owner.configSupplier().get().getWeb());
+        owner.sessionManager().clearSessionCookie(exchange, owner.configSupplier().get().getWeb());
         owner.redirect(exchange, "/");
     }
 
@@ -103,7 +103,7 @@ final class WebAuthController {
             owner.sendJson(exchange, 405, DataObject.empty().put("error", "Method Not Allowed"));
             return;
         }
-        WebControlServer.WebSession session = owner.requireSession(exchange);
+        WebSessionManager.WebSession session = owner.sessionManager().requireSession(exchange);
         if (session == null) {
             owner.sendJson(exchange, 401, DataObject.empty().put("error", "Unauthorized"));
             return;
