@@ -31,7 +31,7 @@ final class GuildSettingsApiController {
     }
 
     void handleApiGuildRoute(HttpExchange exchange) throws IOException {
-        WebControlServer.WebSession session = owner.requireSession(exchange);
+        WebSessionManager.WebSession session = owner.sessionManager().requireSession(exchange);
         if (session == null) {
             owner.sendJson(exchange, 401, DataObject.empty().put("error", "Unauthorized"));
             return;
