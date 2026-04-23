@@ -118,6 +118,10 @@ export function createI18nApplyModule(deps) {
   function localizeStaticOptions() {
     setSelectOptionLabel('t_openUiMode', 'BUTTONS', 't_openUiMode_buttons');
     setSelectOptionLabel('t_openUiMode', 'SELECT', 't_openUiMode_select');
+    setSelectOptionLabel('t_panelButtonStyle', 'PRIMARY', 't_panelButtonStyle_primary');
+    setSelectOptionLabel('t_panelButtonStyle', 'SECONDARY', 't_panelButtonStyle_secondary');
+    setSelectOptionLabel('t_panelButtonStyle', 'SUCCESS', 't_panelButtonStyle_success');
+    setSelectOptionLabel('t_panelButtonStyle', 'DANGER', 't_panelButtonStyle_danger');
     setSelectOptionLabel('t_optionButtonStyle', 'PRIMARY', 't_panelButtonStyle_primary');
     setSelectOptionLabel('t_optionButtonStyle', 'SECONDARY', 't_panelButtonStyle_secondary');
     setSelectOptionLabel('t_optionButtonStyle', 'SUCCESS', 't_panelButtonStyle_success');

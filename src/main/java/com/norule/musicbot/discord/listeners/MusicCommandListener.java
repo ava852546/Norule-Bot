@@ -91,6 +91,7 @@ public class MusicCommandListener extends ListenerAdapter {
     static final String CMD_ROOM_SETTINGS_ZH = "\u5305\u5ec2\u8a2d\u5b9a";
     static final String CMD_WARNINGS_ZH = "\u8b66\u544a";
     static final String CMD_ANTI_DUPLICATE_ZH = "\u9632\u6d17\u983b";
+    static final String CMD_HONEYPOT_ZH = "\u5bc6\u7f50\u983b\u9053";
     static final String CMD_NUMBER_CHAIN_ZH = "\u6578\u5b57\u63a5\u9f8d";
     static final String CMD_TICKET_ZH = "\u5ba2\u670d\u55ae";
     static final String SUB_SETTINGS_INFO_ZH = "\u8a73\u7d30\u8cc7\u8a0a";
@@ -163,6 +164,7 @@ public class MusicCommandListener extends ListenerAdapter {
 
     private final MusicPlayerService musicService;
     private final ModerationService moderationService;
+    private final HoneypotService honeypotService;
     private volatile BotConfig config;
     private final GuildSettingsService settingsService;
     private volatile I18nService i18n;
@@ -192,6 +194,7 @@ public class MusicCommandListener extends ListenerAdapter {
     private final PlaylistCommandHandler playlistCommandHandler;
     private final MusicPlaybackCommandHandler playbackCommandHandler;
     private final MusicPanelController musicPanelController;
+    private final HoneypotCommandHandler honeypotCommandHandler;
     private final InteractionRouter interactionRouter;
     private final Map<Long, Long> panelLastRefreshAt = new ConcurrentHashMap<>();
     private final Map<Long, String> panelLastSignature = new ConcurrentHashMap<>();
@@ -206,9 +209,11 @@ public class MusicCommandListener extends ListenerAdapter {
     public MusicCommandListener(MusicPlayerService musicService,
                                 BotConfig config,
                                 GuildSettingsService settingsService,
-                                ModerationService moderationService) {
+                                ModerationService moderationService,
+                                HoneypotService honeypotService) {
         this.musicService = musicService;
         this.moderationService = moderationService;
+        this.honeypotService = honeypotService;
         this.config = config;
         this.settingsService = settingsService;
         this.i18n = I18nService.load(java.nio.file.Path.of(config.getLanguageDir()), config.getDefaultLanguage());
@@ -223,6 +228,7 @@ public class MusicCommandListener extends ListenerAdapter {
         this.playlistCommandHandler = new PlaylistCommandHandler(this);
         this.playbackCommandHandler = new MusicPlaybackCommandHandler(this);
         this.musicPanelController = new MusicPanelController(this);
+        this.honeypotCommandHandler = new HoneypotCommandHandler(this);
         this.interactionRouter = new InteractionRouter(this);
         this.scheduler.scheduleAtFixedRate(this::refreshAllPanelsSafely, 5, 30, TimeUnit.SECONDS);
     }
@@ -290,6 +296,10 @@ public class MusicCommandListener extends ListenerAdapter {
         return moderationService;
     }
 
+    HoneypotService honeypotService() {
+        return honeypotService;
+    }
+
     GuildSettingsService settingsService() {
         return settingsService;
     }
@@ -342,6 +352,10 @@ public class MusicCommandListener extends ListenerAdapter {
         return musicPanelController;
     }
 
+    HoneypotCommandHandler honeypotCommandHandler() {
+        return honeypotCommandHandler;
+    }
+
     boolean isBotReadyForSlashCommands() {
         return botReadyForSlashCommands;
     }
@@ -363,6 +377,10 @@ public class MusicCommandListener extends ListenerAdapter {
         if (!event.isFromGuild() || event.getAuthor().isBot()) {
             return;
         }
+        Guild guild = event.getGuild();
+        if (honeypotService.isHoneypotChannel(guild.getIdLong(), event.getChannel().getIdLong())) {
+            return;
+        }
         String raw = event.getMessage().getContentRaw();
         if (!raw.startsWith(config.getPrefix())) {
             return;
@@ -370,7 +388,6 @@ public class MusicCommandListener extends ListenerAdapter {
         String[] split = raw.substring(config.getPrefix().length()).trim().split("\\s+", 2);
         String cmd = split.length > 0 ? split[0].toLowerCase() : "";
         String arg = split.length > 1 ? split[1].trim() : "";
-        Guild guild = event.getGuild();
         String lang = lang(guild.getIdLong());
 
         if (isKnownPrefixCommand(cmd)) {
@@ -1471,7 +1488,7 @@ public class MusicCommandListener extends ListenerAdapter {
             return;
         }
         sub = canonicalDeleteSubcommand(sub);
-        TextChannel channel;
+        TextChannel channel = null;
         Long targetUserId = null;
         String scope;
         StringBuilder extraNotice = new StringBuilder();
@@ -1492,17 +1509,21 @@ public class MusicCommandListener extends ListenerAdapter {
                 event.reply(i18n.t(lang, "general.invalid_user")).setEphemeral(true).queue();
                 return;
             }
-            if (event.getChannelType() != ChannelType.TEXT) {
-                event.reply(i18n.t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
-                return;
+            var channelOption = event.getOption("channel");
+            if (channelOption != null) {
+                if (channelOption.getAsChannel().getType() != ChannelType.TEXT) {
+                    event.reply(i18n.t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
+                    return;
+                }
+                channel = channelOption.getAsChannel().asTextChannel();
             }
-            channel = event.getChannel().asTextChannel();
             targetUserId = Objects.requireNonNull(event.getOption("user")).getAsUser().getIdLong();
-            scope = Objects.requireNonNull(event.getOption("user")).getAsUser().getAsMention();
+            scope = Objects.requireNonNull(event.getOption("user")).getAsUser().getAsMention()
+                    + (channel == null ? " \u00b7 \u5168\u90e8\u6587\u5b57\u983b\u9053" : " \u00b7 " + channel.getAsMention());
         }
 
         String token = UUID.randomUUID().toString().replace("-", "");
-        deleteRequests.put(token, new DeleteRequest(event.getUser().getIdLong(), channel.getIdLong(), targetUserId, amount));
+        deleteRequests.put(token, new DeleteRequest(event.getUser().getIdLong(), channel == null ? null : channel.getIdLong(), targetUserId, amount));
 
                 event.replyEmbeds(new EmbedBuilder()
                         .setTitle(i18n.t(lang, "delete.confirm_title"))
@@ -1545,21 +1566,13 @@ public class MusicCommandListener extends ListenerAdapter {
                             .queue();
                     scheduler.execute(() -> {
                         try {
-                            TextChannel channel = guild.getTextChannelById(req.channelId);
-                            if (channel == null) {
-                                deleteRequests.remove(token);
-                                event.getHook().editOriginal(i18n.t(lang, "general.invalid_channel")).queue();
-                                return;
-                            }
-                            List<Message> targets = findMessagesForDeletion(channel, req.targetUserId, req.amount, 25);
-                            if (targets.isEmpty()) {
-                                deleteRequests.remove(token);
-                                event.getHook().editOriginal(i18n.t(lang, "delete.no_target")).queue();
-                                return;
-                            }
-                            int deleted = performDelete(channel, targets);
+                            int deleted = performDeleteRequest(guild, req);
                             deleteRequests.remove(token);
-                            event.getHook().editOriginal(i18n.t(lang, "delete.processed", Map.of("count", String.valueOf(deleted)))).queue();
+                            if (deleted <= 0) {
+                                event.getHook().editOriginal(i18n.t(lang, "delete.no_target")).queue();
+                            } else {
+                                event.getHook().editOriginal(i18n.t(lang, "delete.processed", Map.of("count", String.valueOf(deleted)))).queue();
+                            }
                         } catch (Exception ex) {
                             deleteRequests.remove(token);
                             event.getHook().editOriginal(i18n.t(lang, "delete.failed")).queue();
@@ -2766,6 +2779,36 @@ public class MusicCommandListener extends ListenerAdapter {
         return matched;
     }
 
+    private int performDeleteRequest(Guild guild, DeleteRequest req) {
+        if (req.channelId != null) {
+            TextChannel channel = guild.getTextChannelById(req.channelId);
+            if (channel == null || !canManageMessages(channel)) {
+                return 0;
+            }
+            List<Message> targets = findMessagesForDeletion(channel, req.targetUserId, req.amount, 25);
+            return performDelete(channel, targets);
+        }
+        int total = 0;
+        for (TextChannel channel : guild.getTextChannels()) {
+            if (!canManageMessages(channel)) {
+                continue;
+            }
+            int remaining = req.amount - total;
+            if (remaining <= 0) {
+                break;
+            }
+            List<Message> targets = findMessagesForDeletion(channel, req.targetUserId, remaining, 25);
+            total += performDelete(channel, targets);
+        }
+        return total;
+    }
+
+    private boolean canManageMessages(TextChannel channel) {
+        Member self = channel.getGuild().getSelfMember();
+        return self.hasAccess(channel)
+                && self.hasPermission(channel, Permission.MESSAGE_HISTORY, Permission.MESSAGE_MANAGE);
+    }
+
     private int performDelete(TextChannel channel, List<Message> messages) {
         if (messages.isEmpty()) {
             return 0;
@@ -2899,6 +2942,8 @@ public class MusicCommandListener extends ListenerAdapter {
         commands.add(buildWarningsCommand(CMD_WARNINGS_ZH));
         commands.add(buildAntiDuplicateCommand("anti-duplicate"));
         commands.add(buildAntiDuplicateCommand(CMD_ANTI_DUPLICATE_ZH));
+        commands.add(buildHoneypotCommand("honeypot-channel"));
+        commands.add(buildHoneypotCommand(CMD_HONEYPOT_ZH));
         commands.add(buildNumberChainCommand("number-chain"));
         commands.add(buildNumberChainCommand(CMD_NUMBER_CHAIN_ZH));
         commands.add(buildTicketCommand("ticket"));
@@ -3578,6 +3623,12 @@ public class MusicCommandListener extends ListenerAdapter {
                 );
     }
 
+    private SlashCommandData buildHoneypotCommand(String commandName) {
+        boolean zh = CMD_HONEYPOT_ZH.equals(commandName);
+        return Commands.slash(commandName, zh ? "\u5efa\u7acb\u5bc6\u7f50\u6587\u5b57\u983b\u9053" : "Create a honeypot text channel")
+                .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_SERVER));
+    }
+
     private String cd(String key, String fallback) {
         return fallback;
     }
@@ -3603,6 +3654,7 @@ public class MusicCommandListener extends ListenerAdapter {
             case CMD_ROOM_SETTINGS_ZH -> "private-room-settings";
             case CMD_WARNINGS_ZH -> "warnings";
             case CMD_ANTI_DUPLICATE_ZH -> "anti-duplicate";
+            case CMD_HONEYPOT_ZH -> "honeypot-channel";
             case CMD_NUMBER_CHAIN_ZH -> "number-chain";
             case CMD_TICKET_ZH -> "ticket";
             default -> name;
@@ -3735,6 +3787,7 @@ public class MusicCommandListener extends ListenerAdapter {
                 || "private-room-settings".equals(name)
                 || "warnings".equals(name)
                 || "anti-duplicate".equals(name)
+                || "honeypot-channel".equals(name)
                 || "number-chain".equals(name);
     }
 
@@ -4533,11 +4586,11 @@ public class MusicCommandListener extends ListenerAdapter {
 
     private static class DeleteRequest {
         private final long requestUserId;
-        private final long channelId;
+        private final Long channelId;
         private final Long targetUserId;
         private final int amount;
 
-        private DeleteRequest(long requestUserId, long channelId, Long targetUserId, int amount) {
+        private DeleteRequest(long requestUserId, Long channelId, Long targetUserId, int amount) {
             this.requestUserId = requestUserId;
             this.channelId = channelId;
             this.targetUserId = targetUserId;

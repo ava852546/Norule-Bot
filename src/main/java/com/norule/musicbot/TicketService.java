@@ -174,6 +174,14 @@ public class TicketService {
         }
     }
 
+    public void reloadAll() {
+        guildCache.clear();
+    }
+
+    public void reload(long guildId) {
+        guildCache.remove(guildId);
+    }
+
     public TicketRecord createTicket(long guildId, long channelId, long ownerId, String typeLabel, String summary) {
         Map<Long, TicketRecord> map = ticketsForGuild(guildId);
         synchronized (map) {

@@ -36,6 +36,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.LongFunction;
 import java.util.function.LongPredicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -56,12 +57,22 @@ public class MusicPlayerService {
             .connectTimeout(Duration.ofSeconds(8))
             .build();
 
-    public MusicPlayerService(Path dataDir) {
-        this.musicDataService = new MusicDataService(dataDir);
+    public MusicPlayerService(Path dataDir, LongFunction<BotConfig.Music> musicConfigResolver) {
+        this.musicDataService = new MusicDataService(dataDir, musicConfigResolver);
         playerManager = new DefaultAudioPlayerManager();
         playerManager.registerSourceManager(new YoutubeAudioSourceManager());
         AudioSourceManagers.registerLocalSource(playerManager);
         AudioSourceManagers.registerRemoteSources(playerManager);
+    }
+
+    public void reloadData() {
+        musicDataService.reloadAll();
+        for (Map.Entry<Long, GuildMusicManager> entry : musicManagers.entrySet()) {
+            GuildMusicManager manager = entry.getValue();
+            if (manager != null) {
+                manager.getPlayer().setVolume(musicDataService.getVolume(entry.getKey()));
+            }
+        }
     }
 
     public GuildMusicManager getGuildMusicManager(Guild guild) {

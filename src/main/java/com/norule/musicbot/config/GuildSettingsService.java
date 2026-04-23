@@ -102,7 +102,7 @@ public class GuildSettingsService {
     }
 
     private final Path settingsDir;
-    private final GuildSettings defaults;
+    private volatile GuildSettings defaults;
     private final Map<Long, GuildSettings> cache = new ConcurrentHashMap<>();
 
     public GuildSettingsService(Path settingsDir, BotConfig defaultsConfig) {
@@ -171,6 +171,21 @@ public class GuildSettingsService {
     public GuildSettings reload(long guildId) {
         cache.remove(guildId);
         return getSettings(guildId);
+    }
+
+    public void reloadAll(BotConfig defaultsConfig) {
+        if (defaultsConfig != null) {
+            this.defaults = new GuildSettings(
+                    defaultsConfig.getDefaultLanguage(),
+                    defaultsConfig.getNotifications(),
+                    defaultsConfig.getWelcome(),
+                    defaultsConfig.getMessageLogs(),
+                    defaultsConfig.getMusic(),
+                    defaultsConfig.getPrivateRoom(),
+                    defaultsConfig.getTicket()
+            );
+        }
+        cache.clear();
     }
 
     private GuildSettings loadOrCreateSettings(long guildId) {
@@ -271,6 +286,8 @@ public class GuildSettingsService {
         musicMap.put("autoplayEnabled", music.isAutoplayEnabled());
         musicMap.put("defaultRepeatMode", music.getDefaultRepeatMode().name());
         musicMap.put("commandChannelId", toText(music.getCommandChannelId()));
+        musicMap.put("historyLimit", music.getHistoryLimit());
+        musicMap.put("statsRetentionDays", music.getStatsRetentionDays());
         root.put("music", musicMap);
 
         BotConfig.PrivateRoom privateRoom = settings.getPrivateRoom();

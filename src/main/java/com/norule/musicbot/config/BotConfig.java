@@ -31,6 +31,7 @@ public class BotConfig {
     private final Long commandGuildId;
     private final String guildSettingsDir;
     private final String languageDir;
+    private final DataPaths dataPaths;
     private final String defaultLanguage;
     private final int commandCooldownSeconds;
     private final BotProfile botProfile;
@@ -48,6 +49,7 @@ public class BotConfig {
                       Long commandGuildId,
                       String guildSettingsDir,
                       String languageDir,
+                      DataPaths dataPaths,
                       String defaultLanguage,
                       int commandCooldownSeconds,
                       BotProfile botProfile,
@@ -64,6 +66,7 @@ public class BotConfig {
         this.commandGuildId = commandGuildId;
         this.guildSettingsDir = guildSettingsDir;
         this.languageDir = languageDir;
+        this.dataPaths = dataPaths;
         this.defaultLanguage = defaultLanguage;
         this.commandCooldownSeconds = Math.max(0, commandCooldownSeconds);
         this.botProfile = botProfile;
@@ -97,8 +100,9 @@ public class BotConfig {
 
             String prefix = getString(root, "prefix", "!");
             Long commandGuildId = toLong(root.get("commandGuildId"));
-            String guildSettingsDir = getString(root, "guildSettingsDir", "guild-configs");
-            String languageDir = getString(root, "languageDir", "lang");
+            DataPaths dataPaths = DataPaths.fromConfig(root);
+            String guildSettingsDir = dataPaths.getGuildSettingsDir();
+            String languageDir = dataPaths.getLanguageDir();
             String defaultLanguage = getString(root, "defaultLanguage", "en");
             int commandCooldownSeconds = Math.max(0, getInt(root, "commandCooldownSeconds", 3));
             BotProfile botProfile = BotProfile.fromMap(asMap(root.get("bot")), null);
@@ -111,7 +115,7 @@ public class BotConfig {
             Ticket ticket = Ticket.fromMap(asMap(root.get("ticket")), null);
             Web web = Web.fromMap(asMap(root.get("web")), null);
 
-            return new BotConfig(token, prefix, commandGuildId, guildSettingsDir, languageDir, defaultLanguage, commandCooldownSeconds, botProfile,
+            return new BotConfig(token, prefix, commandGuildId, guildSettingsDir, languageDir, dataPaths, defaultLanguage, commandCooldownSeconds, botProfile,
                     commandDescriptions,
                     notifications, welcome, messageLogs, music, privateRoom, ticket, web);
         } catch (IOException e) {
@@ -146,10 +150,11 @@ public class BotConfig {
                 currentConfig = new LinkedHashMap<>();
             }
 
-            String languageDir = getString(currentConfig, "languageDir", getString(defaultConfig, "languageDir", "lang"));
+            String languageDir = DataPaths.fromConfigWithDefaults(currentConfig, defaultConfig).getLanguageDir();
             Path baseDir = parent == null ? Path.of(".") : parent;
-            ensureDefaultLanguageFiles(baseDir.resolve(languageDir));
-            mergeLanguageDefaults(baseDir.resolve(languageDir));
+            Path languagePath = resolvePath(baseDir, languageDir);
+            ensureDefaultLanguageFiles(languagePath);
+            mergeLanguageDefaults(languagePath);
             ensureWebCertificateDirectory(baseDir, currentConfig, defaultConfig);
 
             Map<String, Object> merged = deepMerge(defaultConfig, currentConfig);
@@ -430,6 +435,38 @@ public class BotConfig {
         return languageDir;
     }
 
+    public DataPaths getDataPaths() {
+        return dataPaths;
+    }
+
+    public String getCacheDir() {
+        return dataPaths.getCacheDir();
+    }
+
+    public String getMusicDataDir() {
+        return dataPaths.getMusicDir();
+    }
+
+    public String getModerationDataDir() {
+        return dataPaths.getModerationDir();
+    }
+
+    public String getTicketDataDir() {
+        return dataPaths.getTicketDir();
+    }
+
+    public String getTicketTranscriptDir() {
+        return dataPaths.getTicketTranscriptDir();
+    }
+
+    public String getHoneypotDataDir() {
+        return dataPaths.getHoneypotDir();
+    }
+
+    public String getLogDir() {
+        return dataPaths.getLogDir();
+    }
+
     public String getDefaultLanguage() {
         return defaultLanguage;
     }
@@ -440,6 +477,120 @@ public class BotConfig {
 
     public BotProfile getBotProfile() {
         return botProfile;
+    }
+
+    public static class DataPaths {
+        private final String guildSettingsDir;
+        private final String languageDir;
+        private final String cacheDir;
+        private final String musicDir;
+        private final String moderationDir;
+        private final String ticketDir;
+        private final String ticketTranscriptDir;
+        private final String honeypotDir;
+        private final String logDir;
+
+        private DataPaths(String guildSettingsDir,
+                          String languageDir,
+                          String cacheDir,
+                          String musicDir,
+                          String moderationDir,
+                          String ticketDir,
+                          String ticketTranscriptDir,
+                          String honeypotDir,
+                          String logDir) {
+            this.guildSettingsDir = blankToDefault(guildSettingsDir, "guild-configs");
+            this.languageDir = blankToDefault(languageDir, "lang");
+            this.cacheDir = blankToDefault(cacheDir, "cache");
+            this.musicDir = blankToDefault(musicDir, "guild-music");
+            this.moderationDir = blankToDefault(moderationDir, "guild-moderation");
+            this.ticketDir = blankToDefault(ticketDir, "guild-tickets");
+            this.ticketTranscriptDir = blankToDefault(ticketTranscriptDir, "ticket-transcripts");
+            this.honeypotDir = blankToDefault(honeypotDir, "guild-honeypot");
+            this.logDir = blankToDefault(logDir, "LOG");
+        }
+
+        private static DataPaths fromConfig(Map<String, Object> root) {
+            return fromConfigWithDefaults(root, Map.of());
+        }
+
+        private static DataPaths fromConfigWithDefaults(Map<String, Object> root, Map<String, Object> defaultRoot) {
+            Map<String, Object> data = asMap(root.get("data"));
+            Map<String, Object> defaults = asMap(defaultRoot.get("data"));
+            return new DataPaths(
+                    configuredPath(data, root, defaults, defaultRoot, "guildSettingsDir", "guild-configs"),
+                    configuredPath(data, root, defaults, defaultRoot, "languageDir", "lang"),
+                    configuredPath(data, root, defaults, defaultRoot, "cacheDir", "cache"),
+                    configuredPath(data, root, defaults, defaultRoot, "musicDir", "guild-music"),
+                    configuredPath(data, root, defaults, defaultRoot, "moderationDir", "guild-moderation"),
+                    configuredPath(data, root, defaults, defaultRoot, "ticketDir", "guild-tickets"),
+                    configuredPath(data, root, defaults, defaultRoot, "ticketTranscriptDir", "ticket-transcripts"),
+                    configuredPath(data, root, defaults, defaultRoot, "honeypotDir", "guild-honeypot"),
+                    configuredPath(data, root, defaults, defaultRoot, "logDir", "LOG")
+            );
+        }
+
+        private static String configuredPath(Map<String, Object> data,
+                                             Map<String, Object> root,
+                                             Map<String, Object> defaultData,
+                                             Map<String, Object> defaultRoot,
+                                             String key,
+                                             String fallback) {
+            String value = getString(data, key, "");
+            if (!value.isBlank()) {
+                return value;
+            }
+            value = getString(root, key, "");
+            if (!value.isBlank()) {
+                return value;
+            }
+            value = getString(defaultData, key, "");
+            if (!value.isBlank()) {
+                return value;
+            }
+            value = getString(defaultRoot, key, "");
+            return value.isBlank() ? fallback : value;
+        }
+
+        private static String blankToDefault(String value, String fallback) {
+            return value == null || value.isBlank() ? fallback : value.trim();
+        }
+
+        public String getGuildSettingsDir() {
+            return guildSettingsDir;
+        }
+
+        public String getLanguageDir() {
+            return languageDir;
+        }
+
+        public String getCacheDir() {
+            return cacheDir;
+        }
+
+        public String getMusicDir() {
+            return musicDir;
+        }
+
+        public String getModerationDir() {
+            return moderationDir;
+        }
+
+        public String getTicketDir() {
+            return ticketDir;
+        }
+
+        public String getTicketTranscriptDir() {
+            return ticketTranscriptDir;
+        }
+
+        public String getHoneypotDir() {
+            return honeypotDir;
+        }
+
+        public String getLogDir() {
+            return logDir;
+        }
     }
 
     public String getCommandDescription(String key, String fallback) {
@@ -1104,13 +1255,23 @@ public class BotConfig {
         private final boolean autoplayEnabled;
         private final RepeatMode defaultRepeatMode;
         private final Long commandChannelId;
+        private final int historyLimit;
+        private final int statsRetentionDays;
 
-        private Music(boolean autoLeaveEnabled, int autoLeaveMinutes, boolean autoplayEnabled, RepeatMode defaultRepeatMode, Long commandChannelId) {
+        private Music(boolean autoLeaveEnabled,
+                      int autoLeaveMinutes,
+                      boolean autoplayEnabled,
+                      RepeatMode defaultRepeatMode,
+                      Long commandChannelId,
+                      int historyLimit,
+                      int statsRetentionDays) {
             this.autoLeaveEnabled = autoLeaveEnabled;
             this.autoLeaveMinutes = autoLeaveMinutes;
             this.autoplayEnabled = autoplayEnabled;
             this.defaultRepeatMode = defaultRepeatMode;
             this.commandChannelId = commandChannelId;
+            this.historyLimit = Math.max(1, historyLimit);
+            this.statsRetentionDays = Math.max(0, statsRetentionDays);
         }
 
         public static Music fromMap(Map<String, Object> map, Music fallback) {
@@ -1120,32 +1281,42 @@ public class BotConfig {
                     getInt(map, "autoLeaveMinutes", defaults.getAutoLeaveMinutes()),
                     getBoolean(map, "autoplayEnabled", defaults.isAutoplayEnabled()),
                     parseRepeatMode(getString(map, "defaultRepeatMode", defaults.getDefaultRepeatMode().name())),
-                    getLong(map, "commandChannelId", defaults.getCommandChannelId())
+                    getLong(map, "commandChannelId", defaults.getCommandChannelId()),
+                    getInt(map, "historyLimit", defaults.getHistoryLimit()),
+                    getInt(map, "statsRetentionDays", defaults.getStatsRetentionDays())
             );
         }
 
         public static Music defaultValues() {
-            return new Music(true, 5, true, RepeatMode.OFF, null);
+            return new Music(true, 5, true, RepeatMode.OFF, null, 50, 0);
         }
 
         public Music withAutoLeaveEnabled(boolean enabled) {
-            return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId);
+            return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays);
         }
 
         public Music withAutoLeaveMinutes(int minutes) {
-            return new Music(autoLeaveEnabled, Math.max(1, minutes), autoplayEnabled, defaultRepeatMode, commandChannelId);
+            return new Music(autoLeaveEnabled, Math.max(1, minutes), autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays);
         }
 
         public Music withAutoplayEnabled(boolean enabled) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, enabled, defaultRepeatMode, commandChannelId);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, enabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays);
         }
 
         public Music withDefaultRepeatMode(RepeatMode mode) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, mode, commandChannelId);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, mode, commandChannelId, historyLimit, statsRetentionDays);
         }
 
         public Music withCommandChannelId(Long commandChannelId) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays);
+        }
+
+        public Music withHistoryLimit(int historyLimit) {
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays);
+        }
+
+        public Music withStatsRetentionDays(int statsRetentionDays) {
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays);
         }
 
         public boolean isAutoLeaveEnabled() {
@@ -1166,6 +1337,14 @@ public class BotConfig {
 
         public Long getCommandChannelId() {
             return commandChannelId;
+        }
+
+        public int getHistoryLimit() {
+            return historyLimit;
+        }
+
+        public int getStatsRetentionDays() {
+            return statsRetentionDays;
         }
 
         private static RepeatMode parseRepeatMode(String value) {

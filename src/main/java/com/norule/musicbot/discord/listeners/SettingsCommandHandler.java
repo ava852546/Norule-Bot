@@ -86,6 +86,7 @@ final class SettingsCommandHandler {
                     .queue();
             case "reload" -> {
                 owner.settingsService().reload(guildId);
+                owner.moderationService().reload(guildId);
                 event.replyEmbeds(new EmbedBuilder()
                                 .setColor(new Color(46, 204, 113))
                                 .setTitle(owner.i18nService().t(lang, "settings.info_title"))

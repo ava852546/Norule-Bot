@@ -66,6 +66,7 @@ final class InteractionRouter {
             case "delete-messages" -> owner.handleDeleteSlash(event, lang);
             case "warnings" -> owner.handleWarningsSlash(event, lang);
             case "anti-duplicate" -> owner.handleAntiDuplicateSlash(event, lang);
+            case "honeypot-channel" -> owner.honeypotCommandHandler().handleCreateSlash(event, lang);
             case "ticket" -> {
                 // handled by TicketListener
             }
