@@ -401,7 +401,9 @@ final class GuildSettingsApiController {
                 .put("autoLeaveMinutes", music.getAutoLeaveMinutes())
                 .put("autoplayEnabled", music.isAutoplayEnabled())
                 .put("defaultRepeatMode", music.getDefaultRepeatMode().name())
-                .put("commandChannelId", owner.toIdText(music.getCommandChannelId()));
+                .put("commandChannelId", owner.toIdText(music.getCommandChannelId()))
+                .put("historyLimit", music.getHistoryLimit())
+                .put("statsRetentionDays", music.getStatsRetentionDays());
     }
 
     private DataObject buildMusicStatsPayload(Guild guild) {
@@ -573,7 +575,9 @@ final class GuildSettingsApiController {
                         .withAutoLeaveMinutes(owner.intOrDefault(mMap, "autoLeaveMinutes", m.getAutoLeaveMinutes(), 1, 60))
                         .withAutoplayEnabled(owner.boolOrDefault(mMap, "autoplayEnabled", m.isAutoplayEnabled()))
                         .withDefaultRepeatMode(owner.parseRepeatMode(owner.stringOrDefault(mMap, "defaultRepeatMode", m.getDefaultRepeatMode().name())))
-                        .withCommandChannelId(owner.idOrDefault(mMap, "commandChannelId", m.getCommandChannelId()));
+                        .withCommandChannelId(owner.idOrDefault(mMap, "commandChannelId", m.getCommandChannelId()))
+                        .withHistoryLimit(owner.intOrDefault(mMap, "historyLimit", m.getHistoryLimit(), 1, 500))
+                        .withStatsRetentionDays(owner.intOrDefault(mMap, "statsRetentionDays", m.getStatsRetentionDays(), 0, 3650));
             }
 
             BotConfig.PrivateRoom p = current.getPrivateRoom();

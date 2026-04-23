@@ -64,26 +64,28 @@ public class Main {
         Path baseDir = configPath.toAbsolutePath().getParent() == null
                 ? Path.of(".").toAbsolutePath().normalize()
                 : configPath.toAbsolutePath().getParent().normalize();
-        installConsoleFileLogging(baseDir);
         BotConfig config = BotConfig.load(configPath);
+        installConsoleFileLogging(baseDir, config.getLogDir());
         RUNTIME_CONFIG.set(config);
         String token = config.getToken();
         Path guildSettingsPath = resolveDataPath(baseDir, config.getGuildSettingsDir());
         Path languagePath = resolveDataPath(baseDir, config.getLanguageDir());
-        Path cachePath = resolveDataPath(baseDir, "cache");
-        Path musicDataPath = resolveDataPath(baseDir, "guild-music");
-        Path ticketDataPath = resolveDataPath(baseDir, "guild-tickets");
-        Path ticketTranscriptPath = resolveDataPath(baseDir, "ticket-transcripts");
+        Path cachePath = resolveDataPath(baseDir, config.getCacheDir());
+        Path musicDataPath = resolveDataPath(baseDir, config.getMusicDataDir());
+        Path ticketDataPath = resolveDataPath(baseDir, config.getTicketDataDir());
+        Path ticketTranscriptPath = resolveDataPath(baseDir, config.getTicketTranscriptDir());
+        Path honeypotDataPath = resolveDataPath(baseDir, config.getHoneypotDataDir());
 
-        MusicPlayerService playerService = new MusicPlayerService(musicDataPath);
         GuildSettingsService guildSettingsService =
                 new GuildSettingsService(guildSettingsPath, config);
-        ModerationService moderationService = new ModerationService(resolveDataPath(baseDir, "guild-moderation"));
+        MusicPlayerService playerService = new MusicPlayerService(musicDataPath, guildSettingsService::getMusic);
+        ModerationService moderationService = new ModerationService(resolveDataPath(baseDir, config.getModerationDataDir()));
+        HoneypotService honeypotService = new HoneypotService(honeypotDataPath);
         TicketService ticketService = new TicketService(ticketDataPath, ticketTranscriptPath);
         TICKET_SERVICE.set(ticketService);
         I18nService i18nService = I18nService.load(languagePath, config.getDefaultLanguage());
         I18N_SERVICE.set(i18nService);
-        MusicCommandListener musicCommandListener = new MusicCommandListener(playerService, config, guildSettingsService, moderationService);
+        MusicCommandListener musicCommandListener = new MusicCommandListener(playerService, config, guildSettingsService, moderationService, honeypotService);
         TicketListener ticketListener = new TicketListener(guildSettingsService, ticketService, i18nService);
 
         AudioModuleConfig audioConfig = new AudioModuleConfig()
@@ -109,14 +111,16 @@ public class Main {
                         new MessageLogListener(guildSettingsService, i18nService, cachePath),
                         new ServerLogListener(guildSettingsService, i18nService),
                         new DuplicateMessageListener(guildSettingsService, moderationService, i18nService, cachePath),
+                        new HoneypotListener(honeypotService, guildSettingsService),
                         new NumberChainListener(guildSettingsService, moderationService, i18nService),
                         new VoiceAutoLeaveListener(guildSettingsService, playerService, i18nService),
-                        new PrivateRoomListener(guildSettingsService, i18nService),
+                        new PrivateRoomListener(guildSettingsService, i18nService, cachePath),
                         ticketListener
                 );
 
         JDA jda = builder.build();
-        installConsoleShutdownListener(jda, i18nService, config.getDefaultLanguage(), configPath, musicCommandListener, playerService, guildSettingsService, moderationService);
+        installConsoleShutdownListener(jda, i18nService, config.getDefaultLanguage(), configPath,
+                musicCommandListener, playerService, guildSettingsService, moderationService, honeypotService, ticketService);
         installShutdownHook(jda, i18nService, config.getDefaultLanguage());
 
         try {
@@ -274,7 +278,9 @@ public class Main {
                                                        MusicCommandListener musicCommandListener,
                                                        MusicPlayerService playerService,
                                                        GuildSettingsService guildSettingsService,
-                                                       ModerationService moderationService) {
+                                                       ModerationService moderationService,
+                                                       HoneypotService honeypotService,
+                                                       TicketService ticketService) {
         Thread listener = new Thread(() -> {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
                 String line;
@@ -286,7 +292,8 @@ public class Main {
                         break;
                     }
                     if (RELOAD_COMMANDS.contains(command)) {
-                        reloadRuntimeConfig(jda, configPath, musicCommandListener, playerService, guildSettingsService, moderationService);
+                        reloadRuntimeConfig(jda, configPath, musicCommandListener, playerService, guildSettingsService,
+                                moderationService, honeypotService, ticketService);
                     }
                 }
             } catch (Exception ignored) {
@@ -301,13 +308,22 @@ public class Main {
                                             MusicCommandListener musicCommandListener,
                                             MusicPlayerService playerService,
                                             GuildSettingsService guildSettingsService,
-                                            ModerationService moderationService) {
+                                            ModerationService moderationService,
+                                            HoneypotService honeypotService,
+                                            TicketService ticketService) {
         if (SHUTDOWN_STARTED.get()) {
             return;
         }
         try {
             BotConfig reloaded = BotConfig.load(configPath);
             RUNTIME_CONFIG.set(reloaded);
+            guildSettingsService.reloadAll(reloaded);
+            moderationService.reloadAll();
+            playerService.reloadData();
+            honeypotService.reloadAll();
+            if (ticketService != null) {
+                ticketService.reloadAll();
+            }
             musicCommandListener.reloadRuntimeConfig(reloaded);
             startActivityRotation(jda, reloaded.getBotProfile());
             syncWebServer(jda, playerService, guildSettingsService, moderationService, TICKET_SERVICE.get(), I18N_SERVICE.get());
@@ -471,11 +487,11 @@ public class Main {
         return baseDir.resolve(raw).normalize();
     }
 
-    private static void installConsoleFileLogging(Path baseDir) {
+    private static void installConsoleFileLogging(Path baseDir, String logDirPath) {
         PrintStream originalOut = System.out;
         PrintStream originalErr = System.err;
         try {
-            Path logDir = resolveDataPath(baseDir, "LOG");
+            Path logDir = resolveDataPath(baseDir, logDirPath);
             Files.createDirectories(logDir);
             Path logFile = logDir.resolve("console-" + LocalDateTime.now().format(LOG_FILE_FORMAT) + ".log");
             PrintStream fileStream = new PrintStream(Files.newOutputStream(logFile), true, StandardCharsets.UTF_8);

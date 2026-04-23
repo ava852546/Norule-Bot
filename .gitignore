@@ -12,7 +12,11 @@ target/
 /guild-moderation/
 /guild-music/
 /guild-tickets/
+/guild-honeypot/
+/ticket-transcripts/
 /cache/
+/LOG/
+/certs/
 .m2/
 tmp-settings.xml
 config.backup-*.yml

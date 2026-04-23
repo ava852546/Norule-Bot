@@ -73,6 +73,14 @@ public class ModerationService {
         }
     }
 
+    public void reloadAll() {
+        cache.clear();
+    }
+
+    public void reload(long guildId) {
+        cache.remove(guildId);
+    }
+
     public int getWarnings(long guildId, long userId) {
         GuildData data = get(guildId);
         synchronized (data) {

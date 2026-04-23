@@ -21,6 +21,16 @@
       <input type="color" id="t_panelColor">
     </div>
     <div class="field">
+      <label id="label_t_panelButtonStyle" data-i18n="t_panelButtonStyle">Panel button style</label>
+      <select id="t_panelButtonStyle">
+        <option value="PRIMARY">PRIMARY</option>
+        <option value="SECONDARY">SECONDARY</option>
+        <option value="SUCCESS">SUCCESS</option>
+        <option value="DANGER">DANGER</option>
+      </select>
+      <div id="hint_t_panelButtonStyle" class="keyhint" data-i18n="t_panelButtonStyle_hint">Discord limitation: button text color cannot be customized; only the button style color can be changed.</div>
+    </div>
+    <div class="field">
       <label data-i18n="t_panelButtonLimit">panelButtonLimit (1-25)</label>
       <input type="number" min="1" max="25" id="t_panelButtonLimit">
     </div>

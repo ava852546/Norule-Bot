@@ -23,6 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongFunction;
 
 public class MusicDataService {
     public record PlaybackEntry(
@@ -147,27 +148,39 @@ public class MusicDataService {
         LinkedList<PlaybackEntry> history = new LinkedList<>();
         Map<String, Integer> songPlayCounts = new LinkedHashMap<>();
         Map<String, String> songLabels = new LinkedHashMap<>();
+        Map<String, Long> songLastPlayedAt = new LinkedHashMap<>();
         Map<Long, Integer> requesterCounts = new LinkedHashMap<>();
+        Map<Long, Long> requesterLastPlayedAt = new LinkedHashMap<>();
         String todayDate = LocalDate.now().toString();
         long todayPlaybackMillis = 0L;
         Map<String, PlaylistData> playlists = new LinkedHashMap<>();
     }
 
-    private static final int MAX_HISTORY = 50;
     private static final int MAX_PLAYLIST_TRACKS = 100;
     private static final long PLAYLIST_SHARE_TTL_MILLIS = 180_000L;
 
     private final Path dir;
+    private final LongFunction<BotConfig.Music> musicConfigResolver;
     private final Map<Long, GuildMusicData> cache = new ConcurrentHashMap<>();
     private final Map<String, SharedPlaylistData> playlistShares = new ConcurrentHashMap<>();
 
-    public MusicDataService(Path dir) {
+    public MusicDataService(Path dir, LongFunction<BotConfig.Music> musicConfigResolver) {
         this.dir = dir;
+        this.musicConfigResolver = musicConfigResolver == null ? ignored -> BotConfig.Music.defaultValues() : musicConfigResolver;
         try {
             Files.createDirectories(dir);
         } catch (IOException e) {
             throw new IllegalStateException("Unable to create music data directory: " + dir.toAbsolutePath(), e);
         }
+    }
+
+    public void reloadAll() {
+        cache.clear();
+        playlistShares.clear();
+    }
+
+    public void reload(long guildId) {
+        cache.remove(guildId);
     }
 
     public int getVolume(long guildId) {
@@ -194,18 +207,20 @@ public class MusicDataService {
         synchronized (data) {
             rolloverDailyStats(data);
             data.history.addFirst(entry);
-            while (data.history.size() > MAX_HISTORY) {
-                data.history.removeLast();
-            }
+            trimHistory(guildId, data);
 
             String songKey = entry.songKey();
+            long now = Instant.now().toEpochMilli();
             if (!songKey.isBlank()) {
                 data.songPlayCounts.merge(songKey, 1, Integer::sum);
                 data.songLabels.put(songKey, entry.label());
+                data.songLastPlayedAt.put(songKey, now);
             }
             if (entry.requesterId() != null) {
                 data.requesterCounts.merge(entry.requesterId(), 1, Integer::sum);
+                data.requesterLastPlayedAt.put(entry.requesterId(), now);
             }
+            pruneExpiredStats(guildId, data, now);
             save(guildId, data);
         }
     }
@@ -231,6 +246,7 @@ public class MusicDataService {
         GuildMusicData data = get(guildId);
         synchronized (data) {
             rolloverDailyStats(data);
+            pruneExpiredStats(guildId, data, Instant.now().toEpochMilli());
 
             String topSongKey = null;
             int topSongCount = 0;
@@ -578,9 +594,7 @@ public class MusicDataService {
                     ));
                 }
             }
-            while (defaults.history.size() > MAX_HISTORY) {
-                defaults.history.removeLast();
-            }
+            trimHistory(guildId, defaults);
 
             Map<String, Object> stats = asMap(root.get("stats"));
             Map<String, Object> songCounts = asMap(stats.get("songPlayCounts"));
@@ -594,6 +608,17 @@ public class MusicDataService {
             for (Map.Entry<String, Object> entry : songLabels.entrySet()) {
                 defaults.songLabels.put(entry.getKey(), readText(entry.getValue()));
             }
+            Map<String, Object> songLastPlayedAt = asMap(stats.get("songLastPlayedAt"));
+            long now = Instant.now().toEpochMilli();
+            for (Map.Entry<String, Object> entry : songLastPlayedAt.entrySet()) {
+                long lastPlayedAt = readLong(entry.getValue(), 0L);
+                if (lastPlayedAt > 0L) {
+                    defaults.songLastPlayedAt.put(entry.getKey(), lastPlayedAt);
+                }
+            }
+            for (String songKey : defaults.songPlayCounts.keySet()) {
+                defaults.songLastPlayedAt.putIfAbsent(songKey, now);
+            }
             Map<String, Object> requesterCounts = asMap(stats.get("requesterCounts"));
             for (Map.Entry<String, Object> entry : requesterCounts.entrySet()) {
                 Long requesterId = readNullableLong(entry.getKey());
@@ -602,9 +627,21 @@ public class MusicDataService {
                     defaults.requesterCounts.put(requesterId, count);
                 }
             }
+            Map<String, Object> requesterLastPlayedAt = asMap(stats.get("requesterLastPlayedAt"));
+            for (Map.Entry<String, Object> entry : requesterLastPlayedAt.entrySet()) {
+                Long requesterId = readNullableLong(entry.getKey());
+                long lastPlayedAt = readLong(entry.getValue(), 0L);
+                if (requesterId != null && lastPlayedAt > 0L) {
+                    defaults.requesterLastPlayedAt.put(requesterId, lastPlayedAt);
+                }
+            }
+            for (Long requesterId : defaults.requesterCounts.keySet()) {
+                defaults.requesterLastPlayedAt.putIfAbsent(requesterId, now);
+            }
             defaults.todayDate = readTextOrDefault(stats.get("todayDate"), LocalDate.now().toString());
             defaults.todayPlaybackMillis = Math.max(0L, readLong(stats.get("todayPlaybackMillis"), 0L));
             rolloverDailyStats(defaults);
+            pruneExpiredStats(guildId, defaults, now);
 
             Object playlistsObj = root.get("playlists");
             if (playlistsObj instanceof List<?> playlistList) {
@@ -681,11 +718,17 @@ public class MusicDataService {
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("songPlayCounts", data.songPlayCounts);
         stats.put("songLabels", data.songLabels);
+        stats.put("songLastPlayedAt", data.songLastPlayedAt);
         Map<String, Object> requesterCounts = new LinkedHashMap<>();
         for (Map.Entry<Long, Integer> entry : data.requesterCounts.entrySet()) {
             requesterCounts.put(String.valueOf(entry.getKey()), entry.getValue());
         }
         stats.put("requesterCounts", requesterCounts);
+        Map<String, Object> requesterLastPlayedAt = new LinkedHashMap<>();
+        for (Map.Entry<Long, Long> entry : data.requesterLastPlayedAt.entrySet()) {
+            requesterLastPlayedAt.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+        stats.put("requesterLastPlayedAt", requesterLastPlayedAt);
         stats.put("todayDate", data.todayDate);
         stats.put("todayPlaybackMillis", data.todayPlaybackMillis);
         root.put("stats", stats);
@@ -736,6 +779,51 @@ public class MusicDataService {
         if (!today.equals(data.todayDate)) {
             data.todayDate = today;
             data.todayPlaybackMillis = 0L;
+        }
+    }
+
+    private void trimHistory(long guildId, GuildMusicData data) {
+        int historyLimit = getMusicConfig(guildId).getHistoryLimit();
+        while (data.history.size() > historyLimit) {
+            data.history.removeLast();
+        }
+    }
+
+    private void pruneExpiredStats(long guildId, GuildMusicData data, long now) {
+        int statsRetentionDays = getMusicConfig(guildId).getStatsRetentionDays();
+        if (statsRetentionDays <= 0) {
+            return;
+        }
+        long cutoff = now - statsRetentionDays * 86_400_000L;
+        data.songLastPlayedAt.entrySet().removeIf(entry -> {
+            long lastPlayedAt = entry.getValue() == null ? 0L : entry.getValue();
+            if (lastPlayedAt > cutoff) {
+                return false;
+            }
+            data.songPlayCounts.remove(entry.getKey());
+            data.songLabels.remove(entry.getKey());
+            return true;
+        });
+        data.songPlayCounts.keySet().removeIf(songKey -> !data.songLastPlayedAt.containsKey(songKey));
+        data.songLabels.keySet().removeIf(songKey -> !data.songPlayCounts.containsKey(songKey));
+
+        data.requesterLastPlayedAt.entrySet().removeIf(entry -> {
+            long lastPlayedAt = entry.getValue() == null ? 0L : entry.getValue();
+            if (lastPlayedAt > cutoff) {
+                return false;
+            }
+            data.requesterCounts.remove(entry.getKey());
+            return true;
+        });
+        data.requesterCounts.keySet().removeIf(requesterId -> !data.requesterLastPlayedAt.containsKey(requesterId));
+    }
+
+    private BotConfig.Music getMusicConfig(long guildId) {
+        try {
+            BotConfig.Music config = musicConfigResolver.apply(guildId);
+            return config == null ? BotConfig.Music.defaultValues() : config;
+        } catch (Exception ignored) {
+            return BotConfig.Music.defaultValues();
         }
     }
 

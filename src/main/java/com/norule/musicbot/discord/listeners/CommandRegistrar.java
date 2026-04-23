@@ -76,7 +76,9 @@ final class CommandRegistrar {
                 MusicCommandListener.CMD_PLAY_ZH, MusicCommandListener.CMD_SKIP_ZH, MusicCommandListener.CMD_STOP_ZH,
                 MusicCommandListener.CMD_LEAVE_ZH, MusicCommandListener.CMD_MUSIC_PANEL_ZH, MusicCommandListener.CMD_REPEAT_ZH
         ));
-        Set<String> adminCommands = Set.of("settings", MusicCommandListener.CMD_SETTINGS_ZH, "anti-duplicate", MusicCommandListener.CMD_ANTI_DUPLICATE_ZH);
+        Set<String> adminCommands = Set.of("settings", MusicCommandListener.CMD_SETTINGS_ZH,
+                "anti-duplicate", MusicCommandListener.CMD_ANTI_DUPLICATE_ZH,
+                "honeypot-channel", MusicCommandListener.CMD_HONEYPOT_ZH);
         Set<String> modCommands = Set.of("delete-messages", MusicCommandListener.CMD_DELETE_ZH, "warnings", MusicCommandListener.CMD_WARNINGS_ZH);
 
         guild.retrieveCommands().queue(commands -> {

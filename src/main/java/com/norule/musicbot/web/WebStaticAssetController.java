@@ -184,6 +184,7 @@ final class WebStaticAssetController {
                 "__HISTORY_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-history-group.html"),
                 "__ACCESS_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-access-group.html"),
                 "__PANEL_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-panel-group.html"),
+                "__FORM_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-form-group.html"),
                 "__OPTIONS_GROUP__", loadWebTemplate("web/partials/tabs/components/ticket-options-group.html")
         ));
     }

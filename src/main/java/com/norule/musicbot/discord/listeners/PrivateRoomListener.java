@@ -25,6 +25,7 @@ import java.io.InputStream;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -55,12 +56,24 @@ public class PrivateRoomListener extends ListenerAdapter {
     private final Path cacheFile;
     private final Object cacheLock = new Object();
 
-    public PrivateRoomListener(GuildSettingsService settingsService, I18nService i18n) {
+    public PrivateRoomListener(GuildSettingsService settingsService, I18nService i18n, Path cacheDir) {
         this.settingsService = settingsService;
         this.i18n = i18n;
-        this.cacheFile = settingsService.getSettingsDirectory().resolve("private-room-cache.yml");
+        this.cacheFile = cacheDir.resolve("private-room-cache.yml");
+        migrateLegacyCache(settingsService.getSettingsDirectory().resolve("private-room-cache.yml"));
         loadCacheFromDisk();
         activeInstance = this;
+    }
+
+    private void migrateLegacyCache(Path legacyFile) {
+        if (legacyFile == null || legacyFile.equals(cacheFile) || !Files.exists(legacyFile) || Files.exists(cacheFile)) {
+            return;
+        }
+        try {
+            Files.createDirectories(cacheFile.getParent());
+            Files.copy(legacyFile, cacheFile, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
