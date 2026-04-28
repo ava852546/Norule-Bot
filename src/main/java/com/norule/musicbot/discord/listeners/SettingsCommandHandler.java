@@ -635,22 +635,43 @@ final class SettingsCommandHandler {
         }
 
         if (responses.isEmpty()) {
-            boolean currentEnabled = owner.moderationService().isNumberChainEnabled(guildId);
-            Long channelId = owner.moderationService().getNumberChainChannelId(guildId);
-            long next = owner.moderationService().getNumberChainNext(guildId);
-            String channelText = channelId == null ? owner.i18nService().t(lang, "settings.info_channels_none") : "<#" + channelId + ">";
-            event.reply(owner.i18nService().t(lang, "number_chain.result_status",
-                            Map.of(
-                                    "status", owner.boolText(lang, currentEnabled),
-                                    "channel", channelText,
-                                    "next", String.valueOf(next)
-                            )))
+            event.replyEmbeds(numberChainStatusEmbed(event, lang).build())
                     .setEphemeral(true)
                     .queue();
             return;
         }
 
         event.reply(String.join("\n", responses)).setEphemeral(true).queue();
+    }
+
+    private EmbedBuilder numberChainStatusEmbed(SlashCommandInteractionEvent event, String lang) {
+        long guildId = event.getGuild().getIdLong();
+        boolean currentEnabled = owner.moderationService().isNumberChainEnabled(guildId);
+        Long channelId = owner.moderationService().getNumberChainChannelId(guildId);
+        long next = owner.moderationService().getNumberChainNext(guildId);
+        long highest = owner.moderationService().getNumberChainHighestNumber(guildId);
+        String channelText = channelId == null ? owner.i18nService().t(lang, "settings.info_channels_none") : "<#" + channelId + ">";
+        String status = owner.boolText(lang, currentEnabled);
+        Color color = currentEnabled ? new Color(46, 204, 113) : new Color(149, 165, 166);
+        return new EmbedBuilder()
+                .setColor(color)
+                .setTitle("\uD83D\uDD22 " + numberChainStatusTitle(lang))
+                .addField(owner.i18nService().t(lang, "settings.info_key_number_chain_enabled"), status, true)
+                .addField(owner.i18nService().t(lang, "settings.info_key_number_chain_channel"), channelText, true)
+                .addField(owner.i18nService().t(lang, "settings.info_key_number_chain_next"), "`" + next + "`", true)
+                .addField(owner.numberChainHighestLabel(lang), "`" + highest + "`", true)
+                .addField(owner.numberChainTopContributorsLabel(lang), owner.formatNumberChainTopContributors(event.getGuild(), lang), false)
+                .setTimestamp(Instant.now());
+    }
+
+    private String numberChainStatusTitle(String lang) {
+        if ("zh-CN".equalsIgnoreCase(lang)) {
+            return "数字接龙状态";
+        }
+        if (lang != null && lang.toLowerCase().startsWith("zh")) {
+            return "數字接龍狀態";
+        }
+        return "Number Chain Status";
     }
 
     boolean handleStringSelectInteraction(StringSelectInteractionEvent event, String lang) {

@@ -68,6 +68,13 @@ public final class YoutubePlaybackErrorMapper {
             return "music.youtube_login_required";
         }
         if (containsAny(normalized,
+                "connection refused",
+                "connect to 127.0.0.1:8001",
+                "connect to localhost:8001",
+                ":8001 failed")) {
+            return "music.youtube_cipher_unreachable";
+        }
+        if (containsAny(normalized,
                 "requires payment to watch",
                 "requires payment")) {
             return "music.youtube_payment_required";

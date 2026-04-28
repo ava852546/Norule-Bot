@@ -45,6 +45,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 public class Main {
     private static final DateTimeFormatter LOG_FILE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
@@ -78,7 +79,11 @@ public class Main {
 
         GuildSettingsService guildSettingsService =
                 new GuildSettingsService(guildSettingsPath, config);
-        MusicPlayerService playerService = new MusicPlayerService(musicDataPath, guildSettingsService::getMusic);
+        MusicPlayerService playerService = new MusicPlayerService(
+                musicDataPath,
+                guildSettingsService::getMusic,
+                config.getMusic().getYoutube()
+        );
         ModerationService moderationService = new ModerationService(resolveDataPath(baseDir, config.getModerationDataDir()));
         HoneypotService honeypotService = new HoneypotService(honeypotDataPath);
         TicketService ticketService = new TicketService(ticketDataPath, ticketTranscriptPath);
@@ -94,14 +99,15 @@ public class Main {
         JDABuilder builder = JDABuilder.createDefault(
                         token,
                         GatewayIntent.GUILD_MESSAGES,
+                        GatewayIntent.DIRECT_MESSAGES,
                         GatewayIntent.MESSAGE_CONTENT,
                         GatewayIntent.GUILD_MEMBERS,
                         GatewayIntent.GUILD_VOICE_STATES,
                         GatewayIntent.GUILD_MODERATION
                 )
                 .setAudioModuleConfig(audioConfig)
-                .setMemberCachePolicy(MemberCachePolicy.ALL)
-                .setChunkingFilter(ChunkingFilter.ALL)
+                .setMemberCachePolicy(MemberCachePolicy.VOICE.or(MemberCachePolicy.OWNER))
+                .setChunkingFilter(ChunkingFilter.NONE)
                 .disableCache(CacheFlag.EMOJI, CacheFlag.STICKER, CacheFlag.SCHEDULED_EVENTS)
                 .setStatus(parseOnlineStatus(config.getBotProfile().getPresenceStatus()))
                 .setActivity(null)
@@ -112,7 +118,7 @@ public class Main {
                         new ServerLogListener(guildSettingsService, i18nService),
                         new DuplicateMessageListener(guildSettingsService, moderationService, i18nService, cachePath),
                         new HoneypotListener(honeypotService, guildSettingsService),
-                        new NumberChainListener(guildSettingsService, moderationService, i18nService),
+                        new NumberChainListener(guildSettingsService, moderationService, i18nService, RUNTIME_CONFIG::get),
                         new VoiceAutoLeaveListener(guildSettingsService, playerService, i18nService),
                         new PrivateRoomListener(guildSettingsService, i18nService, cachePath),
                         ticketListener

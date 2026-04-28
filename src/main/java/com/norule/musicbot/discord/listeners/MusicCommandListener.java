@@ -53,6 +53,9 @@ import net.dv8tion.jda.api.components.textinput.TextInputStyle;
 import net.dv8tion.jda.api.modals.Modal;
 
 import java.awt.Color;
+import java.io.InputStream;
+import java.lang.management.ManagementFactory;
+import java.lang.management.OperatingSystemMXBean;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -62,6 +65,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -94,6 +98,9 @@ public class MusicCommandListener extends ListenerAdapter {
     static final String CMD_HONEYPOT_ZH = "\u5bc6\u7f50\u983b\u9053";
     static final String CMD_NUMBER_CHAIN_ZH = "\u6578\u5b57\u63a5\u9f8d";
     static final String CMD_TICKET_ZH = "\u5ba2\u670d\u55ae";
+    static final String CMD_USER_INFO_ZH = "\u4f7f\u7528\u8005\u8cc7\u8a0a";
+    static final String CMD_ROLE_INFO_ZH = "\u8eab\u5206\u7d44\u8cc7\u8a0a";
+    static final String CMD_SERVER_INFO_ZH = "\u4f3a\u670d\u5668\u8cc7\u8a0a";
     static final String SUB_SETTINGS_INFO_ZH = "\u8a73\u7d30\u8cc7\u8a0a";
     static final String SUB_SETTINGS_RELOAD_ZH = "\u91cd\u8f09\u8a2d\u5b9a";
     static final String SUB_SETTINGS_RESET_ZH = "\u6062\u5fa9\u9810\u8a2d";
@@ -115,6 +122,10 @@ public class MusicCommandListener extends ListenerAdapter {
     static final String SUB_PLAYLIST_IMPORT_ZH = "\u532f\u5165";
     static final String SUB_PLAYLIST_VIEW_ZH = "\u67e5\u770b";
     static final String SUB_PLAYLIST_REMOVE_TRACK_ZH = "\u522a\u9664\u6b4c\u66f2";
+    static final String SUB_PLAYLIST_ADD_ZH = "\u65b0\u589e\u6b4c\u66f2";
+    private static final String DEV_COMMAND_PREFIX = "&dev";
+    static final String DEV_GUILDS_BUTTON_PREFIX = "dev:guilds:";
+    private static final int DEV_GUILDS_PAGE_SIZE = 10;
     private static final String PLAYLIST_SCOPE_MINE = "mine";
     private static final String PLAYLIST_SCOPE_ALL = "all";
     static final String OPTION_QUERY_ZH = "query";
@@ -153,9 +164,7 @@ public class MusicCommandListener extends ListenerAdapter {
     static final String PANEL_SKIP = "panel:skip";
     static final String PANEL_STOP = "panel:stop";
     static final String PANEL_LEAVE = "panel:leave";
-    static final String PANEL_REPEAT_SINGLE = "panel:repeat:single";
-    static final String PANEL_REPEAT_ALL = "panel:repeat:all";
-    static final String PANEL_REPEAT_OFF = "panel:repeat:off";
+    static final String PANEL_REPEAT_TOGGLE = "panel:repeat:toggle";
     static final String PANEL_AUTOPLAY_TOGGLE = "panel:autoplay:toggle";
     static final String PANEL_VOLUME_DOWN = "panel:volume:down";
     static final String PANEL_VOLUME_UP = "panel:volume:up";
@@ -185,6 +194,7 @@ public class MusicCommandListener extends ListenerAdapter {
     private final Map<String, MenuRequest> numberChainMenuRequests = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private volatile JDA jda;
+    private final Instant startedAt = Instant.now();
     private final CommandRegistrar commandRegistrar;
     private final SettingsCommandHandler settingsCommandHandler;
     private final HelpCommandHandler helpCommandHandler;
@@ -195,6 +205,7 @@ public class MusicCommandListener extends ListenerAdapter {
     private final MusicPlaybackCommandHandler playbackCommandHandler;
     private final MusicPanelController musicPanelController;
     private final HoneypotCommandHandler honeypotCommandHandler;
+    private final InfoCommandHandler infoCommandHandler;
     private final InteractionRouter interactionRouter;
     private final Map<Long, Long> panelLastRefreshAt = new ConcurrentHashMap<>();
     private final Map<Long, String> panelLastSignature = new ConcurrentHashMap<>();
@@ -229,6 +240,7 @@ public class MusicCommandListener extends ListenerAdapter {
         this.playbackCommandHandler = new MusicPlaybackCommandHandler(this);
         this.musicPanelController = new MusicPanelController(this);
         this.honeypotCommandHandler = new HoneypotCommandHandler(this);
+        this.infoCommandHandler = new InfoCommandHandler(this);
         this.interactionRouter = new InteractionRouter(this);
         this.scheduler.scheduleAtFixedRate(this::refreshAllPanelsSafely, 5, 30, TimeUnit.SECONDS);
     }
@@ -356,6 +368,10 @@ public class MusicCommandListener extends ListenerAdapter {
         return honeypotCommandHandler;
     }
 
+    InfoCommandHandler infoCommandHandler() {
+        return infoCommandHandler;
+    }
+
     boolean isBotReadyForSlashCommands() {
         return botReadyForSlashCommands;
     }
@@ -374,14 +390,20 @@ public class MusicCommandListener extends ListenerAdapter {
 
     @Override
     public void onMessageReceived(MessageReceivedEvent event) {
-        if (!event.isFromGuild() || event.getAuthor().isBot()) {
+        if (event.getAuthor().isBot()) {
+            return;
+        }
+        String raw = event.getMessage().getContentRaw();
+        if (handleDeveloperCommand(event, raw)) {
+            return;
+        }
+        if (!event.isFromGuild()) {
             return;
         }
         Guild guild = event.getGuild();
         if (honeypotService.isHoneypotChannel(guild.getIdLong(), event.getChannel().getIdLong())) {
             return;
         }
-        String raw = event.getMessage().getContentRaw();
         if (!raw.startsWith(config.getPrefix())) {
             return;
         }
@@ -417,6 +439,264 @@ public class MusicCommandListener extends ListenerAdapter {
         if (isKnownPrefixCommand(cmd)) {
             logCommandUsage(guild, event.getMember(), config.getPrefix() + cmd + (arg.isBlank() ? "" : " " + arg), event.getChannel().getIdLong());
         }
+    }
+
+    private boolean handleDeveloperCommand(MessageReceivedEvent event, String raw) {
+        if (!isDeveloperCommand(raw)) {
+            return false;
+        }
+        if (event.isFromGuild()) {
+            logDeveloperCommand(event, "ignored", "guild-channel");
+            return true;
+        }
+        if (!isConfiguredDeveloper(event.getAuthor().getIdLong())) {
+            logDeveloperCommand(event, "denied", "not-configured-developer");
+            return true;
+        }
+
+        String args = raw.length() == DEV_COMMAND_PREFIX.length()
+                ? ""
+                : raw.substring(DEV_COMMAND_PREFIX.length()).trim();
+        String[] split = args.split("\\s+", 2);
+        String subcommand = args.isBlank() ? "help" : split[0].toLowerCase(Locale.ROOT);
+        logDeveloperCommand(event, subcommand, "dm");
+
+        switch (subcommand) {
+            case "help" -> sendDeveloperPrivateEmbed(event, developerHelpEmbed());
+            case "ping" -> sendDeveloperPrivateEmbed(event, developerPingEmbed(event.getJDA()));
+            case "info" -> sendDeveloperPrivateEmbed(event, developerInfoEmbed(event.getJDA()));
+            case "guilds" -> sendDeveloperGuildsPage(event, 0);
+            default -> sendDeveloperPrivateEmbed(event, developerErrorEmbed("Unknown developer command. Use `&dev help`."));
+        }
+
+        return true;
+    }
+
+    private boolean isDeveloperCommand(String raw) {
+        return raw != null && (raw.equals(DEV_COMMAND_PREFIX) || raw.startsWith(DEV_COMMAND_PREFIX + " "));
+    }
+
+    private boolean isConfiguredDeveloper(long userId) {
+        BotConfig.Developers developers = config.getDevelopers();
+        return developers != null && developers.isDeveloper(userId);
+    }
+
+    private void sendDeveloperPrivateEmbed(MessageReceivedEvent event, EmbedBuilder embed) {
+        event.getChannel().sendMessageEmbeds(embed.build()).queue(
+                ignored -> {
+                },
+                error -> {
+                    System.out.println("[NoRule] Developer command reply failed: user="
+                            + event.getAuthor().getAsTag()
+                            + " (" + event.getAuthor().getId() + ") error=" + error.getMessage());
+                }
+        );
+    }
+
+    private EmbedBuilder developerHelpEmbed() {
+        return developerBaseEmbed("Developer Commands")
+                .setDescription("Prefix: `&dev`")
+                .addField("`&dev help`", "Show this command list.", false)
+                .addField("`&dev ping`", "Check bot responsiveness.", false)
+                .addField("`&dev info`", "Show runtime status.", false)
+                .addField("`&dev guilds`", "Show joined guilds with pagination.", false);
+    }
+
+    private EmbedBuilder developerPingEmbed(JDA jda) {
+        return developerBaseEmbed("Developer Ping")
+                .addField("Result", "`Pong.`", true)
+                .addField("JDA Status", "`" + jda.getStatus() + "`", true);
+    }
+
+    private EmbedBuilder developerInfoEmbed(JDA jda) {
+        Runtime runtime = Runtime.getRuntime();
+        long usedMb = (runtime.totalMemory() - runtime.freeMemory()) / 1024L / 1024L;
+        long maxMb = runtime.maxMemory() / 1024L / 1024L;
+        return developerBaseEmbed("Developer Info")
+                .addField("Bot Version", "`" + developerBotVersion() + "`", true)
+                .addField("JDA Status", "`" + jda.getStatus() + "`", true)
+                .addField("Uptime", "`" + formatDuration(Duration.between(startedAt, Instant.now())) + "`", true)
+                .addField("Guilds", "`" + jda.getGuilds().size() + "`", true)
+                .addField("Playing Guilds", "`" + musicService.getActivePlaybackGuildCount() + "`", true)
+                .addField("Memory", "`" + usedMb + " / " + maxMb + " MB`", false)
+                .addField("CPU", "`" + developerCpuInfo() + "`", false);
+    }
+
+    private String developerBotVersion() {
+        String manifestVersion = MusicCommandListener.class.getPackage().getImplementationVersion();
+        if (manifestVersion != null && !manifestVersion.isBlank()) {
+            return manifestVersion;
+        }
+        try (InputStream in = MusicCommandListener.class.getClassLoader()
+                .getResourceAsStream("META-INF/maven/com.norule/discord-music-bot/pom.properties")) {
+            if (in != null) {
+                Properties properties = new Properties();
+                properties.load(in);
+                String version = properties.getProperty("version");
+                if (version != null && !version.isBlank()) {
+                    return version.trim();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "development";
+    }
+
+    private String developerCpuInfo() {
+        OperatingSystemMXBean os = ManagementFactory.getOperatingSystemMXBean();
+        String loadAverage = os.getSystemLoadAverage() < 0
+                ? "n/a"
+                : String.format(Locale.ROOT, "%.2f", os.getSystemLoadAverage());
+        if (os instanceof com.sun.management.OperatingSystemMXBean sunOs) {
+            double processLoad = sunOs.getProcessCpuLoad();
+            double systemLoad = sunOs.getCpuLoad();
+            String process = processLoad < 0 ? "n/a" : String.format(Locale.ROOT, "%.1f%%", processLoad * 100.0);
+            String system = systemLoad < 0 ? "n/a" : String.format(Locale.ROOT, "%.1f%%", systemLoad * 100.0);
+            return "Process " + process + " / System " + system + " / Load Avg " + loadAverage;
+        }
+        return "Load Avg " + loadAverage + " / Cores " + os.getAvailableProcessors();
+    }
+
+    private String formatDuration(Duration duration) {
+        long seconds = Math.max(0L, duration.getSeconds());
+        long days = seconds / 86400L;
+        seconds %= 86400L;
+        long hours = seconds / 3600L;
+        seconds %= 3600L;
+        long minutes = seconds / 60L;
+        seconds %= 60L;
+        if (days > 0) {
+            return String.format(Locale.ROOT, "%dd %02dh %02dm %02ds", days, hours, minutes, seconds);
+        }
+        return String.format(Locale.ROOT, "%02dh %02dm %02ds", hours, minutes, seconds);
+    }
+
+    private EmbedBuilder developerErrorEmbed(String message) {
+        return developerBaseEmbed("Developer Command")
+                .setColor(new Color(231, 76, 60))
+                .setDescription(message);
+    }
+
+    private EmbedBuilder developerBaseEmbed(String title) {
+        return new EmbedBuilder()
+                .setColor(new Color(52, 152, 219))
+                .setTitle(title)
+                .setTimestamp(Instant.now());
+    }
+
+    private void sendDeveloperGuildsPage(MessageReceivedEvent event, int page) {
+        List<Guild> guilds = event.getJDA().getGuilds();
+        int totalPages = developerGuildTotalPages(guilds.size());
+        int safePage = clampPage(page, totalPages);
+        event.getChannel().sendMessageEmbeds(developerGuildsEmbed(event.getJDA(), safePage).build())
+                .setComponents(ActionRow.of(developerGuildButtons(event.getAuthor().getIdLong(), safePage, totalPages)))
+                .queue(
+                ignored -> {
+                },
+                error -> {
+                    System.out.println("[NoRule] Developer command reply failed: user="
+                            + event.getAuthor().getAsTag()
+                            + " (" + event.getAuthor().getId() + ") error=" + error.getMessage());
+                }
+        );
+    }
+
+    void handleDeveloperGuildsButton(ButtonInteractionEvent event) {
+        String id = event.getComponentId();
+        if (!id.startsWith(DEV_GUILDS_BUTTON_PREFIX)) {
+            return;
+        }
+        String[] parts = id.substring(DEV_GUILDS_BUTTON_PREFIX.length()).split(":", 2);
+        if (parts.length != 2) {
+            event.deferEdit().queue();
+            return;
+        }
+        Long requesterId = parseLongOrNull(parts[0]);
+        Integer page = parseIntOrNull(parts[1]);
+        if (requesterId == null || page == null) {
+            event.deferEdit().queue();
+            return;
+        }
+        if (event.getUser().getIdLong() != requesterId || !isConfiguredDeveloper(event.getUser().getIdLong())) {
+            event.reply("This developer control is not yours.").setEphemeral(true).queue();
+            return;
+        }
+
+        int totalPages = developerGuildTotalPages(event.getJDA().getGuilds().size());
+        int safePage = clampPage(page, totalPages);
+        event.editMessageEmbeds(developerGuildsEmbed(event.getJDA(), safePage).build())
+                .setComponents(ActionRow.of(developerGuildButtons(requesterId, safePage, totalPages)))
+                .queue();
+    }
+
+    private EmbedBuilder developerGuildsEmbed(JDA jda, int page) {
+        List<Guild> guilds = jda.getGuilds();
+        int totalPages = developerGuildTotalPages(guilds.size());
+        int safePage = clampPage(page, totalPages);
+        EmbedBuilder embed = developerBaseEmbed("Developer Guilds")
+                .addField("Total", "`" + guilds.size() + "`", true)
+                .addField("Page", "`" + (safePage + 1) + " / " + totalPages + "`", true);
+        if (guilds.isEmpty()) {
+            return embed.setDescription("No joined guilds.");
+        }
+        int from = safePage * DEV_GUILDS_PAGE_SIZE;
+        int to = Math.min(guilds.size(), from + DEV_GUILDS_PAGE_SIZE);
+        StringBuilder builder = new StringBuilder();
+        for (int i = from; i < to; i++) {
+            Guild guild = guilds.get(i);
+            builder.append(i + 1)
+                    .append(". ")
+                    .append(guild.getName().replace("`", "'"))
+                    .append(" (`")
+                    .append(guild.getId())
+                    .append("`)\n");
+        }
+        return embed.setDescription(builder.toString());
+    }
+
+    private List<Button> developerGuildButtons(long requesterId, int page, int totalPages) {
+        return List.of(
+                Button.secondary(DEV_GUILDS_BUTTON_PREFIX + requesterId + ":" + (page - 1), "Previous")
+                        .withDisabled(page <= 0),
+                Button.secondary(DEV_GUILDS_BUTTON_PREFIX + requesterId + ":" + (page + 1), "Next")
+                        .withDisabled(page >= totalPages - 1)
+        );
+    }
+
+    private int developerGuildTotalPages(int guildCount) {
+        return Math.max(1, (int) Math.ceil(guildCount / (double) DEV_GUILDS_PAGE_SIZE));
+    }
+
+    private int clampPage(int page, int totalPages) {
+        return Math.max(0, Math.min(page, Math.max(1, totalPages) - 1));
+    }
+
+    private Long parseLongOrNull(String raw) {
+        try {
+            return Long.parseLong(raw);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private Integer parseIntOrNull(String raw) {
+        try {
+            return Integer.parseInt(raw);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private void logDeveloperCommand(MessageReceivedEvent event, String action, String result) {
+        User user = event.getAuthor();
+        String location = event.isFromGuild()
+                ? "guild=" + event.getGuild().getId() + " channel=" + event.getChannel().getId()
+                : "dm";
+        System.out.println("[NoRule] Developer command " + result
+                + ": action=" + action
+                + " user=" + user.getAsTag()
+                + " (" + user.getId() + ") "
+                + location);
     }
 
     @Override
@@ -720,10 +1000,6 @@ public class MusicCommandListener extends ListenerAdapter {
 
     private String moduleLine(String lang, String key, boolean value) {
         return keyIcon(key) + " " + i18n.t(lang, key) + ": " + moduleSwitchTextCode(lang, value);
-    }
-
-    private String moduleLinePlain(String lang, String key, boolean value) {
-        return keyIcon(key) + " " + i18n.t(lang, key) + ": " + moduleSwitchTextPlain(lang, value);
     }
 
     private String quotedSettingLine(String lang, String key, String labelKey, String value) {
@@ -1472,9 +1748,26 @@ public class MusicCommandListener extends ListenerAdapter {
             return;
         }
 
+        var timeOption = event.getOption("time");
         var amountOption = event.getOption("amount");
-        int amount = amountOption == null ? 99 : (int) amountOption.getAsLong();
-        if (amount < 1 || amount > 99) {
+        boolean explicitTime = timeOption != null;
+        boolean explicitAmount = amountOption != null;
+        Duration lookback;
+        if (explicitTime) {
+            String timeInput = Objects.requireNonNull(timeOption.getAsString()).trim();
+            lookback = parseDeleteLookback(timeInput);
+        } else if (explicitAmount) {
+            lookback = Duration.ofDays(14);
+        } else {
+            lookback = Duration.ofHours(24);
+        }
+        if (lookback == null) {
+            event.reply(i18n.t(lang, "delete.time_range")).setEphemeral(true).queue();
+            return;
+        }
+
+        Integer amount = amountOption == null ? null : (int) amountOption.getAsLong();
+        if (amount != null && (amount < 1 || amount > 99)) {
             event.reply(i18n.t(lang, "delete.amount_range")).setEphemeral(true).queue();
             return;
         }
@@ -1491,19 +1784,28 @@ public class MusicCommandListener extends ListenerAdapter {
         TextChannel channel = null;
         Long targetUserId = null;
         String scope;
-        StringBuilder extraNotice = new StringBuilder();
+        String extraNotice = "";
         if ("channel".equals(sub)) {
             var channelOption = event.getOption("channel");
             if (channelOption == null) {
-                event.reply(i18n.t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
-                return;
+                if (event.getChannelType() != ChannelType.TEXT) {
+                    event.reply(i18n.t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
+                    return;
+                }
+                channel = event.getChannel().asTextChannel();
+                extraNotice = i18n.t(lang, "delete.default_channel_notice", Map.of("channel", channel.getAsMention()));
+            } else {
+                if (channelOption.getAsChannel().getType() != ChannelType.TEXT) {
+                    event.reply(i18n.t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
+                    return;
+                }
+                channel = channelOption.getAsChannel().asTextChannel();
             }
-            if (channelOption.getAsChannel().getType() != ChannelType.TEXT) {
-                event.reply(i18n.t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
-                return;
+            if (event.getOption("user") != null) {
+                targetUserId = Objects.requireNonNull(event.getOption("user")).getAsUser().getIdLong();
             }
-            channel = channelOption.getAsChannel().asTextChannel();
-            scope = channel.getAsMention();
+            scope = channel.getAsMention()
+                    + (targetUserId == null ? "" : " \u00b7 " + Objects.requireNonNull(event.getOption("user")).getAsUser().getAsMention());
         } else {
             if (event.getOption("user") == null) {
                 event.reply(i18n.t(lang, "general.invalid_user")).setEphemeral(true).queue();
@@ -1523,13 +1825,14 @@ public class MusicCommandListener extends ListenerAdapter {
         }
 
         String token = UUID.randomUUID().toString().replace("-", "");
-        deleteRequests.put(token, new DeleteRequest(event.getUser().getIdLong(), channel == null ? null : channel.getIdLong(), targetUserId, amount));
+        deleteRequests.put(token, new DeleteRequest(event.getUser().getIdLong(), channel == null ? null : channel.getIdLong(), targetUserId, lookback, amount));
 
                 event.replyEmbeds(new EmbedBuilder()
                         .setTitle(i18n.t(lang, "delete.confirm_title"))
-                        .setDescription(i18n.t(lang, "delete.confirm_body", Map.of("count", String.valueOf(amount), "scope", scope))
-                                + (amountOption == null ? "\n" + i18n.t(lang, "delete.default_amount_notice", Map.of("count", "99")) : "")
-                                + (extraNotice.isEmpty() ? "" : "\n" + extraNotice))
+                        .setDescription(i18n.t(lang, "delete.confirm_body", Map.of("count", deleteAmountText(lang, amount), "scope", scope))
+                                + (explicitTime ? "\n" + deleteTimeNotice(lang, lookback) : "")
+                                + (!explicitTime && !explicitAmount ? "\n" + deleteDefaultTimeNotice(lang, "24h") : "")
+                                + (extraNotice.isBlank() ? "" : "\n" + extraNotice))
                         .addField("Info", i18n.t(lang, "delete.confirm_warning"), false)
                         .setColor(new Color(241, 196, 15))
                         .build())
@@ -1742,6 +2045,7 @@ public class MusicCommandListener extends ListenerAdapter {
         boolean numberChainEnabled = moderationService.isNumberChainEnabled(guildId);
         Long numberChainChannelId = moderationService.getNumberChainChannelId(guildId);
         long numberChainNext = moderationService.getNumberChainNext(guildId);
+        long numberChainHighest = moderationService.getNumberChainHighestNumber(guildId);
 
         String notifications = joinLines(
                 line(lang, "settings.info_key_enabled", compare(lang, moduleSwitchTextCode(lang, n.isEnabled()), moduleSwitchTextCode(lang, nDef.isEnabled()))),
@@ -1834,7 +2138,9 @@ public class MusicCommandListener extends ListenerAdapter {
                 line(lang, "settings.info_key_number_chain_channel", compare(lang,
                         formatTextChannelInfo(guild, numberChainChannelId),
                         formatTextChannelInfo(guild, null))),
-                line(lang, "settings.info_key_number_chain_next", compare(lang, String.valueOf(numberChainNext), "1"))
+                line(lang, "settings.info_key_number_chain_next", compare(lang, String.valueOf(numberChainNext), "1")),
+                lineLabel("\uD83C\uDFC6", numberChainHighestLabel(lang), String.valueOf(numberChainHighest)),
+                lineLabel("\uD83D\uDC65", numberChainTopContributorsLabel(lang), formatNumberChainTopContributors(guild, lang))
         );
         String moduleInfo = joinLines(
                 "**" + i18n.t(lang, "settings.module_section_core") + "**",
@@ -2638,9 +2944,7 @@ public class MusicCommandListener extends ListenerAdapter {
                 || PANEL_SKIP.equals(componentId)
                 || PANEL_STOP.equals(componentId)
                 || PANEL_LEAVE.equals(componentId)
-                || PANEL_REPEAT_SINGLE.equals(componentId)
-                || PANEL_REPEAT_ALL.equals(componentId)
-                || PANEL_REPEAT_OFF.equals(componentId)
+                || PANEL_REPEAT_TOGGLE.equals(componentId)
                 || PANEL_AUTOPLAY_TOGGLE.equals(componentId)
                 || PANEL_VOLUME_DOWN.equals(componentId)
                 || PANEL_VOLUME_UP.equals(componentId)
@@ -2720,19 +3024,20 @@ public class MusicCommandListener extends ListenerAdapter {
         buttons.add(autoplayEnabled
                 ? Button.success(PANEL_AUTOPLAY_TOGGLE, "\uD83E\uDDE0 " + musicUx(lang, "btn_autoplay_on"))
                 : Button.secondary(PANEL_AUTOPLAY_TOGGLE, "\uD83E\uDDE0 " + musicUx(lang, "btn_autoplay_off")));
-        buttons.add("OFF".equalsIgnoreCase(repeatMode)
-                ? Button.secondary(PANEL_REPEAT_OFF, "\u2B55 " + musicUx(lang, "btn_repeat_off"))
-                : Button.secondary(PANEL_REPEAT_OFF, "\u2B55 " + musicUx(lang, "btn_repeat_off")));
-        buttons.add("SINGLE".equalsIgnoreCase(repeatMode)
-                ? Button.success(PANEL_REPEAT_SINGLE, "\uD83D\uDD02 " + musicUx(lang, "btn_repeat_single"))
-                : Button.secondary(PANEL_REPEAT_SINGLE, "\uD83D\uDD02 " + musicUx(lang, "btn_repeat_single")));
-        buttons.add("ALL".equalsIgnoreCase(repeatMode)
-                ? Button.success(PANEL_REPEAT_ALL, "\uD83D\uDD01 " + musicUx(lang, "btn_repeat_all"))
-                : Button.secondary(PANEL_REPEAT_ALL, "\uD83D\uDD01 " + musicUx(lang, "btn_repeat_all")));
+        buttons.add(repeatToggleButton(lang, repeatMode));
         buttons.add(hasQueue
                 ? Button.secondary(PANEL_SHUFFLE, "\uD83D\uDD00 " + musicUx(lang, "btn_shuffle"))
                 : Button.secondary(PANEL_SHUFFLE, "\uD83D\uDD00 " + musicUx(lang, "btn_shuffle")).asDisabled());
         return buttons;
+    }
+
+    private Button repeatToggleButton(String lang, String repeatMode) {
+        String mode = repeatMode == null ? "OFF" : repeatMode.toUpperCase(Locale.ROOT);
+        return switch (mode) {
+            case "SINGLE" -> Button.success(PANEL_REPEAT_TOGGLE, "\uD83D\uDD02 " + musicUx(lang, "btn_repeat_single"));
+            case "ALL" -> Button.success(PANEL_REPEAT_TOGGLE, "\uD83D\uDD01 " + musicUx(lang, "btn_repeat_all"));
+            default -> Button.secondary(PANEL_REPEAT_TOGGLE, "\u2B55 " + musicUx(lang, "btn_repeat_off"));
+        };
     }
 
     private List<ActionRow> panelRows(String lang, long guildId) {
@@ -2740,7 +3045,7 @@ public class MusicCommandListener extends ListenerAdapter {
         return List.of(
                 ActionRow.of(buttons.subList(0, 4)),
                 ActionRow.of(buttons.subList(4, 8)),
-                ActionRow.of(buttons.subList(8, 12))
+                ActionRow.of(buttons.subList(8, buttons.size()))
         );
     }
 
@@ -2750,27 +3055,42 @@ public class MusicCommandListener extends ListenerAdapter {
         return musicService.setVolume(guild, target);
     }
 
-    private List<Message> findMessagesForDeletion(TextChannel channel, Long targetUserId, int amount, int maxPages) {
+    private String deleteAmountText(String lang, Integer amount) {
+        if (amount != null) {
+            return String.valueOf(amount);
+        }
+        if ("zh-CN".equalsIgnoreCase(lang)) {
+            return "符合时间范围的全部消息";
+        }
+        if (lang != null && lang.toLowerCase(Locale.ROOT).startsWith("zh")) {
+            return "符合時間範圍的全部訊息";
+        }
+        return "all matching messages";
+    }
+
+    private List<Message> findMessagesForDeletion(TextChannel channel, Long targetUserId, Integer amount, int maxPages, Duration lookback) {
         List<Message> matched = new ArrayList<>();
+        Instant cutoff = Instant.now().minus(lookback);
         MessageHistory history = channel.getHistory();
         List<Message> page = history.retrievePast(100).complete();
-        for (int i = 0; i < maxPages && !page.isEmpty() && matched.size() < amount; i++) {
+        for (int i = 0; i < maxPages && !page.isEmpty() && (amount == null || matched.size() < amount); i++) {
             for (Message message : page) {
-                if (message.getAuthor().isBot()) {
+                if (targetUserId == null && message.getAuthor().isBot()) {
                     continue;
                 }
-                if (message.getTimeCreated().toInstant().isBefore(Instant.now().minus(Duration.ofDays(14)))) {
+                Instant createdAt = message.getTimeCreated().toInstant();
+                if (createdAt.isBefore(cutoff)) {
                     continue;
                 }
                 if (targetUserId != null && message.getAuthor().getIdLong() != targetUserId) {
                     continue;
                 }
                 matched.add(message);
-                if (matched.size() >= amount) {
+                if (amount != null && matched.size() >= amount) {
                     break;
                 }
             }
-            if (matched.size() >= amount) {
+            if (amount != null && matched.size() >= amount) {
                 break;
             }
             String before = page.get(page.size() - 1).getId();
@@ -2780,12 +3100,13 @@ public class MusicCommandListener extends ListenerAdapter {
     }
 
     private int performDeleteRequest(Guild guild, DeleteRequest req) {
+        Duration lookback = req.lookback;
         if (req.channelId != null) {
             TextChannel channel = guild.getTextChannelById(req.channelId);
             if (channel == null || !canManageMessages(channel)) {
                 return 0;
             }
-            List<Message> targets = findMessagesForDeletion(channel, req.targetUserId, req.amount, 25);
+            List<Message> targets = findMessagesForDeletion(channel, req.targetUserId, req.amount, 25, lookback);
             return performDelete(channel, targets);
         }
         int total = 0;
@@ -2793,14 +3114,112 @@ public class MusicCommandListener extends ListenerAdapter {
             if (!canManageMessages(channel)) {
                 continue;
             }
-            int remaining = req.amount - total;
-            if (remaining <= 0) {
+            Integer remaining = req.amount == null ? null : req.amount - total;
+            if (remaining != null && remaining <= 0) {
                 break;
             }
-            List<Message> targets = findMessagesForDeletion(channel, req.targetUserId, remaining, 25);
+            List<Message> targets = findMessagesForDeletion(channel, req.targetUserId, remaining, 25, lookback);
             total += performDelete(channel, targets);
         }
         return total;
+    }
+
+    private Duration parseDeleteLookback(String input) {
+        if (input == null) {
+            return null;
+        }
+        String normalized = input.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) {
+            return null;
+        }
+        long totalSeconds = 0L;
+        long currentValue = 0L;
+        boolean foundUnit = false;
+        for (int i = 0; i < normalized.length(); i++) {
+            char ch = normalized.charAt(i);
+            if (Character.isDigit(ch)) {
+                currentValue = currentValue * 10L + (ch - '0');
+                continue;
+            }
+            if (currentValue <= 0L) {
+                return null;
+            }
+            long unitSeconds;
+            switch (ch) {
+                case 'd' -> unitSeconds = 86400L;
+                case 'h' -> unitSeconds = 3600L;
+                case 'm' -> unitSeconds = 60L;
+                case 's' -> unitSeconds = 1L;
+                default -> {
+                    return null;
+                }
+            }
+            try {
+                totalSeconds = Math.addExact(totalSeconds, Math.multiplyExact(currentValue, unitSeconds));
+            } catch (ArithmeticException ex) {
+                return null;
+            }
+            currentValue = 0L;
+            foundUnit = true;
+        }
+        if (!foundUnit || currentValue != 0L || totalSeconds <= 0L) {
+            return null;
+        }
+        Duration lookback = Duration.ofSeconds(totalSeconds);
+        return lookback.compareTo(Duration.ofDays(14)) <= 0 ? lookback : null;
+    }
+
+    private String formatDeleteLookback(Duration lookback) {
+        long totalSeconds = lookback.getSeconds();
+        long days = totalSeconds / 86400L;
+        totalSeconds %= 86400L;
+        long hours = totalSeconds / 3600L;
+        totalSeconds %= 3600L;
+        long minutes = totalSeconds / 60L;
+        long seconds = totalSeconds % 60L;
+        StringBuilder sb = new StringBuilder();
+        if (days > 0L) {
+            sb.append(days).append('d');
+        }
+        if (hours > 0L) {
+            sb.append(hours).append('h');
+        }
+        if (minutes > 0L) {
+            sb.append(minutes).append('m');
+        }
+        if (seconds > 0L || sb.length() == 0) {
+            sb.append(seconds).append('s');
+        }
+        return sb.toString();
+    }
+
+    private String deleteTimeNotice(String lang, Duration lookback) {
+        String formatted = formatDeleteLookback(lookback);
+        String translated = i18n.t(lang, "delete.time_notice", Map.of("time", formatted));
+        if (!"delete.time_notice".equals(translated)) {
+            return translated;
+        }
+        if ("zh-CN".equalsIgnoreCase(lang)) {
+            return "搜索范围：最近 " + formatted + "。";
+        }
+        if ("zh-TW".equalsIgnoreCase(lang)) {
+            return "搜尋範圍：最近 " + formatted + "。";
+        }
+        return "Search range: last " + formatted + ".";
+    }
+
+    private String deleteDefaultTimeNotice(String lang, String formatted) {
+        String translated = i18n.t(lang, "delete.default_time_notice", Map.of("time", formatted));
+        if (!"delete.default_time_notice".equals(translated)) {
+            return translated;
+        }
+        if ("zh-CN".equalsIgnoreCase(lang)) {
+            return "未提供时间，将使用默认范围：最近 " + formatted + "。";
+        }
+        if ("zh-TW".equalsIgnoreCase(lang)) {
+            return "未提供時間，將使用預設範圍：最近 " + formatted + "。";
+        }
+        return "Time not provided. Using default range: last " + formatted + ".";
     }
 
     private boolean canManageMessages(TextChannel channel) {
@@ -2948,6 +3367,12 @@ public class MusicCommandListener extends ListenerAdapter {
         commands.add(buildNumberChainCommand(CMD_NUMBER_CHAIN_ZH));
         commands.add(buildTicketCommand("ticket"));
         commands.add(buildTicketCommand(CMD_TICKET_ZH));
+        commands.add(buildUserInfoCommand("user-info"));
+        commands.add(buildUserInfoCommand(CMD_USER_INFO_ZH));
+        commands.add(buildRoleInfoCommand("role-info"));
+        commands.add(buildRoleInfoCommand(CMD_ROLE_INFO_ZH));
+        commands.add(buildServerInfoCommand("server-info"));
+        commands.add(buildServerInfoCommand(CMD_SERVER_INFO_ZH));
         return commands;
     }
 
@@ -2984,6 +3409,26 @@ public class MusicCommandListener extends ListenerAdapter {
                 .addOptions(buildTicketActionOption(zh));
     }
 
+    private SlashCommandData buildUserInfoCommand(String commandName) {
+        boolean zh = CMD_USER_INFO_ZH.equals(commandName);
+        return Commands.slash(commandName, zh ? "\u67e5\u8a62\u4f7f\u7528\u8005\u8cc7\u8a0a" : "Show user information")
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+                .addOptions(new OptionData(OptionType.USER, "user", zh ? "\u8981\u67e5\u8a62\u7684\u4f7f\u7528\u8005" : "User to inspect", false));
+    }
+
+    private SlashCommandData buildRoleInfoCommand(String commandName) {
+        boolean zh = CMD_ROLE_INFO_ZH.equals(commandName);
+        return Commands.slash(commandName, zh ? "\u67e5\u8a62\u8eab\u5206\u7d44\u8cc7\u8a0a" : "Show role information")
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+                .addOptions(new OptionData(OptionType.ROLE, "role", zh ? "\u8981\u67e5\u8a62\u7684\u8eab\u5206\u7d44" : "Role to inspect", true));
+    }
+
+    private SlashCommandData buildServerInfoCommand(String commandName) {
+        boolean zh = CMD_SERVER_INFO_ZH.equals(commandName);
+        return Commands.slash(commandName, zh ? "\u67e5\u8a62\u4f3a\u670d\u5668\u8cc7\u8a0a" : "Show server information")
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED);
+    }
+
     private SlashCommandData buildPlaylistCommand(String commandName) {
         boolean zh = CMD_PLAYLIST_ZH.equals(commandName);
         SubcommandData save = new SubcommandData(zh ? "\u5132\u5b58" : "save",
@@ -2994,6 +3439,14 @@ public class MusicCommandListener extends ListenerAdapter {
                 zh ? "\u8f09\u5165\u5df2\u5132\u5b58\u6b4c\u55ae" : "Load saved playlist")
                 .addOptions(new OptionData(OptionType.STRING, "name", zh ? "\u6b4c\u55ae\u540d\u7a31" : "Playlist name", true)
                         .setAutoComplete(true));
+        SubcommandData add = new SubcommandData(zh ? SUB_PLAYLIST_ADD_ZH : "add",
+                zh ? "\u5c07\u6307\u5b9a URL \u6b4c\u66f2\u65b0\u589e\u5230\u6b4c\u55ae\uff08\u50c5\u9650\u6b4c\u55ae\u5efa\u7acb\u8005\uff09"
+                        : "Add a track by URL to a playlist (playlist owner only)")
+                .addOptions(
+                        new OptionData(OptionType.STRING, "name", zh ? "\u6b4c\u55ae\u540d\u7a31" : "Playlist name", true)
+                                .setAutoComplete(true),
+                        new OptionData(OptionType.STRING, "url", zh ? "URL" : "URL", true)
+                );
         SubcommandData delete = new SubcommandData(zh ? "\u522a\u9664" : "delete",
                 zh ? "\u522a\u9664\u5df2\u5132\u5b58\u6b4c\u55ae" : "Delete saved playlist")
                 .addOptions(new OptionData(OptionType.STRING, "name", zh ? "\u6b4c\u55ae\u540d\u7a31" : "Playlist name", true)
@@ -3027,7 +3480,7 @@ public class MusicCommandListener extends ListenerAdapter {
                 );
         return Commands.slash(commandName, zh ? "\u6b4c\u55ae\u7ba1\u7406" : "Playlist management")
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
-                .addSubcommands(save, load, delete, list, view, removeTrack, export, importSub);
+                .addSubcommands(save, load, add, delete, list, view, removeTrack, export, importSub);
     }
 
     private SlashCommandData buildDeleteCommand() {
@@ -3042,6 +3495,7 @@ public class MusicCommandListener extends ListenerAdapter {
                         new OptionData(OptionType.CHANNEL, "channel", "Text channel", false)
                                 .setChannelTypes(ChannelType.TEXT),
                         new OptionData(OptionType.USER, "user", "Target user", false),
+                        new OptionData(OptionType.STRING, "time", "Duration like 24h or 13d23h59m59s (max 14d, default 24h)", false),
                         new OptionData(OptionType.INTEGER, "amount", "1-99", false).setRequiredRange(1, 99)
                 );
     }
@@ -3058,6 +3512,7 @@ public class MusicCommandListener extends ListenerAdapter {
                         new OptionData(OptionType.CHANNEL, "channel", "\u6587\u5b57\u983b\u9053", false)
                                 .setChannelTypes(ChannelType.TEXT),
                         new OptionData(OptionType.USER, "user", "\u76ee\u6a19\u4f7f\u7528\u8005", false),
+                        new OptionData(OptionType.STRING, "time", "\u6642\u9593\u7bc4\u570d\uff0c\u4f8b\u5982 24h \u6216 13d23h59m59s\uff08\u4e0a\u9650 14d\uff0c\u9810\u8a2d 24h\uff09", false),
                         new OptionData(OptionType.INTEGER, "amount", "1-99", false).setRequiredRange(1, 99)
                 );
     }
@@ -3069,28 +3524,10 @@ public class MusicCommandListener extends ListenerAdapter {
                 .addOptions(buildSettingsActionOption(zh));
     }
 
-    private static SlashCommandData localizedCommandDescription(SlashCommandData command, String zhTwDescription, String zhCnDescription) {
-        return command
-                .setDescriptionLocalization(DiscordLocale.CHINESE_TAIWAN, zhTwDescription)
-                .setDescriptionLocalization(DiscordLocale.CHINESE_CHINA, zhCnDescription);
-    }
-
-    private static SlashCommandData localizedCommandName(SlashCommandData command, String zhTwName, String zhCnName) {
-        return command
-                .setNameLocalization(DiscordLocale.CHINESE_TAIWAN, zhTwName)
-                .setNameLocalization(DiscordLocale.CHINESE_CHINA, zhCnName);
-    }
-
     private static OptionData localizedOptionName(OptionData option, String zhTwName, String zhCnName) {
         return option
                 .setNameLocalization(DiscordLocale.CHINESE_TAIWAN, zhTwName)
                 .setNameLocalization(DiscordLocale.CHINESE_CHINA, zhCnName);
-    }
-
-    private static OptionData localizedOptionDescription(OptionData option, String zhTwDescription, String zhCnDescription) {
-        return option
-                .setDescriptionLocalization(DiscordLocale.CHINESE_TAIWAN, zhTwDescription)
-                .setDescriptionLocalization(DiscordLocale.CHINESE_CHINA, zhCnDescription);
     }
 
     private static Command.Choice localizedChoice(String englishName, String value, String zhTwName, String zhCnName) {
@@ -3103,12 +3540,6 @@ public class MusicCommandListener extends ListenerAdapter {
         return subcommand
                 .setNameLocalization(DiscordLocale.CHINESE_TAIWAN, zhTwName)
                 .setNameLocalization(DiscordLocale.CHINESE_CHINA, zhCnName);
-    }
-
-    private static SubcommandData localizedSubcommandDescription(SubcommandData subcommand, String zhTwDescription, String zhCnDescription) {
-        return subcommand
-                .setDescriptionLocalization(DiscordLocale.CHINESE_TAIWAN, zhTwDescription)
-                .setDescriptionLocalization(DiscordLocale.CHINESE_CHINA, zhCnDescription);
     }
 
     private OptionData buildSettingsActionOption(boolean zh) {
@@ -3131,61 +3562,6 @@ public class MusicCommandListener extends ListenerAdapter {
             option.setNameLocalization(DiscordLocale.CHINESE_CHINA, "\u9009\u9879");
         }
         return option;
-    }
-
-    private OptionData buildSettingsLogSettingOption() {
-        return localizedOptionDescription(
-                localizedOptionName(
-                        new OptionData(OptionType.STRING, "log-setting", "Log setting target", false)
-                                .addChoices(
-                                        localizedChoice("Ignore Prefix", "ignore-prefix", "\u5ffd\u7565\u524d\u7db4", "\u5ffd\u7565\u524d\u7f00"),
-                                        localizedChoice("Ignore Member", "ignore-member", "\u5ffd\u7565\u6210\u54e1", "\u5ffd\u7565\u6210\u5458"),
-                                        localizedChoice("Ignore Channel", "ignore-channel", "\u5ffd\u7565\u983b\u9053", "\u5ffd\u7565\u9891\u9053"),
-                                        localizedChoice("View Ignore List", "view-ignore", "\u67e5\u770b\u5ffd\u7565", "\u67e5\u770b\u5ffd\u7565")
-                                ),
-                        "\u5b50\u9078\u9805",
-                        "\u5b50\u9009\u9879"
-                ),
-                "\u9078\u64c7\u8981\u8abf\u6574\u7684\u65e5\u8a8c\u5ffd\u7565\u9805\u76ee",
-                "\u9009\u62e9\u8981\u8c03\u6574\u7684\u65e5\u5fd7\u5ffd\u7565\u9879\u76ee"
-        );
-    }
-
-    private OptionData buildSettingsUserOption() {
-        return localizedOptionDescription(
-                localizedOptionName(
-                        new OptionData(OptionType.USER, "user", "Target member", false),
-                        "\u6210\u54e1",
-                        "\u6210\u5458"
-                ),
-                "\u8981\u52a0\u5165\u6216\u79fb\u51fa\u5ffd\u7565\u540d\u55ae\u7684\u6210\u54e1",
-                "\u8981\u52a0\u5165\u6216\u79fb\u51fa\u5ffd\u7565\u540d\u5355\u7684\u6210\u5458"
-        );
-    }
-
-    private OptionData buildSettingsChannelOption() {
-        return localizedOptionDescription(
-                localizedOptionName(
-                        new OptionData(OptionType.CHANNEL, "channel", "Target text channel", false)
-                                .setChannelTypes(ChannelType.TEXT),
-                        "\u983b\u9053",
-                        "\u9891\u9053"
-                ),
-                "\u8981\u52a0\u5165\u6216\u79fb\u51fa\u5ffd\u7565\u540d\u55ae\u7684\u6587\u5b57\u983b\u9053",
-                "\u8981\u52a0\u5165\u6216\u79fb\u51fa\u5ffd\u7565\u540d\u5355\u7684\u6587\u5b57\u9891\u9053"
-        );
-    }
-
-    private OptionData buildSettingsPrefixOption() {
-        return localizedOptionDescription(
-                localizedOptionName(
-                        new OptionData(OptionType.STRING, "prefix", "Ignored prefix", false),
-                        "\u524d\u7db4",
-                        "\u524d\u7f00"
-                ),
-                "\u4ee5\u6b64\u524d\u7db4\u958b\u982d\u7684\u8a0a\u606f\u4e0d\u6703\u8a18\u9304\u5230\u65e5\u8a8c",
-                "\u4ee5\u6b64\u524d\u7f00\u5f00\u5934\u7684\u6d88\u606f\u4e0d\u4f1a\u8bb0\u5f55\u5230\u65e5\u5fd7"
-        );
     }
 
     private OptionData buildWarningsActionOption(boolean zh) {
@@ -3450,7 +3826,11 @@ public class MusicCommandListener extends ListenerAdapter {
                 quotedSettingLine(lang, "settings.info_key_number_chain_channel", "settings.value_label",
                         formatTextChannel(guild, moderationService.getNumberChainChannelId(guildId))),
                 quotedSettingLine(lang, "settings.info_key_number_chain_next", "settings.value_label",
-                        String.valueOf(moderationService.getNumberChainNext(guildId)))
+                        String.valueOf(moderationService.getNumberChainNext(guildId))),
+                "\uD83C\uDFC6 " + numberChainHighestLabel(lang) + "\n> " + i18n.t(lang, "settings.value_label") + ": "
+                        + moderationService.getNumberChainHighestNumber(guildId),
+                "\uD83D\uDC65 " + numberChainTopContributorsLabel(lang) + "\n> "
+                        + formatNumberChainTopContributors(guild, lang)
         );
         EmbedBuilder eb = new EmbedBuilder()
                 .setColor(new Color(46, 204, 113))
@@ -3629,10 +4009,6 @@ public class MusicCommandListener extends ListenerAdapter {
                 .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_SERVER));
     }
 
-    private String cd(String key, String fallback) {
-        return fallback;
-    }
-
     String canonicalSlashName(String name) {
         return switch (name) {
             case CMD_HELP_ZH -> "help";
@@ -3657,6 +4033,9 @@ public class MusicCommandListener extends ListenerAdapter {
             case CMD_HONEYPOT_ZH -> "honeypot-channel";
             case CMD_NUMBER_CHAIN_ZH -> "number-chain";
             case CMD_TICKET_ZH -> "ticket";
+            case CMD_USER_INFO_ZH -> "user-info";
+            case CMD_ROLE_INFO_ZH -> "role-info";
+            case CMD_SERVER_INFO_ZH -> "server-info";
             default -> name;
         };
     }
@@ -3696,6 +4075,7 @@ public class MusicCommandListener extends ListenerAdapter {
         return switch (sub) {
             case SUB_PLAYLIST_SAVE_ZH -> "save";
             case SUB_PLAYLIST_LOAD_ZH -> "load";
+            case SUB_PLAYLIST_ADD_ZH -> "add";
             case SUB_PLAYLIST_DELETE_ZH -> "delete";
             case SUB_PLAYLIST_LIST_ZH -> "list";
             case SUB_PLAYLIST_VIEW_ZH -> "view";
@@ -3788,7 +4168,10 @@ public class MusicCommandListener extends ListenerAdapter {
                 || "warnings".equals(name)
                 || "anti-duplicate".equals(name)
                 || "honeypot-channel".equals(name)
-                || "number-chain".equals(name);
+                || "number-chain".equals(name)
+                || "user-info".equals(name)
+                || "role-info".equals(name)
+                || "server-info".equals(name);
     }
 
     boolean isMusicCommandChannelAllowed(Guild guild, long channelId) {
@@ -4116,12 +4499,19 @@ public class MusicCommandListener extends ListenerAdapter {
         String value = switch (key) {
             case "volume_usage" -> zhCn ? "\u8BF7\u4F7F\u7528 `!volume <0-200>`\u3002" : (zh ? "\u8ACB\u4F7F\u7528 `!volume <0-200>`\u3002" : "Use `!volume <0-200>`.");
             case "volume_set" -> zhCn ? "\u97F3\u91CF\u5DF2\u8BBE\u7F6E\u4E3A `{value}%`\u3002" : (zh ? "\u97F3\u91CF\u5DF2\u8A2D\u5B9A\u70BA `{value}%`\u3002" : "Volume set to `{value}%`.");
-            case "playlist_usage" -> zhCn ? "\u8BF7\u4F7F\u7528 `!playlist <save|load|delete|list|view|export> [name]`\u3001`!playlist list <mine|all>` \u6216 `!playlist import <code> [name]`\u3002" : (zh ? "\u8ACB\u4F7F\u7528 `!playlist <save|load|delete|list|view|export> [name]`\u3001`!playlist list <mine|all>` \u6216 `!playlist import <code> [name]`\u3002" : "Use `!playlist <save|load|delete|list|view|export> [name]`, `!playlist list <mine|all>`, or `!playlist import <code> [name]`.");
+            case "playlist_usage" -> zhCn ? "\u8BF7\u4F7F\u7528 `!playlist <save|load|add|delete|list|view|export> [name]`\u3001`!playlist list <mine|all>` \u6216 `!playlist import <code> [name]`\u3002" : (zh ? "\u8ACB\u4F7F\u7528 `!playlist <save|load|add|delete|list|view|export> [name]`\u3001`!playlist list <mine|all>` \u6216 `!playlist import <code> [name]`\u3002" : "Use `!playlist <save|load|add|delete|list|view|export> [name]`, `!playlist list <mine|all>`, or `!playlist import <code> [name]`.");
             case "playlist_name_required" -> zhCn ? "\u8BF7\u63D0\u4F9B\u6B4C\u5355\u540D\u79F0\u3002" : (zh ? "\u8ACB\u63D0\u4F9B\u6B4C\u55AE\u540D\u7A31\u3002" : "Please provide a playlist name.");
             case "playlist_save_empty" -> zhCn ? "\u76EE\u524D\u6CA1\u6709\u53EF\u4FDD\u5B58\u7684\u6B4C\u66F2\u6216\u961F\u5217\u3002" : (zh ? "\u76EE\u524D\u6C92\u6709\u53EF\u5132\u5B58\u7684\u6B4C\u66F2\u6216\u4F47\u5217\u3002" : "There is no current track or queue to save.");
             case "playlist_save_success" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u4FDD\u5B58\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u5132\u5B58\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : "Playlist `{name}` saved with `{count}` tracks.");
+            case "playlist_save_duplicate" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u5305\u542B\u76EE\u524D\u8981\u65B0\u589E\u7684\u6B4C\u66F2\uFF0C\u672A\u91CD\u590D\u65B0\u589E\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u5305\u542B\u76EE\u524D\u8981\u65B0\u589E\u7684\u6B4C\u66F2\uFF0C\u672A\u91CD\u8907\u65B0\u589E\u3002" : "Playlist `{name}` already contains the current tracks. Nothing was added.");
             case "playlist_load_missing" -> zhCn ? "\u627E\u4E0D\u5230\u6B4C\u5355 `{name}`\u3002" : (zh ? "\u627E\u4E0D\u5230\u6B4C\u55AE `{name}`\u3002" : "Playlist `{name}` was not found.");
             case "playlist_load_success" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u52A0\u5165\u961F\u5217\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u52A0\u5165\u4F47\u5217\uFF0C\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : "Playlist `{name}` queued with `{count}` tracks.");
+            case "playlist_add_no_track" -> zhCn ? "\u7121\u6CD5\u5F9E\u63D0\u4F9B\u7684 URL \u89E3\u6790\u53EF\u65B0\u589E\u7684\u6B4C\u66F2\u3002" : (zh ? "\u7121\u6CD5\u5F9E\u63D0\u4F9B\u7684 URL \u89E3\u6790\u53EF\u65B0\u589E\u7684\u6B4C\u66F2\u3002" : "No addable track could be resolved from the provided URL.");
+            case "playlist_add_success" -> zhCn ? "\u5DF2\u5C07 `{title}` \u65B0\u589E\u5230\u6B4C\u5355 `{name}`\uFF0C\u76EE\u524D\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : (zh ? "\u5DF2\u5C07 `{title}` \u65B0\u589E\u5230\u6B4C\u55AE `{name}`\uFF0C\u76EE\u524D\u5171 `{count}` \u9996\u6B4C\u66F2\u3002" : "Added `{title}` to playlist `{name}`. It now has `{count}` tracks.");
+            case "playlist_add_duplicate" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u6709 `{title}`\uFF0C\u672A\u91CD\u590D\u65B0\u589E\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u6709 `{title}`\uFF0C\u672A\u91CD\u8907\u65B0\u589E\u3002" : "Playlist `{name}` already contains `{title}`. Nothing was added.");
+            case "playlist_add_not_owner" -> zhCn ? "\u6B4C\u5355 `{name}` \u7531 `{owner}` \u5EFA\u7ACB\uff0c\u53EA\u6709\u5EFA\u7ACB\u8005\u53EF\u4EE5\u65B0\u589E\u6B4C\u66F2\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u7531 `{owner}` \u5EFA\u7ACB\uff0c\u53EA\u6709\u5EFA\u7ACB\u8005\u53EF\u4EE5\u65B0\u589E\u6B4C\u66F2\u3002" : "Playlist `{name}` was created by `{owner}`. Only the creator can add tracks.");
+            case "playlist_add_limit" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u9054\u4E0A\u9650 `{count}` \u9996\u6B4C\u66F2\uff0c\u7121\u6CD5\u7E7C\u7E8C\u65B0\u589E\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u9054\u4E0A\u9650 `{count}` \u9996\u6B4C\u66F2\uff0c\u7121\u6CD5\u7E7C\u7E8C\u65B0\u589E\u3002" : "Playlist `{name}` already reached the limit of `{count}` tracks.");
+            case "playlist_add_failed" -> zhCn ? "\u89E3\u6790 URL \u5931\u8D25\uFF1A{reason}" : (zh ? "\u89E3\u6790 URL \u5931\u6557\uFF1A{reason}" : "Failed to resolve URL: {reason}");
             case "playlist_delete_missing" -> zhCn ? "\u627E\u4E0D\u5230\u6B4C\u5355 `{name}`\u3002" : (zh ? "\u627E\u4E0D\u5230\u6B4C\u55AE `{name}`\u3002" : "Playlist `{name}` was not found.");
             case "playlist_delete_success" -> zhCn ? "\u6B4C\u5355 `{name}` \u5DF2\u5220\u9664\u3002" : (zh ? "\u6B4C\u55AE `{name}` \u5DF2\u522A\u9664\u3002" : "Playlist `{name}` deleted.");
             case "playlist_export_missing" -> zhCn ? "\u627E\u4E0D\u5230\u53EF\u532F\u51FA\u7684\u6B4C\u5355 `{name}`\u3002" : (zh ? "\u627E\u4E0D\u5230\u53EF\u532F\u51FA\u7684\u6B4C\u55AE `{name}`\u3002" : "Playlist `{name}` was not found for export.");
@@ -4569,6 +4959,40 @@ public class MusicCommandListener extends ListenerAdapter {
         return "Ignored Roles";
     }
 
+    String numberChainHighestLabel(String lang) {
+        if ("zh-CN".equalsIgnoreCase(lang)) {
+            return "\u6700\u9ad8\u7eaa\u5f55";
+        }
+        if (lang != null && lang.toLowerCase().startsWith("zh")) {
+            return "\u6700\u9ad8\u7d00\u9304";
+        }
+        return "Highest Record";
+    }
+
+    String numberChainTopContributorsLabel(String lang) {
+        if ("zh-CN".equalsIgnoreCase(lang)) {
+            return "\u63a5\u9f99\u6210\u5458 Top 5";
+        }
+        if (lang != null && lang.toLowerCase().startsWith("zh")) {
+            return "\u63a5\u9f8d\u6210\u54e1 Top 5";
+        }
+        return "Top 5 Contributors";
+    }
+
+    String formatNumberChainTopContributors(Guild guild, String lang) {
+        List<ModerationService.NumberChainContributor> contributors =
+                moderationService.getTopNumberChainContributors(guild.getIdLong(), 5);
+        if (contributors.isEmpty()) {
+            return i18n.t(lang, "settings.info_channels_none");
+        }
+        List<String> lines = new ArrayList<>();
+        for (int i = 0; i < contributors.size(); i++) {
+            ModerationService.NumberChainContributor contributor = contributors.get(i);
+            lines.add((i + 1) + ". <@" + contributor.getUserId() + "> - " + contributor.getCount());
+        }
+        return String.join("\n", lines);
+    }
+
     @FunctionalInterface
     interface TextSink {
         void send(String text);
@@ -4588,12 +5012,14 @@ public class MusicCommandListener extends ListenerAdapter {
         private final long requestUserId;
         private final Long channelId;
         private final Long targetUserId;
-        private final int amount;
+        private final Duration lookback;
+        private final Integer amount;
 
-        private DeleteRequest(long requestUserId, Long channelId, Long targetUserId, int amount) {
+        private DeleteRequest(long requestUserId, Long channelId, Long targetUserId, Duration lookback, Integer amount) {
             this.requestUserId = requestUserId;
             this.channelId = channelId;
             this.targetUserId = targetUserId;
+            this.lookback = lookback;
             this.amount = amount;
         }
     }

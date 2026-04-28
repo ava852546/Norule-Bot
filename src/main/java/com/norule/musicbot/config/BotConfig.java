@@ -34,8 +34,9 @@ public class BotConfig {
     private final DataPaths dataPaths;
     private final String defaultLanguage;
     private final int commandCooldownSeconds;
+    private final int numberChainReactionDelayMillis;
     private final BotProfile botProfile;
-    private final Map<String, String> commandDescriptions;
+    private final Developers developers;
     private final Notifications notifications;
     private final Welcome welcome;
     private final MessageLogs messageLogs;
@@ -52,8 +53,9 @@ public class BotConfig {
                       DataPaths dataPaths,
                       String defaultLanguage,
                       int commandCooldownSeconds,
+                      int numberChainReactionDelayMillis,
                       BotProfile botProfile,
-                      Map<String, String> commandDescriptions,
+                      Developers developers,
                       Notifications notifications,
                       Welcome welcome,
                       MessageLogs messageLogs,
@@ -69,8 +71,9 @@ public class BotConfig {
         this.dataPaths = dataPaths;
         this.defaultLanguage = defaultLanguage;
         this.commandCooldownSeconds = Math.max(0, commandCooldownSeconds);
+        this.numberChainReactionDelayMillis = Math.max(0, numberChainReactionDelayMillis);
         this.botProfile = botProfile;
-        this.commandDescriptions = commandDescriptions;
+        this.developers = developers;
         this.notifications = notifications;
         this.welcome = welcome;
         this.messageLogs = messageLogs;
@@ -105,8 +108,9 @@ public class BotConfig {
             String languageDir = dataPaths.getLanguageDir();
             String defaultLanguage = getString(root, "defaultLanguage", "en");
             int commandCooldownSeconds = Math.max(0, getInt(root, "commandCooldownSeconds", 3));
+            int numberChainReactionDelayMillis = Math.max(0, getInt(root, "numberChainReactionDelayMillis", 500));
             BotProfile botProfile = BotProfile.fromMap(asMap(root.get("bot")), null);
-            Map<String, String> commandDescriptions = resolveCommandDescriptions(asMap(root.get("commandDescriptions")));
+            Developers developers = Developers.fromMap(asMap(root.get("developers")), null);
             Notifications notifications = Notifications.fromMap(asMap(root.get("notifications")), null);
             Welcome welcome = Welcome.fromMap(asMap(root.get("welcome")), null);
             MessageLogs messageLogs = MessageLogs.fromMap(asMap(root.get("messageLogs")), null);
@@ -115,8 +119,7 @@ public class BotConfig {
             Ticket ticket = Ticket.fromMap(asMap(root.get("ticket")), null);
             Web web = Web.fromMap(asMap(root.get("web")), null);
 
-            return new BotConfig(token, prefix, commandGuildId, guildSettingsDir, languageDir, dataPaths, defaultLanguage, commandCooldownSeconds, botProfile,
-                    commandDescriptions,
+            return new BotConfig(token, prefix, commandGuildId, guildSettingsDir, languageDir, dataPaths, defaultLanguage, commandCooldownSeconds, numberChainReactionDelayMillis, botProfile, developers,
                     notifications, welcome, messageLogs, music, privateRoom, ticket, web);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read config.yml: " + path.toAbsolutePath(), e);
@@ -158,11 +161,30 @@ public class BotConfig {
             ensureWebCertificateDirectory(baseDir, currentConfig, defaultConfig);
 
             Map<String, Object> merged = deepMerge(defaultConfig, currentConfig);
+            pruneGuildScopedRootSettings(merged);
             if (!merged.equals(currentConfig)) {
                 backupConfig(configPath);
                 writeYaml(configPath, merged);
             }
         } catch (Exception ignored) {
+        }
+    }
+
+    private static void pruneGuildScopedRootSettings(Map<String, Object> config) {
+        if (config == null || config.isEmpty()) {
+            return;
+        }
+        for (String key : List.of("notifications", "welcome", "messageLogs", "privateRoom", "ticket")) {
+            config.remove(key);
+        }
+        Map<String, Object> music = asMap(config.get("music"));
+        if (!music.isEmpty()) {
+            Map<String, Object> youtube = asMap(music.get("youtube"));
+            Map<String, Object> globalMusic = new LinkedHashMap<>();
+            if (!youtube.isEmpty()) {
+                globalMusic.put("youtube", youtube);
+            }
+            config.put("music", globalMusic);
         }
     }
 
@@ -475,8 +497,16 @@ public class BotConfig {
         return commandCooldownSeconds;
     }
 
+    public int getNumberChainReactionDelayMillis() {
+        return numberChainReactionDelayMillis;
+    }
+
     public BotProfile getBotProfile() {
         return botProfile;
+    }
+
+    public Developers getDevelopers() {
+        return developers;
     }
 
     public static class DataPaths {
@@ -591,14 +621,6 @@ public class BotConfig {
         public String getLogDir() {
             return logDir;
         }
-    }
-
-    public String getCommandDescription(String key, String fallback) {
-        String value = commandDescriptions.get(key);
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        return value;
     }
 
     public Notifications getNotifications() {
@@ -1257,6 +1279,8 @@ public class BotConfig {
         private final Long commandChannelId;
         private final int historyLimit;
         private final int statsRetentionDays;
+        private final int playlistTrackLimit;
+        private final Youtube youtube;
 
         private Music(boolean autoLeaveEnabled,
                       int autoLeaveMinutes,
@@ -1264,7 +1288,9 @@ public class BotConfig {
                       RepeatMode defaultRepeatMode,
                       Long commandChannelId,
                       int historyLimit,
-                      int statsRetentionDays) {
+                      int statsRetentionDays,
+                      int playlistTrackLimit,
+                      Youtube youtube) {
             this.autoLeaveEnabled = autoLeaveEnabled;
             this.autoLeaveMinutes = autoLeaveMinutes;
             this.autoplayEnabled = autoplayEnabled;
@@ -1272,6 +1298,8 @@ public class BotConfig {
             this.commandChannelId = commandChannelId;
             this.historyLimit = Math.max(1, historyLimit);
             this.statsRetentionDays = Math.max(0, statsRetentionDays);
+            this.playlistTrackLimit = Math.max(1, playlistTrackLimit);
+            this.youtube = youtube == null ? Youtube.defaultValues() : youtube;
         }
 
         public static Music fromMap(Map<String, Object> map, Music fallback) {
@@ -1283,40 +1311,46 @@ public class BotConfig {
                     parseRepeatMode(getString(map, "defaultRepeatMode", defaults.getDefaultRepeatMode().name())),
                     getLong(map, "commandChannelId", defaults.getCommandChannelId()),
                     getInt(map, "historyLimit", defaults.getHistoryLimit()),
-                    getInt(map, "statsRetentionDays", defaults.getStatsRetentionDays())
+                    getInt(map, "statsRetentionDays", defaults.getStatsRetentionDays()),
+                    getInt(map, "playlistTrackLimit", defaults.getPlaylistTrackLimit()),
+                    Youtube.fromMap(asMap(map.get("youtube")), defaults.getYoutube())
             );
         }
 
         public static Music defaultValues() {
-            return new Music(true, 5, true, RepeatMode.OFF, null, 50, 0);
+            return new Music(true, 5, true, RepeatMode.OFF, null, 50, 0, 100, Youtube.defaultValues());
         }
 
         public Music withAutoLeaveEnabled(boolean enabled) {
-            return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays);
+            return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
         }
 
         public Music withAutoLeaveMinutes(int minutes) {
-            return new Music(autoLeaveEnabled, Math.max(1, minutes), autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays);
+            return new Music(autoLeaveEnabled, Math.max(1, minutes), autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
         }
 
         public Music withAutoplayEnabled(boolean enabled) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, enabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, enabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
         }
 
         public Music withDefaultRepeatMode(RepeatMode mode) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, mode, commandChannelId, historyLimit, statsRetentionDays);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, mode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
         }
 
         public Music withCommandChannelId(Long commandChannelId) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
         }
 
         public Music withHistoryLimit(int historyLimit) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
         }
 
         public Music withStatsRetentionDays(int statsRetentionDays) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
+        }
+
+        public Music withPlaylistTrackLimit(int playlistTrackLimit) {
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
         }
 
         public boolean isAutoLeaveEnabled() {
@@ -1347,11 +1381,74 @@ public class BotConfig {
             return statsRetentionDays;
         }
 
+        public int getPlaylistTrackLimit() {
+            return playlistTrackLimit;
+        }
+
+        public Youtube getYoutube() {
+            return youtube;
+        }
+
         private static RepeatMode parseRepeatMode(String value) {
             try {
                 return RepeatMode.valueOf(value.trim().toUpperCase());
             } catch (Exception ignored) {
                 return RepeatMode.OFF;
+            }
+        }
+
+        public static class Youtube {
+            private final boolean oauthEnabled;
+            private final String oauthRefreshToken;
+            private final String cipherServer;
+            private final String cipherPassword;
+            private final String cipherUserAgent;
+
+            private Youtube(boolean oauthEnabled,
+                            String oauthRefreshToken,
+                            String cipherServer,
+                            String cipherPassword,
+                            String cipherUserAgent) {
+                this.oauthEnabled = oauthEnabled;
+                this.oauthRefreshToken = nullToEmpty(oauthRefreshToken);
+                this.cipherServer = nullToEmpty(cipherServer);
+                this.cipherPassword = nullToEmpty(cipherPassword);
+                this.cipherUserAgent = nullToEmpty(cipherUserAgent);
+            }
+
+            public static Youtube fromMap(Map<String, Object> map, Youtube fallback) {
+                Youtube defaults = fallback == null ? defaultValues() : fallback;
+                return new Youtube(
+                        getBoolean(map, "oauthEnabled", defaults.isOauthEnabled()),
+                        getString(map, "oauthRefreshToken", defaults.getOauthRefreshToken()),
+                        getString(map, "cipherServer", defaults.getCipherServer()),
+                        getString(map, "cipherPassword", defaults.getCipherPassword()),
+                        getString(map, "cipherUserAgent", defaults.getCipherUserAgent())
+                );
+            }
+
+            public static Youtube defaultValues() {
+                return new Youtube(false, "", "", "", "");
+            }
+
+            public boolean isOauthEnabled() {
+                return oauthEnabled;
+            }
+
+            public String getOauthRefreshToken() {
+                return oauthRefreshToken;
+            }
+
+            public String getCipherServer() {
+                return cipherServer;
+            }
+
+            public String getCipherPassword() {
+                return cipherPassword;
+            }
+
+            public String getCipherUserAgent() {
+                return cipherUserAgent;
             }
         }
     }
@@ -1466,6 +1563,31 @@ public class BotConfig {
 
         public List<String> getActivities() {
             return activities;
+        }
+    }
+
+    public static class Developers {
+        private final List<Long> ids;
+
+        private Developers(List<Long> ids) {
+            this.ids = ids == null ? List.of() : List.copyOf(ids);
+        }
+
+        public static Developers fromMap(Map<String, Object> map, Developers fallback) {
+            Developers defaults = fallback == null ? defaultValues() : fallback;
+            return new Developers(getLongList(map, "ids", defaults.getIds()));
+        }
+
+        public static Developers defaultValues() {
+            return new Developers(List.of());
+        }
+
+        public List<Long> getIds() {
+            return ids;
+        }
+
+        public boolean isDeveloper(long userId) {
+            return ids.contains(userId);
         }
     }
 
@@ -2347,81 +2469,6 @@ public static class Web {
         return text == null ? "" : text.trim();
     }
 
-    private static Map<String, String> resolveCommandDescriptions(Map<String, Object> source) {
-        Map<String, String> resolved = new LinkedHashMap<>(defaultCommandDescriptions());
-        for (Map.Entry<String, Object> entry : source.entrySet()) {
-            String key = entry.getKey();
-            String value = String.valueOf(entry.getValue()).trim();
-            if (!key.isBlank() && !value.isBlank()) {
-                resolved.put(key, value);
-            }
-        }
-        return resolved;
-    }
-
-    private static Map<String, String> defaultCommandDescriptions() {
-        Map<String, String> map = new LinkedHashMap<>();
-        map.put("help", "Show bot help");
-        map.put("join", "Join your voice channel");
-        map.put("play", "Play music");
-        map.put("play.query", "URL / keywords / Spotify URL");
-        map.put("skip", "Skip current track");
-        map.put("stop", "Stop playback and clear queue");
-        map.put("leave", "Leave voice channel");
-        map.put("music-panel", "Create music control panel");
-        map.put("repeat", "Set repeat mode");
-        map.put("repeat.mode", "off / single / all");
-        map.put("delete", "Delete messages");
-        map.put("delete.channel", "Delete messages in selected channel");
-        map.put("delete.channel.channel", "Text channel");
-        map.put("delete.channel.amount", "1-99");
-        map.put("delete.user", "Delete messages by selected user");
-        map.put("delete.user.user", "Target user");
-        map.put("delete.user.amount", "1-99");
-        map.put("delete-en", "Delete messages");
-        map.put("settings", "Guild settings");
-        map.put("settings.info", "Show current guild settings");
-        map.put("settings.reload", "Reload guild settings");
-        map.put("settings.reset", "Reset guild settings by section");
-        map.put("settings.template", "Open template edit menu");
-        map.put("settings.module", "Open module toggle menu");
-        map.put("settings.logs", "Open logs channel menu");
-        map.put("settings.music", "Open music settings menu");
-        map.put("settings.language", "Set language");
-        map.put("settings.language.code", "en or zh-TW");
-        map.put("private-room-settings", "Manage your private room");
-        map.put("warnings", "Manage warning counts");
-        map.put("warnings.add", "Add warnings to user");
-        map.put("warnings.remove", "Remove warnings from user");
-        map.put("warnings.view", "View user warnings");
-        map.put("warnings.clear", "Clear user warnings");
-        map.put("warnings.user", "Target user");
-        map.put("warnings.amount", "Warning amount");
-        map.put("anti_duplicate", "Duplicate message detection settings");
-        map.put("anti_duplicate.enable", "Enable or disable duplicate detection");
-        map.put("anti_duplicate.status", "Show duplicate detection status");
-        map.put("anti_duplicate.value", "true or false");
-        map.put("number_chain", "Number chain settings");
-        map.put("number_chain.set_channel", "Set number chain channel");
-        map.put("number_chain.channel", "Text channel");
-        map.put("number_chain.enable", "Enable or disable number chain");
-        map.put("number_chain.value", "true or false");
-        map.put("number_chain.status", "Show number chain status");
-        map.put("number_chain.reset", "Reset number chain progress");
-        map.put("ticket", "Ticket system");
-        map.put("ticket.panel", "Send ticket panel");
-        map.put("ticket.panel.channel", "Target text channel");
-        map.put("ticket.close", "Close current ticket channel");
-        map.put("ticket.close.reason", "Close reason");
-        map.put("ticket.limit", "Set max open tickets per user");
-        map.put("ticket.limit.value", "1-20");
-        map.put("ticket.blacklist_add", "Add user to ticket blacklist");
-        map.put("ticket.blacklist_add.user", "Target user");
-        map.put("ticket.blacklist_remove", "Remove user from ticket blacklist");
-        map.put("ticket.blacklist_remove.user", "Target user");
-        map.put("ticket.blacklist_list", "Show ticket blacklist users");
-        return map;
-    }
 }
 
 

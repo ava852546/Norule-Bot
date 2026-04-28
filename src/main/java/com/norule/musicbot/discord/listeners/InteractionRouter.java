@@ -67,6 +67,9 @@ final class InteractionRouter {
             case "warnings" -> owner.handleWarningsSlash(event, lang);
             case "anti-duplicate" -> owner.handleAntiDuplicateSlash(event, lang);
             case "honeypot-channel" -> owner.honeypotCommandHandler().handleCreateSlash(event, lang);
+            case "user-info" -> owner.infoCommandHandler().handleUserInfo(event, lang);
+            case "role-info" -> owner.infoCommandHandler().handleRoleInfo(event, lang);
+            case "server-info" -> owner.infoCommandHandler().handleServerInfo(event, lang);
             case "ticket" -> {
                 // handled by TicketListener
             }
@@ -130,11 +133,15 @@ final class InteractionRouter {
     }
 
     void onButtonInteraction(ButtonInteractionEvent event) {
+        String id = event.getComponentId();
+        if (id.startsWith(MusicCommandListener.DEV_GUILDS_BUTTON_PREFIX)) {
+            owner.handleDeveloperGuildsButton(event);
+            return;
+        }
         if (event.getGuild() == null) {
             return;
         }
         String lang = owner.lang(event.getGuild().getIdLong());
-        String id = event.getComponentId();
 
         if (id.startsWith(MusicCommandListener.DELETE_CONFIRM_PREFIX) || id.startsWith(MusicCommandListener.DELETE_CANCEL_PREFIX)) {
             owner.handleDeleteButtons(event, lang);

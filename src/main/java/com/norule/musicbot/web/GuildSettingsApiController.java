@@ -432,10 +432,18 @@ final class GuildSettingsApiController {
     }
 
     private DataObject buildNumberChainPayload(Guild guild) {
+        DataArray topContributors = DataArray.empty();
+        for (ModerationService.NumberChainContributor contributor : owner.moderationService().getTopNumberChainContributors(guild.getIdLong(), 5)) {
+            topContributors.add(DataObject.empty()
+                    .put("userId", String.valueOf(contributor.getUserId()))
+                    .put("count", contributor.getCount()));
+        }
         return DataObject.empty()
                 .put("enabled", owner.moderationService().isNumberChainEnabled(guild.getIdLong()))
                 .put("channelId", owner.toIdText(owner.moderationService().getNumberChainChannelId(guild.getIdLong())))
-                .put("nextNumber", owner.moderationService().getNumberChainNext(guild.getIdLong()));
+                .put("nextNumber", owner.moderationService().getNumberChainNext(guild.getIdLong()))
+                .put("highestNumber", owner.moderationService().getNumberChainHighestNumber(guild.getIdLong()))
+                .put("topContributors", topContributors);
     }
 
     private DataObject buildTicketPayload(GuildSettingsService.GuildSettings settings) {

@@ -109,12 +109,12 @@ public class GuildSettingsService {
         this.settingsDir = settingsDir;
         this.defaults = new GuildSettings(
                 defaultsConfig.getDefaultLanguage(),
-                defaultsConfig.getNotifications(),
-                defaultsConfig.getWelcome(),
-                defaultsConfig.getMessageLogs(),
-                defaultsConfig.getMusic(),
-                defaultsConfig.getPrivateRoom(),
-                defaultsConfig.getTicket()
+                BotConfig.Notifications.defaultValues(),
+                BotConfig.Welcome.defaultValues(),
+                BotConfig.MessageLogs.defaultValues(),
+                BotConfig.Music.defaultValues(),
+                BotConfig.PrivateRoom.defaultValues(),
+                BotConfig.Ticket.defaultValues()
         );
 
         try {
@@ -177,12 +177,12 @@ public class GuildSettingsService {
         if (defaultsConfig != null) {
             this.defaults = new GuildSettings(
                     defaultsConfig.getDefaultLanguage(),
-                    defaultsConfig.getNotifications(),
-                    defaultsConfig.getWelcome(),
-                    defaultsConfig.getMessageLogs(),
-                    defaultsConfig.getMusic(),
-                    defaultsConfig.getPrivateRoom(),
-                    defaultsConfig.getTicket()
+                    BotConfig.Notifications.defaultValues(),
+                    BotConfig.Welcome.defaultValues(),
+                    BotConfig.MessageLogs.defaultValues(),
+                    BotConfig.Music.defaultValues(),
+                    BotConfig.PrivateRoom.defaultValues(),
+                    BotConfig.Ticket.defaultValues()
             );
         }
         cache.clear();
@@ -288,6 +288,7 @@ public class GuildSettingsService {
         musicMap.put("commandChannelId", toText(music.getCommandChannelId()));
         musicMap.put("historyLimit", music.getHistoryLimit());
         musicMap.put("statsRetentionDays", music.getStatsRetentionDays());
+        musicMap.put("playlistTrackLimit", music.getPlaylistTrackLimit());
         root.put("music", musicMap);
 
         BotConfig.PrivateRoom privateRoom = settings.getPrivateRoom();

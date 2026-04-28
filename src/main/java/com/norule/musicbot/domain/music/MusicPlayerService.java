@@ -14,6 +14,17 @@ import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
+import dev.lavalink.youtube.YoutubeSourceOptions;
+import dev.lavalink.youtube.clients.AndroidMusicWithThumbnail;
+import dev.lavalink.youtube.clients.AndroidVrWithThumbnail;
+import dev.lavalink.youtube.clients.MWebWithThumbnail;
+import dev.lavalink.youtube.clients.IosWithThumbnail;
+import dev.lavalink.youtube.clients.MusicWithThumbnail;
+import dev.lavalink.youtube.clients.Tv;
+import dev.lavalink.youtube.clients.TvHtml5SimplyWithThumbnail;
+import dev.lavalink.youtube.clients.Web;
+import dev.lavalink.youtube.clients.WebEmbeddedWithThumbnail;
+import dev.lavalink.youtube.clients.WebWithThumbnail;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.MessageChannel;
@@ -51,18 +62,153 @@ public class MusicPlayerService {
     private final Map<Long, Runnable> guildStateListeners = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastCommandChannelByGuild = new ConcurrentHashMap<>();
     private final Map<Long, String> autoplayNoticeByGuild = new ConcurrentHashMap<>();
+    private final BotConfig.Music.Youtube youtubeConfig;
     private volatile BiConsumer<Long, PlaybackFailure> playbackFailureListener;
     private volatile LongPredicate autoplayEnabledChecker = guildId -> true;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8))
             .build();
 
-    public MusicPlayerService(Path dataDir, LongFunction<BotConfig.Music> musicConfigResolver) {
+    public MusicPlayerService(Path dataDir,
+                              LongFunction<BotConfig.Music> musicConfigResolver,
+                              BotConfig.Music.Youtube youtubeConfig) {
         this.musicDataService = new MusicDataService(dataDir, musicConfigResolver);
+        this.youtubeConfig = youtubeConfig == null ? BotConfig.Music.Youtube.defaultValues() : youtubeConfig;
         playerManager = new DefaultAudioPlayerManager();
-        playerManager.registerSourceManager(new YoutubeAudioSourceManager());
+        configureYouTubePoToken();
+        YoutubeAudioSourceManager youtubeSourceManager = createYoutubeSourceManager();
+        configureYouTubeOauth(youtubeSourceManager);
+        playerManager.registerSourceManager(youtubeSourceManager);
         AudioSourceManagers.registerLocalSource(playerManager);
-        AudioSourceManagers.registerRemoteSources(playerManager);
+        AudioSourceManagers.registerRemoteSources(playerManager,
+                com.sedmelluq.discord.lavaplayer.source.youtube.YoutubeAudioSourceManager.class);
+    }
+
+    private YoutubeAudioSourceManager createYoutubeSourceManager() {
+        List<dev.lavalink.youtube.clients.skeleton.Client> clients = new ArrayList<>();
+        clients.add(new MusicWithThumbnail());
+        if (isYouTubeOauthConfigured()) {
+            clients.add(new Tv());
+        }
+        clients.add(new WebWithThumbnail());
+        clients.add(new MWebWithThumbnail());
+        clients.add(new WebEmbeddedWithThumbnail());
+        clients.add(new TvHtml5SimplyWithThumbnail());
+        clients.add(new AndroidVrWithThumbnail());
+        clients.add(new AndroidMusicWithThumbnail());
+        clients.add(new IosWithThumbnail());
+        String remoteCipherUrl = firstNonBlank(
+                System.getenv("YOUTUBE_CIPHER_SERVER"),
+                System.getenv("YOUTUBE_REMOTE_CIPHER_URL"),
+                youtubeConfig.getCipherServer()
+        );
+        dev.lavalink.youtube.clients.skeleton.Client[] clientArray =
+                clients.toArray(dev.lavalink.youtube.clients.skeleton.Client[]::new);
+        if (remoteCipherUrl == null) {
+            return new YoutubeAudioSourceManager(clientArray);
+        }
+        String remoteCipherPassword = firstNonBlank(
+                System.getenv("YOUTUBE_CIPHER_PASSWORD"),
+                System.getenv("YOUTUBE_REMOTE_CIPHER_PASSWORD"),
+                youtubeConfig.getCipherPassword()
+        );
+        String remoteCipherUserAgent = firstNonBlank(
+                System.getenv("YOUTUBE_CIPHER_USER_AGENT"),
+                System.getenv("YOUTUBE_REMOTE_CIPHER_USER_AGENT"),
+                youtubeConfig.getCipherUserAgent()
+        );
+        YoutubeSourceOptions options = new YoutubeSourceOptions()
+                .setRemoteCipher(remoteCipherUrl, remoteCipherPassword, remoteCipherUserAgent);
+        System.out.println("[NoRule] YouTube remote cipher server configured: " + remoteCipherUrl);
+        return new YoutubeAudioSourceManager(options, clientArray);
+    }
+
+    private void configureYouTubePoToken() {
+        String poToken = firstNonBlank(System.getenv("YOUTUBE_POTOKEN"), System.getenv("YOUTUBE_PO_TOKEN"));
+        String visitorData = firstNonBlank(System.getenv("YOUTUBE_VISITOR_DATA"), System.getenv("YOUTUBE_VISITORDATA"));
+        if (poToken == null || visitorData == null) {
+            return;
+        }
+        Web.setPoTokenAndVisitorData(poToken, visitorData);
+        System.out.println("[NoRule] YouTube poToken configured for WEB clients.");
+    }
+
+    private void configureYouTubeOauth(YoutubeAudioSourceManager youtubeSourceManager) {
+        String refreshToken = getYouTubeOauthRefreshToken();
+        if (refreshToken != null) {
+            youtubeSourceManager.useOauth2(refreshToken, true);
+            System.out.println("[NoRule] YouTube OAuth refresh token configured.");
+            return;
+        }
+        if (isYouTubeOauthInitializationEnabled()) {
+            youtubeSourceManager.useOauth2(null, false);
+            System.out.println("[NoRule] YouTube OAuth initialization enabled. Follow the youtube-source login prompt and persist the refresh token.");
+            watchYouTubeOauthRefreshToken(youtubeSourceManager);
+        }
+    }
+
+    private boolean isYouTubeOauthConfigured() {
+        return getYouTubeOauthRefreshToken() != null || isYouTubeOauthInitializationEnabled();
+    }
+
+    private String getYouTubeOauthRefreshToken() {
+        return firstNonBlank(
+                System.getenv("YOUTUBE_OAUTH_REFRESH_TOKEN"),
+                System.getenv("YOUTUBE_REFRESH_TOKEN"),
+                youtubeConfig.getOauthRefreshToken()
+        );
+    }
+
+    private boolean isYouTubeOauthInitializationEnabled() {
+        String envValue = firstNonBlank(System.getenv("YOUTUBE_OAUTH"));
+        if (envValue != null) {
+            return isTruthy(envValue);
+        }
+        return youtubeConfig.isOauthEnabled();
+    }
+
+    private void watchYouTubeOauthRefreshToken(YoutubeAudioSourceManager youtubeSourceManager) {
+        Thread watcher = new Thread(() -> {
+            String lastPrinted = "";
+            long deadline = System.currentTimeMillis() + Duration.ofMinutes(10).toMillis();
+            while (System.currentTimeMillis() < deadline) {
+                String token = youtubeSourceManager.getOauth2RefreshToken();
+                if (token != null && !token.isBlank() && !token.equals(lastPrinted)) {
+                    System.out.println("[NoRule] Set YOUTUBE_OAUTH_REFRESH_TOKEN=" + token + " for future starts.");
+                    lastPrinted = token;
+                    return;
+                }
+                try {
+                    Thread.sleep(3000L);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            System.out.println("[NoRule] YouTube OAuth refresh token was not received within 10 minutes.");
+        }, "youtube-oauth-token-watcher");
+        watcher.setDaemon(true);
+        watcher.start();
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return null;
+    }
+
+    private boolean isTruthy(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = value.trim().toLowerCase();
+        return normalized.equals("true") || normalized.equals("1") || normalized.equals("yes") || normalized.equals("on");
     }
 
     public void reloadData() {
@@ -337,6 +483,14 @@ public class MusicPlayerService {
         return getGuildMusicManager(guild).getPlayer().isPaused();
     }
 
+    public int getActivePlaybackGuildCount() {
+        return (int) musicManagers.values().stream()
+                .filter(manager -> manager != null
+                        && manager.getPlayer().getPlayingTrack() != null
+                        && !manager.getPlayer().isPaused())
+                .count();
+    }
+
     public List<AudioTrack> getQueueSnapshot(Guild guild) {
         return getGuildMusicManager(guild).getScheduler().snapshotQueue();
     }
@@ -413,6 +567,87 @@ public class MusicPlayerService {
 
     public MusicDataService.PlaylistDeleteResult deletePlaylist(long guildId, String playlistName, Long requesterId, boolean allowManageOverride) {
         return musicDataService.deletePlaylist(guildId, playlistName, requesterId, allowManageOverride);
+    }
+
+    public MusicDataService.PlaylistTrackAddResult addCurrentTrackToPlaylist(Guild guild, String playlistName, Long requesterId) {
+        return musicDataService.addPlaylistTrack(guild.getIdLong(), playlistName, snapshotTrack(getCurrentTrack(guild)), requesterId);
+    }
+
+    public void addTrackToPlaylistByInput(Guild guild,
+                                          String playlistName,
+                                          String input,
+                                          Long requesterId,
+                                          String requesterName,
+                                          Consumer<MusicDataService.PlaylistTrackAddResult> onSuccess,
+                                          Consumer<String> onError) {
+        String trimmed = input == null ? "" : input.trim();
+        if (trimmed.isBlank()) {
+            onSuccess.accept(new MusicDataService.PlaylistTrackAddResult(
+                    MusicDataService.PlaylistMutationStatus.EMPTY,
+                    playlistName,
+                    "",
+                    0,
+                    null,
+                    ""
+            ));
+            return;
+        }
+        ResolvedInput resolvedInput = resolveInput(trimmed);
+        String identifier = resolvedInput.isUrl ? resolvedInput.identifier : YT_SEARCH_PREFIX + resolvedInput.identifier;
+        playerManager.loadItem(identifier, new AudioLoadResultHandler() {
+            @Override
+            public void trackLoaded(AudioTrack track) {
+                applyTrackMetadata(track, resolvedInput.sourceLabel, requesterId, requesterName);
+                onSuccess.accept(musicDataService.addPlaylistTrack(
+                        guild.getIdLong(),
+                        playlistName,
+                        snapshotTrack(track),
+                        requesterId
+                ));
+            }
+
+            @Override
+            public void playlistLoaded(AudioPlaylist playlist) {
+                AudioTrack track = playlist == null ? null
+                        : (playlist.getSelectedTrack() != null ? playlist.getSelectedTrack()
+                        : (playlist.getTracks().isEmpty() ? null : playlist.getTracks().get(0)));
+                if (track == null) {
+                    onSuccess.accept(new MusicDataService.PlaylistTrackAddResult(
+                            MusicDataService.PlaylistMutationStatus.EMPTY,
+                            playlistName,
+                            "",
+                            0,
+                            null,
+                            ""
+                    ));
+                    return;
+                }
+                applyTrackMetadata(track, resolvedInput.sourceLabel, requesterId, requesterName);
+                onSuccess.accept(musicDataService.addPlaylistTrack(
+                        guild.getIdLong(),
+                        playlistName,
+                        snapshotTrack(track),
+                        requesterId
+                ));
+            }
+
+            @Override
+            public void noMatches() {
+                onSuccess.accept(new MusicDataService.PlaylistTrackAddResult(
+                        MusicDataService.PlaylistMutationStatus.EMPTY,
+                        playlistName,
+                        "",
+                        0,
+                        null,
+                        ""
+                ));
+            }
+
+            @Override
+            public void loadFailed(FriendlyException exception) {
+                onError.accept(exception == null || exception.getMessage() == null ? "-" : exception.getMessage().trim());
+            }
+        });
     }
 
     public MusicDataService.PlaylistTrackRemoveResult removePlaylistTrack(long guildId, String playlistName, int index, Long requesterId) {
@@ -642,14 +877,6 @@ public class MusicPlayerService {
                 && leftAuthor.equalsIgnoreCase(rightAuthor);
     }
 
-    private boolean isLikelySameOrRecentTrack(long guildId, AudioTrack seedTrack, AudioTrack candidateTrack) {
-        if (isLikelySameTrack(seedTrack, candidateTrack)) {
-            return true;
-        }
-        MusicDataService.PlaybackEntry snapshot = snapshotTrack(candidateTrack);
-        return musicDataService.wasRecentlyPlayed(guildId, snapshot, 10);
-    }
-
     private boolean wasRecentlyPlayed(long guildId, AudioTrack candidateTrack) {
         MusicDataService.PlaybackEntry snapshot = snapshotTrack(candidateTrack);
         return musicDataService.wasRecentlyPlayed(guildId, snapshot, 10);
@@ -701,17 +928,6 @@ public class MusicPlayerService {
             score += 4;
         }
         return score;
-    }
-
-    private String buildRelatedPlaylistIdentifier(AudioTrack seedTrack) {
-        if (seedTrack == null || seedTrack.getInfo() == null || seedTrack.getInfo().uri == null) {
-            return null;
-        }
-        String videoId = extractYouTubeVideoId(seedTrack.getInfo().uri);
-        if (videoId == null || videoId.isBlank()) {
-            return null;
-        }
-        return "https://www.youtube.com/watch?v=" + videoId + "&list=RD" + videoId;
     }
 
     private String extractYouTubeVideoId(String uriText) {
@@ -838,6 +1054,9 @@ public class MusicPlayerService {
         }
         String uri = entry.uri() == null ? "" : entry.uri().trim();
         if (!uri.isBlank()) {
+            if (looksLikeYouTubeUrl(uri)) {
+                return normalizeYouTubePlaybackUrl(uri);
+            }
             return uri;
         }
         String query = (stripNoise(entry.author()) + " " + stripNoise(entry.title())).trim();
@@ -905,15 +1124,7 @@ public class MusicPlayerService {
             if (videoId == null || videoId.isBlank()) {
                 return url;
             }
-            URI uri = URI.create(url.trim());
-            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
-            if (host.contains("youtube.com")) {
-                String query = uri.getRawQuery();
-                if (query != null && query.contains("list=RD")) {
-                    return "https://www.youtube.com/watch?v=" + videoId;
-                }
-            }
-            return url;
+            return "https://www.youtube.com/watch?v=" + videoId;
         } catch (Exception ignored) {
             return url;
         }

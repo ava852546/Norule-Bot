@@ -48,14 +48,14 @@ final class MusicPanelController {
         if (active == null) {
             return;
         }
-        TextChannel target = preferredChannel != null
-                ? preferredChannel
-                : guild.getTextChannelById(active.channelId);
-        if (target == null || !target.canTalk()) {
+        TextChannel activeChannel = guild.getTextChannelById(active.channelId);
+        if (activeChannel == null || !activeChannel.canTalk()) {
             return;
         }
-        owner.musicService().rememberCommandChannel(guild.getIdLong(), target.getIdLong());
-        recreatePanelForChannel(guild, target, owner.lang(guild.getIdLong()));
+        if (preferredChannel != null) {
+            owner.musicService().rememberCommandChannel(guild.getIdLong(), preferredChannel.getIdLong());
+        }
+        owner.refreshPanel(guild.getIdLong());
     }
 
     void handlePanelSlashCommand(SlashCommandInteractionEvent event, String lang) {
@@ -90,7 +90,8 @@ final class MusicPanelController {
 
         MusicCommandListener.PanelRef active = owner.panelRefs().get(guild.getIdLong());
         if (active == null || active.channelId != channel.getIdLong() || active.messageId != event.getMessageIdLong()) {
-            event.reply(owner.i18nService().t(lang, "music.panel_stale")).setEphemeral(true).queue();
+            event.reply(owner.i18nService().t(lang, "music.panel_stale")).setEphemeral(true)
+                    .queue(success -> recreatePanelForChannel(guild, channel, lang), error -> recreatePanelForChannel(guild, channel, lang));
             return true;
         }
         if (!owner.canControlPanel(guild, event.getMember())) {
@@ -134,18 +135,8 @@ final class MusicPanelController {
                         }, error -> {
                         });
             }
-            case MusicCommandListener.PANEL_REPEAT_SINGLE -> {
-                owner.setRepeat(guild, "SINGLE");
-                event.deferEdit().queue();
-                owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), false);
-            }
-            case MusicCommandListener.PANEL_REPEAT_ALL -> {
-                owner.setRepeat(guild, "ALL");
-                event.deferEdit().queue();
-                owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), false);
-            }
-            case MusicCommandListener.PANEL_REPEAT_OFF -> {
-                owner.setRepeat(guild, "OFF");
+            case MusicCommandListener.PANEL_REPEAT_TOGGLE -> {
+                owner.setRepeat(guild, nextRepeatMode(owner.musicService().getRepeatMode(guild)));
                 event.deferEdit().queue();
                 owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), false);
             }
@@ -189,15 +180,23 @@ final class MusicPanelController {
                 MusicCommandListener.PANEL_SKIP,
                 MusicCommandListener.PANEL_STOP,
                 MusicCommandListener.PANEL_LEAVE,
-                MusicCommandListener.PANEL_REPEAT_SINGLE,
-                MusicCommandListener.PANEL_REPEAT_ALL,
-                MusicCommandListener.PANEL_REPEAT_OFF,
+                MusicCommandListener.PANEL_REPEAT_TOGGLE,
                 MusicCommandListener.PANEL_AUTOPLAY_TOGGLE,
                 MusicCommandListener.PANEL_VOLUME_DOWN,
                 MusicCommandListener.PANEL_VOLUME_UP,
                 MusicCommandListener.PANEL_REFRESH,
                 MusicCommandListener.PANEL_SHUFFLE
         ).contains(componentId);
+    }
+
+    private String nextRepeatMode(String currentMode) {
+        if ("OFF".equalsIgnoreCase(currentMode)) {
+            return "SINGLE";
+        }
+        if ("SINGLE".equalsIgnoreCase(currentMode)) {
+            return "ALL";
+        }
+        return "OFF";
     }
 }
 

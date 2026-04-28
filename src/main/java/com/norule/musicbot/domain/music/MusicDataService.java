@@ -80,7 +80,9 @@ public class MusicDataService {
         NAME_CONFLICT,
         NOT_OWNER,
         INVALID_CODE,
-        INVALID_INDEX
+        INVALID_INDEX,
+        DUPLICATE,
+        LIMIT_REACHED
     }
 
     public record PlaylistSaveResult(
@@ -105,6 +107,16 @@ public class MusicDataService {
             String playlistName,
             int removedIndex,
             String removedTitle,
+            int trackCount,
+            Long ownerId,
+            String ownerName
+    ) {
+    }
+
+    public record PlaylistTrackAddResult(
+            PlaylistMutationStatus status,
+            String playlistName,
+            String addedTitle,
             int trackCount,
             Long ownerId,
             String ownerName
@@ -156,7 +168,6 @@ public class MusicDataService {
         Map<String, PlaylistData> playlists = new LinkedHashMap<>();
     }
 
-    private static final int MAX_PLAYLIST_TRACKS = 100;
     private static final long PLAYLIST_SHARE_TTL_MILLIS = 180_000L;
 
     private final Path dir;
@@ -309,11 +320,48 @@ public class MusicDataService {
         GuildMusicData data = get(guildId);
         synchronized (data) {
             PlaylistData existing = data.playlists.get(normalized);
-            if (existing != null && existing.ownerId != null && !existing.ownerId.equals(requesterId)) {
+            if (existing != null) {
+                if (existing.ownerId != null && !existing.ownerId.equals(requesterId)) {
+                    return new PlaylistSaveResult(
+                            PlaylistMutationStatus.NAME_CONFLICT,
+                            existing.name,
+                            existing.tracks == null ? 0 : existing.tracks.size(),
+                            existing.ownerId,
+                            safePlaylistOwnerName(existing.ownerName)
+                    );
+                }
+                if (existing.tracks == null) {
+                    existing.tracks = new ArrayList<>();
+                }
+                int existingSize = existing.tracks.size();
+                int limit = getPlaylistTrackLimit(guildId);
+                for (PlaybackEntry track : tracks) {
+                    if (track == null || existing.tracks.size() >= limit || containsPlaylistTrack(existing.tracks, track)) {
+                        continue;
+                    }
+                    existing.tracks.add(track);
+                }
+                existing.updatedAtEpochMillis = Instant.now().toEpochMilli();
+                if (existing.ownerId == null) {
+                    existing.ownerId = requesterId;
+                }
+                if (existing.ownerName == null || existing.ownerName.isBlank()) {
+                    existing.ownerName = safePlaylistOwnerName(requesterName);
+                }
+                if (existing.tracks.size() == existingSize) {
+                    return new PlaylistSaveResult(
+                            PlaylistMutationStatus.DUPLICATE,
+                            existing.name,
+                            existing.tracks.size(),
+                            existing.ownerId,
+                            safePlaylistOwnerName(existing.ownerName)
+                    );
+                }
+                save(guildId, data);
                 return new PlaylistSaveResult(
-                        PlaylistMutationStatus.NAME_CONFLICT,
+                        PlaylistMutationStatus.SUCCESS,
                         existing.name,
-                        existing.tracks == null ? 0 : existing.tracks.size(),
+                        existing.tracks.size(),
                         existing.ownerId,
                         safePlaylistOwnerName(existing.ownerName)
                 );
@@ -324,11 +372,11 @@ public class MusicDataService {
             playlist.ownerId = requesterId;
             playlist.ownerName = safePlaylistOwnerName(requesterName);
             for (PlaybackEntry track : tracks) {
-                if (track == null) {
+                if (track == null || containsPlaylistTrack(playlist.tracks, track)) {
                     continue;
                 }
                 playlist.tracks.add(track);
-                if (playlist.tracks.size() >= MAX_PLAYLIST_TRACKS) {
+                if (playlist.tracks.size() >= getPlaylistTrackLimit(guildId)) {
                     break;
                 }
             }
@@ -431,6 +479,67 @@ public class MusicDataService {
         }
     }
 
+    public PlaylistTrackAddResult addPlaylistTrack(long guildId, String name, PlaybackEntry track, Long requesterId) {
+        String normalized = normalizePlaylistName(name);
+        if (normalized.isBlank()) {
+            return new PlaylistTrackAddResult(PlaylistMutationStatus.NOT_FOUND, safePlaylistDisplayName(name), "", 0, null, "");
+        }
+        if (track == null) {
+            return new PlaylistTrackAddResult(PlaylistMutationStatus.EMPTY, safePlaylistDisplayName(name), "", 0, null, "");
+        }
+        GuildMusicData data = get(guildId);
+        synchronized (data) {
+            PlaylistData existing = data.playlists.get(normalized);
+            if (existing == null) {
+                return new PlaylistTrackAddResult(PlaylistMutationStatus.NOT_FOUND, safePlaylistDisplayName(name), "", 0, null, "");
+            }
+            if (existing.ownerId != null && !existing.ownerId.equals(requesterId)) {
+                return new PlaylistTrackAddResult(
+                        PlaylistMutationStatus.NOT_OWNER,
+                        existing.name,
+                        "",
+                        existing.tracks == null ? 0 : existing.tracks.size(),
+                        existing.ownerId,
+                        safePlaylistOwnerName(existing.ownerName)
+                );
+            }
+            if (existing.tracks == null) {
+                existing.tracks = new ArrayList<>();
+            }
+            if (existing.tracks.size() >= getPlaylistTrackLimit(guildId)) {
+                return new PlaylistTrackAddResult(
+                        PlaylistMutationStatus.LIMIT_REACHED,
+                        existing.name,
+                        "",
+                        existing.tracks.size(),
+                        existing.ownerId,
+                        safePlaylistOwnerName(existing.ownerName)
+                );
+            }
+            if (containsPlaylistTrack(existing.tracks, track)) {
+                return new PlaylistTrackAddResult(
+                        PlaylistMutationStatus.DUPLICATE,
+                        existing.name,
+                        safePlaylistDisplayName(track.title()),
+                        existing.tracks.size(),
+                        existing.ownerId,
+                        safePlaylistOwnerName(existing.ownerName)
+                );
+            }
+            existing.tracks.add(track);
+            existing.updatedAtEpochMillis = Instant.now().toEpochMilli();
+            save(guildId, data);
+            return new PlaylistTrackAddResult(
+                    PlaylistMutationStatus.SUCCESS,
+                    existing.name,
+                    safePlaylistDisplayName(track.title()),
+                    existing.tracks.size(),
+                    existing.ownerId,
+                    safePlaylistOwnerName(existing.ownerName)
+            );
+        }
+    }
+
     public List<PlaylistSummary> listPlaylists(long guildId) {
         return listPlaylists(guildId, null);
     }
@@ -517,7 +626,7 @@ public class MusicDataService {
                     continue;
                 }
                 shared.tracks.add(track);
-                if (shared.tracks.size() >= MAX_PLAYLIST_TRACKS) {
+                if (shared.tracks.size() >= getPlaylistTrackLimit(guildId)) {
                     break;
                 }
             }
@@ -678,7 +787,7 @@ public class MusicDataService {
                                     readNullableLong(trackMap.get("requesterId")),
                                     readText(trackMap.get("requesterName"))
                             ));
-                            if (playlist.tracks.size() >= MAX_PLAYLIST_TRACKS) {
+                            if (playlist.tracks.size() >= getPlaylistTrackLimit(guildId)) {
                                 break;
                             }
                         }
@@ -827,6 +936,10 @@ public class MusicDataService {
         }
     }
 
+    private int getPlaylistTrackLimit(long guildId) {
+        return Math.max(1, getMusicConfig(guildId).getPlaylistTrackLimit());
+    }
+
     private Path file(long guildId) {
         return dir.resolve(guildId + ".yml");
     }
@@ -922,6 +1035,31 @@ public class MusicDataService {
             return "";
         }
         return name.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean containsPlaylistTrack(List<PlaybackEntry> tracks, PlaybackEntry candidate) {
+        if (tracks == null || tracks.isEmpty() || candidate == null) {
+            return false;
+        }
+        String candidateUri = normalizeTrackUri(candidate.uri());
+        String candidateKey = candidate.songKey();
+        for (PlaybackEntry existing : tracks) {
+            if (existing == null) {
+                continue;
+            }
+            String existingUri = normalizeTrackUri(existing.uri());
+            if (!candidateUri.isBlank() && !existingUri.isBlank() && candidateUri.equals(existingUri)) {
+                return true;
+            }
+            if (!candidateKey.isBlank() && candidateKey.equals(existing.songKey())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizeTrackUri(String uri) {
+        return uri == null ? "" : uri.trim().toLowerCase(Locale.ROOT);
     }
 
     private String normalizePlaylistShareCode(String code) {

@@ -50,12 +50,14 @@ final class PlaylistCommandHandler {
             return;
         }
         String playlistName = event.getOption("name") == null ? "" : event.getOption("name").getAsString().trim();
+        String playlistUrl = event.getOption("url") == null ? "" : event.getOption("url").getAsString().trim();
         String playlistCode = event.getOption("code") == null ? "" : event.getOption("code").getAsString().trim();
         String playlistScope = event.getOption("scope") == null ? SCOPE_MINE : event.getOption("scope").getAsString().trim();
         switch (sub) {
             case "list" -> replyPlaylistList(event, lang, playlistScope);
             case "save" -> handleSlashSave(event, lang, playlistName);
             case "load" -> handleSlashLoad(event, lang, playlistName);
+            case "add" -> handleSlashAdd(event, lang, playlistName, playlistUrl);
             case "delete" -> handleSlashDelete(event, lang, playlistName);
             case "remove-track" -> replyRemoveTrackConfirmation(event, lang, playlistName);
             case "export" -> handleSlashExport(event, lang, playlistName);
@@ -74,6 +76,7 @@ final class PlaylistCommandHandler {
             case "", "list" -> sendPlaylistList(event, guild, lang, actionArg);
             case "save" -> handleTextSave(event, guild, lang, playlistName);
             case "load" -> handleTextLoad(event, guild, lang, playlistName);
+            case "add" -> handleTextAdd(event, guild, lang, playlistName);
             case "delete" -> handleTextDelete(event, guild, lang, playlistName);
             case "view" -> sendPlaylistView(event, guild, lang, playlistName);
             case "export" -> handleTextExport(event, guild, lang, playlistName);
@@ -212,6 +215,9 @@ final class PlaylistCommandHandler {
                     .setEphemeral(true)
                     .queue();
             case NAME_CONFLICT -> event.reply(playlistNameConflictText(lang, saved.playlistName(), saved.ownerName())).setEphemeral(true).queue();
+            case DUPLICATE -> event.reply(owner.musicText(lang, "playlist_save_duplicate", Map.of("name", saved.playlistName())))
+                    .setEphemeral(true)
+                    .queue();
             default -> event.reply(owner.musicText(lang, "playlist_save_empty")).setEphemeral(true).queue();
         }
     }
@@ -266,6 +272,26 @@ final class PlaylistCommandHandler {
             case NOT_OWNER -> event.reply(playlistDeleteForbiddenText(lang, removed.playlistName(), removed.ownerName())).setEphemeral(true).queue();
             default -> event.reply(owner.musicText(lang, "playlist_delete_missing", Map.of("name", playlistName))).setEphemeral(true).queue();
         }
+    }
+
+    private void handleSlashAdd(SlashCommandInteractionEvent event, String lang, String playlistName, String playlistUrl) {
+        if (playlistName.isBlank()) {
+            event.reply(owner.musicText(lang, "playlist_name_required")).setEphemeral(true).queue();
+            return;
+        }
+        if (playlistUrl.isBlank()) {
+            event.reply(owner.musicText(lang, "playlist_add_no_track")).setEphemeral(true).queue();
+            return;
+        }
+        event.deferReply(true).queue(hook -> owner.musicService().addTrackToPlaylistByInput(
+                event.getGuild(),
+                playlistName,
+                playlistUrl,
+                event.getUser().getIdLong(),
+                event.getMember() == null ? event.getUser().getName() : event.getMember().getEffectiveName(),
+                added -> hook.sendMessage(formatAddResult(lang, playlistName, added)).queue(),
+                error -> hook.sendMessage(owner.musicText(lang, "playlist_add_failed", Map.of("reason", safe(error, 120)))).queue()
+        ));
     }
 
     private void handleSlashExport(SlashCommandInteractionEvent event, String lang, String playlistName) {
@@ -333,6 +359,7 @@ final class PlaylistCommandHandler {
                     "name", saved.playlistName(),
                     "owner", saved.ownerName()
             ))).queue();
+            case DUPLICATE -> event.getChannel().sendMessage(owner.musicUx(lang, "playlist_save_duplicate", Map.of("name", saved.playlistName()))).queue();
             default -> event.getChannel().sendMessage(owner.musicUx(lang, "playlist_save_empty")).queue();
         }
     }
@@ -376,6 +403,49 @@ final class PlaylistCommandHandler {
             ))).queue();
             default -> event.getChannel().sendMessage(owner.musicUx(lang, "playlist_delete_missing", Map.of("name", playlistName))).queue();
         }
+    }
+
+    private void handleTextAdd(MessageReceivedEvent event, Guild guild, String lang, String playlistName) {
+        String[] addParts = playlistName.isBlank() ? new String[0] : playlistName.split("\\s+", 2);
+        String resolvedPlaylistName = addParts.length > 0 ? addParts[0].trim() : "";
+        String playlistUrl = addParts.length > 1 ? addParts[1].trim() : "";
+        if (resolvedPlaylistName.isBlank() || playlistUrl.isBlank()) {
+            event.getChannel().sendMessage(owner.musicUx(lang, "playlist_usage")).queue();
+            return;
+        }
+        owner.musicService().addTrackToPlaylistByInput(
+                guild,
+                resolvedPlaylistName,
+                playlistUrl,
+                event.getAuthor().getIdLong(),
+                event.getMember() == null ? event.getAuthor().getName() : event.getMember().getEffectiveName(),
+                added -> event.getChannel().sendMessage(formatAddResult(lang, resolvedPlaylistName, added)).queue(),
+                error -> event.getChannel().sendMessage(owner.musicUx(lang, "playlist_add_failed", Map.of("reason", safe(error, 120)))).queue()
+        );
+    }
+
+    private String formatAddResult(String lang, String playlistName, MusicDataService.PlaylistTrackAddResult added) {
+        return switch (added.status()) {
+            case SUCCESS -> owner.musicText(lang, "playlist_add_success", Map.of(
+                    "name", added.playlistName(),
+                    "title", added.addedTitle(),
+                    "count", String.valueOf(added.trackCount())
+            ));
+            case NOT_OWNER -> owner.musicText(lang, "playlist_add_not_owner", Map.of(
+                    "name", added.playlistName(),
+                    "owner", added.ownerName()
+            ));
+            case LIMIT_REACHED -> owner.musicText(lang, "playlist_add_limit", Map.of(
+                    "name", added.playlistName(),
+                    "count", String.valueOf(added.trackCount())
+            ));
+            case DUPLICATE -> owner.musicText(lang, "playlist_add_duplicate", Map.of(
+                    "name", added.playlistName(),
+                    "title", added.addedTitle()
+            ));
+            case EMPTY -> owner.musicText(lang, "playlist_add_no_track");
+            default -> owner.musicText(lang, "playlist_view_missing", Map.of("name", playlistName));
+        };
     }
 
     private void handleTextExport(MessageReceivedEvent event, Guild guild, String lang, String playlistName) {

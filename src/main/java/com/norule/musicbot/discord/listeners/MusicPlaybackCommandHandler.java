@@ -244,6 +244,7 @@ final class MusicPlaybackCommandHandler {
                 owner.recreatePanelForChannel(event.getGuild(), panelChannel, lang);
             }
         }
+        owner.refreshPanel(event.getGuild().getIdLong());
         event.editMessage(owner.musicUx(lang, "queue_added", Map.of("title", picked.getInfo().title)))
                 .setComponents(List.of())
                 .queue();

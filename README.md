@@ -134,13 +134,13 @@ mvn clean package -DskipTests
 建置完成後會產生：
 
 ```text
-target/discord-music-bot-1.2.2.jar
+target/discord-music-bot-1.2.3.jar
 ```
 
 ### 首次啟動
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.2.2.jar
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.2.3.jar
 ```
 
 首次啟動會自動建立 `config.yml`、語言檔與必要資料夾。停止程式後，編輯 `config.yml`：
@@ -153,7 +153,7 @@ defaultLanguage: "zh-TW"
 再重新啟動：
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.2.2.jar
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.2.3.jar
 ```
 
 ### 常用設定
@@ -237,6 +237,6 @@ web:
 ```bash
 git pull
 mvn clean package -DskipTests
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.2.2.jar
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.2.3.jar
 ```
 
