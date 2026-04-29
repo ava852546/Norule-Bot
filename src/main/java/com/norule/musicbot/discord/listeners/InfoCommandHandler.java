@@ -16,7 +16,6 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -84,6 +83,7 @@ final class InfoCommandHandler {
         return event.getMember();
     }
 
+    @SuppressWarnings("deprecation")
     private EmbedBuilder userEmbed(Member member, String lang, String bannerUrl) {
         User user = member.getUser();
         List<Role> roles = member.getRoles();
@@ -119,6 +119,7 @@ final class InfoCommandHandler {
         return embed.setFooter(member.getGuild().getName(), member.getGuild().getIconUrl());
     }
 
+    @SuppressWarnings("deprecation")
     private EmbedBuilder roleEmbed(Role role, String lang, int memberCount) {
         Guild guild = role.getGuild();
         Color color = role.getColor() == null ? new Color(88, 101, 242) : role.getColor();

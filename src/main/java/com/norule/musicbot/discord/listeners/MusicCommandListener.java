@@ -60,7 +60,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -125,6 +124,7 @@ public class MusicCommandListener extends ListenerAdapter {
     static final String SUB_PLAYLIST_ADD_ZH = "\u65b0\u589e\u6b4c\u66f2";
     private static final String DEV_COMMAND_PREFIX = "&dev";
     static final String DEV_GUILDS_BUTTON_PREFIX = "dev:guilds:";
+    static final String DEV_INFO_REFRESH_BUTTON_PREFIX = "dev:info:refresh:";
     private static final int DEV_GUILDS_PAGE_SIZE = 10;
     private static final String PLAYLIST_SCOPE_MINE = "mine";
     private static final String PLAYLIST_SCOPE_ALL = "all";
@@ -464,7 +464,7 @@ public class MusicCommandListener extends ListenerAdapter {
         switch (subcommand) {
             case "help" -> sendDeveloperPrivateEmbed(event, developerHelpEmbed());
             case "ping" -> sendDeveloperPrivateEmbed(event, developerPingEmbed(event.getJDA()));
-            case "info" -> sendDeveloperPrivateEmbed(event, developerInfoEmbed(event.getJDA()));
+            case "info" -> sendDeveloperInfoMessage(event);
             case "guilds" -> sendDeveloperGuildsPage(event, 0);
             default -> sendDeveloperPrivateEmbed(event, developerErrorEmbed("Unknown developer command. Use `&dev help`."));
         }
@@ -520,6 +520,22 @@ public class MusicCommandListener extends ListenerAdapter {
                 .addField("Playing Guilds", "`" + musicService.getActivePlaybackGuildCount() + "`", true)
                 .addField("Memory", "`" + usedMb + " / " + maxMb + " MB`", false)
                 .addField("CPU", "`" + developerCpuInfo() + "`", false);
+    }
+
+    private void sendDeveloperInfoMessage(MessageReceivedEvent event) {
+        event.getChannel().sendMessageEmbeds(developerInfoEmbed(event.getJDA()).build())
+                .setComponents(ActionRow.of(Button.secondary(
+                        DEV_INFO_REFRESH_BUTTON_PREFIX + event.getAuthor().getIdLong(),
+                        "Refresh")))
+                .queue(
+                        ignored -> {
+                        },
+                        error -> {
+                            System.out.println("[NoRule] Developer command reply failed: user="
+                                    + event.getAuthor().getAsTag()
+                                    + " (" + event.getAuthor().getId() + ") error=" + error.getMessage());
+                        }
+                );
     }
 
     private String developerBotVersion() {
@@ -626,6 +642,28 @@ public class MusicCommandListener extends ListenerAdapter {
         int safePage = clampPage(page, totalPages);
         event.editMessageEmbeds(developerGuildsEmbed(event.getJDA(), safePage).build())
                 .setComponents(ActionRow.of(developerGuildButtons(requesterId, safePage, totalPages)))
+                .queue();
+    }
+
+    void handleDeveloperInfoRefreshButton(ButtonInteractionEvent event) {
+        String id = event.getComponentId();
+        if (!id.startsWith(DEV_INFO_REFRESH_BUTTON_PREFIX)) {
+            return;
+        }
+        Long requesterId = parseLongOrNull(id.substring(DEV_INFO_REFRESH_BUTTON_PREFIX.length()));
+        if (requesterId == null) {
+            event.deferEdit().queue();
+            return;
+        }
+        if (event.getUser().getIdLong() != requesterId || !isConfiguredDeveloper(event.getUser().getIdLong())) {
+            event.reply("This developer control is not yours.").setEphemeral(true).queue();
+            return;
+        }
+
+        event.editMessageEmbeds(developerInfoEmbed(event.getJDA()).build())
+                .setComponents(ActionRow.of(Button.secondary(
+                        DEV_INFO_REFRESH_BUTTON_PREFIX + requesterId,
+                        "Refresh")))
                 .queue();
     }
 
@@ -1226,7 +1264,6 @@ public class MusicCommandListener extends ListenerAdapter {
     }
 
     private StringSelectMenu settingsMemberChannelModeMenu(String token, long guildId, String lang) {
-        BotConfig.Notifications n = settingsService.getNotifications(guildId);
         return StringSelectMenu.create(SETTINGS_LOGS_MEMBER_MODE_PREFIX + token)
                 .setPlaceholder(i18n.t(lang, "settings.logs_member_mode_placeholder"))
                 .addOptions(
@@ -2580,7 +2617,6 @@ public class MusicCommandListener extends ListenerAdapter {
                     return;
                 }
             }
-            int applied = limit;
             room.getManager().setUserLimit(limit).queue(
                     success -> {
                         roomSettingRequests.put(token, new RoomSettingsRequest(
@@ -3530,12 +3566,6 @@ public class MusicCommandListener extends ListenerAdapter {
                 .setNameLocalization(DiscordLocale.CHINESE_CHINA, zhCnName);
     }
 
-    private static Command.Choice localizedChoice(String englishName, String value, String zhTwName, String zhCnName) {
-        return new Command.Choice(englishName, value)
-                .setNameLocalization(DiscordLocale.CHINESE_TAIWAN, zhTwName)
-                .setNameLocalization(DiscordLocale.CHINESE_CHINA, zhCnName);
-    }
-
     private static SubcommandData localizedSubcommandName(SubcommandData subcommand, String zhTwName, String zhCnName) {
         return subcommand
                 .setNameLocalization(DiscordLocale.CHINESE_TAIWAN, zhTwName)
@@ -4086,20 +4116,6 @@ public class MusicCommandListener extends ListenerAdapter {
         };
     }
 
-    private net.dv8tion.jda.api.interactions.commands.OptionMapping slashOption(SlashCommandInteractionEvent event, String primaryName, String... fallbackNames) {
-        var option = event.getOption(primaryName);
-        if (option != null) {
-            return option;
-        }
-        for (String fallbackName : fallbackNames) {
-            option = event.getOption(fallbackName);
-            if (option != null) {
-                return option;
-            }
-        }
-        return null;
-    }
-
     String lang(long guildId) {
         return settingsService.getLanguage(guildId);
     }
@@ -4462,17 +4478,6 @@ public class MusicCommandListener extends ListenerAdapter {
             return "-";
         }
         return s.length() <= max ? s : s.substring(0, max - 1);
-    }
-
-    private Integer parseIntSafe(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception ignored) {
-            return null;
-        }
     }
 
     String musicUx(String lang, String key) {

@@ -1,8 +1,5 @@
 package com.norule.musicbot.config;
 
-import com.norule.musicbot.*;
-import com.norule.musicbot.i18n.*;
-
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.DumperOptions;
 
@@ -180,9 +177,13 @@ public class BotConfig {
         Map<String, Object> music = asMap(config.get("music"));
         if (!music.isEmpty()) {
             Map<String, Object> youtube = asMap(music.get("youtube"));
+            Map<String, Object> spotify = asMap(music.get("spotify"));
             Map<String, Object> globalMusic = new LinkedHashMap<>();
             if (!youtube.isEmpty()) {
                 globalMusic.put("youtube", youtube);
+            }
+            if (!spotify.isEmpty()) {
+                globalMusic.put("spotify", spotify);
             }
             config.put("music", globalMusic);
         }
@@ -1281,6 +1282,7 @@ public class BotConfig {
         private final int statsRetentionDays;
         private final int playlistTrackLimit;
         private final Youtube youtube;
+        private final Spotify spotify;
 
         private Music(boolean autoLeaveEnabled,
                       int autoLeaveMinutes,
@@ -1290,7 +1292,8 @@ public class BotConfig {
                       int historyLimit,
                       int statsRetentionDays,
                       int playlistTrackLimit,
-                      Youtube youtube) {
+                      Youtube youtube,
+                      Spotify spotify) {
             this.autoLeaveEnabled = autoLeaveEnabled;
             this.autoLeaveMinutes = autoLeaveMinutes;
             this.autoplayEnabled = autoplayEnabled;
@@ -1300,6 +1303,7 @@ public class BotConfig {
             this.statsRetentionDays = Math.max(0, statsRetentionDays);
             this.playlistTrackLimit = Math.max(1, playlistTrackLimit);
             this.youtube = youtube == null ? Youtube.defaultValues() : youtube;
+            this.spotify = spotify == null ? Spotify.defaultValues() : spotify;
         }
 
         public static Music fromMap(Map<String, Object> map, Music fallback) {
@@ -1313,44 +1317,45 @@ public class BotConfig {
                     getInt(map, "historyLimit", defaults.getHistoryLimit()),
                     getInt(map, "statsRetentionDays", defaults.getStatsRetentionDays()),
                     getInt(map, "playlistTrackLimit", defaults.getPlaylistTrackLimit()),
-                    Youtube.fromMap(asMap(map.get("youtube")), defaults.getYoutube())
+                    Youtube.fromMap(asMap(map.get("youtube")), defaults.getYoutube()),
+                    Spotify.fromMap(asMap(map.get("spotify")), defaults.getSpotify())
             );
         }
 
         public static Music defaultValues() {
-            return new Music(true, 5, true, RepeatMode.OFF, null, 50, 0, 100, Youtube.defaultValues());
+            return new Music(true, 5, true, RepeatMode.OFF, null, 50, 0, 100, Youtube.defaultValues(), Spotify.defaultValues());
         }
 
         public Music withAutoLeaveEnabled(boolean enabled) {
-            return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
+            return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify);
         }
 
         public Music withAutoLeaveMinutes(int minutes) {
-            return new Music(autoLeaveEnabled, Math.max(1, minutes), autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
+            return new Music(autoLeaveEnabled, Math.max(1, minutes), autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify);
         }
 
         public Music withAutoplayEnabled(boolean enabled) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, enabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, enabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify);
         }
 
         public Music withDefaultRepeatMode(RepeatMode mode) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, mode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, mode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify);
         }
 
         public Music withCommandChannelId(Long commandChannelId) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify);
         }
 
         public Music withHistoryLimit(int historyLimit) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify);
         }
 
         public Music withStatsRetentionDays(int statsRetentionDays) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify);
         }
 
         public Music withPlaylistTrackLimit(int playlistTrackLimit) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify);
         }
 
         public boolean isAutoLeaveEnabled() {
@@ -1389,11 +1394,86 @@ public class BotConfig {
             return youtube;
         }
 
+        public Spotify getSpotify() {
+            return spotify;
+        }
+
         private static RepeatMode parseRepeatMode(String value) {
             try {
                 return RepeatMode.valueOf(value.trim().toUpperCase());
             } catch (Exception ignored) {
                 return RepeatMode.OFF;
+            }
+        }
+
+        public static class Spotify {
+            private final boolean enabled;
+            private final String clientId;
+            private final String clientSecret;
+            private final String spDc;
+            private final String countryCode;
+            private final boolean preferAnonymousToken;
+            private final String customTokenEndpoint;
+
+            private Spotify(boolean enabled,
+                            String clientId,
+                            String clientSecret,
+                            String spDc,
+                            String countryCode,
+                            boolean preferAnonymousToken,
+                            String customTokenEndpoint) {
+                this.enabled = enabled;
+                this.clientId = nullToEmpty(clientId);
+                this.clientSecret = nullToEmpty(clientSecret);
+                this.spDc = nullToEmpty(spDc);
+                this.countryCode = nullToEmpty(countryCode);
+                this.preferAnonymousToken = preferAnonymousToken;
+                this.customTokenEndpoint = nullToEmpty(customTokenEndpoint);
+            }
+
+            public static Spotify fromMap(Map<String, Object> map, Spotify fallback) {
+                Spotify defaults = fallback == null ? defaultValues() : fallback;
+                return new Spotify(
+                        getBoolean(map, "enabled", defaults.isEnabled()),
+                        getString(map, "clientId", defaults.getClientId()),
+                        getString(map, "clientSecret", defaults.getClientSecret()),
+                        getString(map, "spDc", defaults.getSpDc()),
+                        getString(map, "countryCode", defaults.getCountryCode()),
+                        getBoolean(map, "preferAnonymousToken", defaults.isPreferAnonymousToken()),
+                        getString(map, "customTokenEndpoint", defaults.getCustomTokenEndpoint())
+                );
+            }
+
+            public static Spotify defaultValues() {
+                return new Spotify(true, "", "", "", "TW", false, "");
+            }
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public String getClientId() {
+                return clientId;
+            }
+
+            public String getClientSecret() {
+                return clientSecret;
+            }
+
+            public String getSpDc() {
+                return spDc;
+            }
+
+            public String getCountryCode() {
+                return countryCode;
+            }
+
+            public boolean isPreferAnonymousToken() {
+                return preferAnonymousToken;
+            }
+
+            public String getCustomTokenEndpoint() {
+                return customTokenEndpoint;
             }
         }
 

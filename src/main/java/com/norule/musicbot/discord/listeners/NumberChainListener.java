@@ -2,9 +2,7 @@ package com.norule.musicbot.discord.listeners;
 
 import com.norule.musicbot.*;
 import com.norule.musicbot.config.*;
-import com.norule.musicbot.domain.music.*;
 import com.norule.musicbot.i18n.*;
-import com.norule.musicbot.web.*;
 
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.emoji.Emoji;

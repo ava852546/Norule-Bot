@@ -3,11 +3,8 @@ package com.norule.musicbot.web;
 import com.norule.musicbot.config.*;
 import com.norule.musicbot.domain.music.*;
 import com.norule.musicbot.i18n.*;
-import com.norule.musicbot.discord.listeners.*;
-
 import com.norule.musicbot.*;
 
-import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsParameters;
@@ -18,15 +15,7 @@ import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.User;
-import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
-import net.dv8tion.jda.api.components.actionrow.ActionRow;
-import net.dv8tion.jda.api.components.buttons.Button;
-import net.dv8tion.jda.api.components.selections.SelectOption;
-import net.dv8tion.jda.api.components.selections.StringSelectMenu;
-import net.dv8tion.jda.api.utils.data.DataArray;
 import net.dv8tion.jda.api.utils.data.DataObject;
 
 import java.awt.Color;
@@ -42,7 +31,6 @@ import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.KeyFactory;
 import java.security.PrivateKey;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.math.BigInteger;
@@ -52,8 +40,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
-import java.util.Comparator;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -70,7 +56,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class WebControlServer {
-    private static final int TICKET_HISTORY_RETENTION_DAYS = 90;
     private static final BigInteger ADMINISTRATOR_BIT = new BigInteger("8");
     private static final BigInteger MANAGE_GUILD_BIT = new BigInteger("32");
 

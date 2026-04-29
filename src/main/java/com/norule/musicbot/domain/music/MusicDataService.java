@@ -2,8 +2,6 @@ package com.norule.musicbot.domain.music;
 
 import com.norule.musicbot.config.*;
 
-import com.norule.musicbot.*;
-
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 

@@ -1,8 +1,5 @@
 package com.norule.musicbot.config;
 
-import com.norule.musicbot.*;
-import com.norule.musicbot.i18n.*;
-
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 

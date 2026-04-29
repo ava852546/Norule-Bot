@@ -2,12 +2,11 @@ package com.norule.musicbot.domain.music;
 
 import com.norule.musicbot.config.*;
 
-import com.norule.musicbot.*;
-
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.player.DefaultAudioPlayerManager;
+import com.sedmelluq.discord.lavaplayer.source.AudioSourceManager;
 import com.sedmelluq.discord.lavaplayer.source.AudioSourceManagers;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
@@ -43,18 +42,24 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.LongFunction;
 import java.util.function.LongPredicate;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MusicPlayerService {
     private static final String YT_SEARCH_PREFIX = "ytsearch:";
     private static final Pattern JSON_FIELD_PATTERN_TEMPLATE = Pattern.compile("\"%s\"\\s*:\\s*\"(.*?)\"");
+    private static final long SPOTIFY_RATE_LIMIT_COOLDOWN_MS = 60_000L;
+    private static final long[] SPOTIFY_RATE_LIMIT_RETRY_DELAYS_MS = new long[] {3000L, 8000L};
 
     private final AudioPlayerManager playerManager;
     private final MusicDataService musicDataService;
@@ -62,26 +67,171 @@ public class MusicPlayerService {
     private final Map<Long, Runnable> guildStateListeners = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastCommandChannelByGuild = new ConcurrentHashMap<>();
     private final Map<Long, String> autoplayNoticeByGuild = new ConcurrentHashMap<>();
+    private final Map<String, Long> spotifyRateLimitUntilByKey = new ConcurrentHashMap<>();
     private final BotConfig.Music.Youtube youtubeConfig;
+    private final BotConfig.Music.Spotify spotifyConfig;
+    private final boolean spotifySourceEnabled;
     private volatile BiConsumer<Long, PlaybackFailure> playbackFailureListener;
     private volatile LongPredicate autoplayEnabledChecker = guildId -> true;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8))
             .build();
 
+    @SuppressWarnings("deprecation")
     public MusicPlayerService(Path dataDir,
                               LongFunction<BotConfig.Music> musicConfigResolver,
-                              BotConfig.Music.Youtube youtubeConfig) {
+                              BotConfig.Music.Youtube youtubeConfig,
+                              BotConfig.Music.Spotify spotifyConfig) {
         this.musicDataService = new MusicDataService(dataDir, musicConfigResolver);
         this.youtubeConfig = youtubeConfig == null ? BotConfig.Music.Youtube.defaultValues() : youtubeConfig;
+        this.spotifyConfig = spotifyConfig == null ? BotConfig.Music.Spotify.defaultValues() : spotifyConfig;
         playerManager = new DefaultAudioPlayerManager();
         configureYouTubePoToken();
         YoutubeAudioSourceManager youtubeSourceManager = createYoutubeSourceManager();
         configureYouTubeOauth(youtubeSourceManager);
         playerManager.registerSourceManager(youtubeSourceManager);
+        this.spotifySourceEnabled = registerSpotifySourceIfConfigured();
         AudioSourceManagers.registerLocalSource(playerManager);
         AudioSourceManagers.registerRemoteSources(playerManager,
                 com.sedmelluq.discord.lavaplayer.source.youtube.YoutubeAudioSourceManager.class);
+    }
+
+    private boolean registerSpotifySourceIfConfigured() {
+        if (!spotifyConfig.isEnabled()) {
+            return false;
+        }
+        String clientId = firstNonBlank(System.getenv("SPOTIFY_CLIENT_ID"), spotifyConfig.getClientId());
+        String clientSecret = firstNonBlank(System.getenv("SPOTIFY_CLIENT_SECRET"), spotifyConfig.getClientSecret());
+        String spDc = firstNonBlank(System.getenv("SPOTIFY_SP_DC"), spotifyConfig.getSpDc());
+        System.out.println("[NoRule] Spotify credentials loaded: clientId="
+                + (clientId != null && !clientId.isBlank())
+                + ", clientSecret="
+                + (clientSecret != null && !clientSecret.isBlank())
+                + ", spDc="
+                + (spDc != null && !spDc.isBlank()));
+        if (clientId == null || clientSecret == null) {
+            System.out.println("[NoRule] Spotify source is enabled but missing clientId/clientSecret. Falling back to oEmbed resolver.");
+            return false;
+        }
+        try {
+            String countryCode = firstNonBlank(System.getenv("SPOTIFY_COUNTRY_CODE"), spotifyConfig.getCountryCode());
+            if (countryCode == null) {
+                countryCode = "TW";
+            }
+            String[] providers = new String[] {"ytsearch:\"%ISRC%\"", "ytsearch:%QUERY%"};
+            Class<?> resolverClass = Class.forName("com.github.topi314.lavasrc.mirror.DefaultMirroringAudioTrackResolver");
+            Class<?> resolverType = Class.forName("com.github.topi314.lavasrc.mirror.MirroringAudioTrackResolver");
+            Object resolver = resolverClass.getConstructor(String[].class).newInstance((Object) providers);
+            Class<?> sourceClass = Class.forName("com.github.topi314.lavasrc.spotify.SpotifySourceManager");
+            boolean preferAnonymousToken = getBooleanEnvOverride("SPOTIFY_PREFER_ANONYMOUS_TOKEN", spotifyConfig.isPreferAnonymousToken());
+            String customTokenEndpoint = normalizeCustomTokenEndpoint(
+                    firstNonBlank(System.getenv("SPOTIFY_CUSTOM_TOKEN_ENDPOINT"), spotifyConfig.getCustomTokenEndpoint())
+            );
+            Object source = createSpotifySourceManager(
+                    sourceClass,
+                    resolverType,
+                    resolver,
+                    clientId,
+                    clientSecret,
+                    spDc == null ? "" : spDc,
+                    countryCode,
+                    preferAnonymousToken,
+                    customTokenEndpoint
+            );
+            applySpotifyOptions(sourceClass, source);
+            playerManager.registerSourceManager((AudioSourceManager) source);
+            System.out.println("[NoRule] LavaSrc Spotify source registered.");
+            return true;
+        } catch (Exception ex) {
+            System.out.println("[NoRule] Failed to initialize LavaSrc Spotify source, fallback enabled: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    private String normalizeCustomTokenEndpoint(String endpoint) {
+        if (endpoint == null) {
+            return null;
+        }
+        String value = endpoint.trim();
+        if (value.isBlank()) {
+            return null;
+        }
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            return value;
+        }
+        System.out.println("[NoRule] Ignoring invalid Spotify customTokenEndpoint (must start with http/https).");
+        return null;
+    }
+
+    private void applySpotifyOptions(Class<?> sourceClass, Object source) {
+        tryInvokeBooleanSetter(sourceClass, source, "setPreferAnonymousToken",
+                getBooleanEnvOverride("SPOTIFY_PREFER_ANONYMOUS_TOKEN", spotifyConfig.isPreferAnonymousToken()));
+        String customEndpoint = firstNonBlank(System.getenv("SPOTIFY_CUSTOM_TOKEN_ENDPOINT"), spotifyConfig.getCustomTokenEndpoint());
+        if (customEndpoint != null) {
+            tryInvokeStringSetter(sourceClass, source, "setCustomTokenEndpoint", customEndpoint);
+        }
+    }
+
+    private Object createSpotifySourceManager(Class<?> sourceClass,
+                                              Class<?> resolverType,
+                                              Object resolver,
+                                              String clientId,
+                                              String clientSecret,
+                                              String spDc,
+                                              String countryCode,
+                                              boolean preferAnonymousToken,
+                                              String customTokenEndpoint) throws Exception {
+        Function<Void, AudioPlayerManager> managerFunction = ignored -> playerManager;
+        if (customTokenEndpoint != null && !customTokenEndpoint.isBlank()) {
+            try {
+                return sourceClass
+                        .getConstructor(String.class, String.class, boolean.class, String.class, String.class, String.class, Function.class, resolverType)
+                        .newInstance(clientId, clientSecret, preferAnonymousToken, spDc, countryCode, customTokenEndpoint, managerFunction, resolver);
+            } catch (NoSuchMethodException ignored) {
+            }
+        }
+        try {
+            return sourceClass
+                    .getConstructor(String.class, String.class, boolean.class, String.class, String.class, Function.class, resolverType)
+                    .newInstance(clientId, clientSecret, preferAnonymousToken, spDc, countryCode, managerFunction, resolver);
+        } catch (NoSuchMethodException ignored) {
+        }
+        try {
+            Supplier<AudioPlayerManager> managerSupplier = () -> playerManager;
+            return sourceClass
+                    .getConstructor(String.class, String.class, boolean.class, String.class, String.class, Supplier.class, resolverType)
+                    .newInstance(clientId, clientSecret, preferAnonymousToken, spDc, countryCode, managerSupplier, resolver);
+        } catch (NoSuchMethodException ignored) {
+        }
+        try {
+            return sourceClass
+                    .getConstructor(String.class, String.class, String.class, String.class, Function.class, resolverType)
+                    .newInstance(clientId, clientSecret, spDc, countryCode, managerFunction, resolver);
+        } catch (NoSuchMethodException ignored) {
+            Supplier<AudioPlayerManager> managerSupplier = () -> playerManager;
+            return sourceClass
+                    .getConstructor(String.class, String.class, String.class, String.class, Supplier.class, resolverType)
+                    .newInstance(clientId, clientSecret, spDc, countryCode, managerSupplier, resolver);
+        }
+    }
+
+    private boolean getBooleanEnvOverride(String envName, boolean fallback) {
+        String value = firstNonBlank(System.getenv(envName));
+        return value == null ? fallback : isTruthy(value);
+    }
+
+    private void tryInvokeBooleanSetter(Class<?> type, Object instance, String methodName, boolean value) {
+        try {
+            type.getMethod(methodName, boolean.class).invoke(instance, value);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void tryInvokeStringSetter(Class<?> type, Object instance, String methodName, String value) {
+        try {
+            type.getMethod(methodName, String.class).invoke(instance, value);
+        } catch (Exception ignored) {
+        }
     }
 
     private YoutubeAudioSourceManager createYoutubeSourceManager() {
@@ -293,7 +443,7 @@ public class MusicPlayerService {
         resumeIfPaused(guildMusicManager.getPlayer(), guild.getIdLong());
         ResolvedInput resolvedInput = resolveInput(input);
         String identifier = resolvedInput.isUrl ? resolvedInput.identifier : YT_SEARCH_PREFIX + resolvedInput.identifier;
-        load(guildMusicManager, messageSender, input, identifier, resolvedInput.sourceLabel, true, requesterId, requesterName);
+        load(guildMusicManager, messageSender, input, identifier, resolvedInput.sourceLabel, true, requesterId, requesterName, 0);
     }
 
     public void searchTopTracks(String query, int limit, Consumer<List<AudioTrack>> onSuccess, Consumer<String> onError) {
@@ -344,7 +494,7 @@ public class MusicPlayerService {
         GuildMusicManager guildMusicManager = getGuildMusicManager(guild);
         clearAutoplayNotice(guild.getIdLong());
         resumeIfPaused(guildMusicManager.getPlayer(), guild.getIdLong());
-        load(guildMusicManager, messageSender, identifier, identifier, sourceLabel, false, requesterId, requesterName);
+        load(guildMusicManager, messageSender, identifier, identifier, sourceLabel, false, requesterId, requesterName, 0);
     }
 
     private void load(GuildMusicManager guildMusicManager,
@@ -354,7 +504,17 @@ public class MusicPlayerService {
                       String sourceLabel,
                       boolean allowFallback,
                       Long requesterId,
-                      String requesterName) {
+                      String requesterName,
+                      int spotifyRateLimitRetryAttempt) {
+        String spotifyRateLimitKey = spotifyRateLimitKey(userInput);
+        if (spotifyRateLimitKey != null) {
+            Long limitedUntil = spotifyRateLimitUntilByKey.get(spotifyRateLimitKey);
+            long now = System.currentTimeMillis();
+            if (limitedUntil != null && limitedUntil > now) {
+                messageSender.accept("LOAD_FAILED:Spotify API rate-limited. Please retry shortly.");
+                return;
+            }
+        }
         playerManager.loadItemOrdered(guildMusicManager, identifier, new AudioLoadResultHandler() {
             @Override
             public void trackLoaded(AudioTrack track) {
@@ -384,14 +544,76 @@ public class MusicPlayerService {
 
             @Override
             public void loadFailed(FriendlyException exception) {
+                logLoadFailureDetails("queue/load", userInput, identifier, exception);
+                if (spotifyRateLimitKey != null && isSpotifyRateLimited(exception)) {
+                    spotifyRateLimitUntilByKey.put(spotifyRateLimitKey, System.currentTimeMillis() + SPOTIFY_RATE_LIMIT_COOLDOWN_MS);
+                    if (spotifyRateLimitRetryAttempt < SPOTIFY_RATE_LIMIT_RETRY_DELAYS_MS.length) {
+                        long delayMs = SPOTIFY_RATE_LIMIT_RETRY_DELAYS_MS[spotifyRateLimitRetryAttempt];
+                        CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS).execute(() ->
+                                load(guildMusicManager, messageSender, userInput, identifier, sourceLabel, allowFallback, requesterId, requesterName, spotifyRateLimitRetryAttempt + 1)
+                        );
+                        return;
+                    }
+                }
                 if (allowFallback && looksLikeYouTubeUrl(userInput)) {
                     String fallbackIdentifier = YT_SEARCH_PREFIX + userInput;
-                    load(guildMusicManager, messageSender, userInput, fallbackIdentifier, sourceLabel, false, requesterId, requesterName);
+                    load(guildMusicManager, messageSender, userInput, fallbackIdentifier, sourceLabel, false, requesterId, requesterName, 0);
                     return;
                 }
                 messageSender.accept("LOAD_FAILED:" + exception.getMessage());
             }
         });
+    }
+
+    private void logLoadFailureDetails(String context, String userInput, String identifier, FriendlyException exception) {
+        if (exception == null) {
+            System.out.println("[NoRule] Load failed: context=" + context + " input=" + userInput + " identifier=" + identifier + " (no exception)");
+            return;
+        }
+        String root = exception.getMessage();
+        Throwable cause = exception.getCause();
+        while (cause != null) {
+            if (cause.getMessage() != null && !cause.getMessage().isBlank()) {
+                root = cause.getClass().getSimpleName() + ": " + cause.getMessage();
+            } else {
+                root = cause.getClass().getSimpleName();
+            }
+            cause = cause.getCause();
+        }
+        System.out.println("[NoRule] Load failed: context=" + context
+                + " input=" + userInput
+                + " identifier=" + identifier
+                + " message=" + exception.getMessage()
+                + " rootCause=" + root);
+    }
+
+    private String spotifyRateLimitKey(String input) {
+        if (input == null) {
+            return null;
+        }
+        String trimmed = input.trim();
+        if (!looksLikeSpotifyUrl(trimmed)) {
+            return null;
+        }
+        int queryIndex = trimmed.indexOf('?');
+        return queryIndex >= 0 ? trimmed.substring(0, queryIndex) : trimmed;
+    }
+
+    private boolean isSpotifyRateLimited(FriendlyException exception) {
+        Throwable current = exception;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase();
+                if (lower.contains("too many requests")
+                        || lower.contains("response code from channel info is 429")
+                        || lower.contains(" 429")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     public void skip(Guild guild) {
@@ -693,7 +915,8 @@ public class MusicPlayerService {
                     sourceLabelOverride == null || sourceLabelOverride.isBlank() ? entry.source() : sourceLabelOverride,
                     true,
                     requesterId,
-                    requesterName
+                    requesterName,
+                    0
             );
             queued++;
         }
@@ -1101,10 +1324,17 @@ public class MusicPlayerService {
             return new ResolvedInput(trimmed, false, "youtube");
         }
         if (looksLikeSpotifyUrl(trimmed)) {
-            String keyword = resolveSpotifyToSearch(trimmed);
-            if (!keyword.isBlank()) {
-                return new ResolvedInput(keyword, false, "spotify");
+            if (spotifySourceEnabled) {
+                return new ResolvedInput(trimmed, true, "spotify");
             }
+            if (looksLikeSpotifyTrackUrl(trimmed)) {
+                String keyword = resolveSpotifyToSearch(trimmed);
+                if (!keyword.isBlank()) {
+                    return new ResolvedInput(keyword, false, "spotify");
+                }
+            }
+            // Avoid mismatched songs for playlists/albums/artists when Spotify source is unavailable.
+            return new ResolvedInput(trimmed, true, "spotify");
         }
         if (looksLikeSoundCloudUrl(trimmed)) {
             return new ResolvedInput(trimmed, true, "soundcloud");
@@ -1176,6 +1406,13 @@ public class MusicPlayerService {
     private boolean looksLikeSpotifyUrl(String text) {
         String lower = text.toLowerCase();
         return lower.contains("open.spotify.com/") || lower.startsWith("spotify:");
+    }
+
+    private boolean looksLikeSpotifyTrackUrl(String text) {
+        String lower = text.toLowerCase();
+        return lower.contains("open.spotify.com/track/")
+                || lower.contains("open.spotify.com/intl-") && lower.contains("/track/")
+                || lower.startsWith("spotify:track:");
     }
 
     private boolean looksLikeSoundCloudUrl(String text) {

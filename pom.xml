@@ -6,7 +6,7 @@
 
     <groupId>com.norule</groupId>
     <artifactId>discord-music-bot</artifactId>
-    <version>1.2.3</version>
+    <version>1.2.4</version>
     <name>discord-music-bot</name>
     <licenses>
         <license>
@@ -23,6 +23,7 @@
         <jda.version>6.3.1</jda.version>
         <lavaplayer.version>2.2.6</lavaplayer.version>
         <youtube.source.version>1.18.0</youtube.source.version>
+        <lavasrc.version>4.8.1</lavasrc.version>
         <libdave.version>0.1.0</libdave.version>
         <snakeyaml.version>2.4</snakeyaml.version>
         <slf4j.version>2.0.17</slf4j.version>
@@ -32,6 +33,10 @@
         <repository>
             <id>lavalink-releases</id>
             <url>https://maven.lavalink.dev/releases</url>
+        </repository>
+        <repository>
+            <id>topiwtf-releases</id>
+            <url>https://maven.topi.wtf/releases</url>
         </repository>
     </repositories>
 
@@ -52,6 +57,12 @@
             <groupId>dev.lavalink.youtube</groupId>
             <artifactId>v2</artifactId>
             <version>${youtube.source.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.github.topi314.lavasrc</groupId>
+            <artifactId>lavasrc</artifactId>
+            <version>${lavasrc.version}</version>
         </dependency>
 
         <dependency>

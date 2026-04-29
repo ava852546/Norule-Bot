@@ -1,9 +1,5 @@
 package com.norule.musicbot.domain.music;
 
-import com.norule.musicbot.config.*;
-
-import com.norule.musicbot.*;
-
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;

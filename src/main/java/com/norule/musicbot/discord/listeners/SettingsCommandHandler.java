@@ -1,11 +1,6 @@
 package com.norule.musicbot.discord.listeners;
 
 import com.norule.musicbot.config.*;
-import com.norule.musicbot.domain.music.*;
-import com.norule.musicbot.i18n.*;
-import com.norule.musicbot.web.*;
-
-import com.norule.musicbot.*;
 
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
@@ -416,14 +411,6 @@ final class SettingsCommandHandler {
                 .setColor(color)
                 .setTitle(owner.i18nService().t(lang, "settings.log_settings.title"))
                 .setDescription(description);
-    }
-
-    private boolean isZhTw(String lang) {
-        if (lang == null) {
-            return false;
-        }
-        String normalized = lang.trim().toLowerCase();
-        return "zh-tw".equals(normalized) || "zh_tw".equals(normalized);
     }
 
     private boolean isZhCn(String lang) {

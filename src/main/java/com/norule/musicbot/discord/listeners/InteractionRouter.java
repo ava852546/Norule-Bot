@@ -134,6 +134,10 @@ final class InteractionRouter {
 
     void onButtonInteraction(ButtonInteractionEvent event) {
         String id = event.getComponentId();
+        if (id.startsWith(MusicCommandListener.DEV_INFO_REFRESH_BUTTON_PREFIX)) {
+            owner.handleDeveloperInfoRefreshButton(event);
+            return;
+        }
         if (id.startsWith(MusicCommandListener.DEV_GUILDS_BUTTON_PREFIX)) {
             owner.handleDeveloperGuildsButton(event);
             return;

@@ -45,7 +45,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 
 public class Main {
     private static final DateTimeFormatter LOG_FILE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
@@ -82,7 +81,8 @@ public class Main {
         MusicPlayerService playerService = new MusicPlayerService(
                 musicDataPath,
                 guildSettingsService::getMusic,
-                config.getMusic().getYoutube()
+                config.getMusic().getYoutube(),
+                config.getMusic().getSpotify()
         );
         ModerationService moderationService = new ModerationService(resolveDataPath(baseDir, config.getModerationDataDir()));
         HoneypotService honeypotService = new HoneypotService(honeypotDataPath);
