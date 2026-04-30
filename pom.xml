@@ -6,7 +6,7 @@
 
     <groupId>com.norule</groupId>
     <artifactId>discord-music-bot</artifactId>
-    <version>1.2.4</version>
+    <version>1.3</version>
     <name>discord-music-bot</name>
     <licenses>
         <license>
