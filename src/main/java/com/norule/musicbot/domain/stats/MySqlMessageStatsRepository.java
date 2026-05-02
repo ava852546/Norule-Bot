@@ -204,3 +204,4 @@ public class MySqlMessageStatsRepository implements MessageStatsRepository, Auto
         dataSource.close();
     }
 }
+

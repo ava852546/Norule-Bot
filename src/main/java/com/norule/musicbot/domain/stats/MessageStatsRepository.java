@@ -15,3 +15,4 @@ public interface MessageStatsRepository {
 
     List<UserVoiceTime> getTopVoiceSeconds(long guildId, int limit);
 }
+

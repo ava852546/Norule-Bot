@@ -1,13 +1,1 @@
-﻿@import url("./styles/tokens.css");
-@import url("./styles/components/layout.css");
-@import url("./styles/components/forms.css");
-@import url("./styles/components/toggle.css");
-@import url("./styles/components/tabs.css");
-@import url("./styles/components/feedback.css");
-@import url("./styles/components/history.css");
-@import url("./styles/components/modal.css");
-@import url("./styles/sections/hero.css");
-@import url("./styles/sections/dashboard.css");
-@import url("./styles/sections/notifications.css");
-@import url("./styles/sections/welcome.css");
-@import url("./styles/sections/contextual.css");
+@import url("./styles/base/app.css");

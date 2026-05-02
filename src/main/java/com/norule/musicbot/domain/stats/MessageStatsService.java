@@ -35,3 +35,4 @@ public class MessageStatsService {
         return repository.getTopVoiceSeconds(guildId, normalizedLimit);
     }
 }
+

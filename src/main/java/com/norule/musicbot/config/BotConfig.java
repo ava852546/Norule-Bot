@@ -87,7 +87,6 @@ public class BotConfig {
     }
 
     public static BotConfig load(Path path) {
-        initializeConfigAndLang(path);
         if (!Files.exists(path)) {
             throw new IllegalStateException("config.yml not found: " + path.toAbsolutePath());
         }
@@ -131,6 +130,7 @@ public class BotConfig {
         }
     }
 
+    @SuppressWarnings("unused")
     private static void initializeConfigAndLang(Path configPath) {
         Map<String, Object> defaultConfig = readDefaultConfigMap();
         if (defaultConfig.isEmpty()) {
@@ -542,14 +542,14 @@ public class BotConfig {
                           String ticketTranscriptDir,
                           String honeypotDir,
                           String logDir) {
-            this.guildSettingsDir = blankToDefault(guildSettingsDir, "guild-configs");
+            this.guildSettingsDir = blankToDefault(guildSettingsDir, "guild/configs");
             this.languageDir = blankToDefault(languageDir, "lang");
             this.cacheDir = blankToDefault(cacheDir, "cache");
-            this.musicDir = blankToDefault(musicDir, "guild-music");
-            this.moderationDir = blankToDefault(moderationDir, "guild-moderation");
-            this.ticketDir = blankToDefault(ticketDir, "guild-tickets");
+            this.musicDir = blankToDefault(musicDir, "guild/music");
+            this.moderationDir = blankToDefault(moderationDir, "guild/moderation");
+            this.ticketDir = blankToDefault(ticketDir, "guild/tickets");
             this.ticketTranscriptDir = blankToDefault(ticketTranscriptDir, "ticket-transcripts");
-            this.honeypotDir = blankToDefault(honeypotDir, "guild-honeypot");
+            this.honeypotDir = blankToDefault(honeypotDir, "guild/honeypot");
             this.logDir = blankToDefault(logDir, "LOG");
         }
 
@@ -561,14 +561,14 @@ public class BotConfig {
             Map<String, Object> data = asMap(root.get("data"));
             Map<String, Object> defaults = asMap(defaultRoot.get("data"));
             return new DataPaths(
-                    configuredPath(data, root, defaults, defaultRoot, "guildSettingsDir", "guild-configs"),
+                    configuredPath(data, root, defaults, defaultRoot, "guildSettingsDir", "guild/configs"),
                     configuredPath(data, root, defaults, defaultRoot, "languageDir", "lang"),
                     configuredPath(data, root, defaults, defaultRoot, "cacheDir", "cache"),
-                    configuredPath(data, root, defaults, defaultRoot, "musicDir", "guild-music"),
-                    configuredPath(data, root, defaults, defaultRoot, "moderationDir", "guild-moderation"),
-                    configuredPath(data, root, defaults, defaultRoot, "ticketDir", "guild-tickets"),
+                    configuredPath(data, root, defaults, defaultRoot, "musicDir", "guild/music"),
+                    configuredPath(data, root, defaults, defaultRoot, "moderationDir", "guild/moderation"),
+                    configuredPath(data, root, defaults, defaultRoot, "ticketDir", "guild/tickets"),
                     configuredPath(data, root, defaults, defaultRoot, "ticketTranscriptDir", "ticket-transcripts"),
-                    configuredPath(data, root, defaults, defaultRoot, "honeypotDir", "guild-honeypot"),
+                    configuredPath(data, root, defaults, defaultRoot, "honeypotDir", "guild/honeypot"),
                     configuredPath(data, root, defaults, defaultRoot, "logDir", "LOG")
             );
         }
@@ -2681,6 +2681,7 @@ public static class Web {
     }
 
 }
+
 
 
 

@@ -1,7 +1,5 @@
 package com.norule.musicbot.domain.music;
 
-import com.norule.musicbot.config.*;
-
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
@@ -21,7 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.LongFunction;
+import java.util.function.LongToIntFunction;
 
 public class MusicDataService {
     public record PlaybackEntry(
@@ -155,6 +153,7 @@ public class MusicDataService {
 
     private static class GuildMusicData {
         int volume = 100;
+        double playbackSpeed = 1.0d;
         LinkedList<PlaybackEntry> history = new LinkedList<>();
         Map<String, Integer> songPlayCounts = new LinkedHashMap<>();
         Map<String, String> songLabels = new LinkedHashMap<>();
@@ -169,18 +168,33 @@ public class MusicDataService {
     private static final long PLAYLIST_SHARE_TTL_MILLIS = 180_000L;
 
     private final Path dir;
-    private final LongFunction<BotConfig.Music> musicConfigResolver;
+    private volatile LongToIntFunction historyLimitProvider;
+    private volatile LongToIntFunction statsRetentionDaysProvider;
+    private volatile LongToIntFunction playlistTrackLimitProvider;
     private final Map<Long, GuildMusicData> cache = new ConcurrentHashMap<>();
     private final Map<String, SharedPlaylistData> playlistShares = new ConcurrentHashMap<>();
 
-    public MusicDataService(Path dir, LongFunction<BotConfig.Music> musicConfigResolver) {
+    public MusicDataService(Path dir,
+                            LongToIntFunction historyLimitProvider,
+                            LongToIntFunction statsRetentionDaysProvider,
+                            LongToIntFunction playlistTrackLimitProvider) {
         this.dir = dir;
-        this.musicConfigResolver = musicConfigResolver == null ? ignored -> BotConfig.Music.defaultValues() : musicConfigResolver;
+        this.historyLimitProvider = historyLimitProvider == null ? ignored -> 100 : historyLimitProvider;
+        this.statsRetentionDaysProvider = statsRetentionDaysProvider == null ? ignored -> 30 : statsRetentionDaysProvider;
+        this.playlistTrackLimitProvider = playlistTrackLimitProvider == null ? ignored -> 100 : playlistTrackLimitProvider;
         try {
             Files.createDirectories(dir);
         } catch (IOException e) {
             throw new IllegalStateException("Unable to create music data directory: " + dir.toAbsolutePath(), e);
         }
+    }
+
+    public void replaceGuildLimits(LongToIntFunction historyLimitProvider,
+                                   LongToIntFunction statsRetentionDaysProvider,
+                                   LongToIntFunction playlistTrackLimitProvider) {
+        this.historyLimitProvider = historyLimitProvider == null ? ignored -> 100 : historyLimitProvider;
+        this.statsRetentionDaysProvider = statsRetentionDaysProvider == null ? ignored -> 30 : statsRetentionDaysProvider;
+        this.playlistTrackLimitProvider = playlistTrackLimitProvider == null ? ignored -> 100 : playlistTrackLimitProvider;
     }
 
     public void reloadAll() {
@@ -206,6 +220,26 @@ public class MusicDataService {
             save(guildId, data);
             return data.volume;
         }
+    }
+
+    public double getPlaybackSpeed(long guildId) {
+        GuildMusicData data = get(guildId);
+        synchronized (data) {
+            return clampPlaybackSpeed(data.playbackSpeed);
+        }
+    }
+
+    public double setPlaybackSpeed(long guildId, double speed) {
+        GuildMusicData data = get(guildId);
+        synchronized (data) {
+            data.playbackSpeed = clampPlaybackSpeed(speed);
+            save(guildId, data);
+            return data.playbackSpeed;
+        }
+    }
+
+    public void resetPlaybackSpeed(long guildId) {
+        setPlaybackSpeed(guildId, 1.0d);
     }
 
     public void recordTrackStarted(long guildId, PlaybackEntry entry) {
@@ -680,6 +714,7 @@ public class MusicDataService {
             }
             Map<String, Object> root = (Map<String, Object>) rootMapRaw;
             defaults.volume = clampVolume(readInt(root.get("volume"), 100));
+            defaults.playbackSpeed = clampPlaybackSpeed(readDouble(root.get("playbackSpeed"), 1.0d));
 
             Object historyObj = root.get("history");
             if (historyObj instanceof List<?> list) {
@@ -805,6 +840,7 @@ public class MusicDataService {
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("guildId", String.valueOf(guildId));
         root.put("volume", clampVolume(data.volume));
+        root.put("playbackSpeed", clampPlaybackSpeed(data.playbackSpeed));
 
         List<Map<String, Object>> history = new ArrayList<>();
         for (PlaybackEntry entry : data.history) {
@@ -890,14 +926,14 @@ public class MusicDataService {
     }
 
     private void trimHistory(long guildId, GuildMusicData data) {
-        int historyLimit = getMusicConfig(guildId).getHistoryLimit();
+        int historyLimit = getHistoryLimit(guildId);
         while (data.history.size() > historyLimit) {
             data.history.removeLast();
         }
     }
 
     private void pruneExpiredStats(long guildId, GuildMusicData data, long now) {
-        int statsRetentionDays = getMusicConfig(guildId).getStatsRetentionDays();
+        int statsRetentionDays = getStatsRetentionDays(guildId);
         if (statsRetentionDays <= 0) {
             return;
         }
@@ -925,17 +961,28 @@ public class MusicDataService {
         data.requesterCounts.keySet().removeIf(requesterId -> !data.requesterLastPlayedAt.containsKey(requesterId));
     }
 
-    private BotConfig.Music getMusicConfig(long guildId) {
+    private int getPlaylistTrackLimit(long guildId) {
         try {
-            BotConfig.Music config = musicConfigResolver.apply(guildId);
-            return config == null ? BotConfig.Music.defaultValues() : config;
+            return Math.max(1, playlistTrackLimitProvider.applyAsInt(guildId));
         } catch (Exception ignored) {
-            return BotConfig.Music.defaultValues();
+            return 100;
         }
     }
 
-    private int getPlaylistTrackLimit(long guildId) {
-        return Math.max(1, getMusicConfig(guildId).getPlaylistTrackLimit());
+    private int getHistoryLimit(long guildId) {
+        try {
+            return Math.max(1, historyLimitProvider.applyAsInt(guildId));
+        } catch (Exception ignored) {
+            return 100;
+        }
+    }
+
+    private int getStatsRetentionDays(long guildId) {
+        try {
+            return Math.max(0, statsRetentionDaysProvider.applyAsInt(guildId));
+        } catch (Exception ignored) {
+            return 30;
+        }
     }
 
     private Path file(long guildId) {
@@ -1007,6 +1054,27 @@ public class MusicDataService {
 
     private int clampVolume(int volume) {
         return Math.max(0, Math.min(200, volume));
+    }
+
+    private double clampPlaybackSpeed(double speed) {
+        if (Double.isNaN(speed) || Double.isInfinite(speed)) {
+            return 1.0d;
+        }
+        return Math.max(0.5d, Math.min(2.0d, speed));
+    }
+
+    private double readDouble(Object value, double defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        try {
+            return Double.parseDouble(String.valueOf(value).trim());
+        } catch (Exception ignored) {
+            return defaultValue;
+        }
     }
 
     private void cleanupExpiredPlaylistShares() {
@@ -1093,5 +1161,6 @@ public class MusicDataService {
         return trimmed.substring(0, 60);
     }
 }
+
 
 

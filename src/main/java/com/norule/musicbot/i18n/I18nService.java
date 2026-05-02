@@ -163,10 +163,10 @@ public class I18nService {
     private String resolveLanguageDisplayName(String language) {
         String normalized = normalize(language);
         if ("zh-TW".equals(normalized)) {
-            return "繁體中文";
+            return "\u7e41\u9ad4\u4e2d\u6587";
         }
         if ("zh-CN".equals(normalized)) {
-            return "简体中文";
+            return "\u7b80\u4f53\u4e2d\u6587";
         }
         if ("en".equals(normalized)) {
             return "English";
@@ -240,5 +240,6 @@ public class I18nService {
         return "zh-TW".equals(language) || "zh-CN".equals(language) || "en".equals(language);
     }
 }
+
 
 

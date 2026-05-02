@@ -451,7 +451,7 @@ public class ModerationService {
                 .replaceAll("<a?:[^:>]+:\\d+>", " ")
                 .replaceAll("<t:\\d+(?::[tTdDfFR])?>", " ")
                 .replace('\u00A0', ' ')
-                .replace('繩', '/');
+                .replace('\\', '/');
         normalized = normalized.replaceAll("(?<=\\d)\\s*[xX]\\s*(?=\\d)", "*");
         return normalized;
     }
@@ -515,4 +515,5 @@ public class ModerationService {
         }
     }
 }
+
 

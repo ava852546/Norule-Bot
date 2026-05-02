@@ -1,11 +1,13 @@
 package com.norule.musicbot.domain.music;
 
-import com.norule.musicbot.config.*;
+import com.norule.musicbot.config.domain.MusicConfig;
 
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.player.DefaultAudioPlayerManager;
+import com.sedmelluq.discord.lavaplayer.filter.AudioFilter;
+import com.sedmelluq.discord.lavaplayer.filter.ResamplingPcmAudioFilter;
 import com.sedmelluq.discord.lavaplayer.source.AudioSourceManager;
 import com.sedmelluq.discord.lavaplayer.source.AudioSourceManagers;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
@@ -48,7 +50,7 @@ import java.util.stream.Collectors;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.LongFunction;
+import java.util.function.LongToIntFunction;
 import java.util.function.LongPredicate;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -60,6 +62,7 @@ public class MusicPlayerService {
     private static final long SPOTIFY_RATE_LIMIT_COOLDOWN_MS = 10 * 60_000L;
     private static final String SPOTIFY_RATE_LIMIT_ERROR_KEY = "SPOTIFY_RATE_LIMITED";
     private static final String SPOTIFY_PLAYLIST_COOLDOWN_ERROR_KEY = "SPOTIFY_PLAYLIST_COOLDOWN";
+    private static final String SPOTIFY_PERSONAL_PLAYLIST_ERROR_KEY = "SPOTIFY_PERSONAL_PLAYLIST_UNSUPPORTED";
     private static final String STRICT_YOUTUBE_PLAYLIST_PREFIX = "https://www.youtube.com/playlist?list=";
     private static final long YOUTUBE_PLAYLIST_CACHE_TTL_MS = 30 * 60_000L;
     private static final int YOUTUBE_PLAYLIST_BATCH_SIZE = 25;
@@ -74,11 +77,11 @@ public class MusicPlayerService {
     private final Map<Long, Long> spotifyRateLimitUserCooldownUntil = new ConcurrentHashMap<>();
     private final Map<Long, Long> spotifyPlaylistCooldownByGuild = new ConcurrentHashMap<>();
     private final Map<String, CachedPlaylistTracks> youtubePlaylistCache = new ConcurrentHashMap<>();
-    private final BotConfig.Music.Youtube youtubeConfig;
-    private final BotConfig.Music.Spotify spotifyConfig;
-    private final int playlistTrackLimit;
-    private final int spotifyPlaylistMaxTracks;
-    private final long spotifyPlaylistLoadCooldownMs;
+    private volatile MusicConfig.Youtube youtubeConfig;
+    private volatile MusicConfig.Spotify spotifyConfig;
+    private volatile int playlistTrackLimit;
+    private volatile int spotifyPlaylistMaxTracks;
+    private volatile long spotifyPlaylistLoadCooldownMs;
     private final boolean spotifySourceEnabled;
     private volatile BiConsumer<Long, PlaybackFailure> playbackFailureListener;
     private volatile LongPredicate autoplayEnabledChecker = guildId -> true;
@@ -88,22 +91,12 @@ public class MusicPlayerService {
 
     @SuppressWarnings("deprecation")
     public MusicPlayerService(Path dataDir,
-                              LongFunction<BotConfig.Music> musicConfigResolver,
-                              BotConfig.Music.Youtube youtubeConfig,
-                              BotConfig.Music.Spotify spotifyConfig) {
-        this.musicDataService = new MusicDataService(dataDir, musicConfigResolver);
-        BotConfig.Music defaultMusicConfig = BotConfig.Music.defaultValues();
-        BotConfig.Music resolvedMusicConfig = musicConfigResolver == null
-                ? defaultMusicConfig
-                : musicConfigResolver.apply(0L);
-        if (resolvedMusicConfig == null) {
-            resolvedMusicConfig = defaultMusicConfig;
-        }
-        this.youtubeConfig = youtubeConfig == null ? BotConfig.Music.Youtube.defaultValues() : youtubeConfig;
-        this.spotifyConfig = spotifyConfig == null ? BotConfig.Music.Spotify.defaultValues() : spotifyConfig;
-        this.playlistTrackLimit = Math.max(1, resolvedMusicConfig.getPlaylistTrackLimit());
-        this.spotifyPlaylistMaxTracks = Math.max(1, this.spotifyConfig.getPlaylistMaxTracks());
-        this.spotifyPlaylistLoadCooldownMs = Math.max(0L, this.spotifyConfig.getPlaylistLoadCooldownSeconds()) * 1000L;
+                              LongToIntFunction historyLimitProvider,
+                              LongToIntFunction statsRetentionDaysProvider,
+                              LongToIntFunction playlistTrackLimitProvider,
+                              MusicConfig globalMusicConfig) {
+        this.musicDataService = new MusicDataService(dataDir, historyLimitProvider, statsRetentionDaysProvider, playlistTrackLimitProvider);
+        applyGlobalMusicConfig(globalMusicConfig == null ? MusicConfig.defaultValues() : globalMusicConfig);
         playerManager = new DefaultAudioPlayerManager();
         configureYouTubePoToken();
         YoutubeAudioSourceManager youtubeSourceManager = createYoutubeSourceManager();
@@ -113,6 +106,24 @@ public class MusicPlayerService {
         AudioSourceManagers.registerLocalSource(playerManager);
         AudioSourceManagers.registerRemoteSources(playerManager,
                 com.sedmelluq.discord.lavaplayer.source.youtube.YoutubeAudioSourceManager.class);
+    }
+
+    public void replaceGuildLimits(LongToIntFunction historyLimitProvider,
+                                   LongToIntFunction statsRetentionDaysProvider,
+                                   LongToIntFunction playlistTrackLimitProvider) {
+        musicDataService.replaceGuildLimits(historyLimitProvider, statsRetentionDaysProvider, playlistTrackLimitProvider);
+    }
+
+    public void replaceGlobalMusicConfig(MusicConfig globalMusicConfig) {
+        applyGlobalMusicConfig(globalMusicConfig == null ? MusicConfig.defaultValues() : globalMusicConfig);
+    }
+
+    private void applyGlobalMusicConfig(MusicConfig config) {
+        this.youtubeConfig = config.getYoutube();
+        this.spotifyConfig = config.getSpotify();
+        this.playlistTrackLimit = Math.max(1, config.getPlaylistTrackLimit());
+        this.spotifyPlaylistMaxTracks = Math.max(1, this.spotifyConfig.getPlaylistMaxTracks());
+        this.spotifyPlaylistLoadCooldownMs = Math.max(0L, this.spotifyConfig.getPlaylistLoadCooldownSeconds()) * 1000L;
     }
 
     private boolean registerSpotifySourceIfConfigured() {
@@ -383,6 +394,7 @@ public class MusicPlayerService {
             GuildMusicManager manager = entry.getValue();
             if (manager != null) {
                 manager.getPlayer().setVolume(musicDataService.getVolume(entry.getKey()));
+                applyPlaybackSpeedFilter(manager, musicDataService.getPlaybackSpeed(entry.getKey()));
             }
         }
     }
@@ -398,6 +410,7 @@ public class MusicPlayerService {
                     (track, exception) -> handleTrackException(id, track, exception)
             );
             manager.getPlayer().setVolume(musicDataService.getVolume(id));
+            applyPlaybackSpeedFilter(manager, musicDataService.getPlaybackSpeed(id));
             guild.getAudioManager().setSendingHandler(manager.getSendHandler());
             return manager;
         });
@@ -441,6 +454,7 @@ public class MusicPlayerService {
     }
 
     public void leaveChannel(Guild guild) {
+        musicDataService.resetPlaybackSpeed(guild.getIdLong());
         guild.getAudioManager().closeAudioConnection();
         notifyStateChanged(guild.getIdLong());
     }
@@ -608,6 +622,10 @@ public class MusicPlayerService {
             @Override
             public void loadFailed(FriendlyException exception) {
                 logLoadFailureDetails("queue/load", userInput, identifier, exception);
+                if (isSpotifyPlaylistUrl(userInput) && isSpotifySecretFailure(exception)) {
+                    messageSender.accept("LOAD_FAILED:" + SPOTIFY_PERSONAL_PLAYLIST_ERROR_KEY);
+                    return;
+                }
                 if (looksLikeSpotifyUrl(userInput) && isSpotifyRateLimited(exception)) {
                     long cooldownUntil = System.currentTimeMillis() + SPOTIFY_RATE_LIMIT_COOLDOWN_MS;
                     spotifyRateLimitGuildCooldownUntil.put(guildId, cooldownUntil);
@@ -658,6 +676,23 @@ public class MusicPlayerService {
                 if (lower.contains("too many requests")
                         || lower.contains("response code from channel info is 429")
                         || lower.contains(" 429")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean isSpotifySecretFailure(FriendlyException exception) {
+        Throwable current = exception;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase();
+                if (lower.contains("failed to retrieve secret")
+                        || lower.contains("no secret found")
+                        || lower.contains("no secret array found")) {
                     return true;
                 }
             }
@@ -788,6 +823,40 @@ public class MusicPlayerService {
         getGuildMusicManager(guild).getPlayer().setVolume(applied);
         notifyStateChanged(guild.getIdLong());
         return applied;
+    }
+
+    public double getPlaybackSpeed(Guild guild) {
+        return musicDataService.getPlaybackSpeed(guild.getIdLong());
+    }
+
+    public double setPlaybackSpeed(Guild guild, double speed) {
+        double applied = musicDataService.setPlaybackSpeed(guild.getIdLong(), speed);
+        applyPlaybackSpeedFilter(getGuildMusicManager(guild), applied);
+        notifyStateChanged(guild.getIdLong());
+        return applied;
+    }
+
+    private void applyPlaybackSpeedFilter(GuildMusicManager manager, double speed) {
+        if (manager == null) {
+            return;
+        }
+        double applied = Math.max(0.5d, Math.min(2.0d, speed));
+        if (Math.abs(applied - 1.0d) < 0.0001d) {
+            manager.getPlayer().setFilterFactory(null);
+            return;
+        }
+        manager.getPlayer().setFilterFactory((track, format, output) -> {
+            int sourceRate = format.sampleRate;
+            int targetRate = Math.max(8000, (int) Math.round(sourceRate * applied));
+            AudioFilter filter = new ResamplingPcmAudioFilter(
+                    playerManager.getConfiguration(),
+                    format.channelCount,
+                    output,
+                    sourceRate,
+                    targetRate
+            );
+            return List.of(filter);
+        });
     }
 
     public String getCurrentAuthor(Guild guild) {
@@ -1621,5 +1690,6 @@ public class MusicPlayerService {
         }
     }
 }
+
 
 
