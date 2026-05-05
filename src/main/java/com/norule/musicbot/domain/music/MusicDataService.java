@@ -206,6 +206,10 @@ public class MusicDataService {
         cache.remove(guildId);
     }
 
+    public void cleanupTransientCaches() {
+        cleanupExpiredPlaylistShares();
+    }
+
     public int getVolume(long guildId) {
         GuildMusicData data = get(guildId);
         synchronized (data) {
@@ -1053,7 +1057,7 @@ public class MusicDataService {
     }
 
     private int clampVolume(int volume) {
-        return Math.max(0, Math.min(200, volume));
+        return Math.max(1, Math.min(100, volume));
     }
 
     private double clampPlaybackSpeed(double speed) {

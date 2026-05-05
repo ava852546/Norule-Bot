@@ -182,6 +182,36 @@ public final class TicketConfig {
         return fromLegacy(BotConfig.Ticket.defaultValues());
     }
 
+    public TicketConfig(BotConfig.Ticket legacy) {
+        this(fromLegacy(legacy));
+    }
+
+    private TicketConfig(TicketConfig value) {
+        this(
+                value.enabled,
+                value.panelChannelId,
+                value.openCategoryId,
+                value.closedCategoryId,
+                value.autoCloseDays,
+                value.maxOpenPerUser,
+                value.openUiMode,
+                value.panelTitle,
+                value.panelDescription,
+                value.panelColor,
+                value.panelButtonStyle,
+                value.panelButtonLimit,
+                value.welcomeMessage,
+                value.preOpenFormEnabled,
+                value.preOpenFormTitle,
+                value.preOpenFormLabel,
+                value.preOpenFormPlaceholder,
+                value.optionLabels,
+                value.options,
+                value.supportRoleIds,
+                value.blacklistedUserIds
+        );
+    }
+
     public static TicketConfig fromLegacy(BotConfig.Ticket legacy) {
         if (legacy == null) {
             return defaultValues();

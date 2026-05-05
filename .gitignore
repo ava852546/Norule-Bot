@@ -36,3 +36,7 @@ index.md
 
 # Local stats database
 /stats/*.db
+
+# Frontend toolchain
+/web/node_modules/
+/web/.vite/

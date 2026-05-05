@@ -129,6 +129,25 @@ public final class MusicConfig {
         return fromLegacy(BotConfig.Music.defaultValues(), BotConfig.Music.defaultValues());
     }
 
+    public MusicConfig(BotConfig.Music scoped, BotConfig.Music global) {
+        this(fromLegacy(scoped, global));
+    }
+
+    private MusicConfig(MusicConfig value) {
+        this(
+                value.autoLeaveEnabled,
+                value.autoLeaveMinutes,
+                value.autoplayEnabled,
+                value.defaultRepeatMode,
+                value.commandChannelId,
+                value.historyLimit,
+                value.statsRetentionDays,
+                value.playlistTrackLimit,
+                value.youtube,
+                value.spotify
+        );
+    }
+
     public static MusicConfig fromLegacy(BotConfig.Music scoped, BotConfig.Music global) {
         BotConfig.Music scopedValue = scoped == null ? BotConfig.Music.defaultValues() : scoped;
         BotConfig.Music globalValue = global == null ? BotConfig.Music.defaultValues() : global;

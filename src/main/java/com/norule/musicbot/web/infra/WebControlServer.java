@@ -6,6 +6,7 @@ import com.norule.musicbot.i18n.*;
 import com.norule.musicbot.*;
 import com.norule.musicbot.web.adapter.DiscordOAuthClient;
 import com.norule.musicbot.web.controller.GuildSettingsController;
+import com.norule.musicbot.web.controller.ShortUrlController;
 import com.norule.musicbot.web.controller.TicketTranscriptController;
 import com.norule.musicbot.web.controller.WebAuthController;
 import com.norule.musicbot.web.controller.WebMetadataController;
@@ -88,8 +89,10 @@ import java.util.regex.Pattern;
     private final DiscordOAuthClient discordOAuthClient = new DiscordOAuthClient();
     private final GuildSettingsController guildSettingsController;
     private final TicketTranscriptController ticketTranscriptController;
+    private final ShortUrlController shortUrlController;
     private final WelcomePreviewService welcomePreviewService;
     private final WebRouteBinder webRouteBinder;
+    private final ShortUrlService shortUrlService;
     private final String webAssetVersion = String.valueOf(System.currentTimeMillis());
 
     private volatile HttpServer server;
@@ -100,6 +103,7 @@ import java.util.regex.Pattern;
                             GuildSettingsService settingsService,
                             ModerationService moderationService,
                             TicketService ticketService,
+                            ShortUrlService shortUrlService,
                             Supplier<WebSettings> settingsSupplier,
                             Supplier<String> languageDirSupplier,
                             I18nService i18n) {
@@ -108,6 +112,10 @@ import java.util.regex.Pattern;
         this.settingsService = settingsService;
         this.moderationService = moderationService;
         this.ticketService = ticketService;
+        if (shortUrlService == null) {
+            throw new IllegalArgumentException("shortUrlService cannot be null");
+        }
+        this.shortUrlService = shortUrlService;
         this.settingsSupplier = settingsSupplier;
         this.languageDirSupplier = languageDirSupplier;
         this.i18n = i18n;
@@ -117,11 +125,13 @@ import java.util.regex.Pattern;
         this.webLanguageService = new WebLanguageService(this::languageDir);
         this.guildSettingsController = new GuildSettingsController(this);
         this.ticketTranscriptController = new TicketTranscriptController(this);
+        this.shortUrlController = new ShortUrlController(this);
         this.welcomePreviewService = new WelcomePreviewService(this);
         this.webRouteBinder = new WebRouteBinder(
                 webAuthController,
                 webMetadataController,
                 guildSettingsController,
+                shortUrlController,
                 webStaticAssetController
         );
         cleanupExecutor.scheduleAtFixedRate(sessionManager::cleanupExpired, 5, 5, TimeUnit.MINUTES);
@@ -365,7 +375,7 @@ import java.util.regex.Pattern;
     public WebSettings webSettings() {
         WebSettings settings = settingsSupplier.get();
         if (settings == null) {
-            return new WebSettings(false, "0.0.0.0", 60000, "http://localhost:60000", 720, "", "", "",
+            return new WebSettings(false, "0.0.0.0", 60000, "https://dash.example.com", 720, "", "", "",
                     new WebSettings.WebSslSettings(false, "certs", "privkey.pem", "fullchain.pem", "web-keystore.p12", "", "PKCS12", ""));
         }
         return settings;
@@ -392,6 +402,9 @@ import java.util.regex.Pattern;
     }
     public TicketTranscriptController ticketTranscriptController() {
         return ticketTranscriptController;
+    }
+    public ShortUrlService shortUrlService() {
+        return shortUrlService;
     }
     public WelcomePreviewService welcomePreviewService() {
         return welcomePreviewService;

@@ -1,7 +1,7 @@
 lang: "English"
 titleMain: "NoRule Bot Web Console"
 subtitleMain: "Sign in with Discord. Manage your guild settings from the web."
-langLabel: "Website Language / UI Language"
+langLabel: "網站語言 / UI Language"
 langZhBtn: "中文"
 langEnBtn: "ENG"
 loginBtn: "Sign in with Discord"

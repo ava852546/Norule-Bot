@@ -63,7 +63,16 @@ public class TicketService {
     private static final String PANEL_CHANNEL_SELECT_PREFIX = "ticket_panel_channel_";
     private static final String BLACKLIST_ADD_SELECT_PREFIX = "ticket_blacklist_add_";
     private static final String BLACKLIST_REMOVE_SELECT_PREFIX = "ticket_blacklist_remove_";
+    private static final String ACTION_SELECT_PREFIX = "ticket_action_select_";
     private static final String LIMIT_MODAL_ID = "ticket_limit_modal";
+    private static final String ACTION_ENABLE = "enable";
+    private static final String ACTION_STATUS = "status";
+    private static final String ACTION_PANEL = "panel";
+    private static final String ACTION_CLOSE = "close";
+    private static final String ACTION_LIMIT = "limit";
+    private static final String ACTION_BLACKLIST_ADD = "blacklist-add";
+    private static final String ACTION_BLACKLIST_REMOVE = "blacklist-remove";
+    private static final String ACTION_BLACKLIST_LIST = "blacklist-list";
     private static final Set<String> LEGACY_DEFAULT_TICKET_LABELS = new HashSet<>(Arrays.asList(
             "general",
             "open ticket",
@@ -126,10 +135,10 @@ public class TicketService {
             sub = event.getOption("action").getAsString();
         }
         if (sub == null) {
-            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            openActionMenu(event, lang);
             return;
         }
-        if ("enable".equals(sub)) {
+        if (ACTION_ENABLE.equals(sub)) {
             if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
                 event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
                         .setEphemeral(true)
@@ -143,28 +152,33 @@ public class TicketService {
                     .queue();
             return;
         }
-        if ("status".equals(sub)) {
+        if (ACTION_STATUS.equals(sub)) {
             if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
                 event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
                         .setEphemeral(true)
                         .queue();
                 return;
             }
-            TicketConfig cfg = configAdapter.getTicket(event.getGuild().getIdLong());
-            String panelChannel = cfg.getPanelChannelId() == null
-                    ? i18n.t(lang, "settings.info_channels_none")
-                    : "<#" + cfg.getPanelChannelId() + ">";
-            event.reply(i18n.t(lang, "ticket.result_status", Map.of(
-                            "status", boolText(lang, cfg.isEnabled()),
-                            "channel", panelChannel,
-                            "limit", String.valueOf(cfg.getMaxOpenPerUser()),
-                            "blacklist", String.valueOf(cfg.getBlacklistedUserIds().size())
-                    )))
-                    .setEphemeral(true)
-                    .queue();
+            event.deferReply(true).queue(
+                    hook -> {
+                        TicketConfig cfg = configAdapter.getTicket(event.getGuild().getIdLong());
+                        String panelChannel = cfg.getPanelChannelId() == null
+                                ? i18n.t(lang, "settings.info_channels_none")
+                                : "<#" + cfg.getPanelChannelId() + ">";
+                        hook.sendMessage(i18n.t(lang, "ticket.result_status", Map.of(
+                                        "status", boolText(lang, cfg.isEnabled()),
+                                        "channel", panelChannel,
+                                        "limit", String.valueOf(cfg.getMaxOpenPerUser()),
+                                        "blacklist", String.valueOf(cfg.getBlacklistedUserIds().size())
+                                )))
+                                .queue();
+                    },
+                    error -> {
+                    }
+            );
             return;
         }
-        if ("panel".equals(sub)) {
+        if (ACTION_PANEL.equals(sub)) {
             if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
                 event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
                         .setEphemeral(true)
@@ -179,7 +193,7 @@ public class TicketService {
             openPanelChannelPicker(event, lang);
             return;
         }
-        if ("close".equals(sub)) {
+        if (ACTION_CLOSE.equals(sub)) {
             if (event.getChannelType() != ChannelType.TEXT) {
                 event.reply(i18n.t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
                 return;
@@ -205,7 +219,7 @@ public class TicketService {
             event.replyModal(modal).queue();
             return;
         }
-        if ("limit".equals(sub)) {
+        if (ACTION_LIMIT.equals(sub)) {
             if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
                 event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
                         .setEphemeral(true)
@@ -215,7 +229,7 @@ public class TicketService {
             event.replyModal(buildLimitModal(lang, configAdapter.getTicket(event.getGuild().getIdLong()).getMaxOpenPerUser())).queue();
             return;
         }
-        if ("blacklist-add".equals(sub)) {
+        if (ACTION_BLACKLIST_ADD.equals(sub)) {
             if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
                 event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
                         .setEphemeral(true)
@@ -225,7 +239,7 @@ public class TicketService {
             openBlacklistUserPicker(event, BLACKLIST_ADD_SELECT_PREFIX, lang, "ticket.blacklist_add_prompt");
             return;
         }
-        if ("blacklist-remove".equals(sub)) {
+        if (ACTION_BLACKLIST_REMOVE.equals(sub)) {
             if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
                 event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
                         .setEphemeral(true)
@@ -235,7 +249,7 @@ public class TicketService {
             openBlacklistUserPicker(event, BLACKLIST_REMOVE_SELECT_PREFIX, lang, "ticket.blacklist_remove_prompt");
             return;
         }
-        if ("blacklist-list".equals(sub)) {
+        if (ACTION_BLACKLIST_LIST.equals(sub)) {
             if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
                 event.reply(i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
                         .setEphemeral(true)
@@ -401,12 +415,16 @@ public class TicketService {
         }
     }
 
-        public void onStringSelectInteraction(StringSelectInteractionEvent event) {
+    public void onStringSelectInteraction(StringSelectInteractionEvent event) {
         if (event.getGuild() == null) {
             return;
         }
         String lang = configAdapter.getLanguage(event.getGuild().getIdLong());
         String id = normalizeTicketInteractionId(event.getComponentId());
+        if (id.startsWith(ACTION_SELECT_PREFIX)) {
+            handleActionMenuSelect(event, lang);
+            return;
+        }
         if (OPEN_PANEL_SELECT_ID.equals(id)) {
             TicketConfig cfg = configAdapter.getTicket(event.getGuild().getIdLong());
             if (!cfg.isEnabled()) {
@@ -451,7 +469,7 @@ public class TicketService {
         beginOpenFlow(event, option, lang);
     }
 
-        public void onEntitySelectInteraction(EntitySelectInteractionEvent event) {
+    public void onEntitySelectInteraction(EntitySelectInteractionEvent event) {
         if (event.getGuild() == null) {
             return;
         }
@@ -464,6 +482,203 @@ public class TicketService {
         if (id.startsWith(BLACKLIST_ADD_SELECT_PREFIX) || id.startsWith(BLACKLIST_REMOVE_SELECT_PREFIX)) {
             handleBlacklistUserSelect(event, lang);
         }
+    }
+
+    private void openActionMenu(SlashCommandInteractionEvent event, String lang) {
+        String token = UUID.randomUUID().toString().replace("-", "");
+        manageRequests.put(token, new ManageRequest(
+                event.getUser().getIdLong(),
+                event.getGuild().getIdLong(),
+                System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(3)
+        ));
+        event.replyEmbeds(new EmbedBuilder()
+                        .setColor(new Color(52, 152, 219))
+                        .setTitle(i18n.t(lang, "ticket.action_menu_title"))
+                        .setDescription(i18n.t(lang, "ticket.action_menu_desc"))
+                        .build())
+                .addComponents(ActionRow.of(buildTicketActionMenu(token, lang)))
+                .setEphemeral(true)
+                .queue();
+    }
+
+    private StringSelectMenu buildTicketActionMenu(String token, String lang) {
+        return StringSelectMenu.create(ACTION_SELECT_PREFIX + token)
+                .setPlaceholder(i18n.t(lang, "ticket.action_menu_placeholder"))
+                .setRequiredRange(1, 1)
+                .addOptions(
+                        SelectOption.of(ticketActionLabel(lang, ACTION_ENABLE), ACTION_ENABLE)
+                                .withDescription(i18n.t(lang, "ticket.action_enable_desc")),
+                        SelectOption.of(ticketActionLabel(lang, ACTION_STATUS), ACTION_STATUS)
+                                .withDescription(i18n.t(lang, "ticket.action_status_desc")),
+                        SelectOption.of(ticketActionLabel(lang, ACTION_PANEL), ACTION_PANEL)
+                                .withDescription(i18n.t(lang, "ticket.action_panel_desc")),
+                        SelectOption.of(ticketActionLabel(lang, ACTION_CLOSE), ACTION_CLOSE)
+                                .withDescription(i18n.t(lang, "ticket.action_close_desc")),
+                        SelectOption.of(ticketActionLabel(lang, ACTION_LIMIT), ACTION_LIMIT)
+                                .withDescription(i18n.t(lang, "ticket.action_limit_desc")),
+                        SelectOption.of(ticketActionLabel(lang, ACTION_BLACKLIST_ADD), ACTION_BLACKLIST_ADD)
+                                .withDescription(i18n.t(lang, "ticket.action_blacklist_add_desc")),
+                        SelectOption.of(ticketActionLabel(lang, ACTION_BLACKLIST_REMOVE), ACTION_BLACKLIST_REMOVE)
+                                .withDescription(i18n.t(lang, "ticket.action_blacklist_remove_desc")),
+                        SelectOption.of(ticketActionLabel(lang, ACTION_BLACKLIST_LIST), ACTION_BLACKLIST_LIST)
+                                .withDescription(i18n.t(lang, "ticket.action_blacklist_list_desc"))
+                )
+                .build();
+    }
+
+    private void handleActionMenuSelect(StringSelectInteractionEvent event, String lang) {
+        String componentId = event.getComponentId() == null ? "" : event.getComponentId();
+        String token = componentId.substring(ACTION_SELECT_PREFIX.length());
+        ManageRequest request = validateManageRequest(event, token, lang);
+        if (request == null) {
+            return;
+        }
+        String action = event.getValues().isEmpty() ? "" : event.getValues().get(0);
+        if (ACTION_ENABLE.equals(action)) {
+            if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
+                event.editMessageEmbeds(actionResultEmbed(lang,
+                                i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())),
+                                new Color(231, 76, 60)).build())
+                        .setComponents()
+                        .queue();
+                return;
+            }
+            boolean enabled = !configAdapter.getTicket(event.getGuild().getIdLong()).isEnabled();
+            configAdapter.updateTicket(event.getGuild().getIdLong(), cfg -> cfg.withEnabled(enabled));
+            event.editMessageEmbeds(actionResultEmbed(lang,
+                            i18n.t(lang, "ticket.result_set_enabled", Map.of("status", boolText(lang, enabled))),
+                            new Color(46, 204, 113)).build())
+                    .setComponents()
+                    .queue();
+            return;
+        }
+        if (ACTION_STATUS.equals(action)) {
+            TicketConfig cfg = configAdapter.getTicket(event.getGuild().getIdLong());
+            String panelChannel = cfg.getPanelChannelId() == null
+                    ? i18n.t(lang, "settings.info_channels_none")
+                    : "<#" + cfg.getPanelChannelId() + ">";
+            event.editMessageEmbeds(actionResultEmbed(lang,
+                            i18n.t(lang, "ticket.result_status", Map.of(
+                                    "status", boolText(lang, cfg.isEnabled()),
+                                    "channel", panelChannel,
+                                    "limit", String.valueOf(cfg.getMaxOpenPerUser()),
+                                    "blacklist", String.valueOf(cfg.getBlacklistedUserIds().size())
+                            )),
+                            new Color(52, 152, 219)).build())
+                    .setComponents()
+                    .queue();
+            return;
+        }
+        if (ACTION_PANEL.equals(action)) {
+            if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
+                event.editMessageEmbeds(actionResultEmbed(lang,
+                                i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())),
+                                new Color(231, 76, 60)).build())
+                        .setComponents()
+                        .queue();
+                return;
+            }
+            TicketConfig cfg = configAdapter.getTicket(event.getGuild().getIdLong());
+            if (!cfg.isEnabled()) {
+                event.editMessageEmbeds(actionResultEmbed(lang, i18n.t(lang, "ticket.disabled"), new Color(231, 76, 60)).build())
+                        .setComponents()
+                        .queue();
+                return;
+            }
+            openPanelChannelPicker(event, lang);
+            return;
+        }
+        if (ACTION_CLOSE.equals(action)) {
+            if (event.getChannelType() != ChannelType.TEXT) {
+                event.editMessageEmbeds(actionResultEmbed(lang, i18n.t(lang, "settings.validation_expected_text_channel"), new Color(231, 76, 60)).build())
+                        .setComponents()
+                        .queue();
+                return;
+            }
+            TextChannel channel = event.getChannel().asTextChannel();
+            com.norule.musicbot.TicketService.TicketRecord record = ticketService.getTicket(event.getGuild().getIdLong(), channel.getIdLong());
+            if (record == null || record.isClosed()) {
+                event.editMessageEmbeds(actionResultEmbed(lang, i18n.t(lang, "ticket.not_ticket_channel"), new Color(231, 76, 60)).build())
+                        .setComponents()
+                        .queue();
+                return;
+            }
+            if (!canCloseTicket(event.getMember(), record)) {
+                event.editMessageEmbeds(actionResultEmbed(lang, i18n.t(lang, "ticket.close_no_permission"), new Color(231, 76, 60)).build())
+                        .setComponents()
+                        .queue();
+                return;
+            }
+            TextInput reasonInput = TextInput.create("reason", TextInputStyle.PARAGRAPH)
+                    .setRequired(false)
+                    .setPlaceholder(i18n.t(lang, "ticket.close_reason_placeholder"))
+                    .setMaxLength(500)
+                    .build();
+            Modal modal = Modal.create(CLOSE_MODAL_PREFIX + channel.getId(), i18n.t(lang, "ticket.close_modal_title"))
+                    .addComponents(Label.of(i18n.t(lang, "ticket.close_modal_label"), reasonInput))
+                    .build();
+            event.replyModal(modal).queue();
+            return;
+        }
+        if (ACTION_LIMIT.equals(action)) {
+            if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
+                event.editMessageEmbeds(actionResultEmbed(lang,
+                                i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())),
+                                new Color(231, 76, 60)).build())
+                        .setComponents()
+                        .queue();
+                return;
+            }
+            event.replyModal(buildLimitModal(lang, configAdapter.getTicket(event.getGuild().getIdLong()).getMaxOpenPerUser())).queue();
+            return;
+        }
+        if (ACTION_BLACKLIST_ADD.equals(action)) {
+            if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
+                event.editMessageEmbeds(actionResultEmbed(lang,
+                                i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())),
+                                new Color(231, 76, 60)).build())
+                        .setComponents()
+                        .queue();
+                return;
+            }
+            openBlacklistUserPicker(event, BLACKLIST_ADD_SELECT_PREFIX, lang, "ticket.blacklist_add_prompt");
+            return;
+        }
+        if (ACTION_BLACKLIST_REMOVE.equals(action)) {
+            if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
+                event.editMessageEmbeds(actionResultEmbed(lang,
+                                i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())),
+                                new Color(231, 76, 60)).build())
+                        .setComponents()
+                        .queue();
+                return;
+            }
+            openBlacklistUserPicker(event, BLACKLIST_REMOVE_SELECT_PREFIX, lang, "ticket.blacklist_remove_prompt");
+            return;
+        }
+        if (ACTION_BLACKLIST_LIST.equals(action)) {
+            if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
+                event.editMessageEmbeds(actionResultEmbed(lang,
+                                i18n.t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())),
+                                new Color(231, 76, 60)).build())
+                        .setComponents()
+                        .queue();
+                return;
+            }
+            List<Long> blacklist = configAdapter.getTicket(event.getGuild().getIdLong()).getBlacklistedUserIds();
+            String message = blacklist.isEmpty()
+                    ? i18n.t(lang, "ticket.blacklist_empty")
+                    : i18n.t(lang, "ticket.blacklist_list", Map.of(
+                    "users", blacklist.stream().map(id -> "<@" + id + ">").reduce((a, b) -> a + ", " + b).orElse("-")
+            ));
+            event.editMessageEmbeds(actionResultEmbed(lang, message, new Color(52, 152, 219)).build())
+                    .setComponents()
+                    .queue();
+            return;
+        }
+        event.editMessageEmbeds(actionResultEmbed(lang, i18n.t(lang, "general.unknown_command"), new Color(231, 76, 60)).build())
+                .setComponents()
+                .queue();
     }
 
     private List<TicketConfig.TicketOption> resolveTicketOptions(TicketConfig cfg, String lang) {
@@ -670,6 +885,27 @@ public class TicketService {
                 .queue();
     }
 
+    private void openPanelChannelPicker(StringSelectInteractionEvent event, String lang) {
+        String token = UUID.randomUUID().toString().replace("-", "");
+        manageRequests.put(token, new ManageRequest(
+                event.getUser().getIdLong(),
+                event.getGuild().getIdLong(),
+                System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(3)
+        ));
+        EntitySelectMenu channelMenu = EntitySelectMenu.create(PANEL_CHANNEL_SELECT_PREFIX + token, EntitySelectMenu.SelectTarget.CHANNEL)
+                .setChannelTypes(ChannelType.TEXT)
+                .setPlaceholder(i18n.t(lang, "ticket.panel_channel_placeholder"))
+                .setRequiredRange(1, 1)
+                .build();
+        event.editMessageEmbeds(new EmbedBuilder()
+                        .setColor(new Color(52, 152, 219))
+                        .setTitle(i18n.t(lang, "ticket.panel_channel_title"))
+                        .setDescription(i18n.t(lang, "ticket.panel_channel_desc"))
+                        .build())
+                .setComponents(ActionRow.of(channelMenu))
+                .queue();
+    }
+
     private void openBlacklistUserPicker(SlashCommandInteractionEvent event, String prefix, String lang, String promptKey) {
         String token = UUID.randomUUID().toString().replace("-", "");
         manageRequests.put(token, new ManageRequest(
@@ -688,6 +924,26 @@ public class TicketService {
                         .build())
                 .addComponents(ActionRow.of(userMenu))
                 .setEphemeral(true)
+                .queue();
+    }
+
+    private void openBlacklistUserPicker(StringSelectInteractionEvent event, String prefix, String lang, String promptKey) {
+        String token = UUID.randomUUID().toString().replace("-", "");
+        manageRequests.put(token, new ManageRequest(
+                event.getUser().getIdLong(),
+                event.getGuild().getIdLong(),
+                System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(3)
+        ));
+        EntitySelectMenu userMenu = EntitySelectMenu.create(prefix + token, EntitySelectMenu.SelectTarget.USER)
+                .setPlaceholder(i18n.t(lang, "ticket.blacklist_user_placeholder"))
+                .setRequiredRange(1, 1)
+                .build();
+        event.editMessageEmbeds(new EmbedBuilder()
+                        .setColor(new Color(230, 126, 34))
+                        .setTitle(i18n.t(lang, promptKey))
+                        .setDescription(i18n.t(lang, "ticket.blacklist_select_desc"))
+                        .build())
+                .setComponents(ActionRow.of(userMenu))
                 .queue();
     }
 
@@ -805,6 +1061,42 @@ public class TicketService {
             return null;
         }
         return request;
+    }
+
+    private ManageRequest validateManageRequest(StringSelectInteractionEvent event, String token, String lang) {
+        ManageRequest request = manageRequests.remove(token);
+        if (request == null || request.guildId != event.getGuild().getIdLong() || request.userId != event.getUser().getIdLong()) {
+            event.reply(i18n.t(lang, "ticket.request_expired")).setEphemeral(true).queue();
+            return null;
+        }
+        if (request.expiresAtMillis < System.currentTimeMillis()) {
+            event.reply(i18n.t(lang, "ticket.request_expired")).setEphemeral(true).queue();
+            return null;
+        }
+        return request;
+    }
+
+    private EmbedBuilder actionResultEmbed(String lang, String message, Color color) {
+        return new EmbedBuilder()
+                .setColor(color)
+                .setTitle(i18n.t(lang, "ticket.action_menu_title"))
+                .setDescription(message);
+    }
+
+    private String ticketActionLabel(String lang, String action) {
+        boolean zhCn = "zh-CN".equalsIgnoreCase(lang);
+        boolean zh = lang != null && lang.toLowerCase().startsWith("zh");
+        return switch (action) {
+            case ACTION_ENABLE -> zh ? "\u555f\u7528/\u505c\u7528" : "Enable/Disable";
+            case ACTION_STATUS -> zh ? "\u72c0\u614b" : "Status";
+            case ACTION_PANEL -> zh ? "\u767c\u9001\u9762\u677f" : "Send Panel";
+            case ACTION_CLOSE -> zh ? (zhCn ? "\u5173\u95ed\u5f53\u524d\u5de5\u5355" : "\u95dc\u9589\u76ee\u524d\u5ba2\u670d\u55ae") : "Close Current Ticket";
+            case ACTION_LIMIT -> zh ? (zhCn ? "\u8bbe\u5b9a\u5de5\u5355\u4e0a\u9650" : "\u8a2d\u5b9a\u5ba2\u670d\u55ae\u4e0a\u9650") : "Set Ticket Limit";
+            case ACTION_BLACKLIST_ADD -> zh ? (zhCn ? "\u9ed1\u540d\u5355\u65b0\u589e" : "\u9ed1\u540d\u55ae\u65b0\u589e") : "Blacklist Add";
+            case ACTION_BLACKLIST_REMOVE -> zh ? (zhCn ? "\u9ed1\u540d\u5355\u79fb\u9664" : "\u9ed1\u540d\u55ae\u79fb\u9664") : "Blacklist Remove";
+            case ACTION_BLACKLIST_LIST -> zh ? (zhCn ? "\u9ed1\u540d\u5355\u5217\u8868" : "\u9ed1\u540d\u55ae\u5217\u8868") : "Blacklist List";
+            default -> action;
+        };
     }
 
     private Modal buildLimitModal(String lang, int currentValue) {
@@ -1305,16 +1597,6 @@ public class TicketService {
         }
     }
 
-    private String normalizeTicketInteractionId(String rawId) {
-        if (rawId == null) {
-            return "";
-        }
-        if (rawId.startsWith("ticket:")) {
-            return rawId.replace(':', '_');
-        }
-        return rawId;
-    }
-
     private TicketCategoryPair ensureTicketCategories(Guild guild, String lang) {
         TicketConfig cfg = configAdapter.getTicket(guild.getIdLong());
         Long openCategoryId = cfg.getOpenCategoryId();
@@ -1422,6 +1704,16 @@ public class TicketService {
             value = value.substring(0, value.length() - 1);
         }
         return value.isBlank() ? "user" : value;
+    }
+
+    private String normalizeTicketInteractionId(String rawId) {
+        if (rawId == null) {
+            return "";
+        }
+        if (rawId.startsWith("ticket:")) {
+            return rawId.replace(':', '_');
+        }
+        return rawId;
     }
 
     private boolean isBlacklisted(TicketConfig cfg, long userId) {

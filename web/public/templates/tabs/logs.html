@@ -1,0 +1,54 @@
+<div class="tab-pane" data-pane="logs">
+  <div class="pane-head">
+    <h3 data-i18n="section_logs">Log Settings</h3>
+    <div class="pane-head-actions">
+      <button id="resetLogsBtn" class="danger reset-btn" type="button" data-i18n="resetSectionBtn">Reset Section</button>
+    </div>
+  </div>
+  <div class="module-shell">
+    <div class="settings-group">
+      <div class="settings-group-title" data-i18n="section_logs">Log Settings</div>
+      <div class="grid3 module-settings-grid">
+        <div class="toggle"><input type="checkbox" id="l_enabled"><label for="l_enabled" data-i18n="l_enabled">enabled</label></div>
+        <div class="toggle"><input type="checkbox" id="l_roleLogEnabled"><label for="l_roleLogEnabled" data-i18n="l_roleLogEnabled">roleLogEnabled</label></div>
+        <div class="toggle"><input type="checkbox" id="l_channelLifecycleLogEnabled"><label for="l_channelLifecycleLogEnabled" data-i18n="l_channelLifecycleLogEnabled">channelLifecycleLogEnabled</label></div>
+        <div class="toggle"><input type="checkbox" id="l_moderationLogEnabled"><label for="l_moderationLogEnabled" data-i18n="l_moderationLogEnabled">moderationLogEnabled</label></div>
+        <div class="toggle"><input type="checkbox" id="l_commandUsageLogEnabled"><label for="l_commandUsageLogEnabled" data-i18n="l_commandUsageLogEnabled">commandUsageLogEnabled</label></div>
+      </div>
+      <div class="grid3">
+        <div class="field"><label data-i18n="l_channelId">channelId (default)</label><select id="l_channelId"></select></div>
+        <div class="field"><label data-i18n="l_messageLogChannelId">messageLogChannelId</label><select id="l_messageLogChannelId"></select></div>
+        <div class="field"><label data-i18n="l_commandUsageChannelId">commandUsageChannelId</label><select id="l_commandUsageChannelId"></select></div>
+        <div class="field"><label data-i18n="l_channelLifecycleChannelId">channelLifecycleChannelId</label><select id="l_channelLifecycleChannelId"></select></div>
+        <div class="field"><label data-i18n="l_roleLogChannelId">roleLogChannelId</label><select id="l_roleLogChannelId"></select></div>
+        <div class="field"><label data-i18n="l_moderationLogChannelId">moderationLogChannelId</label><select id="l_moderationLogChannelId"></select></div>
+      </div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-title" data-i18n="logs_ignore_group_title">Log Ignore</div>
+      <div class="welcome-lead" data-i18n="logs_ignore_group_lead">Skip logs for matching users, roles, channels, or command prefixes.</div>
+      <div class="grid2 module-settings-grid">
+        <div class="field">
+          <label data-i18n="l_ignoredMemberIds">Ignored member IDs</label>
+          <input type="text" id="l_ignoredMemberIds">
+          <div class="keyhint" data-i18n="l_ignoredMemberIds_hint">Enter user IDs separated by commas.</div>
+        </div>
+        <div class="field">
+          <label data-i18n="l_ignoredRoleIds">Ignored role IDs</label>
+          <input type="text" id="l_ignoredRoleIds">
+          <div class="keyhint" data-i18n="l_ignoredRoleIds_hint">Enter role IDs separated by commas.</div>
+        </div>
+        <div class="field">
+          <label data-i18n="l_ignoredChannelIds">Ignored channel IDs</label>
+          <input type="text" id="l_ignoredChannelIds">
+          <div class="keyhint" data-i18n="l_ignoredChannelIds_hint">Enter channel IDs separated by commas.</div>
+        </div>
+        <div class="field">
+          <label data-i18n="l_ignoredPrefixes">Ignored prefixes</label>
+          <input type="text" id="l_ignoredPrefixes">
+          <div class="keyhint" data-i18n="l_ignoredPrefixes_hint">Enter prefixes separated by commas.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

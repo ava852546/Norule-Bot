@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-TW" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>短網址</title>
+  <link rel="stylesheet" href="/web/app.css">
+  <script>
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
+      darkMode: ['class'],
+      corePlugins: { preflight: false }
+    };
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+<div class="page-frame page-shell">
+  <main class="console-shell">
+    <section class="console-row">
+      <article class="card p-6 sm:p-8 flex flex-col gap-5">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div id="shortUrlKicker" class="section-kicker m-0">NoRule URL</div>
+          <label class="inline-flex items-center gap-2 text-sm text-[var(--muted)]">
+            <span id="uiLangLabel">語言</span>
+            <select id="uiLangSelect" class="w-auto min-h-[40px] rounded-xl px-3 py-2 text-sm">
+              <option value="zh-TW">繁體中文</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+        </div>
+        <h1 id="shortUrlTitle" class="text-3xl sm:text-4xl font-bold mb-1 tracking-tight">短網址</h1>
+        <p id="shortUrlSubtitle" class="muted m-0">建立短連結並立即分享。</p>
+
+        <form id="shortUrlForm" class="grid gap-3 mt-2">
+          <label class="field">
+            <span id="targetUrlLabel">目標網址</span>
+            <input id="targetUrl" name="url" type="url" placeholder="https://example.com/path" required />
+          </label>
+          <label class="field">
+            <span id="customCodeLabel">自訂代碼（選填）</span>
+            <input id="customCode" name="code" type="text" placeholder="my-link" maxlength="63" />
+          </label>
+          <button id="createShortUrlBtn" type="submit" class="primary w-full sm:w-auto">建立短網址</button>
+        </form>
+
+        <p id="errorText" class="hidden text-sm text-red-300 m-0"></p>
+
+        <section id="resultCard" class="settings-group hidden">
+          <h3 id="resultTitle" class="settings-group-title mb-2">結果</h3>
+          <div class="grid gap-3">
+            <a id="resultUrl" class="text-cyan-200 break-all hover:underline" href="#" target="_blank" rel="noreferrer noopener"></a>
+            <p class="muted m-0 break-all"><span id="resultTargetLabel">目標</span>: <span id="resultTarget"></span></p>
+            <div class="row">
+              <button
+                id="copyShortUrlBtn"
+                type="button"
+                class="primary inline-flex items-center justify-center min-h-[54px] px-6 rounded-[18px] text-base leading-[1.3] whitespace-nowrap"
+              >複製</button>
+            </div>
+          </div>
+        </section>
+      </article>
+    </section>
+  </main>
+</div>
+<script type="module" src="/web/short-url.js"></script>
+</body>
+</html>

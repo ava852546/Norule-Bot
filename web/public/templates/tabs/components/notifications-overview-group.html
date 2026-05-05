@@ -1,0 +1,24 @@
+﻿<div class="welcome-shell">
+  <div class="settings-group">
+    <div id="notifications_message_card_title" class="settings-group-title" data-i18n="notifications_message_card_title">Notification Settings</div>
+    <div id="notifications_message_lead" class="welcome-lead" data-i18n="notifications_message_lead">Configure member and voice notification channels, templates, and embed styles.</div>
+    <div class="notification-toggle-stack">
+      <div class="grid2">
+        <div class="toggle"><input type="checkbox" id="n_enabled"><label for="n_enabled" data-i18n="n_enabled">enabled</label></div>
+        <div class="toggle"><input type="checkbox" id="n_voiceLogEnabled"><label for="n_voiceLogEnabled" data-i18n="n_voiceLogEnabled">voiceLogEnabled</label></div>
+        <div class="toggle"><input type="checkbox" id="n_memberJoinEnabled"><label for="n_memberJoinEnabled" data-i18n="n_memberJoinEnabled">memberJoinEnabled</label></div>
+        <div class="toggle"><input type="checkbox" id="n_memberLeaveEnabled"><label for="n_memberLeaveEnabled" data-i18n="n_memberLeaveEnabled">memberLeaveEnabled</label></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label data-i18n="n_memberChannelId">memberChannelId</label><select id="n_memberChannelId"></select></div>
+        <div class="field"><label data-i18n="n_voiceChannelId">voiceChannelId</label><select id="n_voiceChannelId"></select></div>
+        <div class="field"><label data-i18n="n_memberJoinChannelId">memberJoinChannelId</label><select id="n_memberJoinChannelId"></select></div>
+        <div class="field"><label data-i18n="n_memberLeaveChannelId">memberLeaveChannelId</label><select id="n_memberLeaveChannelId"></select></div>
+      </div>
+    </div>
+    <div class="welcome-compact-actions">
+      <button id="resetNotificationsBtn" class="danger reset-btn" type="button" data-i18n="resetSectionBtn">Reset Section</button>
+      <button id="openNotificationEditorBtn" class="warn" type="button" data-i18n="openNotificationEditorBtn">Configure Notification Embeds</button>
+    </div>
+  </div>
+</div>

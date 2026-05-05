@@ -23,11 +23,11 @@ public final class GuildDomainConfigAdapter {
     }
 
     public TicketConfig getTicket(long guildId) {
-        return TicketConfig.fromLegacy(settingsService.getTicket(guildId));
+        return new TicketConfig(settingsService.getTicket(guildId));
     }
 
     public MusicConfig getMusic(long guildId) {
-        return MusicConfig.fromLegacy(settingsService.getMusic(guildId), globalMusic);
+        return new MusicConfig(settingsService.getMusic(guildId), globalMusic);
     }
 
     public int getMusicHistoryLimit(long guildId) {
@@ -44,7 +44,7 @@ public final class GuildDomainConfigAdapter {
 
     public void updateTicket(long guildId, UnaryOperator<TicketConfig> updater) {
         settingsService.updateSettings(guildId, s -> {
-            TicketConfig current = TicketConfig.fromLegacy(s.getTicket());
+            TicketConfig current = new TicketConfig(s.getTicket());
             TicketConfig updated = updater.apply(current);
             return s.withTicket(updated.toLegacy());
         });

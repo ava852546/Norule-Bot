@@ -148,8 +148,8 @@ help:
     `/跳過`、`/停止`、`/離開`、`/循環`
 
     音量與資訊
-    `/volume value:<0-200>`、`/history`、`/music stats`
-    `/音量 value:<0-200>`、`/播放歷史`、`/音樂 統計`
+    `/volume value:<1-100>`、`/history`、`/music stats`
+    `/音量 value:<1-100>`、`/播放歷史`、`/音樂 統計`
 
     歌單
     `/playlist save|load|delete|list name:<playlist>`

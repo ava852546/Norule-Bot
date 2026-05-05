@@ -1,0 +1,365 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.custom-select-shell {
+  position: relative;
+  width: 100%;
+  padding-inline: 2px;
+}
+
+.custom-select-shell.is-disabled {
+  opacity: .74;
+}
+
+.custom-select-native {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.select-trigger {
+  width: 100%;
+  min-height: 54px;
+  padding: 14px 20px;
+  justify-content: space-between;
+  gap: 14px;
+  text-align: left;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(7, 15, 28, 0.96), rgba(10, 18, 33, 0.94));
+  color: #f9fbff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.02);
+  font-weight: 600;
+  line-height: 1.35;
+  font-family: var(--font-ui);
+  font-size: 16px;
+}
+
+.select-trigger:hover,
+.select-option:hover {
+  transform: none;
+}
+
+.select-trigger:hover {
+  border-color: rgba(255,255,255,.16);
+}
+
+.select-trigger:focus-visible {
+  outline: none;
+  border-color: rgba(76,141,255,.65);
+  box-shadow: 0 0 0 3px rgba(76,141,255,.16), inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.select-trigger:disabled {
+  cursor: not-allowed;
+}
+
+.select-trigger-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding-inline: 4px 8px;
+}
+
+.select-trigger-caret {
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid #8be0ff;
+  border-bottom: 2px solid #8be0ff;
+  transform: rotate(45deg) translateY(-2px);
+  flex: 0 0 auto;
+  pointer-events: none;
+  transition: transform .16s ease;
+}
+
+.custom-select-shell.open .select-trigger {
+  border-color: rgba(76,141,255,.65);
+  box-shadow: 0 0 0 3px rgba(76,141,255,.16), inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.custom-select-shell.open .select-trigger-caret {
+  transform: rotate(-135deg) translateY(2px);
+}
+
+.select-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(7, 15, 28, 0.98), rgba(10, 18, 33, 0.98));
+  box-shadow: 0 20px 36px rgba(0,0,0,.34);
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-color: rgba(139,224,255,.24) rgba(255,255,255,.04);
+}
+
+.select-menu[hidden] {
+  display: none;
+}
+
+.select-option {
+  width: 100%;
+  min-height: 40px;
+  justify-content: flex-start;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #edf4ff;
+  box-shadow: none;
+  line-height: 1.35;
+  font-family: var(--font-ui);
+  font-size: 16px;
+}
+
+.select-option:hover,
+.select-option:focus-visible {
+  background: rgba(255,255,255,.05);
+  border-color: rgba(255,255,255,.06);
+  outline: none;
+}
+
+.select-option[aria-selected="true"] {
+  background: rgba(76,141,255,.14);
+  border-color: rgba(76,141,255,.24);
+  color: #ffffff;
+}
+
+.select-option:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.select-empty {
+  padding: 12px 16px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+  font-family: var(--font-ui);
+}
+
+.field label {
+  font-size: 11px;
+  color: #c7d8ee;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.field-inline {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.field-inline > select,
+.field-inline > input,
+.field-inline > textarea {
+  flex: 1 1 auto;
+}
+
+.field-inline > button {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 54px;
+  padding-inline: 24px;
+  border-radius: 18px;
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+#t_panelDescription,
+#t_optionPanelDescription,
+#t_optionWelcomeMessage,
+#w_message {
+  min-height: 220px;
+}
+
+.keyhint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+input,
+select,
+button,
+textarea {
+  border: 1px solid rgba(255,255,255,.12);
+  background: linear-gradient(180deg, rgba(7, 15, 28, 0.96), rgba(10, 18, 33, 0.94));
+  color: #f9fbff;
+  border-radius: 14px;
+  padding: 14px 18px;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease, background .16s ease, opacity .16s ease;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.02);
+  line-height: 1.35;
+  font-family: var(--font-ui);
+  font-size: 16px;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  min-height: 54px;
+}
+
+.field > input,
+.field > select,
+.field > textarea,
+.field-inline > input,
+.field-inline > select,
+.field-inline > textarea,
+.field > .custom-select-shell .select-trigger,
+.field-inline > .custom-select-shell .select-trigger,
+.control-bar > .custom-select-shell .select-trigger {
+  padding-left: 20px;
+}
+
+select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #8be0ff 50%),
+    linear-gradient(135deg, #8be0ff 50%, transparent 50%);
+  background-position:
+    calc(100% - 24px) calc(50% - 2px),
+    calc(100% - 18px) calc(50% - 2px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 48px;
+}
+
+select[multiple] {
+  background-image: none;
+  padding-right: 13px;
+}
+
+select,
+option,
+optgroup {
+  color-scheme: dark;
+}
+
+option,
+optgroup {
+  background: rgba(7, 15, 28, 0.98);
+  color: #edf4ff;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(157,176,198,.72);
+}
+
+input[type="color"] {
+  padding: 4px 6px;
+  min-height: 48px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: rgba(76,141,255,.65);
+  box-shadow: 0 0 0 3px rgba(76,141,255,.16), inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 50px;
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: .01em;
+  box-shadow: 0 12px 24px rgba(0,0,0,.16);
+  padding-inline: 22px;
+  white-space: nowrap;
+}
+
+.settings-actions > button,
+.control-bar > button,
+.pane-head-actions > button,
+.welcome-compact-actions > button {
+  min-height: 54px;
+  padding-inline: 24px;
+  border-radius: 18px;
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+button:lang(zh) {
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+.select-trigger:lang(zh),
+.select-option:lang(zh),
+input:lang(zh),
+select:lang(zh),
+textarea:lang(zh) {
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255,255,255,.18);
+}
+
+button:active {
+  transform: translateY(0);
+}
+
+button.primary {
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+  border-color: transparent;
+}
+
+button.warn {
+  background: linear-gradient(135deg, var(--warn), var(--danger));
+  border-color: transparent;
+}
+
+button.danger,
+button.reset-btn {
+  background: linear-gradient(135deg, var(--danger), var(--danger-2));
+  border-color: transparent;
+  color: #fff;
+}
+
+button.saving {
+  opacity: .78;
+  cursor: progress;
+}
+
+@media (max-width: 640px) {
+  .field-inline {
+    flex-direction: column;
+  }
+
+  .field-inline > button {
+    width: 100%;
+  }
+}

@@ -31,7 +31,7 @@ public class ServerLogService {
         this.i18n = i18n;
     }
     public void onGuildMemberRoleAdd(GuildMemberRoleAddEvent event) {
-        BotConfig.MessageLogs logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        var logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
         if (!logs.isEnabled() || !logs.isRoleLogEnabled() || event.getRoles().isEmpty()) {
             return;
         }
@@ -39,10 +39,10 @@ public class ServerLogService {
         EmbedBuilder eb = base(event.getGuild(), "\u2795 " + t(event.getGuild(), "logs.role_added"), new Color(46, 204, 113))
                 .addField(t(event.getGuild(), "logs.user"), event.getMember().getAsMention(), false)
                 .addField(t(event.getGuild(), "logs.roles"), roles, false);
-        sendRoleChangeToConfiguredLogs(event.getGuild(), logs, eb);
+        sendRoleChangeToConfiguredLogs(event.getGuild(), logs.getRoleLogChannelId(), logs.getChannelLifecycleChannelId(), logs.getChannelId(), logs.isChannelLifecycleLogEnabled(), eb);
     }
     public void onGuildMemberRoleRemove(GuildMemberRoleRemoveEvent event) {
-        BotConfig.MessageLogs logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        var logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
         if (!logs.isEnabled() || !logs.isRoleLogEnabled() || event.getRoles().isEmpty()) {
             return;
         }
@@ -50,13 +50,13 @@ public class ServerLogService {
         EmbedBuilder eb = base(event.getGuild(), "\u2796 " + t(event.getGuild(), "logs.role_removed"), new Color(231, 76, 60))
                 .addField(t(event.getGuild(), "logs.user"), event.getMember().getAsMention(), false)
                 .addField(t(event.getGuild(), "logs.roles"), roles, false);
-        sendRoleChangeToConfiguredLogs(event.getGuild(), logs, eb);
+        sendRoleChangeToConfiguredLogs(event.getGuild(), logs.getRoleLogChannelId(), logs.getChannelLifecycleChannelId(), logs.getChannelId(), logs.isChannelLifecycleLogEnabled(), eb);
     }
     public void onChannelCreate(ChannelCreateEvent event) {
         if (event.getGuild() == null) {
             return;
         }
-        BotConfig.MessageLogs logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        var logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
         if (!logs.isEnabled() || !logs.isChannelLifecycleLogEnabled()) {
             return;
         }
@@ -69,7 +69,7 @@ public class ServerLogService {
         if (event.getGuild() == null) {
             return;
         }
-        BotConfig.MessageLogs logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        var logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
         if (!logs.isEnabled() || !logs.isChannelLifecycleLogEnabled()) {
             return;
         }
@@ -82,7 +82,7 @@ public class ServerLogService {
         if (event.getGuild() == null) {
             return;
         }
-        BotConfig.MessageLogs logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        var logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
         if (!logs.isEnabled() || !logs.isChannelLifecycleLogEnabled()) {
             return;
         }
@@ -96,7 +96,7 @@ public class ServerLogService {
         send(event.getGuild(), logs.getChannelLifecycleChannelId(), eb);
     }
     public void onGuildBan(GuildBanEvent event) {
-        BotConfig.MessageLogs logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        var logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
         if (!logs.isEnabled() || !logs.isModerationLogEnabled()) {
             return;
         }
@@ -105,7 +105,7 @@ public class ServerLogService {
         send(event.getGuild(), logs.getModerationLogChannelId(), eb);
     }
     public void onGuildUnban(GuildUnbanEvent event) {
-        BotConfig.MessageLogs logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        var logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
         if (!logs.isEnabled() || !logs.isModerationLogEnabled()) {
             return;
         }
@@ -117,7 +117,7 @@ public class ServerLogService {
         if (event.getEntry().getType() != ActionType.KICK) {
             return;
         }
-        BotConfig.MessageLogs logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        var logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
         if (!logs.isEnabled() || !logs.isModerationLogEnabled()) {
             return;
         }
@@ -141,7 +141,7 @@ public class ServerLogService {
     }
 
     private void send(Guild guild, Long preferredChannelId, EmbedBuilder eb) {
-        BotConfig.MessageLogs logs = settingsService.getMessageLogs(guild.getIdLong());
+        var logs = settingsService.getMessageLogs(guild.getIdLong());
         Long channelId = preferredChannelId != null ? preferredChannelId : logs.getChannelId();
         if (channelId == null) {
             return;
@@ -166,14 +166,19 @@ public class ServerLogService {
         return i18n.t(settingsService.getLanguage(guild.getIdLong()), key);
     }
 
-    private void sendRoleChangeToConfiguredLogs(Guild guild, BotConfig.MessageLogs logs, EmbedBuilder eb) {
-        Long roleTarget = resolveTargetChannelId(logs.getRoleLogChannelId(), logs.getChannelId());
+    private void sendRoleChangeToConfiguredLogs(Guild guild,
+                                                Long roleLogChannelId,
+                                                Long channelLifecycleChannelId,
+                                                Long fallbackChannelId,
+                                                boolean channelLifecycleEnabled,
+                                                EmbedBuilder eb) {
+        Long roleTarget = resolveTargetChannelId(roleLogChannelId, fallbackChannelId);
         send(guild, roleTarget, eb);
 
-        if (!logs.isChannelLifecycleLogEnabled()) {
+        if (!channelLifecycleEnabled) {
             return;
         }
-        Long channelTarget = resolveTargetChannelId(logs.getChannelLifecycleChannelId(), logs.getChannelId());
+        Long channelTarget = resolveTargetChannelId(channelLifecycleChannelId, fallbackChannelId);
         if (channelTarget == null || channelTarget.equals(roleTarget)) {
             return;
         }

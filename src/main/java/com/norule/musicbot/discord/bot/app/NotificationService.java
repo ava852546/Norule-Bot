@@ -17,6 +17,12 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
 public class NotificationService {
+    private static final String DEFAULT_MEMBER_JOIN_TEMPLATE = "{user} joined the server. Account created: {createdAt} ({accountAgeDays} days ago). ID: {id}";
+    private static final String DEFAULT_MEMBER_LEAVE_TEMPLATE = "{user} left the server. Account created: {createdAt} ({accountAgeDays} days ago). ID: {id}";
+    private static final String DEFAULT_VOICE_JOIN_TEMPLATE = "{user} joined voice channel {channel}.";
+    private static final String DEFAULT_VOICE_LEAVE_TEMPLATE = "{user} left voice channel {channel}.";
+    private static final String DEFAULT_VOICE_MOVE_TEMPLATE = "{user} moved voice channel from {from} to {to}.";
+
     private final GuildSettingsService guildSettingsService;
     private final I18nService i18n;
 
@@ -25,7 +31,7 @@ public class NotificationService {
         this.i18n = i18n;
     }
     public void onGuildMemberJoin(GuildMemberJoinEvent event) {
-        BotConfig.Notifications config = guildSettingsService.getNotifications(event.getGuild().getIdLong());
+        var config = guildSettingsService.getNotifications(event.getGuild().getIdLong());
         if (event.getUser().isBot()) {
             return;
         }
@@ -33,17 +39,16 @@ public class NotificationService {
         if (config.isEnabled() && config.isMemberJoinEnabled()) {
             sendMemberMessage(
                     event.getGuild(),
-                    config,
                     formatUserTemplate(resolveMemberTemplate(lang, config.getMemberJoinMessage(), true), event.getUser(), event.getGuild()),
                     config.getMemberJoinColor(),
                     event.getUser(),
                     true
             );
         }
-        sendWelcomeMessage(event.getGuild(), guildSettingsService.getWelcome(event.getGuild().getIdLong()), event.getUser(), lang);
+        sendWelcomeMessage(event.getGuild(), event.getUser(), lang);
     }
     public void onGuildMemberRemove(GuildMemberRemoveEvent event) {
-        BotConfig.Notifications config = guildSettingsService.getNotifications(event.getGuild().getIdLong());
+        var config = guildSettingsService.getNotifications(event.getGuild().getIdLong());
         User user = event.getUser();
         if (!config.isEnabled() || !config.isMemberLeaveEnabled() || user.isBot()) {
             return;
@@ -52,7 +57,6 @@ public class NotificationService {
 
         sendMemberMessage(
                 event.getGuild(),
-                config,
                 formatUserTemplate(resolveMemberTemplate(lang, config.getMemberLeaveMessage(), false), user, event.getGuild()),
                 config.getMemberLeaveColor(),
                 user,
@@ -60,7 +64,7 @@ public class NotificationService {
         );
     }
     public void onGuildVoiceUpdate(GuildVoiceUpdateEvent event) {
-        BotConfig.Notifications config = guildSettingsService.getNotifications(event.getGuild().getIdLong());
+        var config = guildSettingsService.getNotifications(event.getGuild().getIdLong());
         if (!config.isEnabled() || !config.isVoiceLogEnabled() || event.getEntity().getUser().isBot()) {
             return;
         }
@@ -83,14 +87,7 @@ public class NotificationService {
                     null,
                     toId
             );
-            sendVoiceMessage(
-                    event.getGuild(),
-                    config,
-                    lang,
-                    i18n.t(lang, "notifications.embed.voice_join_title"),
-                    message,
-                    config.getVoiceJoinColor()
-            );
+            sendVoiceMessage(event.getGuild(), lang, i18n.t(lang, "notifications.embed.voice_join_title"), message, config.getVoiceJoinColor());
         } else if (event.getChannelLeft() != null && event.getChannelJoined() == null) {
             String message = formatVoiceTemplate(
                     resolveVoiceTemplate(lang, config.getVoiceLeaveMessage(), "leave"),
@@ -100,14 +97,7 @@ public class NotificationService {
                     fromId,
                     null
             );
-            sendVoiceMessage(
-                    event.getGuild(),
-                    config,
-                    lang,
-                    i18n.t(lang, "notifications.embed.voice_leave_title"),
-                    message,
-                    config.getVoiceLeaveColor()
-            );
+            sendVoiceMessage(event.getGuild(), lang, i18n.t(lang, "notifications.embed.voice_leave_title"), message, config.getVoiceLeaveColor());
         } else if (event.getChannelLeft() != null && event.getChannelJoined() != null) {
             String message = formatVoiceTemplate(
                     resolveVoiceTemplate(lang, config.getVoiceMoveMessage(), "move"),
@@ -117,19 +107,13 @@ public class NotificationService {
                     fromId,
                     toId
             );
-            sendVoiceMessage(
-                    event.getGuild(),
-                    config,
-                    lang,
-                    i18n.t(lang, "notifications.embed.voice_move_title"),
-                    message,
-                    config.getVoiceMoveColor()
-            );
+            sendVoiceMessage(event.getGuild(), lang, i18n.t(lang, "notifications.embed.voice_move_title"), message, config.getVoiceMoveColor());
         }
     }
 
-    private void sendMemberMessage(Guild guild, BotConfig.Notifications config, String message, int color, User user, boolean joinEvent) {
-        Long channelId = resolveMemberChannelId(config, joinEvent);
+    private void sendMemberMessage(Guild guild, String message, int color, User user, boolean joinEvent) {
+        var config = guildSettingsService.getNotifications(guild.getIdLong());
+        Long channelId = resolveMemberChannelId(config.getMemberJoinChannelId(), config.getMemberLeaveChannelId(), config.getMemberChannelId(), joinEvent);
         if (channelId == null) {
             channelId = guildSettingsService.getMessageLogs(guild.getIdLong()).getChannelId();
         }
@@ -175,7 +159,8 @@ public class NotificationService {
         }
     }
 
-    private void sendWelcomeMessage(Guild guild, BotConfig.Welcome welcome, User user, String lang) {
+    private void sendWelcomeMessage(Guild guild, User user, String lang) {
+        var welcome = guildSettingsService.getWelcome(guild.getIdLong());
         if (welcome == null || !welcome.isEnabled() || welcome.getChannelId() == null) {
             return;
         }
@@ -189,8 +174,8 @@ public class NotificationService {
                 Permission.MESSAGE_EMBED_LINKS)) {
             return;
         }
-        String title = formatUserTemplate(resolveWelcomeTitle(welcome, lang), user, guild);
-        String message = formatUserTemplate(resolveWelcomeMessage(welcome, lang), user, guild);
+        String title = formatUserTemplate(resolveWelcomeTitle(welcome.getTitle(), lang), user, guild);
+        String message = formatUserTemplate(resolveWelcomeMessage(welcome.getMessage(), lang), user, guild);
         if (message.isBlank()) {
             return;
         }
@@ -224,24 +209,24 @@ public class NotificationService {
         return eb;
     }
 
-    private Long resolveMemberChannelId(BotConfig.Notifications config, boolean joinEvent) {
-        if (joinEvent && config.getMemberJoinChannelId() != null) {
-            return config.getMemberJoinChannelId();
+    private Long resolveMemberChannelId(Long memberJoinChannelId, Long memberLeaveChannelId, Long memberChannelId, boolean joinEvent) {
+        if (joinEvent && memberJoinChannelId != null) {
+            return memberJoinChannelId;
         }
-        if (!joinEvent && config.getMemberLeaveChannelId() != null) {
-            return config.getMemberLeaveChannelId();
+        if (!joinEvent && memberLeaveChannelId != null) {
+            return memberLeaveChannelId;
         }
-        return config.getMemberChannelId();
+        return memberChannelId;
     }
 
     private void sendVoiceMessage(
             Guild guild,
-            BotConfig.Notifications config,
             String lang,
             String title,
             String message,
             int color
     ) {
+        var config = guildSettingsService.getNotifications(guild.getIdLong());
         Long channelId = config.getVoiceChannelId();
         if (channelId == null) {
             channelId = guildSettingsService.getMessageLogs(guild.getIdLong()).getChannelId();
@@ -285,16 +270,14 @@ public class NotificationService {
                 .replace("{accountAgeDays}", String.valueOf(Math.max(0L, accountAgeDays)));
     }
 
-    private String resolveWelcomeTitle(BotConfig.Welcome welcome, String lang) {
-        String title = welcome.getTitle();
+    private String resolveWelcomeTitle(String title, String lang) {
         if (title == null || title.isBlank()) {
             return i18n.t(lang, "welcome.default_title");
         }
         return title;
     }
 
-    private String resolveWelcomeMessage(BotConfig.Welcome welcome, String lang) {
-        String message = welcome.getMessage();
+    private String resolveWelcomeMessage(String message, String lang) {
         if (message == null || message.isBlank()) {
             return i18n.t(lang, "welcome.default_message");
         }
@@ -342,15 +325,14 @@ public class NotificationService {
         if (!isZhTw(lang)) {
             return template;
         }
-        BotConfig.Notifications defaults = BotConfig.Notifications.defaultValues();
         return switch (type) {
-            case "join" -> template.equals(defaults.getVoiceJoinMessage())
+            case "join" -> template.equals(DEFAULT_VOICE_JOIN_TEMPLATE)
                     ? i18n.t(lang, "notifications.template.default.voice_join")
                     : template;
-            case "leave" -> template.equals(defaults.getVoiceLeaveMessage())
+            case "leave" -> template.equals(DEFAULT_VOICE_LEAVE_TEMPLATE)
                     ? i18n.t(lang, "notifications.template.default.voice_leave")
                     : template;
-            case "move" -> template.equals(defaults.getVoiceMoveMessage())
+            case "move" -> template.equals(DEFAULT_VOICE_MOVE_TEMPLATE)
                     ? i18n.t(lang, "notifications.template.default.voice_move")
                     : template;
             default -> template;
@@ -361,14 +343,13 @@ public class NotificationService {
         if (!isZhTw(lang)) {
             return template;
         }
-        BotConfig.Notifications defaults = BotConfig.Notifications.defaultValues();
         if (join) {
-            if (template.equals(defaults.getMemberJoinMessage())) {
+            if (template.equals(DEFAULT_MEMBER_JOIN_TEMPLATE)) {
                 return i18n.t(lang, "notifications.template.default.member_join");
             }
             return template;
         }
-        if (template.equals(defaults.getMemberLeaveMessage())) {
+        if (template.equals(DEFAULT_MEMBER_LEAVE_TEMPLATE)) {
             return i18n.t(lang, "notifications.template.default.member_leave");
         }
         return template;

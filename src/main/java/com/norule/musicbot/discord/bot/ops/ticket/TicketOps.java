@@ -10,7 +10,6 @@ import net.dv8tion.jda.api.events.session.ReadyEvent;
 
 public final class TicketOps {
     private static final String PREFIX = "ticket_";
-    private static final String LEGACY_PREFIX = "ticket:";
 
     private final TicketService ticketService;
     private final TicketCommandHandler commandHandler;
@@ -77,6 +76,6 @@ public final class TicketOps {
     }
 
     private boolean isTicketInteractionId(String id) {
-        return id != null && (id.startsWith(PREFIX) || id.startsWith(LEGACY_PREFIX));
+        return id != null && id.startsWith(PREFIX);
     }
 }

@@ -41,6 +41,13 @@ public final class PlaylistCommandHandler {
     public PlaylistCommandHandler(MusicCommandService owner) {
         this.owner = owner;
     }
+
+    void cleanupExpiredRequests(Instant now) {
+        Instant cutoff = now == null ? Instant.now() : now;
+        playlistViewRequests.entrySet().removeIf(entry -> entry.getValue() == null || cutoff.isAfter(entry.getValue().expiresAt));
+        playlistTrackRemoveRequests.entrySet().removeIf(entry -> entry.getValue() == null || cutoff.isAfter(entry.getValue().expiresAt));
+    }
+
     public void handlePlaylistSlash(SlashCommandInteractionEvent event, String lang) {
         String sub = owner.canonicalPlaylistSubcommand(event.getSubcommandName());
         if (sub == null || sub.isBlank()) {

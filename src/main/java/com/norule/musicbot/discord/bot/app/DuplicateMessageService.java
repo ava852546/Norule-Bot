@@ -12,22 +12,11 @@ import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
-import org.yaml.snakeyaml.DumperOptions;
-import org.yaml.snakeyaml.Yaml;
 
 import java.awt.Color;
-import java.io.InputStream;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
@@ -35,33 +24,26 @@ public class DuplicateMessageService {
     private static final long DUPLICATE_WINDOW_MILLIS = 120_000L;
     private static final int DUPLICATE_TRIGGER_COUNT = 3;
     private static final long CACHE_RETENTION_MILLIS = Duration.ofDays(7).toMillis();
-
-    private record DuplicateKey(long guildId, long channelId, long userId, String contentHash) {}
-    private record DuplicateRecord(int count, long timestampMillis) {}
+    private static final long PRUNE_INTERVAL_MILLIS = Duration.ofMinutes(3).toMillis();
 
     private final GuildSettingsService settingsService;
     private final ModerationService moderationService;
     private final I18nService i18n;
-    private final Map<DuplicateKey, DuplicateRecord> recent = new ConcurrentHashMap<>();
-    private final Path cacheFile;
-    private final Yaml yaml;
+    private final DuplicateMessageCacheRepository cacheRepository;
+    private final Object cacheLock = new Object();
+    private volatile long lastPruneAtMillis = 0L;
 
     public DuplicateMessageService(GuildSettingsService settingsService,
                                     ModerationService moderationService,
                                     I18nService i18n,
-                                    Path cacheDir) {
+                                    DuplicateMessageCacheRepository cacheRepository) {
         this.settingsService = settingsService;
         this.moderationService = moderationService;
         this.i18n = i18n;
-        this.cacheFile = cacheDir.resolve("duplicate-message-cache.yml");
-        this.yaml = new Yaml(yamlOptions());
-        try {
-            Files.createDirectories(cacheDir);
-        } catch (Exception ignored) {
-        }
-        loadCache();
-        pruneAndSave(System.currentTimeMillis());
+        this.cacheRepository = cacheRepository;
+        pruneExpiredIfNeeded(System.currentTimeMillis(), true);
     }
+
     public void onMessageReceived(MessageReceivedEvent event) {
         if (!event.isFromGuild() || event.getAuthor().isBot()) {
             return;
@@ -78,24 +60,14 @@ public class DuplicateMessageService {
         }
 
         long now = System.currentTimeMillis();
-        pruneExpired(now);
-        DuplicateKey key = new DuplicateKey(
+        pruneExpiredIfNeeded(now, false);
+        int count = upsertAndCount(
                 guildId,
                 event.getChannel().getIdLong(),
                 event.getAuthor().getIdLong(),
-                sha256(normalized)
+                sha256(normalized),
+                now
         );
-
-        DuplicateRecord previous = recent.get(key);
-        if (previous == null || now - previous.timestampMillis() > DUPLICATE_WINDOW_MILLIS) {
-            recent.put(key, new DuplicateRecord(1, now));
-            saveCache();
-            return;
-        }
-
-        int count = previous.count() + 1;
-        recent.put(key, new DuplicateRecord(count, now));
-        saveCache();
         if (count < DUPLICATE_TRIGGER_COUNT) {
             return;
         }
@@ -151,7 +123,7 @@ public class DuplicateMessageService {
 
     private TextChannel resolveNotifyChannel(MessageReceivedEvent event) {
         Guild guild = event.getGuild();
-        BotConfig.MessageLogs logs = settingsService.getMessageLogs(guild.getIdLong());
+        var logs = settingsService.getMessageLogs(guild.getIdLong());
         Long targetId = logs.getModerationLogChannelId() != null ? logs.getModerationLogChannelId() : logs.getChannelId();
         TextChannel target = targetId == null ? null : guild.getTextChannelById(targetId);
         if (target != null) {
@@ -187,124 +159,48 @@ public class DuplicateMessageService {
         return cleaned.length() <= 900 ? cleaned : cleaned.substring(0, 900) + "...";
     }
 
-    private void pruneExpired(long nowMillis) {
-        recent.entrySet().removeIf(entry -> nowMillis - entry.getValue().timestampMillis() > CACHE_RETENTION_MILLIS);
+    private int upsertAndCount(long guildId, long channelId, long userId, String contentHash, long nowMillis) {
+        synchronized (cacheLock) {
+            DuplicateMessageCacheEntry previous;
+            try {
+                previous = cacheRepository.find(guildId, channelId, userId, contentHash);
+            } catch (Exception ignored) {
+                return 0;
+            }
+            int count = 1;
+            if (previous != null && nowMillis - previous.getTimestampMillis() <= DUPLICATE_WINDOW_MILLIS) {
+                count = previous.getCount() + 1;
+            }
+            try {
+                cacheRepository.upsert(new DuplicateMessageCacheEntry(
+                        guildId,
+                        channelId,
+                        userId,
+                        contentHash,
+                        count,
+                        nowMillis
+                ));
+            } catch (Exception ignored) {
+                return 0;
+            }
+            return count;
+        }
     }
 
-    private synchronized void pruneAndSave(long nowMillis) {
-        pruneExpired(nowMillis);
-        saveCache();
-    }
-
-    private synchronized void loadCache() {
-        if (!Files.exists(cacheFile)) {
+    private void pruneExpiredIfNeeded(long nowMillis, boolean force) {
+        if (!force && nowMillis - lastPruneAtMillis < PRUNE_INTERVAL_MILLIS) {
             return;
         }
-        try (InputStream in = Files.newInputStream(cacheFile)) {
-            Object rootObj = yaml.load(in);
-            Map<String, Object> root = asMap(rootObj);
-            Object entriesObj = root.get("entries");
-            if (!(entriesObj instanceof Iterable<?> iterable)) {
+        synchronized (cacheLock) {
+            if (!force && nowMillis - lastPruneAtMillis < PRUNE_INTERVAL_MILLIS) {
                 return;
             }
-            for (Object row : iterable) {
-                Map<String, Object> map = asMap(row);
-                Long guildId = readLong(map.get("guildId"));
-                Long channelId = readLong(map.get("channelId"));
-                Long userId = readLong(map.get("userId"));
-                String contentHash = readString(map.get("contentHash"));
-                Integer count = readInt(map.get("count"));
-                Long ts = readLong(map.get("timestampMillis"));
-                if (guildId == null || channelId == null || userId == null
-                        || contentHash.isBlank() || count == null || ts == null) {
-                    continue;
-                }
-                recent.put(new DuplicateKey(guildId, channelId, userId, contentHash),
-                        new DuplicateRecord(Math.max(1, count), ts));
+            try {
+                cacheRepository.pruneExpired(nowMillis - CACHE_RETENTION_MILLIS);
+                lastPruneAtMillis = nowMillis;
+            } catch (Exception ignored) {
             }
-        } catch (Exception ignored) {
         }
-    }
-
-    private synchronized void saveCache() {
-        try {
-            Files.createDirectories(cacheFile.getParent());
-            Map<String, Object> root = new LinkedHashMap<>();
-            List<Map<String, Object>> entries = new ArrayList<>();
-            for (Map.Entry<DuplicateKey, DuplicateRecord> entry : recent.entrySet()) {
-                DuplicateKey key = entry.getKey();
-                DuplicateRecord value = entry.getValue();
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("guildId", key.guildId());
-                row.put("channelId", key.channelId());
-                row.put("userId", key.userId());
-                row.put("contentHash", key.contentHash());
-                row.put("count", value.count());
-                row.put("timestampMillis", value.timestampMillis());
-                entries.add(row);
-            }
-            root.put("entries", entries);
-            try (Writer writer = Files.newBufferedWriter(cacheFile)) {
-                yaml.dump(root, writer);
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    private DumperOptions yamlOptions() {
-        DumperOptions options = new DumperOptions();
-        options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
-        options.setPrettyFlow(true);
-        options.setIndent(2);
-        return options;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> asMap(Object obj) {
-        if (obj instanceof Map<?, ?> map) {
-            return (Map<String, Object>) map;
-        }
-        return Map.of();
-    }
-
-    private Long readLong(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number n) {
-            return n.longValue();
-        }
-        String s = String.valueOf(value).trim();
-        if (s.isBlank()) {
-            return null;
-        }
-        try {
-            return Long.parseLong(s);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private Integer readInt(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number n) {
-            return n.intValue();
-        }
-        String s = String.valueOf(value).trim();
-        if (s.isBlank()) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(s);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private String readString(Object value) {
-        return value == null ? "" : String.valueOf(value).trim();
     }
 
     private String sha256(String text) {

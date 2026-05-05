@@ -52,6 +52,14 @@ public final class StatsConfig {
         this.sqlite = sqlite == null ? Sqlite.fromLegacy(null) : sqlite;
     }
 
+    public StatsConfig(BotConfig.Stats legacy) {
+        this(fromLegacy(legacy));
+    }
+
+    private StatsConfig(StatsConfig value) {
+        this(value.storage, value.mysql, value.sqlite);
+    }
+
     public static StatsConfig fromLegacy(BotConfig.Stats legacy) {
         BotConfig.Stats value = legacy == null ? BotConfig.Stats.defaultValues() : legacy;
         return new StatsConfig(value.getStorage(), Mysql.fromLegacy(value.getMysql()), Sqlite.fromLegacy(value.getSqlite()));

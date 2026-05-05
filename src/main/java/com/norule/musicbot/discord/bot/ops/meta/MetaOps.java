@@ -32,6 +32,10 @@ public final class MetaOps {
                 owner.infoCommandHandler().handleServerInfo(event, lang);
                 yield true;
             }
+            case "url" -> {
+                owner.urlCommandHandler().handleUrlSlash(event, lang);
+                yield true;
+            }
             default -> false;
         };
     }

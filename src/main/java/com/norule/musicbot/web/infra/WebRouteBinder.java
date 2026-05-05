@@ -1,6 +1,7 @@
 package com.norule.musicbot.web.infra;
 
 import com.norule.musicbot.web.controller.GuildSettingsController;
+import com.norule.musicbot.web.controller.ShortUrlController;
 import com.norule.musicbot.web.controller.WebAuthController;
 import com.norule.musicbot.web.controller.WebMetadataController;
 import com.norule.musicbot.web.controller.WebStaticAssetController;
@@ -10,15 +11,18 @@ final class WebRouteBinder {
     private final WebAuthController authController;
     private final WebMetadataController metadataController;
     private final GuildSettingsController guildSettingsController;
+    private final ShortUrlController shortUrlController;
     private final WebStaticAssetController staticAssetController;
 
     WebRouteBinder(WebAuthController authController,
                    WebMetadataController metadataController,
                    GuildSettingsController guildSettingsController,
+                   ShortUrlController shortUrlController,
                    WebStaticAssetController staticAssetController) {
         this.authController = authController;
         this.metadataController = metadataController;
         this.guildSettingsController = guildSettingsController;
+        this.shortUrlController = shortUrlController;
         this.staticAssetController = staticAssetController;
     }
 
@@ -29,6 +33,7 @@ final class WebRouteBinder {
         server.createContext("/api/me", authController::handleApiMe);
         server.createContext("/api/guilds", metadataController::handleApiGuilds);
         server.createContext("/api/web/i18n", metadataController::handleApiWebI18n);
+        server.createContext("/api/short", shortUrlController::handleCreateShortUrl);
         server.createContext("/api/guild/", guildSettingsController::handleApiGuildRoute);
         server.createContext("/web/", staticAssetController::handleWebAsset);
         server.createContext("/", staticAssetController::handleRoot);

@@ -77,7 +77,7 @@ public class VoiceAutoLeaveService {
 
     private void evaluateGuild(Guild guild) {
         long guildId = guild.getIdLong();
-        BotConfig.Music cfg = settingsService.getMusic(guildId);
+        var cfg = settingsService.getMusic(guildId);
         if (!cfg.isAutoLeaveEnabled()) {
             cancel(guildId);
             return;

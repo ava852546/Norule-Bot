@@ -3,6 +3,10 @@ package com.norule.musicbot.config.loader;
 import com.norule.musicbot.config.lang.LanguageManager;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.nodes.Node;
+import org.yaml.snakeyaml.nodes.Tag;
+import org.yaml.snakeyaml.representer.Represent;
+import org.yaml.snakeyaml.representer.Representer;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -18,8 +22,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public final class ConfigInitializer {
+    private static final Pattern QUOTED_SIMPLE_KEY = Pattern.compile("(?m)^(\\s*)'([A-Za-z0-9_-]+)':");
+    private static final Pattern TAGGED_BOOL = Pattern.compile("!!bool\\s*'(?i:(true|false))'");
+    private static final Pattern TAGGED_INT = Pattern.compile("!!int\\s*'(-?\\d+)'");
     private final LanguageManager languageManager;
 
     public ConfigInitializer(LanguageManager languageManager) {
@@ -41,7 +49,7 @@ public final class ConfigInitializer {
             if (!Files.exists(configPath)) {
                 writeResourceIfMissing("defaults/config.yml", configPath);
                 if (!Files.exists(configPath)) {
-                    writeYaml(configPath, defaultConfig);
+                    writeYaml(configPath, dumpYaml(defaultConfig));
                 }
             }
 
@@ -52,6 +60,7 @@ public final class ConfigInitializer {
             if (currentConfig.isEmpty()) {
                 currentConfig = new LinkedHashMap<>();
             }
+            boolean migrated = migrateLegacyConfig(currentConfig);
 
             String languageDir = resolveConfiguredPath(currentConfig, defaultConfig, "languageDir", "lang");
             Path baseDir = parent == null ? Path.of(".") : parent;
@@ -61,9 +70,10 @@ public final class ConfigInitializer {
 
             Map<String, Object> merged = deepMerge(defaultConfig, currentConfig);
             pruneGuildScopedRootSettings(merged);
-            if (!merged.equals(currentConfig)) {
+            String rendered = dumpYaml(merged);
+            if (migrated || !merged.equals(currentConfig)) {
                 backupConfig(configPath);
-                writeYaml(configPath, merged);
+                writeYaml(configPath, rendered);
             }
         } catch (Exception ignored) {
         }
@@ -215,14 +225,43 @@ public final class ConfigInitializer {
         }
     }
 
-    private void writeYaml(Path file, Map<String, Object> root) throws IOException {
+    private void writeYaml(Path file, String yamlText) throws IOException {
+        try (Writer writer = new OutputStreamWriter(Files.newOutputStream(file), StandardCharsets.UTF_8)) {
+            writer.write(yamlText);
+        }
+    }
+
+    private String dumpYaml(Map<String, Object> root) {
         DumperOptions options = new DumperOptions();
         options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
         options.setPrettyFlow(true);
         options.setIndent(2);
-        Yaml yaml = new Yaml(options);
-        try (Writer writer = new OutputStreamWriter(Files.newOutputStream(file), StandardCharsets.UTF_8)) {
-            yaml.dump(root, writer);
+        Representer representer = new SingleQuotedStringRepresenter(options);
+        Yaml yaml = new Yaml(representer, options);
+        String rendered = yaml.dump(root);
+        rendered = QUOTED_SIMPLE_KEY.matcher(rendered).replaceAll("$1$2:");
+        rendered = TAGGED_BOOL.matcher(rendered).replaceAll("$1");
+        rendered = TAGGED_INT.matcher(rendered).replaceAll("$1");
+        return rendered;
+    }
+
+    private static final class SingleQuotedStringRepresenter extends Representer {
+        private SingleQuotedStringRepresenter(DumperOptions options) {
+            super(options);
+            addClassTag(String.class, Tag.STR);
+            this.representers.put(String.class, new RepresentSingleQuotedString());
+        }
+
+        private final class RepresentSingleQuotedString implements Represent {
+            @Override
+            public Node representData(Object data) {
+                String text = data == null ? "" : String.valueOf(data);
+                return SingleQuotedStringRepresenter.this.representScalar(
+                        Tag.STR,
+                        text,
+                        DumperOptions.ScalarStyle.SINGLE_QUOTED
+                );
+            }
         }
     }
 
@@ -240,5 +279,247 @@ public final class ConfigInitializer {
             return defaultValue;
         }
         return String.valueOf(value).trim();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mutableMap(Object object) {
+        if (object instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return null;
+    }
+
+    private boolean migrateLegacyConfig(Map<String, Object> config) {
+        boolean changed = false;
+
+        Map<String, Object> web = mutableMap(config.get("web"));
+        if (web != null && !web.isEmpty()) {
+            changed |= migrateBindAndPublicUrl(web, "host", "port", "baseUrl", null);
+        }
+
+        Map<String, Object> shortUrl = mutableMap(config.get("shortUrl"));
+        if (shortUrl != null && !shortUrl.isEmpty()) {
+            changed |= migrateBindAndPublicUrl(shortUrl, "host", "port", "baseUrl", "domain");
+
+            String storage = getString(shortUrl, "storage", "");
+            if ("db".equalsIgnoreCase(storage)) {
+                shortUrl.put("storage", "sqlite");
+                changed = true;
+            }
+
+            Map<String, Object> legacyDb = mutableMap(shortUrl.get("db"));
+            Map<String, Object> sqlite = mutableMap(shortUrl.get("sqlite"));
+            String sqlitePath = sqlite == null ? "" : getString(sqlite, "path", "");
+            String legacyDbPath = legacyDb == null ? "" : getString(legacyDb, "path", "");
+            if (sqlitePath.isBlank() && !legacyDbPath.isBlank()) {
+                if (sqlite == null) {
+                    sqlite = new LinkedHashMap<>();
+                    shortUrl.put("sqlite", sqlite);
+                }
+                sqlite.put("path", legacyDbPath);
+                changed = true;
+            }
+
+            if (shortUrl.containsKey("db")) {
+                shortUrl.remove("db");
+                changed = true;
+            }
+
+            Map<String, Object> sqliteAfter = mutableMap(shortUrl.get("sqlite"));
+            if (sqliteAfter != null) {
+                String sqlitePathAfter = getString(sqliteAfter, "path", "");
+                if ("db/short-url.db".equals(sqlitePathAfter)) {
+                    sqliteAfter.put("path", "data/short-url.db");
+                    changed = true;
+                }
+            }
+        }
+
+        Map<String, Object> stats = mutableMap(config.get("stats"));
+        if (stats != null && !stats.isEmpty()) {
+            Map<String, Object> sqlite = mutableMap(stats.get("sqlite"));
+            if (sqlite != null) {
+                String sqlitePath = getString(sqlite, "path", "");
+                if ("stats/message-stats.db".equals(sqlitePath)) {
+                    sqlite.put("path", "data/message-stats.db");
+                    changed = true;
+                }
+            }
+        }
+
+        Map<String, Object> database = mutableMap(config.get("database"));
+        if (database == null) {
+            database = new LinkedHashMap<>();
+            config.put("database", database);
+            changed = true;
+        }
+
+        String resolvedStorage = firstNonBlank(
+                getString(database, "storage", ""),
+                stats == null ? "" : getString(stats, "storage", ""),
+                shortUrl == null ? "" : getString(shortUrl, "storage", ""),
+                "sqlite"
+        );
+        if ("db".equalsIgnoreCase(resolvedStorage)) {
+            resolvedStorage = "sqlite";
+        }
+        if (!resolvedStorage.equalsIgnoreCase(getString(database, "storage", ""))) {
+            database.put("storage", resolvedStorage.toLowerCase());
+            changed = true;
+        }
+
+        Map<String, Object> existingDbMysql = mutableMap(database.get("mysql"));
+        Map<String, Object> sourceMysql = firstNonEmptyMap(
+                existingDbMysql,
+                stats == null ? null : mutableMap(stats.get("mysql")),
+                shortUrl == null ? null : mutableMap(shortUrl.get("mysql"))
+        );
+        if (sourceMysql != null) {
+            Map<String, Object> normalizedMysql = new LinkedHashMap<>(sourceMysql);
+            String jdbcUrl = getString(normalizedMysql, "jdbcUrl", "");
+            if (jdbcUrl.isBlank()) {
+                jdbcUrl = "jdbc:mysql://localhost:3306/data?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC";
+            } else if (jdbcUrl.contains("/discord_bot")) {
+                jdbcUrl = jdbcUrl.replaceFirst("/discord_bot", "/data");
+            }
+            normalizedMysql.put("jdbcUrl", jdbcUrl);
+            if (!normalizedMysql.equals(existingDbMysql)) {
+                database.put("mysql", normalizedMysql);
+                changed = true;
+            }
+        }
+
+        Map<String, Object> existingDbSqlite = mutableMap(database.get("sqlite"));
+        Map<String, Object> sourceSqlite = firstNonEmptyMap(
+                existingDbSqlite,
+                stats == null ? null : mutableMap(stats.get("sqlite")),
+                shortUrl == null ? null : mutableMap(shortUrl.get("sqlite"))
+        );
+        Map<String, Object> normalizedSqlite = new LinkedHashMap<>();
+        if (sourceSqlite != null) {
+            normalizedSqlite.putAll(sourceSqlite);
+        }
+        String sqlitePath = normalizeSqlitePath(getString(normalizedSqlite, "path", ""));
+        normalizedSqlite.put("path", sqlitePath);
+        if (!normalizedSqlite.equals(existingDbSqlite)) {
+            database.put("sqlite", normalizedSqlite);
+            changed = true;
+        }
+
+        if (stats != null) {
+            changed |= removeKey(stats, "storage");
+            changed |= removeKey(stats, "mysql");
+            changed |= removeKey(stats, "sqlite");
+        }
+        if (shortUrl != null) {
+            changed |= removeKey(shortUrl, "storage");
+            changed |= removeKey(shortUrl, "mysql");
+            changed |= removeKey(shortUrl, "sqlite");
+        }
+
+        return changed;
+    }
+
+    private boolean migrateBindAndPublicUrl(Map<String, Object> section,
+                                            String legacyHostKey,
+                                            String legacyPortKey,
+                                            String legacyBaseUrlKey,
+                                            String legacyDomainKey) {
+        boolean changed = false;
+        if (section == null || section.isEmpty()) {
+            return false;
+        }
+
+        Map<String, Object> bind = mutableMap(section.get("bind"));
+        if (bind == null) {
+            bind = new LinkedHashMap<>();
+            section.put("bind", bind);
+            changed = true;
+        }
+        if (!bind.containsKey("host") && section.containsKey(legacyHostKey)) {
+            bind.put("host", section.get(legacyHostKey));
+            changed = true;
+        }
+        if (!bind.containsKey("port") && section.containsKey(legacyPortKey)) {
+            bind.put("port", section.get(legacyPortKey));
+            changed = true;
+        }
+
+        Map<String, Object> publicMap = mutableMap(section.get("public"));
+        if (publicMap == null) {
+            publicMap = new LinkedHashMap<>();
+            section.put("public", publicMap);
+            changed = true;
+        }
+
+        String existingPublicBaseUrl = getString(publicMap, "baseUrl", "");
+        if (existingPublicBaseUrl.isBlank()) {
+            String fallback = getString(section, legacyBaseUrlKey, "");
+            if (fallback.isBlank() && legacyDomainKey != null && !legacyDomainKey.isBlank()) {
+                String domain = getString(section, legacyDomainKey, "");
+                if (!domain.isBlank()) {
+                    fallback = "https://" + domain.trim().toLowerCase();
+                }
+            }
+            if (!fallback.isBlank()) {
+                publicMap.put("baseUrl", fallback);
+                changed = true;
+            }
+        }
+
+        changed |= removeKey(section, legacyHostKey);
+        changed |= removeKey(section, legacyPortKey);
+        changed |= removeKey(section, legacyBaseUrlKey);
+        if (legacyDomainKey != null && !legacyDomainKey.isBlank()) {
+            changed |= removeKey(section, legacyDomainKey);
+        }
+        return changed;
+    }
+
+    private static boolean removeKey(Map<String, Object> map, String key) {
+        if (map == null || !map.containsKey(key)) {
+            return false;
+        }
+        map.remove(key);
+        return true;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return "";
+    }
+
+    @SafeVarargs
+    private static Map<String, Object> firstNonEmptyMap(Map<String, Object>... maps) {
+        if (maps == null) {
+            return null;
+        }
+        for (Map<String, Object> map : maps) {
+            if (map != null && !map.isEmpty()) {
+                return map;
+            }
+        }
+        return null;
+    }
+
+    private static String normalizeSqlitePath(String rawPath) {
+        String path = rawPath == null ? "" : rawPath.trim();
+        if (path.isBlank()) {
+            return "data/data.db";
+        }
+        if ("db/short-url.db".equals(path)
+                || "data/short-url.db".equals(path)
+                || "stats/message-stats.db".equals(path)
+                || "data/message-stats.db".equals(path)) {
+            return "data/data.db";
+        }
+        return path;
     }
 }

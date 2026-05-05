@@ -1,0 +1,58 @@
+﻿<div class="settings-group">
+  <div id="ticket_group_options_title" class="settings-group-title" data-i18n="ticket_group_options_title">Ticket Types</div>
+  <div class="welcome-compact-actions">
+    <button id="t_addOptionBtn" class="primary" type="button" data-i18n="t_addOptionBtn">Add Ticket Type</button>
+    <button id="t_deleteOptionBtn" class="warn" type="button" data-i18n="t_deleteOptionBtn">Delete Ticket Type</button>
+  </div>
+  <div id="hint_t_optionEditor" class="keyhint" data-i18n="t_optionEditor_hint">Create each ticket type separately. Each one can have its own panel text, button style, welcome message, and pre-open form.</div>
+  <div id="ticketOptionList" class="history-list"></div>
+  <div class="ticket-option-editor">
+    <div class="ticket-option-editor-section">
+      <div class="field">
+        <label id="label_t_optionLabel" data-i18n="t_optionLabel">Option label</label>
+        <input type="text" id="t_optionLabel">
+      </div>
+      <div class="field">
+        <label id="label_t_optionButtonStyle" data-i18n="t_optionButtonStyle">Button style</label>
+        <select id="t_optionButtonStyle">
+          <option value="PRIMARY">PRIMARY</option>
+          <option value="SECONDARY">SECONDARY</option>
+          <option value="SUCCESS">SUCCESS</option>
+          <option value="DANGER">DANGER</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="ticket-option-editor-section">
+      <div class="field span-all">
+        <label id="label_t_optionPanelTitle" data-i18n="t_optionPanelTitle">Panel title</label>
+        <input type="text" id="t_optionPanelTitle">
+      </div>
+      <div class="field ticket-option-editor-text">
+        <label id="label_t_optionPanelDescription" data-i18n="t_optionPanelDescription">Panel description</label>
+        <textarea id="t_optionPanelDescription"></textarea>
+      </div>
+      <div class="field ticket-option-editor-text">
+        <label id="label_t_optionWelcomeMessage" data-i18n="t_optionWelcomeMessage">Welcome message</label>
+        <textarea id="t_optionWelcomeMessage"></textarea>
+        <div id="hint_t_optionWelcomeMessage" class="keyhint" data-i18n="t_welcomeMessage_hint">Available placeholders: {user}, {type}, {summary}</div>
+      </div>
+    </div>
+
+    <div class="ticket-option-editor-section">
+      <div class="toggle span-all"><input type="checkbox" id="t_optionPreOpenFormEnabled"><label for="t_optionPreOpenFormEnabled" id="label_t_optionPreOpenFormEnabled" data-i18n="t_optionPreOpenFormEnabled">Enable pre-open form</label></div>
+      <div class="field">
+        <label id="label_t_optionPreOpenFormTitle" data-i18n="t_optionPreOpenFormTitle">Form title</label>
+        <input type="text" id="t_optionPreOpenFormTitle">
+      </div>
+      <div class="field">
+        <label id="label_t_optionPreOpenFormLabel" data-i18n="t_optionPreOpenFormLabel">Form field label</label>
+        <input type="text" id="t_optionPreOpenFormLabel">
+      </div>
+      <div class="field span-all">
+        <label id="label_t_optionPreOpenFormPlaceholder" data-i18n="t_optionPreOpenFormPlaceholder">Form placeholder</label>
+        <input type="text" id="t_optionPreOpenFormPlaceholder">
+      </div>
+    </div>
+  </div>
+</div>

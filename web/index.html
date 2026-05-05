@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NoRule Bot Web Console (Vite Dev)</title>
+  <script>
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
+      darkMode: ['class'],
+      corePlugins: { preflight: false },
+      theme: {
+        extend: {
+          colors: {
+            bg: 'var(--bg)',
+            'bg-2': 'var(--bg-2)',
+            'bg-3': 'var(--bg-3)',
+            panel: 'var(--panel)',
+            'panel-soft': 'var(--panel-soft)',
+            'panel-strong': 'var(--panel-strong)',
+            line: 'var(--line)',
+            'line-strong': 'var(--line-strong)',
+            text: 'var(--text)',
+            muted: 'var(--muted)',
+            accent: 'var(--accent)',
+            'accent-2': 'var(--accent-2)',
+            'accent-3': 'var(--accent-3)',
+            warn: 'var(--warn)',
+            danger: 'var(--danger)',
+            'danger-2': 'var(--danger-2)'
+          },
+          borderRadius: {
+            xl: 'var(--radius-xl)',
+            lg: 'var(--radius-lg)',
+            md: 'var(--radius-md)',
+            sm: 'var(--radius-sm)'
+          },
+          boxShadow: {
+            xl: 'var(--shadow-xl)',
+            lg: 'var(--shadow-lg)',
+            md: 'var(--shadow-md)'
+          }
+        }
+      }
+    };
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/src/app.css" />
+</head>
+<body>
+<div class="page-frame page-shell">
+  <main class="console-shell">
+    <section class="console-row console-auth-row auth-row"></section>
+    <section class="console-row console-dashboard-row">
+      <div class="dashboard-grid"></div>
+    </section>
+  </main>
+</div>
+<div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

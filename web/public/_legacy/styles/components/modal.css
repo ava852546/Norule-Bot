@@ -1,0 +1,63 @@
+﻿.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2,6,23,.78);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 9998;
+}
+.modal-backdrop.hidden { display: none; }
+.modal-card {
+  width: min(980px, 100%);
+  max-height: min(88vh, 920px);
+  overflow: auto;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(15,23,42,.98), rgba(17,24,39,.98));
+  box-shadow: 0 30px 60px rgba(0,0,0,.45);
+}
+.modal-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  background: linear-gradient(180deg, rgba(15,23,42,.98), rgba(15,23,42,.92));
+}
+.modal-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #f8fafc;
+}
+.modal-close {
+  width: auto;
+  padding: 10px 14px;
+}
+.modal-body {
+  padding: 18px;
+}
+.modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 18px;
+  border-top: 1px solid rgba(255,255,255,.08);
+  background: linear-gradient(180deg, rgba(15,23,42,.92), rgba(15,23,42,.98));
+}
+
+@media (max-width: 820px) {
+  .modal-backdrop { padding: 12px; }
+  .modal-head,
+  .modal-body,
+  .modal-actions { padding: 14px; }
+}

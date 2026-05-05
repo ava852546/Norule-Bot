@@ -390,8 +390,16 @@ public class ModerationService {
                 return new ExpressionEvaluationResult(true, null);
             }
         }
+        // Decimal-only input should be treated as numeric and rounded to nearest integer.
+        if (text.matches("\\d+\\.\\d+")) {
+            try {
+                return new ExpressionEvaluationResult(true, toRoundedLong(new BigDecimal(text)));
+            } catch (Exception ignored) {
+                return new ExpressionEvaluationResult(true, null);
+            }
+        }
         String normalizedOp = text.replace('X', '*').replace('x', '*').replace('?', '*');
-        if (!normalizedOp.matches("\\d+[+\\-*/]\\d+")) {
+        if (!normalizedOp.matches("\\d+(?:\\.\\d+)?[+\\-*/]\\d+(?:\\.\\d+)?")) {
             return new ExpressionEvaluationResult(false, null);
         }
         String[] parts = normalizedOp.split("([+\\-*/])", 2);
@@ -400,8 +408,8 @@ public class ModerationService {
         }
         char op = normalizedOp.replaceAll("\\d", "").charAt(0);
         try {
-            BigDecimal left = BigDecimal.valueOf(Long.parseLong(parts[0]));
-            BigDecimal right = BigDecimal.valueOf(Long.parseLong(parts[1]));
+            BigDecimal left = new BigDecimal(parts[0]);
+            BigDecimal right = new BigDecimal(parts[1]);
             BigDecimal computed;
             switch (op) {
                 case '+' -> computed = left.add(right);
@@ -417,10 +425,20 @@ public class ModerationService {
                     return new ExpressionEvaluationResult(true, null);
                 }
             }
-            long value = Math.round(computed.doubleValue());
-            return new ExpressionEvaluationResult(true, value);
+            return new ExpressionEvaluationResult(true, toRoundedLong(computed));
         } catch (Exception ignored) {
             return new ExpressionEvaluationResult(true, null);
+        }
+    }
+
+    private Long toRoundedLong(BigDecimal value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return value.setScale(0, RoundingMode.HALF_UP).longValueExact();
+        } catch (ArithmeticException ignored) {
+            return null;
         }
     }
     private boolean containsDigit(String text) {

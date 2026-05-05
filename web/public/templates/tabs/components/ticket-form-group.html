@@ -1,0 +1,27 @@
+<div class="settings-group">
+  <div id="ticket_group_form_title" class="settings-group-title" data-i18n="ticket_group_form_title">Pre-open Form</div>
+  <div class="grid2">
+    <div class="toggle span-all"><input type="checkbox" id="t_preOpenFormEnabled"><label for="t_preOpenFormEnabled" id="label_t_preOpenFormEnabled" data-i18n="t_preOpenFormEnabled">Require pre-open form</label></div>
+    <div class="field">
+      <label id="label_t_preOpenFormTitle" data-i18n="t_preOpenFormTitle">Pre-open form title (max 45 chars)</label>
+      <input type="text" id="t_preOpenFormTitle" maxlength="45">
+    </div>
+    <div class="field">
+      <label id="label_t_preOpenFormLabel" data-i18n="t_preOpenFormLabel">Pre-open form field label (max 45 chars)</label>
+      <input type="text" id="t_preOpenFormLabel" maxlength="45">
+    </div>
+    <div class="field span-all">
+      <label id="label_t_preOpenFormPlaceholder" data-i18n="t_preOpenFormPlaceholder">Pre-open form placeholder (max 100 chars)</label>
+      <input type="text" id="t_preOpenFormPlaceholder" maxlength="100">
+    </div>
+    <div class="field span-all">
+      <label id="label_t_welcomeMessage" data-i18n="t_welcomeMessage">Ticket welcome message</label>
+      <textarea id="t_welcomeMessage"></textarea>
+      <div id="hint_t_welcomeMessage" class="keyhint" data-i18n="t_welcomeMessage_hint">Placeholders: {user}=ticket creator mention, {type}=selected ticket type, {summary}=form summary (or '-' if empty).</div>
+    </div>
+    <div class="field span-all">
+      <label id="label_t_optionLabels" data-i18n="t_optionLabels">Ticket options (comma separated)</label>
+      <input type="text" id="t_optionLabels">
+    </div>
+  </div>
+</div>

@@ -1,7 +1,5 @@
 package com.norule.musicbot.discord.bot.app;
 
-import com.norule.musicbot.config.*;
-
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.components.selections.EntitySelectMenu;
@@ -45,6 +43,11 @@ public final class SettingsCommandHandler {
 
     SettingsCommandHandler(MusicCommandService owner) {
         this.owner = owner;
+    }
+
+    void cleanupExpiredRequests(Instant now) {
+        Instant cutoff = now == null ? Instant.now() : now;
+        logSettingsRequests.entrySet().removeIf(entry -> entry.getValue() == null || cutoff.isAfter(entry.getValue().expiresAt));
     }
 
     public void handleSettings(SlashCommandInteractionEvent event, String lang) {
@@ -156,7 +159,7 @@ public final class SettingsCommandHandler {
             return;
         }
         User user = event.getMentions().getUsers().get(0);
-        BotConfig.MessageLogs logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
         List<Long> updated = new ArrayList<>(logs.getIgnoredMemberIds());
         if (!updated.contains(user.getIdLong())) {
             updated.add(user.getIdLong());
@@ -183,7 +186,7 @@ public final class SettingsCommandHandler {
             return;
         }
         TextChannel channel = channels.get(0);
-        BotConfig.MessageLogs logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
         List<Long> updated = new ArrayList<>(logs.getIgnoredChannelIds());
         if (!updated.contains(channel.getIdLong())) {
             updated.add(channel.getIdLong());
@@ -209,7 +212,7 @@ public final class SettingsCommandHandler {
             return;
         }
         Role role = event.getMentions().getRoles().get(0);
-        BotConfig.MessageLogs logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
         List<Long> updated = new ArrayList<>(logs.getIgnoredRoleIds());
         if (!updated.contains(role.getIdLong())) {
             updated.add(role.getIdLong());
@@ -235,7 +238,7 @@ public final class SettingsCommandHandler {
             event.reply(owner.i18nService().t(lang, "settings.log_settings.prefix_required")).setEphemeral(true).queue();
             return;
         }
-        BotConfig.MessageLogs logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
         List<String> updated = new ArrayList<>(logs.getIgnoredPrefixes());
         if (!updated.contains(prefix)) {
             updated.add(prefix);
@@ -262,7 +265,7 @@ public final class SettingsCommandHandler {
             return;
         }
         User user = event.getMentions().getUsers().get(0);
-        BotConfig.MessageLogs logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
         List<Long> updated = new ArrayList<>(logs.getIgnoredMemberIds());
         boolean removed = updated.remove(Long.valueOf(user.getIdLong()));
         if (!removed) {
@@ -291,7 +294,7 @@ public final class SettingsCommandHandler {
             return;
         }
         TextChannel channel = channels.get(0);
-        BotConfig.MessageLogs logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
         List<Long> updated = new ArrayList<>(logs.getIgnoredChannelIds());
         boolean removed = updated.remove(Long.valueOf(channel.getIdLong()));
         if (!removed) {
@@ -319,7 +322,7 @@ public final class SettingsCommandHandler {
             return;
         }
         Role role = event.getMentions().getRoles().get(0);
-        BotConfig.MessageLogs logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
         List<Long> updated = new ArrayList<>(logs.getIgnoredRoleIds());
         boolean removed = updated.remove(Long.valueOf(role.getIdLong()));
         if (!removed) {
@@ -347,7 +350,7 @@ public final class SettingsCommandHandler {
             event.reply(owner.i18nService().t(lang, "settings.log_settings.prefix_required")).setEphemeral(true).queue();
             return;
         }
-        BotConfig.MessageLogs logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
         List<String> updated = new ArrayList<>(logs.getIgnoredPrefixes());
         boolean removed = updated.remove(prefix);
         if (!removed) {
@@ -371,18 +374,18 @@ public final class SettingsCommandHandler {
                 .queue();
     }
 
-    private EmbedBuilder logSettingsListEmbed(String lang, BotConfig.MessageLogs logs) {
+    private EmbedBuilder logSettingsListEmbed(String lang, List<String> ignoredPrefixes, List<Long> ignoredMemberIds, List<Long> ignoredRoleIds, List<Long> ignoredChannelIds) {
         EmbedBuilder embed = new EmbedBuilder()
                 .setColor(new Color(52, 152, 219))
                 .setTitle(owner.i18nService().t(lang, "settings.log_settings.list_title"));
         embed.addField(owner.i18nService().t(lang, "settings.log_settings.ignore_prefix"),
-                formatPrefixList(logs.getIgnoredPrefixes(), owner.i18nService().t(lang, "settings.info_channels_none")), false);
+                formatPrefixList(ignoredPrefixes, owner.i18nService().t(lang, "settings.info_channels_none")), false);
         embed.addField(owner.i18nService().t(lang, "settings.log_settings.ignore_member"),
-                formatIdList(logs.getIgnoredMemberIds(), "<@", ">", owner.i18nService().t(lang, "settings.info_channels_none")), false);
+                formatIdList(ignoredMemberIds, "<@", ">", owner.i18nService().t(lang, "settings.info_channels_none")), false);
         embed.addField(logSettingsIgnoreRoleLabel(lang),
-                formatIdList(logs.getIgnoredRoleIds(), "<@&", ">", owner.i18nService().t(lang, "settings.info_channels_none")), false);
+                formatIdList(ignoredRoleIds, "<@&", ">", owner.i18nService().t(lang, "settings.info_channels_none")), false);
         embed.addField(owner.i18nService().t(lang, "settings.log_settings.ignore_channel"),
-                formatIdList(logs.getIgnoredChannelIds(), "<#", ">", owner.i18nService().t(lang, "settings.info_channels_none")), false);
+                formatIdList(ignoredChannelIds, "<#", ">", owner.i18nService().t(lang, "settings.info_channels_none")), false);
         return embed;
     }
 
@@ -413,172 +416,63 @@ public final class SettingsCommandHandler {
                 .setDescription(description);
     }
 
-    private boolean isZhCn(String lang) {
-        if (lang == null) {
-            return false;
-        }
-        String normalized = lang.trim().toLowerCase();
-        return "zh-cn".equals(normalized) || "zh_cn".equals(normalized);
-    }
-
-    private boolean isEnglish(String lang) {
-        if (lang == null) {
-            return false;
-        }
-        return lang.trim().toLowerCase().startsWith("en");
-    }
-
-    private boolean isZh(String lang) {
-        return !isEnglish(lang);
-    }
-
     private String logSettingsRemoveMemberLabel(String lang) {
-        if (isZhCn(lang)) {
-            return "移除忽略成员";
-        }
-        if (isZh(lang)) {
-            return "移除忽略成員";
-        }
         return "Remove Ignored Member";
     }
 
     private String logSettingsIgnoreRoleLabel(String lang) {
-        if (isZhCn(lang)) {
-            return "忽略身份组";
-        }
-        if (isZh(lang)) {
-            return "忽略身分組";
-        }
         return "Ignore Role";
     }
 
     private String logSettingsRemoveRoleLabel(String lang) {
-        if (isZhCn(lang)) {
-            return "移除忽略身份组";
-        }
-        if (isZh(lang)) {
-            return "移除忽略身分組";
-        }
         return "Remove Ignored Role";
     }
 
     private String logSettingsRemoveChannelLabel(String lang) {
-        if (isZhCn(lang)) {
-            return "移除忽略频道";
-        }
-        if (isZh(lang)) {
-            return "移除忽略頻道";
-        }
         return "Remove Ignored Channel";
     }
 
     private String logSettingsRemovePrefixLabel(String lang) {
-        if (isZhCn(lang)) {
-            return "移除忽略前缀";
-        }
-        if (isZh(lang)) {
-            return "移除忽略前綴";
-        }
         return "Remove Ignored Prefix";
     }
 
     private String logSettingsRemoveMemberDesc(String lang) {
-        if (isZhCn(lang)) {
-            return "选择要从忽略列表移除的成员。";
-        }
-        if (isZh(lang)) {
-            return "選擇要從忽略清單移除的成員。";
-        }
         return "Choose a member to remove from the ignore list.";
     }
 
     private String logSettingsIgnoreRoleDesc(String lang) {
-        if (isZhCn(lang)) {
-            return "选择要加入忽略列表的身份组。";
-        }
-        if (isZh(lang)) {
-            return "選擇要加入忽略清單的身分組。";
-        }
         return "Choose a role to add to the ignore list.";
     }
 
     private String logSettingsRemoveRoleDesc(String lang) {
-        if (isZhCn(lang)) {
-            return "选择要从忽略列表移除的身份组。";
-        }
-        if (isZh(lang)) {
-            return "選擇要從忽略清單移除的身分組。";
-        }
         return "Choose a role to remove from the ignore list.";
     }
 
     private String logSettingsRemoveChannelDesc(String lang) {
-        if (isZhCn(lang)) {
-            return "选择要从忽略列表移除的文字频道。";
-        }
-        if (isZh(lang)) {
-            return "選擇要從忽略清單移除的文字頻道。";
-        }
         return "Choose a text channel to remove from the ignore list.";
     }
 
     private String logSettingsRemovePrefixModalTitle(String lang) {
-        if (isZhCn(lang)) {
-            return "移除忽略前缀";
-        }
-        if (isZh(lang)) {
-            return "移除忽略前綴";
-        }
         return "Remove Ignored Prefix";
     }
 
     private String logSettingsMemberNotIgnoredText(String lang) {
-        if (isZhCn(lang)) {
-            return "该成员目前不在忽略列表中。";
-        }
-        if (isZh(lang)) {
-            return "此成員目前不在忽略清單中。";
-        }
         return "That member is not currently in the ignore list.";
     }
 
     private String logSettingsRoleNotIgnoredText(String lang) {
-        if (isZhCn(lang)) {
-            return "该身份组目前不在忽略列表中。";
-        }
-        if (isZh(lang)) {
-            return "此身分組目前不在忽略清單中。";
-        }
         return "That role is not currently in the ignore list.";
     }
 
     private String logSettingsChannelNotIgnoredText(String lang) {
-        if (isZhCn(lang)) {
-            return "该频道目前不在忽略列表中。";
-        }
-        if (isZh(lang)) {
-            return "此頻道目前不在忽略清單中。";
-        }
         return "That channel is not currently in the ignore list.";
     }
 
     private String logSettingsPrefixNotIgnoredText(String lang) {
-        if (isZhCn(lang)) {
-            return "该前缀目前不在忽略列表中。";
-        }
-        if (isZh(lang)) {
-            return "此前綴目前不在忽略清單中。";
-        }
         return "That prefix is not currently in the ignore list.";
     }
 
     private String logSettingsRoleRequiredText(String lang) {
-        if (isZhCn(lang)) {
-            return "请选择一个身份组。";
-        }
-        if (isZh(lang)) {
-            return "請選擇一個身分組。";
-        }
         return "Please choose a role.";
     }
 
@@ -652,12 +546,6 @@ public final class SettingsCommandHandler {
     }
 
     private String numberChainStatusTitle(String lang) {
-        if ("zh-CN".equalsIgnoreCase(lang)) {
-            return "数字接龙状态";
-        }
-        if (lang != null && lang.toLowerCase().startsWith("zh")) {
-            return "數字接龍狀態";
-        }
         return "Number Chain Status";
     }
 
@@ -724,9 +612,9 @@ public final class SettingsCommandHandler {
             }
             String action = event.getValues().isEmpty() ? "" : event.getValues().get(0);
             switch (action) {
-                case "view-ignore" -> event.editMessageEmbeds(logSettingsListEmbed(lang, owner.settingsService().getMessageLogs(event.getGuild().getIdLong())).build())
+                case "view-ignore" -> { var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong()); event.editMessageEmbeds(logSettingsListEmbed(lang, logs.getIgnoredPrefixes(), logs.getIgnoredMemberIds(), logs.getIgnoredRoleIds(), logs.getIgnoredChannelIds()).build())
                         .setComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                        .queue();
+                                                .queue(); }
                 case "ignore-member" -> event.editMessageEmbeds(new EmbedBuilder()
                                 .setColor(new Color(52, 152, 219))
                                 .setTitle(owner.i18nService().t(lang, "settings.log_settings.ignore_member"))

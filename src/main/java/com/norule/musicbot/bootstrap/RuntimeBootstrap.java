@@ -4,6 +4,7 @@ import com.norule.musicbot.config.*;
 import com.norule.musicbot.config.domain.GuildDomainConfigAdapter;
 import com.norule.musicbot.config.domain.MusicConfig;
 import com.norule.musicbot.config.domain.RuntimeConfigSnapshot;
+import com.norule.musicbot.config.domain.ShortUrlConfig;
 import com.norule.musicbot.config.domain.StatsConfig;
 import com.norule.musicbot.config.loader.ConfigLoader;
 import com.norule.musicbot.domain.music.*;
@@ -19,6 +20,10 @@ import com.norule.musicbot.domain.stats.MySqlMessageStatsRepository;
 import com.norule.musicbot.domain.stats.SqliteMessageStatsRepository;
 import com.norule.musicbot.web.infra.WebControlServer;
 import com.norule.musicbot.web.infra.WebSettings;
+import com.norule.musicbot.shorturl.MySqlShortUrlRepository;
+import com.norule.musicbot.shorturl.ShortUrlRepository;
+import com.norule.musicbot.shorturl.SqliteShortUrlRepository;
+import com.norule.musicbot.shorturl.infra.ShortUrlGatewayServer;
 
 import com.norule.musicbot.*;
 
@@ -70,8 +75,13 @@ public final class RuntimeBootstrap {
     private static final AtomicReference<BotConfig> RUNTIME_CONFIG = new AtomicReference<>();
     private static final AtomicReference<RuntimeConfigSnapshot> RUNTIME_SNAPSHOT = new AtomicReference<>();
     private static final AtomicReference<WebControlServer> WEB_SERVER = new AtomicReference<>();
+    private static final AtomicReference<ShortUrlGatewayServer> SHORT_URL_GATEWAY_SERVER = new AtomicReference<>();
     private static final AtomicReference<I18nService> I18N_SERVICE = new AtomicReference<>();
     private static final AtomicReference<TicketService> TICKET_SERVICE = new AtomicReference<>();
+    private static final AtomicReference<ShortUrlService> SHORT_URL_SERVICE = new AtomicReference<>();
+    private static final AtomicReference<MessageLogCacheRepository> MESSAGE_LOG_CACHE_REPOSITORY = new AtomicReference<>();
+    private static final AtomicReference<DuplicateMessageCacheRepository> DUPLICATE_MESSAGE_CACHE_REPOSITORY = new AtomicReference<>();
+    private static final AtomicReference<PrivateRoomCacheRepository> PRIVATE_ROOM_CACHE_REPOSITORY = new AtomicReference<>();
     private record ActivityTemplate(String type, String text) {}
 
     public void run(String[] args) {
@@ -80,7 +90,7 @@ public final class RuntimeBootstrap {
                 ? Path.of(".").toAbsolutePath().normalize()
                 : configPath.toAbsolutePath().getParent().normalize();
         ConfigLoader configLoader = new ConfigLoader();
-        BotConfig config = configLoader.initializeAndLoad(configPath);
+        BotConfig config = configLoader.load(configPath);
         installConsoleFileLogging(baseDir, config.getLogDir());
         RUNTIME_CONFIG.set(config);
         RuntimeConfigSnapshot runtimeSnapshot = RuntimeConfigSnapshot.from(config, baseDir);
@@ -88,7 +98,6 @@ public final class RuntimeBootstrap {
         String token = config.getToken();
         Path guildSettingsPath = resolveDataPath(baseDir, config.getGuildSettingsDir());
         Path languagePath = resolveDataPath(baseDir, config.getLanguageDir());
-        Path cachePath = resolveDataPath(baseDir, config.getCacheDir());
         Path musicDataPath = resolveDataPath(baseDir, config.getMusicDataDir());
         Path ticketDataPath = resolveDataPath(baseDir, config.getTicketDataDir());
         Path ticketTranscriptPath = resolveDataPath(baseDir, config.getTicketTranscriptDir());
@@ -97,7 +106,7 @@ public final class RuntimeBootstrap {
         GuildSettingsService guildSettingsService =
                 new GuildSettingsService(guildSettingsPath, config);
         GuildDomainConfigAdapter guildConfigAdapter = new GuildDomainConfigAdapter(guildSettingsService, config.getMusic());
-        MusicConfig globalMusicConfig = MusicConfig.fromLegacy(config.getMusic(), config.getMusic());
+        MusicConfig globalMusicConfig = new MusicConfig(config.getMusic(), config.getMusic());
         MusicPlayerService playerService = new MusicPlayerService(
                 musicDataPath,
                 guildConfigAdapter::getMusicHistoryLimit,
@@ -108,8 +117,17 @@ public final class RuntimeBootstrap {
         ModerationService moderationService = new ModerationService(resolveDataPath(baseDir, config.getModerationDataDir()));
         HoneypotService honeypotService = new HoneypotService(honeypotDataPath);
         TicketService ticketService = new TicketService(ticketDataPath, ticketTranscriptPath);
+        ShortUrlService shortUrlService = createShortUrlService(config, baseDir);
         TICKET_SERVICE.set(ticketService);
-        MessageStatsListener messageStatsListener = createMessageStatsListener(StatsConfig.fromLegacy(config.getStats()), config, baseDir);
+        SHORT_URL_SERVICE.set(shortUrlService);
+        StatsConfig statsConfig = new StatsConfig(config.getStats());
+        MessageStatsListener messageStatsListener = createMessageStatsListener(statsConfig, config, baseDir);
+        MessageLogCacheRepository messageLogCacheRepository = createMessageLogCacheRepository(statsConfig, baseDir);
+        DuplicateMessageCacheRepository duplicateMessageCacheRepository = createDuplicateMessageCacheRepository(statsConfig, baseDir);
+        PrivateRoomCacheRepository privateRoomCacheRepository = createPrivateRoomCacheRepository(statsConfig, baseDir);
+        MESSAGE_LOG_CACHE_REPOSITORY.set(messageLogCacheRepository);
+        DUPLICATE_MESSAGE_CACHE_REPOSITORY.set(duplicateMessageCacheRepository);
+        PRIVATE_ROOM_CACHE_REPOSITORY.set(privateRoomCacheRepository);
         I18nService i18nService = I18nService.load(languagePath, config.getDefaultLanguage());
         I18N_SERVICE.set(i18nService);
         Signals signals = new InMemorySignals();
@@ -121,7 +139,15 @@ public final class RuntimeBootstrap {
                         + " auto=" + event.autoClosed()
         ));
         MusicCommandListener musicCommandListener = new MusicCommandListener(
-                playerService, runtimeSnapshot, guildSettingsService, moderationService, honeypotService, signals, ticketService
+                playerService,
+                runtimeSnapshot,
+                guildSettingsService,
+                moderationService,
+                honeypotService,
+                signals,
+                shortUrlService,
+                ticketService,
+                messageStatsListener == null ? null : messageStatsListener.service()
         );
 
         AudioModuleConfig audioConfig = new AudioModuleConfig()
@@ -145,9 +171,9 @@ public final class RuntimeBootstrap {
                 .addEventListeners(
                         musicCommandListener,
                         new NotificationListener(guildSettingsService, i18nService),
-                        new MessageLogListener(guildSettingsService, i18nService, cachePath),
+                        new MessageLogListener(guildSettingsService, i18nService, messageLogCacheRepository),
                         new ServerLogListener(guildSettingsService, i18nService),
-                        new DuplicateMessageListener(guildSettingsService, moderationService, i18nService, cachePath),
+                        new DuplicateMessageListener(guildSettingsService, moderationService, i18nService, duplicateMessageCacheRepository),
                         new HoneypotListener(honeypotService, guildSettingsService),
                         new NumberChainListener(guildSettingsService, moderationService, i18nService,
                                 () -> {
@@ -155,7 +181,7 @@ public final class RuntimeBootstrap {
                                     return snapshot == null ? 500L : snapshot.getNumberChainReactionDelayMillis();
                                 }),
                         new VoiceAutoLeaveListener(guildSettingsService, playerService, i18nService),
-                        new PrivateRoomListener(guildSettingsService, i18nService, cachePath)
+                        new PrivateRoomListener(guildSettingsService, i18nService, privateRoomCacheRepository)
                 );
         if (messageStatsListener != null) {
             builder.addEventListeners(messageStatsListener);
@@ -169,7 +195,8 @@ public final class RuntimeBootstrap {
         try {
             jda.awaitReady();
             startActivityRotation(jda, config.getBotProfile());
-            syncWebServer(jda, playerService, guildSettingsService, moderationService, TICKET_SERVICE.get(), I18N_SERVICE.get());
+            syncWebServer(jda, playerService, guildSettingsService, moderationService, TICKET_SERVICE.get(), SHORT_URL_SERVICE.get(), I18N_SERVICE.get());
+            syncShortUrlGateway();
             logLifecycleMessage(i18nService, config.getDefaultLanguage(), true);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -375,15 +402,20 @@ public final class RuntimeBootstrap {
                     guildConfigAdapter::getMusicStatsRetentionDays,
                     guildConfigAdapter::getMusicPlaylistTrackLimit
             );
-            playerService.replaceGlobalMusicConfig(MusicConfig.fromLegacy(reloaded.getMusic(), reloaded.getMusic()));
+            playerService.replaceGlobalMusicConfig(new MusicConfig(reloaded.getMusic(), reloaded.getMusic()));
             playerService.reloadData();
             honeypotService.reloadAll();
             if (ticketService != null) {
                 ticketService.reloadAll();
             }
+            ShortUrlService shortUrlService = SHORT_URL_SERVICE.get();
+            if (shortUrlService != null) {
+                shortUrlService.updateOptions(new ShortUrlConfig(reloaded.getShortUrl()).toOptions());
+            }
             musicCommandListener.reloadRuntimeConfig(snapshot);
             startActivityRotation(jda, reloaded.getBotProfile());
-            syncWebServer(jda, playerService, guildSettingsService, moderationService, TICKET_SERVICE.get(), I18N_SERVICE.get());
+            syncWebServer(jda, playerService, guildSettingsService, moderationService, TICKET_SERVICE.get(), SHORT_URL_SERVICE.get(), I18N_SERVICE.get());
+            syncShortUrlGateway();
             System.out.println("[NoRule] Config reloaded successfully.");
         } catch (Exception e) {
             System.out.println("[NoRule] Config reload failed: " + e.getMessage());
@@ -413,10 +445,17 @@ public final class RuntimeBootstrap {
         if (webServer != null) {
             webServer.shutdown();
         }
+        ShortUrlGatewayServer shortUrlGatewayServer = SHORT_URL_GATEWAY_SERVER.getAndSet(null);
+        if (shortUrlGatewayServer != null) {
+            shortUrlGatewayServer.shutdown();
+        }
         ScheduledExecutorService rotation = PRESENCE_ROTATION.getAndSet(null);
         if (rotation != null) {
             rotation.shutdownNow();
         }
+        closeQuietly(MESSAGE_LOG_CACHE_REPOSITORY.getAndSet(null), "message-log cache repository");
+        closeQuietly(DUPLICATE_MESSAGE_CACHE_REPOSITORY.getAndSet(null), "duplicate-message cache repository");
+        closeQuietly(PRIVATE_ROOM_CACHE_REPOSITORY.getAndSet(null), "private-room cache repository");
         jda.shutdown();
 
         long deadline = System.currentTimeMillis() + 15_000L;
@@ -445,9 +484,10 @@ public final class RuntimeBootstrap {
                                       GuildSettingsService guildSettingsService,
                                       ModerationService moderationService,
                                       TicketService ticketService,
+                                      ShortUrlService shortUrlService,
                                       I18nService i18nService) {
         BotConfig runtime = RUNTIME_CONFIG.get();
-        if (runtime == null || i18nService == null || ticketService == null) {
+        if (runtime == null || i18nService == null || ticketService == null || shortUrlService == null) {
             return;
         }
         if (!runtime.getWeb().isEnabled()) {
@@ -465,19 +505,20 @@ public final class RuntimeBootstrap {
                     guildSettingsService,
                     moderationService,
                     ticketService,
+                    shortUrlService,
                     () -> {
                         BotConfig cfg = RUNTIME_CONFIG.get();
                         if (cfg == null) {
-                            return new WebSettings(false, "0.0.0.0", 60000, "http://localhost:60000", 720, "", "", "",
+                            return new WebSettings(false, "0.0.0.0", 60000, "https://dash.example.com", 720, "", "", "",
                                     new WebSettings.WebSslSettings(false, "certs", "privkey.pem", "fullchain.pem", "web-keystore.p12", "", "PKCS12", ""));
                         }
                         BotConfig.Web web = cfg.getWeb();
                         BotConfig.Web.Ssl ssl = web.getSsl();
                         return new WebSettings(
                                 web.isEnabled(),
-                                web.getHost(),
-                                web.getPort(),
-                                web.getBaseUrl(),
+                                web.getBindHost(),
+                                web.getBindPort(),
+                                web.getPublicBaseUrl(),
                                 web.getSessionExpireMinutes(),
                                 web.getDiscordClientId(),
                                 web.getDiscordClientSecret(),
@@ -597,6 +638,100 @@ public final class RuntimeBootstrap {
             }
             return null;
         }
+    }
+
+    private static MessageLogCacheRepository createMessageLogCacheRepository(StatsConfig stats, Path baseDir) {
+        if ("sqlite".equalsIgnoreCase(stats.getStorage())) {
+            Path sqlitePath = resolveDataPath(baseDir, stats.getSqlite().getPath());
+            System.out.println("[NoRule] Message log cache storage: sqlite (" + sqlitePath + ")");
+            return new SqliteMessageLogCacheRepository(sqlitePath);
+        }
+        StatsConfig.Mysql mysql = stats.getMysql();
+        String jdbcUrl = getEnvOrDefault("MYSQL_JDBC_URL", mysql.getJdbcUrl());
+        String username = getEnvOrDefault("MYSQL_USER", mysql.getUsername());
+        String password = getEnvOrDefault("MYSQL_PASSWORD", mysql.getPassword());
+        int poolSize = parseIntEnv("MYSQL_POOL_SIZE", mysql.getPoolSize());
+        System.out.println("[NoRule] Message log cache storage: mysql");
+        return new MySqlMessageLogCacheRepository(jdbcUrl, username, password, poolSize);
+    }
+
+    private static DuplicateMessageCacheRepository createDuplicateMessageCacheRepository(StatsConfig stats, Path baseDir) {
+        if ("sqlite".equalsIgnoreCase(stats.getStorage())) {
+            Path sqlitePath = resolveDataPath(baseDir, stats.getSqlite().getPath());
+            System.out.println("[NoRule] Duplicate message cache storage: sqlite (" + sqlitePath + ")");
+            return new SqliteDuplicateMessageCacheRepository(sqlitePath);
+        }
+        StatsConfig.Mysql mysql = stats.getMysql();
+        String jdbcUrl = getEnvOrDefault("MYSQL_JDBC_URL", mysql.getJdbcUrl());
+        String username = getEnvOrDefault("MYSQL_USER", mysql.getUsername());
+        String password = getEnvOrDefault("MYSQL_PASSWORD", mysql.getPassword());
+        int poolSize = parseIntEnv("MYSQL_POOL_SIZE", mysql.getPoolSize());
+        System.out.println("[NoRule] Duplicate message cache storage: mysql");
+        return new MySqlDuplicateMessageCacheRepository(jdbcUrl, username, password, poolSize);
+    }
+
+    private static PrivateRoomCacheRepository createPrivateRoomCacheRepository(StatsConfig stats, Path baseDir) {
+        if ("sqlite".equalsIgnoreCase(stats.getStorage())) {
+            Path sqlitePath = resolveDataPath(baseDir, stats.getSqlite().getPath());
+            System.out.println("[NoRule] Private room cache storage: sqlite (" + sqlitePath + ")");
+            return new SqlitePrivateRoomCacheRepository(sqlitePath);
+        }
+        StatsConfig.Mysql mysql = stats.getMysql();
+        String jdbcUrl = getEnvOrDefault("MYSQL_JDBC_URL", mysql.getJdbcUrl());
+        String username = getEnvOrDefault("MYSQL_USER", mysql.getUsername());
+        String password = getEnvOrDefault("MYSQL_PASSWORD", mysql.getPassword());
+        int poolSize = parseIntEnv("MYSQL_POOL_SIZE", mysql.getPoolSize());
+        System.out.println("[NoRule] Private room cache storage: mysql");
+        return new MySqlPrivateRoomCacheRepository(jdbcUrl, username, password, poolSize);
+    }
+
+    private static void closeQuietly(AutoCloseable closeable, String name) {
+        if (closeable == null) {
+            return;
+        }
+        try {
+            closeable.close();
+        } catch (Exception e) {
+            System.out.println("[NoRule] Failed to close " + name + ": " + e.getMessage());
+        }
+    }
+
+    private static ShortUrlService createShortUrlService(BotConfig config, Path baseDir) {
+        ShortUrlConfig shortUrlConfig = new ShortUrlConfig(config.getShortUrl());
+        ShortUrlRepository repository = createShortUrlRepository(shortUrlConfig, baseDir);
+        return new ShortUrlService(repository, shortUrlConfig.toOptions());
+    }
+
+    private static ShortUrlRepository createShortUrlRepository(ShortUrlConfig config, Path baseDir) {
+        String storage = config.getStorage() == null ? "sqlite" : config.getStorage().trim().toLowerCase(Locale.ROOT);
+        if ("mysql".equals(storage)) {
+            ShortUrlConfig.Mysql mysql = config.getMysql();
+            return new MySqlShortUrlRepository(
+                    mysql.getJdbcUrl(),
+                    mysql.getUsername(),
+                    mysql.getPassword(),
+                    mysql.getPoolSize()
+            );
+        }
+        Path dbPath = resolveDataPath(baseDir, config.getSqlite().getPath());
+        return new SqliteShortUrlRepository(dbPath);
+    }
+
+    private static void syncShortUrlGateway() {
+        BotConfig runtime = RUNTIME_CONFIG.get();
+        ShortUrlService shortUrlService = SHORT_URL_SERVICE.get();
+        if (runtime == null || shortUrlService == null) {
+            return;
+        }
+        ShortUrlGatewayServer gatewayServer = SHORT_URL_GATEWAY_SERVER.get();
+        if (gatewayServer == null) {
+            gatewayServer = new ShortUrlGatewayServer(shortUrlService, () -> {
+                BotConfig cfg = RUNTIME_CONFIG.get();
+                return cfg == null ? BotConfig.ShortUrl.defaultValues() : cfg.getShortUrl();
+            });
+            SHORT_URL_GATEWAY_SERVER.set(gatewayServer);
+        }
+        gatewayServer.syncWithConfig();
     }
 
     private static String getEnvOrDefault(String key, String defaultValue) {

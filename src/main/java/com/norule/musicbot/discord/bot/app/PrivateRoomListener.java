@@ -6,13 +6,11 @@ import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
 import net.dv8tion.jda.api.events.session.ReadyEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
-import java.nio.file.Path;
-
 public class PrivateRoomListener extends ListenerAdapter {
     private final PrivateRoomService service;
 
-    public PrivateRoomListener(GuildSettingsService settingsService, I18nService i18n, Path cacheDir) {
-        this.service = new PrivateRoomService(settingsService, i18n, cacheDir);
+    public PrivateRoomListener(GuildSettingsService settingsService, I18nService i18n, PrivateRoomCacheRepository cacheRepository) {
+        this.service = new PrivateRoomService(settingsService, i18n, cacheRepository);
     }
 
     @Override

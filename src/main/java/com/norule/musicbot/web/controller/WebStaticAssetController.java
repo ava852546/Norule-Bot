@@ -18,7 +18,7 @@ public final class WebStaticAssetController {
 
     public void handleRoot(HttpExchange exchange) throws IOException {
         if (!"GET".equalsIgnoreCase(exchange.getRequestMethod()) || !"/".equals(exchange.getRequestURI().getPath())) {
-            owner.sendText(exchange, 404, "Not Found");
+            sendNotFoundPage(exchange, "Web UI");
             return;
         }
         sendHtml(exchange, 200, buildRootHtml());
@@ -31,13 +31,17 @@ public final class WebStaticAssetController {
         }
         String requestPath = exchange.getRequestURI().getPath();
         if (requestPath == null || !requestPath.startsWith("/web/") || requestPath.contains("..")) {
-            owner.sendText(exchange, 404, "Not Found");
+            sendNotFoundPage(exchange, "Web UI");
+            return;
+        }
+        if (requestPath.equals("/web/_legacy") || requestPath.startsWith("/web/_legacy/")) {
+            sendNotFoundPage(exchange, "Web UI");
             return;
         }
         String resourcePath = requestPath;
         try (InputStream in = WebControlServer.class.getResourceAsStream(resourcePath)) {
             if (in == null) {
-                owner.sendText(exchange, 404, "Not Found");
+                sendNotFoundPage(exchange, "Web UI");
                 return;
             }
             byte[] body = in.readAllBytes();
@@ -52,6 +56,16 @@ public final class WebStaticAssetController {
             exchange.getResponseBody().write(body);
             exchange.close();
         }
+    }
+
+    private void sendNotFoundPage(HttpExchange exchange, String kicker) throws IOException {
+        sendHtml(exchange, 404, renderTemplate("web/404.html", Map.of(
+                "__NOT_FOUND_KICKER__", escapeHtmlAttr(kicker),
+                "__NOT_FOUND_TITLE__", "Page Not Found",
+                "__NOT_FOUND_DESCRIPTION__", "The page you requested does not exist in this Web UI server.",
+                "__NOT_FOUND_ACTION_URL__", "/",
+                "__NOT_FOUND_ACTION_TEXT__", "Back to Dashboard"
+        )));
     }
 
     private String buildRootHtml() {
@@ -135,7 +149,7 @@ public final class WebStaticAssetController {
                         "notifications_group_title",
                         "section_notifications",
                         "notifications.*",
-                        ""
+                        buildResetButton("resetNotificationsBtn")
                 ),
                 "__OVERVIEW_GROUP__", loadWebTemplate("web/templates/tabs/components/notifications-overview-group.html"),
                 "__MODAL_HEAD__", buildModalHead(

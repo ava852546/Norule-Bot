@@ -31,7 +31,7 @@ public final class TicketTranscriptWebService {
 
     public void handleTicketPanelSend(HttpExchange exchange, Guild guild) throws IOException {
         String lang = owner.settingsService().getLanguage(guild.getIdLong());
-        TicketConfig ticket = TicketConfig.fromLegacy(owner.settingsService().getTicket(guild.getIdLong()));
+        TicketConfig ticket = new TicketConfig(owner.settingsService().getTicket(guild.getIdLong()));
         if (!ticket.isEnabled()) {
             owner.sendJson(exchange, 400, DataObject.empty().put("error", owner.i18n().t(lang, "ticket.disabled")));
             return;
@@ -86,13 +86,17 @@ public final class TicketTranscriptWebService {
         List<TicketService.TranscriptFile> files = owner.ticketService().listTranscripts(guildId, 500);
 
         DataArray rows = DataArray.empty();
+        String webBaseUrl = owner.resolveHomeUrl(owner.webSettings());
         for (TicketService.TranscriptFile file : files) {
+            String rawUrl = webBaseUrl + "/api/guild/" + guild.getId() + "/ticket/transcript/" + owner.encode(file.getFileName());
+            var shortEntry = owner.shortUrlService().create(rawUrl);
+            String resolvedUrl = shortEntry == null ? rawUrl : owner.shortUrlService().toPublicUrl(shortEntry.getCode());
             rows.add(DataObject.empty()
                     .put("name", file.getFileName())
                     .put("size", file.getSize())
                     .put("lastModifiedAt", file.getLastModifiedAt())
                     .put("channelId", file.getChannelId())
-                    .put("url", "/api/guild/" + guild.getId() + "/ticket/transcript/" + owner.encode(file.getFileName())));
+                    .put("url", resolvedUrl));
         }
 
         owner.sendJson(exchange, 200, DataObject.empty()
@@ -165,7 +169,7 @@ public final class TicketTranscriptWebService {
     private List<ActionRow> buildTicketPanelOpenComponents(TicketConfig ticket, String lang) {
         List<TicketConfig.TicketOption> options = resolveTicketOptions(ticket, lang);
         if (ticket.getOpenUiMode() == TicketConfig.OpenUiMode.SELECT) {
-            StringSelectMenu.Builder menu = StringSelectMenu.create("ticket:open:panel-select")
+            StringSelectMenu.Builder menu = StringSelectMenu.create("ticket_open_panel_select")
                     .setPlaceholder(owner.i18n().t(lang, "ticket.select_placeholder"));
             for (TicketConfig.TicketOption option : options) {
                 menu.addOptions(SelectOption.of(option.getLabel(), option.getId()));
@@ -176,10 +180,10 @@ public final class TicketTranscriptWebService {
         List<Button> buttons = new ArrayList<>();
         if (options.size() == 1) {
             TicketConfig.TicketOption option = options.get(0);
-            buttons.add(createOpenButton(option.getPanelButtonStyle(), "ticket:open", option.getLabel()));
+            buttons.add(createOpenButton(option.getPanelButtonStyle(), "ticket_open", option.getLabel()));
         } else {
             for (TicketConfig.TicketOption option : options) {
-                buttons.add(createOpenButton(option.getPanelButtonStyle(), "ticket:open:option:" + option.getId(), option.getLabel()));
+                buttons.add(createOpenButton(option.getPanelButtonStyle(), "ticket_open_option_" + option.getId(), option.getLabel()));
             }
         }
         List<ActionRow> rows = new ArrayList<>();
@@ -187,7 +191,7 @@ public final class TicketTranscriptWebService {
             rows.add(ActionRow.of(buttons.subList(i, Math.min(i + 5, buttons.size()))));
         }
         if (rows.isEmpty()) {
-            rows.add(ActionRow.of(createOpenButton(ticket.getPanelButtonStyle(), "ticket:open", owner.i18n().t(lang, "ticket.panel_open_button"))));
+            rows.add(ActionRow.of(createOpenButton(ticket.getPanelButtonStyle(), "ticket_open", owner.i18n().t(lang, "ticket.panel_open_button"))));
         }
         return rows;
     }

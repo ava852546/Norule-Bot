@@ -1,8 +1,7 @@
 package com.norule.musicbot.discord.bot.app;
 
-import com.norule.musicbot.config.*;
-import com.norule.musicbot.i18n.*;
-
+import com.norule.musicbot.config.GuildSettingsService;
+import com.norule.musicbot.i18n.I18nService;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
@@ -11,81 +10,51 @@ import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.message.MessageDeleteEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.events.message.MessageUpdateEvent;
-import org.yaml.snakeyaml.DumperOptions;
-import org.yaml.snakeyaml.Yaml;
 
 import java.awt.Color;
-import java.io.InputStream;
-import java.io.Writer;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Instant;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.time.Instant;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class MessageLogService {
     private static final long CACHE_RETENTION_MILLIS = Duration.ofDays(7).toMillis();
     private static final int EMBED_FIELD_LIMIT = 1024;
     private static final String EMPTY_TEXT = "(empty)";
 
-    private static class CachedMessage {
-        final long channelId;
-        final String authorTag;
-        final String authorId;
-        final boolean authorIsBot;
-        final List<Long> authorRoleIds;
-        final String content;
-        final String attachments;
-        final long cachedAtMillis;
-
-        CachedMessage(long channelId, String authorTag, String authorId, boolean authorIsBot, List<Long> authorRoleIds, String content, String attachments, long cachedAtMillis) {
-            this.channelId = channelId;
-            this.authorTag = authorTag;
-            this.authorId = authorId;
-            this.authorIsBot = authorIsBot;
-            this.authorRoleIds = authorRoleIds == null ? List.of() : authorRoleIds;
-            this.content = content;
-            this.attachments = attachments;
-            this.cachedAtMillis = cachedAtMillis;
-        }
-    }
-
     private final GuildSettingsService settingsService;
     private final I18nService i18n;
-    private final Map<Long, CachedMessage> cache = new ConcurrentHashMap<>();
-    private final Path cacheFile;
-    private final Yaml yaml;
+    private final MessageLogCacheRepository cacheRepository;
 
-    public MessageLogService(GuildSettingsService settingsService, I18nService i18n, Path cacheDir) {
+    public MessageLogService(GuildSettingsService settingsService, I18nService i18n, MessageLogCacheRepository cacheRepository) {
         this.settingsService = settingsService;
         this.i18n = i18n;
-        this.cacheFile = cacheDir.resolve("message-log-cache.yml");
-        this.yaml = new Yaml(yamlOptions());
-        try {
-            Files.createDirectories(cacheDir);
-        } catch (Exception ignored) {
-        }
-        loadCache();
-        pruneAndSave(System.currentTimeMillis());
+        this.cacheRepository = cacheRepository;
+        pruneExpired(System.currentTimeMillis());
     }
+
     public void onMessageReceived(MessageReceivedEvent event) {
         if (!event.isFromGuild() || event.getAuthor().isBot()) {
             return;
         }
         Message msg = event.getMessage();
-        BotConfig.MessageLogs cfg = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        var cfg = settingsService.getMessageLogs(event.getGuild().getIdLong());
         List<Long> authorRoleIds = resolveRoleIds(event.getMember());
-        if (shouldIgnoreMessage(cfg, event.getChannel().getIdLong(), event.getAuthor().getId(), authorRoleIds, msg.getContentRaw())) {
-            cache.remove(msg.getIdLong());
-            return;
-        }
         long now = System.currentTimeMillis();
         pruneExpired(now);
-        cache.put(msg.getIdLong(), new CachedMessage(
+        if (shouldIgnoreMessage(
+                cfg.getIgnoredChannelIds(),
+                cfg.getIgnoredMemberIds(),
+                cfg.getIgnoredRoleIds(),
+                cfg.getIgnoredPrefixes(),
+                event.getChannel().getIdLong(),
+                event.getAuthor().getId(),
+                authorRoleIds,
+                msg.getContentRaw())) {
+            removeCacheEntry(msg.getIdLong());
+            return;
+        }
+        upsertCacheEntry(new MessageLogCacheEntry(
+                msg.getIdLong(),
                 event.getChannel().getIdLong(),
                 event.getAuthor().getAsTag(),
                 event.getAuthor().getId(),
@@ -95,32 +64,40 @@ public class MessageLogService {
                 formatAttachments(msg),
                 now
         ));
-        saveCache();
     }
+
     public void onMessageUpdate(MessageUpdateEvent event) {
         if (!event.isFromGuild() || event.getAuthor().isBot()) {
             return;
         }
 
         String lang = settingsService.getLanguage(event.getGuild().getIdLong());
-        BotConfig.MessageLogs cfg = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        var cfg = settingsService.getMessageLogs(event.getGuild().getIdLong());
         if (!cfg.isEnabled()) {
             return;
         }
 
         long now = System.currentTimeMillis();
         pruneExpired(now);
-        CachedMessage old = cache.get(event.getMessageIdLong());
+        MessageLogCacheEntry old = findCacheEntry(event.getMessageIdLong());
         String afterRawContent = event.getMessage().getContentRaw();
         String afterRawAttachments = formatAttachments(event.getMessage());
         List<Long> authorRoleIds = resolveRoleIds(event.getMember());
-        if (shouldIgnoreMessage(cfg, event.getChannel().getIdLong(), event.getAuthor().getId(), authorRoleIds, afterRawContent)) {
-            cache.remove(event.getMessageIdLong());
-            saveCache();
+        if (shouldIgnoreMessage(
+                cfg.getIgnoredChannelIds(),
+                cfg.getIgnoredMemberIds(),
+                cfg.getIgnoredRoleIds(),
+                cfg.getIgnoredPrefixes(),
+                event.getChannel().getIdLong(),
+                event.getAuthor().getId(),
+                authorRoleIds,
+                afterRawContent)) {
+            removeCacheEntry(event.getMessageIdLong());
             return;
         }
 
-        cache.put(event.getMessageIdLong(), new CachedMessage(
+        upsertCacheEntry(new MessageLogCacheEntry(
+                event.getMessageIdLong(),
                 event.getChannel().getIdLong(),
                 event.getAuthor().getAsTag(),
                 event.getAuthor().getId(),
@@ -130,24 +107,22 @@ public class MessageLogService {
                 afterRawAttachments,
                 now
         ));
-        saveCache();
 
         if (old == null) {
-            // No baseline snapshot (e.g. bot restarted); skip to avoid false-positive edit logs.
             return;
         }
 
-        if (sameMeaningfulContent(old.content, afterRawContent) && sameMeaningfulContent(old.attachments, afterRawAttachments)) {
-            // Ignore metadata-only updates such as link unfurl/embed refresh.
+        if (sameMeaningfulContent(old.getContent(), afterRawContent)
+                && sameMeaningfulContent(old.getAttachments(), afterRawAttachments)) {
             return;
         }
 
-        String before = formatRawForEmbed(old.content);
-        String beforeAttachments = trimForField(old.attachments);
+        String before = formatRawForEmbed(old.getContent());
+        String beforeAttachments = trimForField(old.getAttachments());
         String after = formatRawForEmbed(afterRawContent);
         String afterAttachments = trimForField(afterRawAttachments);
 
-        sendLog(event.getGuild(), resolveMessageLogChannelId(event.getGuild(), cfg), new EmbedBuilder()
+        sendLog(event.getGuild(), resolveMessageLogChannelId(cfg.getMessageLogChannelId(), cfg.getChannelId()), new EmbedBuilder()
                 .setColor(new Color(241, 196, 15))
                 .setTitle(i18n.t(lang, "message_logs.edit.title"))
                 .addField(i18n.t(lang, "message_logs.edit.user"), event.getAuthor().getAsMention() + " (`" + event.getAuthor().getAsTag() + "`)", false)
@@ -160,34 +135,42 @@ public class MessageLogService {
                 .setTimestamp(Instant.now())
         );
     }
+
     public void onMessageDelete(MessageDeleteEvent event) {
         if (!event.isFromGuild()) {
             return;
         }
 
         String lang = settingsService.getLanguage(event.getGuild().getIdLong());
-        BotConfig.MessageLogs cfg = settingsService.getMessageLogs(event.getGuild().getIdLong());
+        var cfg = settingsService.getMessageLogs(event.getGuild().getIdLong());
         if (!cfg.isEnabled()) {
             return;
         }
 
-        CachedMessage old = cache.remove(event.getMessageIdLong());
-        saveCache();
+        MessageLogCacheEntry old = removeCacheEntry(event.getMessageIdLong());
         if (old == null) {
             return;
         }
-        if (old.authorIsBot || event.getJDA().getSelfUser().getId().equals(old.authorId)) {
+        if (old.isAuthorIsBot() || event.getJDA().getSelfUser().getId().equals(old.getAuthorId())) {
             return;
         }
-        if (shouldIgnoreMessage(cfg, old.channelId, old.authorId, old.authorRoleIds, old.content)) {
+        if (shouldIgnoreMessage(
+                cfg.getIgnoredChannelIds(),
+                cfg.getIgnoredMemberIds(),
+                cfg.getIgnoredRoleIds(),
+                cfg.getIgnoredPrefixes(),
+                old.getChannelId(),
+                old.getAuthorId(),
+                old.getAuthorRoleIds(),
+                old.getContent())) {
             return;
         }
-        String author = "<@" + old.authorId + "> (`" + old.authorTag + "`, `" + old.authorId + "`)";
-        String content = formatRawForEmbed(old.content);
-        String attachments = trimForField(old.attachments);
-        long channelId = old.channelId;
+        String author = "<@" + old.getAuthorId() + "> (`" + old.getAuthorTag() + "`, `" + old.getAuthorId() + "`)";
+        String content = formatRawForEmbed(old.getContent());
+        String attachments = trimForField(old.getAttachments());
+        long channelId = old.getChannelId();
 
-        sendLog(event.getGuild(), resolveMessageLogChannelId(event.getGuild(), cfg), new EmbedBuilder()
+        sendLog(event.getGuild(), resolveMessageLogChannelId(cfg.getMessageLogChannelId(), cfg.getChannelId()), new EmbedBuilder()
                 .setColor(new Color(231, 76, 60))
                 .setTitle(i18n.t(lang, "message_logs.delete.title"))
                 .addField(i18n.t(lang, "message_logs.delete.author"), author, false)
@@ -197,6 +180,37 @@ public class MessageLogService {
                 .addField(i18n.t(lang, "message_logs.delete.attachments"), attachments, false)
                 .setTimestamp(Instant.now())
         );
+    }
+
+    private void pruneExpired(long nowMillis) {
+        long cutoff = nowMillis - CACHE_RETENTION_MILLIS;
+        try {
+            cacheRepository.pruneExpired(cutoff);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void upsertCacheEntry(MessageLogCacheEntry entry) {
+        try {
+            cacheRepository.upsert(entry);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private MessageLogCacheEntry findCacheEntry(long messageId) {
+        try {
+            return cacheRepository.find(messageId);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private MessageLogCacheEntry removeCacheEntry(long messageId) {
+        try {
+            return cacheRepository.remove(messageId);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private String formatAttachments(Message message) {
@@ -269,23 +283,30 @@ public class MessageLogService {
         }
     }
 
-    private boolean shouldIgnoreMessage(BotConfig.MessageLogs cfg, long channelId, String authorId, List<Long> authorRoleIds, String content) {
-        if (cfg.getIgnoredChannelIds().contains(channelId)) {
+    private boolean shouldIgnoreMessage(List<Long> ignoredChannelIds,
+                                        List<Long> ignoredMemberIds,
+                                        List<Long> ignoredRoleIds,
+                                        List<String> ignoredPrefixes,
+                                        long channelId,
+                                        String authorId,
+                                        List<Long> authorRoleIds,
+                                        String content) {
+        if (ignoredChannelIds.contains(channelId)) {
             return true;
         }
         Long authorIdLong = parseLong(authorId);
-        if (authorIdLong != null && cfg.getIgnoredMemberIds().contains(authorIdLong)) {
+        if (authorIdLong != null && ignoredMemberIds.contains(authorIdLong)) {
             return true;
         }
         if (authorRoleIds != null && !authorRoleIds.isEmpty()) {
             for (Long roleId : authorRoleIds) {
-                if (roleId != null && cfg.getIgnoredRoleIds().contains(roleId)) {
+                if (roleId != null && ignoredRoleIds.contains(roleId)) {
                     return true;
                 }
             }
         }
         String raw = content == null ? "" : content;
-        for (String prefix : cfg.getIgnoredPrefixes()) {
+        for (String prefix : ignoredPrefixes) {
             if (prefix != null && !prefix.isBlank() && raw.startsWith(prefix)) {
                 return true;
             }
@@ -328,144 +349,11 @@ public class MessageLogService {
         return a.equals(b);
     }
 
-    private Long resolveMessageLogChannelId(Guild guild, BotConfig.MessageLogs cfg) {
-        Long channelId = cfg.getMessageLogChannelId();
+    private Long resolveMessageLogChannelId(Long messageLogChannelId, Long fallbackChannelId) {
+        Long channelId = messageLogChannelId;
         if (channelId != null) {
             return channelId;
         }
-        return cfg.getChannelId();
-    }
-
-    private void pruneExpired(long nowMillis) {
-        cache.entrySet().removeIf(entry -> nowMillis - entry.getValue().cachedAtMillis > CACHE_RETENTION_MILLIS);
-    }
-
-    private synchronized void pruneAndSave(long nowMillis) {
-        pruneExpired(nowMillis);
-        saveCache();
-    }
-
-    private synchronized void loadCache() {
-        if (!Files.exists(cacheFile)) {
-            return;
-        }
-        try (InputStream in = Files.newInputStream(cacheFile)) {
-            Object rootObj = yaml.load(in);
-            Map<String, Object> root = asMap(rootObj);
-            Object entriesObj = root.get("entries");
-            if (!(entriesObj instanceof Iterable<?> iterable)) {
-                return;
-            }
-            for (Object rowObj : iterable) {
-                Map<String, Object> row = asMap(rowObj);
-                Long messageId = readLong(row.get("messageId"));
-                Long channelId = readLong(row.get("channelId"));
-                String authorTag = readString(row.get("authorTag"));
-                String authorId = readString(row.get("authorId"));
-                boolean authorIsBot = readBoolean(row.get("authorIsBot"));
-                List<Long> authorRoleIds = readLongList(row.get("authorRoleIds"));
-                String content = readString(row.get("content"));
-                String attachments = readString(row.get("attachments"));
-                Long cachedAt = readLong(row.get("cachedAtMillis"));
-                if (messageId == null || channelId == null || authorId.isBlank() || cachedAt == null) {
-                    continue;
-                }
-                cache.put(messageId, new CachedMessage(channelId, authorTag, authorId, authorIsBot, authorRoleIds, content, attachments, cachedAt));
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    private synchronized void saveCache() {
-        try {
-            Files.createDirectories(cacheFile.getParent());
-            Map<String, Object> root = new LinkedHashMap<>();
-            List<Map<String, Object>> entries = new ArrayList<>();
-            for (Map.Entry<Long, CachedMessage> entry : cache.entrySet()) {
-                CachedMessage value = entry.getValue();
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("messageId", entry.getKey());
-                row.put("channelId", value.channelId);
-                row.put("authorTag", value.authorTag);
-                row.put("authorId", value.authorId);
-                row.put("authorIsBot", value.authorIsBot);
-                row.put("authorRoleIds", value.authorRoleIds);
-                row.put("content", value.content);
-                row.put("attachments", value.attachments);
-                row.put("cachedAtMillis", value.cachedAtMillis);
-                entries.add(row);
-            }
-            root.put("entries", entries);
-            try (Writer writer = Files.newBufferedWriter(cacheFile)) {
-                yaml.dump(root, writer);
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    private DumperOptions yamlOptions() {
-        DumperOptions options = new DumperOptions();
-        options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
-        options.setPrettyFlow(true);
-        options.setIndent(2);
-        return options;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> asMap(Object obj) {
-        if (obj instanceof Map<?, ?> map) {
-            return (Map<String, Object>) map;
-        }
-        return Map.of();
-    }
-
-    private Long readLong(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number n) {
-            return n.longValue();
-        }
-        String text = String.valueOf(value).trim();
-        if (text.isBlank()) {
-            return null;
-        }
-        try {
-            return Long.parseLong(text);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private String readString(Object value) {
-        return value == null ? "" : String.valueOf(value);
-    }
-
-    private boolean readBoolean(Object value) {
-        if (value instanceof Boolean b) {
-            return b;
-        }
-        return Boolean.parseBoolean(String.valueOf(value));
-    }
-
-    private List<Long> readLongList(Object value) {
-        if (!(value instanceof Iterable<?> iterable)) {
-            return List.of();
-        }
-        List<Long> result = new ArrayList<>();
-        for (Object item : iterable) {
-            Long parsed = readLong(item);
-            if (parsed != null && parsed > 0L) {
-                result.add(parsed);
-            }
-        }
-        return result.stream().distinct().toList();
+        return fallbackChannelId;
     }
 }
-
-
-
-
-
-
-

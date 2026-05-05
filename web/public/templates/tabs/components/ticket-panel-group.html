@@ -1,0 +1,38 @@
+﻿<div class="settings-group">
+  <div id="ticket_group_panel_title" class="settings-group-title" data-i18n="ticket_group_panel_title">Panel Settings</div>
+  <div class="grid2">
+    <div class="field span-all">
+      <label data-i18n="t_panelChannelId">panelChannelId</label>
+      <div class="field-inline">
+        <select id="t_panelChannelId"></select>
+        <button id="sendTicketPanelBtn" class="warn" type="button" data-i18n="sendTicketPanelBtn">Send Ticket Panel</button>
+      </div>
+    </div>
+    <div class="field span-all">
+      <label id="label_t_panelTitle" data-i18n="t_panelTitle">panelTitle</label>
+      <input type="text" id="t_panelTitle">
+    </div>
+    <div class="field span-all">
+      <label id="label_t_panelDescription" data-i18n="t_panelDescription">panelDescription</label>
+      <textarea id="t_panelDescription"></textarea>
+    </div>
+    <div class="field">
+      <label id="label_t_panelColor" data-i18n="t_panelColor">panelColor</label>
+      <input type="color" id="t_panelColor">
+    </div>
+    <div class="field">
+      <label id="label_t_panelButtonStyle" data-i18n="t_panelButtonStyle">Panel button style</label>
+      <select id="t_panelButtonStyle">
+        <option value="PRIMARY">PRIMARY</option>
+        <option value="SECONDARY">SECONDARY</option>
+        <option value="SUCCESS">SUCCESS</option>
+        <option value="DANGER">DANGER</option>
+      </select>
+      <div id="hint_t_panelButtonStyle" class="keyhint" data-i18n="t_panelButtonStyle_hint">Discord limitation: button text color cannot be customized; only the button style color can be changed.</div>
+    </div>
+    <div class="field">
+      <label data-i18n="t_panelButtonLimit">panelButtonLimit (1-25)</label>
+      <input type="number" min="1" max="25" id="t_panelButtonLimit">
+    </div>
+  </div>
+</div>

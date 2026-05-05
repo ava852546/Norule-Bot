@@ -98,24 +98,24 @@ public final class MusicPanelController {
 
         switch (id) {
             case MusicCommandService.PANEL_PLAY_PAUSE -> {
-                owner.musicService().togglePause(guild);
                 event.deferEdit().queue();
+                owner.musicService().togglePause(guild);
                 owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), false);
             }
             case MusicCommandService.PANEL_SKIP -> {
-                owner.musicService().skip(guild);
                 event.deferEdit().queue();
+                owner.musicService().skip(guild);
                 owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), false);
             }
             case MusicCommandService.PANEL_STOP -> {
-                owner.musicService().stop(guild);
                 event.deferEdit().queue();
+                owner.musicService().stop(guild);
                 owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), false);
             }
             case MusicCommandService.PANEL_LEAVE -> {
+                event.deferEdit().queue();
                 owner.musicService().stop(guild);
                 owner.musicService().leaveChannel(guild);
-                event.deferEdit().queue();
                 owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), false);
                 Member operatorMember = event.getMember();
                 String operator = operatorMember == null ? event.getUser().getAsMention() : operatorMember.getAsMention();
@@ -125,23 +125,23 @@ public final class MusicPanelController {
                         });
             }
             case MusicCommandService.PANEL_REPEAT_TOGGLE -> {
-                owner.setRepeat(guild, nextRepeatMode(owner.musicService().getRepeatMode(guild)));
                 event.deferEdit().queue();
+                owner.setRepeat(guild, nextRepeatMode(owner.musicService().getRepeatMode(guild)));
                 owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), false);
             }
             case MusicCommandService.PANEL_AUTOPLAY_TOGGLE -> {
-                owner.toggleAutoplay(guild.getIdLong());
                 event.deferEdit().queue();
+                owner.toggleAutoplay(guild.getIdLong());
                 owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), false);
             }
             case MusicCommandService.PANEL_VOLUME_DOWN -> {
-                owner.adjustPanelVolume(guild, -10);
                 event.deferEdit().queue();
+                owner.adjustPanelVolume(guild, -10);
                 owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), true, true);
             }
             case MusicCommandService.PANEL_VOLUME_UP -> {
-                owner.adjustPanelVolume(guild, 10);
                 event.deferEdit().queue();
+                owner.adjustPanelVolume(guild, 10);
                 owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), true, true);
             }
             case MusicCommandService.PANEL_REFRESH -> {
@@ -153,8 +153,8 @@ public final class MusicPanelController {
                     event.reply(owner.i18nService().t(lang, "music.queue_empty")).setEphemeral(true).queue();
                     return true;
                 }
-                owner.musicService().shuffleQueue(guild);
                 event.deferEdit().queue();
+                owner.musicService().shuffleQueue(guild);
                 owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), true);
             }
             default -> {

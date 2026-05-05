@@ -3,6 +3,7 @@ package com.norule.musicbot.discord.bot.app;
 import com.norule.musicbot.config.*;
 import com.norule.musicbot.config.domain.GuildDomainConfigAdapter;
 import com.norule.musicbot.config.domain.RuntimeConfigSnapshot;
+import com.norule.musicbot.discord.bot.app.stats.MessageStatsEventService;
 import com.norule.musicbot.domain.music.*;
 import com.norule.musicbot.i18n.*;
 
@@ -57,9 +58,6 @@ import net.dv8tion.jda.api.components.textinput.TextInputStyle;
 import net.dv8tion.jda.api.modals.Modal;
 
 import java.awt.Color;
-import java.io.InputStream;
-import java.lang.management.ManagementFactory;
-import java.lang.management.OperatingSystemMXBean;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -68,7 +66,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -106,6 +103,7 @@ public class MusicCommandService extends ListenerAdapter {
     static final String CMD_SERVER_INFO_ZH = "\u4f3a\u670d\u5668\u8cc7\u8a0a";
     static final String CMD_STATS_ZH = "\u7d71\u8a08";
     static final String CMD_LEADERBOARD_ZH = "\u6392\u884c\u699c";
+    static final String CMD_SHORT_URL_ZH = "\u77ed\u7db2\u5740";
     static final String SUB_SETTINGS_INFO_ZH = "\u8a73\u7d30\u8cc7\u8a0a";
     static final String SUB_SETTINGS_RELOAD_ZH = "\u91cd\u8f09\u8a2d\u5b9a";
     static final String SUB_SETTINGS_RESET_ZH = "\u6062\u5fa9\u9810\u8a2d";
@@ -128,10 +126,6 @@ public class MusicCommandService extends ListenerAdapter {
     static final String SUB_PLAYLIST_VIEW_ZH = "\u67e5\u770b";
     static final String SUB_PLAYLIST_REMOVE_TRACK_ZH = "\u522a\u9664\u6b4c\u66f2";
     static final String SUB_PLAYLIST_ADD_ZH = "\u65b0\u589e\u6b4c\u66f2";
-    private static final String DEV_COMMAND_PREFIX = "&dev";
-    public static final String DEV_GUILDS_BUTTON_PREFIX = "dev:guilds:";
-    public static final String DEV_INFO_REFRESH_BUTTON_PREFIX = "dev:info:refresh:";
-    private static final int DEV_GUILDS_PAGE_SIZE = 10;
     private static final String PLAYLIST_SCOPE_MINE = "mine";
     private static final String PLAYLIST_SCOPE_ALL = "all";
     static final String OPTION_QUERY_ZH = "query";
@@ -201,7 +195,6 @@ public class MusicCommandService extends ListenerAdapter {
     private final Map<String, MenuRequest> numberChainMenuRequests = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private volatile JDA jda;
-    private final Instant startedAt = Instant.now();
     private final CommandRegistrar commandRegistrar;
     private final SettingsCommandHandler settingsCommandHandler;
     private final HelpCommandHandler helpCommandHandler;
@@ -213,8 +206,11 @@ public class MusicCommandService extends ListenerAdapter {
     private final MusicPanelController musicPanelController;
     private final HoneypotCommandHandler honeypotCommandHandler;
     private final InfoCommandHandler infoCommandHandler;
+    private final UrlCommandHandler urlCommandHandler;
     private final InteractionRouter interactionRouter;
     private final TicketOps ticketOps;
+    private final MessageStatsEventService statsEventService;
+    private final ShortUrlService shortUrlService;
     private final GuildDomainConfigAdapter ticketConfigAdapter;
     private final Map<Long, Long> panelLastRefreshAt = new ConcurrentHashMap<>();
     private final Map<Long, String> panelLastSignature = new ConcurrentHashMap<>();
@@ -223,18 +219,25 @@ public class MusicCommandService extends ListenerAdapter {
     private final Map<Long, Long> playbackFailureLastAt = new ConcurrentHashMap<>();
     private final Map<Long, String> playbackFailureLastSig = new ConcurrentHashMap<>();
     private volatile boolean botReadyForSlashCommands;
-    private static final long PANEL_PERIODIC_REFRESH_MS = 30000L;
+    private static final long PANEL_PERIODIC_REFRESH_MS = 10_000L;
     private static final long PANEL_MIN_EDIT_INTERVAL_MS = 3500L;
+    private static final Duration DELETE_REQUEST_TTL = Duration.ofMinutes(5);
 
     public MusicCommandService(MusicPlayerService musicService,
                                RuntimeConfigSnapshot runtimeConfig,
                                GuildSettingsService settingsService,
                                ModerationService moderationService,
                                HoneypotService honeypotService,
-                               com.norule.musicbot.TicketService ticketService) {
+                               ShortUrlService shortUrlService,
+                               com.norule.musicbot.TicketService ticketService,
+                               MessageStatsEventService statsEventService) {
         this.musicService = musicService;
         this.moderationService = moderationService;
         this.honeypotService = honeypotService;
+        if (shortUrlService == null) {
+            throw new IllegalArgumentException("shortUrlService cannot be null");
+        }
+        this.shortUrlService = shortUrlService;
         this.runtimeConfig = runtimeConfig;
         this.settingsService = settingsService;
         this.i18n = I18nService.load(runtimeConfig.getLanguageDir(), runtimeConfig.getDefaultLanguage());
@@ -251,10 +254,42 @@ public class MusicCommandService extends ListenerAdapter {
         this.musicPanelController = new MusicPanelController(this);
         this.honeypotCommandHandler = new HoneypotCommandHandler(this);
         this.infoCommandHandler = new InfoCommandHandler(this);
+        this.urlCommandHandler = new UrlCommandHandler(this);
+        this.statsEventService = statsEventService;
         this.ticketConfigAdapter = new GuildDomainConfigAdapter(settingsService, runtimeConfig.getDefaultMusic());
         this.ticketOps = new TicketOps(new com.norule.musicbot.discord.bot.ops.ticket.TicketService(ticketConfigAdapter, ticketService, i18n));
         this.interactionRouter = new InteractionRouter(this);
-        this.scheduler.scheduleAtFixedRate(this::refreshAllPanelsSafely, 5, 30, TimeUnit.SECONDS);
+        this.scheduler.scheduleAtFixedRate(this::refreshAllPanelsSafely, 5, PANEL_PERIODIC_REFRESH_MS / 1000L, TimeUnit.SECONDS);
+        this.scheduler.scheduleAtFixedRate(this::cleanupTransientStateSafely, 1, 1, TimeUnit.MINUTES);
+    }
+
+    private void cleanupTransientStateSafely() {
+        try {
+            cleanupTransientState();
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    private void cleanupTransientState() {
+        Instant now = Instant.now();
+        long nowMillis = System.currentTimeMillis();
+        deleteRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        warningActionRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        resetRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        resetConfirmRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        roomSettingRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        templateMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        moduleMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        logsMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        musicMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        languageMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        numberChainMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        commandCooldowns.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= nowMillis);
+        panelButtonCooldowns.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= nowMillis);
+        playbackCommandHandler.cleanupExpiredRequests(now);
+        playlistCommandHandler.cleanupExpiredRequests(now);
+        settingsCommandHandler.cleanupExpiredRequests(now);
+        musicService.cleanupTransientCaches(nowMillis);
     }
 
     private void reportPlaybackFailure(long guildId, MusicPlayerService.PlaybackFailure failure) {
@@ -367,9 +402,18 @@ public class MusicCommandService extends ListenerAdapter {
     public InfoCommandHandler infoCommandHandler() {
         return infoCommandHandler;
     }
+    public UrlCommandHandler urlCommandHandler() {
+        return urlCommandHandler;
+    }
+    public ShortUrlService shortUrlService() {
+        return shortUrlService;
+    }
 
     public TicketOps ticketOps() {
         return ticketOps;
+    }
+    public MessageStatsEventService statsEventService() {
+        return statsEventService;
     }
     public boolean isBotReadyForSlashCommands() {
         return botReadyForSlashCommands;
@@ -379,7 +423,8 @@ public class MusicCommandService extends ListenerAdapter {
     public void onReady(ReadyEvent event) {
         this.jda = event.getJDA();
         this.botReadyForSlashCommands = true;
-                ticketOps.onReady(event);
+        commandRegistrar.syncCommands();
+        ticketOps.onReady(event);
     }
 
     @Override
@@ -391,9 +436,6 @@ public class MusicCommandService extends ListenerAdapter {
     public void onMessageReceived(MessageReceivedEvent event) {
                 ticketOps.onMessage(event);
         String raw = event.getMessage().getContentRaw();
-        if (handleDeveloperCommand(event, raw)) {
-            return;
-        }
         if (!event.isFromGuild()) {
             return;
         }
@@ -436,299 +478,6 @@ public class MusicCommandService extends ListenerAdapter {
         if (isKnownPrefixCommand(cmd)) {
             logCommandUsage(guild, event.getMember(), runtimeConfig.getPrefix() + cmd + (arg.isBlank() ? "" : " " + arg), event.getChannel().getIdLong());
         }
-    }
-
-    private boolean handleDeveloperCommand(MessageReceivedEvent event, String raw) {
-        if (!isDeveloperCommand(raw)) {
-            return false;
-        }
-        if (event.isFromGuild()) {
-            logDeveloperCommand(event, "ignored", "guild-channel");
-            return true;
-        }
-        if (!isConfiguredDeveloper(event.getAuthor().getIdLong())) {
-            logDeveloperCommand(event, "denied", "not-configured-developer");
-            return true;
-        }
-
-        String args = raw.length() == DEV_COMMAND_PREFIX.length()
-                ? ""
-                : raw.substring(DEV_COMMAND_PREFIX.length()).trim();
-        String[] split = args.split("\\s+", 2);
-        String subcommand = args.isBlank() ? "help" : split[0].toLowerCase(Locale.ROOT);
-        logDeveloperCommand(event, subcommand, "dm");
-
-        switch (subcommand) {
-            case "help" -> sendDeveloperPrivateEmbed(event, developerHelpEmbed());
-            case "ping" -> sendDeveloperPrivateEmbed(event, developerPingEmbed(event.getJDA()));
-            case "info" -> sendDeveloperInfoMessage(event);
-            case "guilds" -> sendDeveloperGuildsPage(event, 0);
-            default -> sendDeveloperPrivateEmbed(event, developerErrorEmbed("Unknown developer command. Use `&dev help`."));
-        }
-
-        return true;
-    }
-
-    private boolean isDeveloperCommand(String raw) {
-        return raw != null && (raw.equals(DEV_COMMAND_PREFIX) || raw.startsWith(DEV_COMMAND_PREFIX + " "));
-    }
-
-    private boolean isConfiguredDeveloper(long userId) {
-        return runtimeConfig.getDeveloperIds().contains(userId);
-    }
-
-    private void sendDeveloperPrivateEmbed(MessageReceivedEvent event, EmbedBuilder embed) {
-        event.getChannel().sendMessageEmbeds(embed.build()).queue(
-                ignored -> {
-                },
-                error -> {
-                    System.out.println("[NoRule] Developer command reply failed: user="
-                            + event.getAuthor().getAsTag()
-                            + " (" + event.getAuthor().getId() + ") error=" + error.getMessage());
-                }
-        );
-    }
-
-    private EmbedBuilder developerHelpEmbed() {
-        return developerBaseEmbed("Developer Commands")
-                .setDescription("Prefix: `&dev`")
-                .addField("`&dev help`", "Show this command list.", false)
-                .addField("`&dev ping`", "Check bot responsiveness.", false)
-                .addField("`&dev info`", "Show runtime status.", false)
-                .addField("`&dev guilds`", "Show joined guilds with pagination.", false);
-    }
-
-    private EmbedBuilder developerPingEmbed(JDA jda) {
-        return developerBaseEmbed("Developer Ping")
-                .addField("Result", "`Pong.`", true)
-                .addField("JDA Status", "`" + jda.getStatus() + "`", true);
-    }
-
-    private EmbedBuilder developerInfoEmbed(JDA jda) {
-        Runtime runtime = Runtime.getRuntime();
-        long usedMb = (runtime.totalMemory() - runtime.freeMemory()) / 1024L / 1024L;
-        long maxMb = runtime.maxMemory() / 1024L / 1024L;
-        return developerBaseEmbed("Developer Info")
-                .addField("Bot Version", "`" + developerBotVersion() + "`", true)
-                .addField("JDA Status", "`" + jda.getStatus() + "`", true)
-                .addField("Uptime", "`" + formatDuration(Duration.between(startedAt, Instant.now())) + "`", true)
-                .addField("Guilds", "`" + jda.getGuilds().size() + "`", true)
-                .addField("Playing Guilds", "`" + musicService.getActivePlaybackGuildCount() + "`", true)
-                .addField("Memory", "`" + usedMb + " / " + maxMb + " MB`", false)
-                .addField("CPU", "`" + developerCpuInfo() + "`", false);
-    }
-
-    private void sendDeveloperInfoMessage(MessageReceivedEvent event) {
-        event.getChannel().sendMessageEmbeds(developerInfoEmbed(event.getJDA()).build())
-                .setComponents(ActionRow.of(Button.secondary(
-                        DEV_INFO_REFRESH_BUTTON_PREFIX + event.getAuthor().getIdLong(),
-                        "Refresh")))
-                .queue(
-                        ignored -> {
-                        },
-                        error -> {
-                            System.out.println("[NoRule] Developer command reply failed: user="
-                                    + event.getAuthor().getAsTag()
-                                    + " (" + event.getAuthor().getId() + ") error=" + error.getMessage());
-                        }
-                );
-    }
-
-    private String developerBotVersion() {
-        String manifestVersion = MusicCommandService.class.getPackage().getImplementationVersion();
-        if (manifestVersion != null && !manifestVersion.isBlank()) {
-            return manifestVersion;
-        }
-        try (InputStream in = MusicCommandService.class.getClassLoader()
-                .getResourceAsStream("META-INF/maven/com.norule/discord-music-bot/pom.properties")) {
-            if (in != null) {
-                Properties properties = new Properties();
-                properties.load(in);
-                String version = properties.getProperty("version");
-                if (version != null && !version.isBlank()) {
-                    return version.trim();
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return "development";
-    }
-
-    private String developerCpuInfo() {
-        OperatingSystemMXBean os = ManagementFactory.getOperatingSystemMXBean();
-        String loadAverage = os.getSystemLoadAverage() < 0
-                ? "n/a"
-                : String.format(Locale.ROOT, "%.2f", os.getSystemLoadAverage());
-        if (os instanceof com.sun.management.OperatingSystemMXBean sunOs) {
-            double processLoad = sunOs.getProcessCpuLoad();
-            double systemLoad = sunOs.getCpuLoad();
-            String process = processLoad < 0 ? "n/a" : String.format(Locale.ROOT, "%.1f%%", processLoad * 100.0);
-            String system = systemLoad < 0 ? "n/a" : String.format(Locale.ROOT, "%.1f%%", systemLoad * 100.0);
-            return "Process " + process + " / System " + system + " / Load Avg " + loadAverage;
-        }
-        return "Load Avg " + loadAverage + " / Cores " + os.getAvailableProcessors();
-    }
-
-    private String formatDuration(Duration duration) {
-        long seconds = Math.max(0L, duration.getSeconds());
-        long days = seconds / 86400L;
-        seconds %= 86400L;
-        long hours = seconds / 3600L;
-        seconds %= 3600L;
-        long minutes = seconds / 60L;
-        seconds %= 60L;
-        if (days > 0) {
-            return String.format(Locale.ROOT, "%dd %02dh %02dm %02ds", days, hours, minutes, seconds);
-        }
-        return String.format(Locale.ROOT, "%02dh %02dm %02ds", hours, minutes, seconds);
-    }
-
-    private EmbedBuilder developerErrorEmbed(String message) {
-        return developerBaseEmbed("Developer Command")
-                .setColor(new Color(231, 76, 60))
-                .setDescription(message);
-    }
-
-    private EmbedBuilder developerBaseEmbed(String title) {
-        return new EmbedBuilder()
-                .setColor(new Color(52, 152, 219))
-                .setTitle(title)
-                .setTimestamp(Instant.now());
-    }
-
-    private void sendDeveloperGuildsPage(MessageReceivedEvent event, int page) {
-        List<Guild> guilds = event.getJDA().getGuilds();
-        int totalPages = developerGuildTotalPages(guilds.size());
-        int safePage = clampPage(page, totalPages);
-        event.getChannel().sendMessageEmbeds(developerGuildsEmbed(event.getJDA(), safePage).build())
-                .setComponents(ActionRow.of(developerGuildButtons(event.getAuthor().getIdLong(), safePage, totalPages)))
-                .queue(
-                ignored -> {
-                },
-                error -> {
-                    System.out.println("[NoRule] Developer command reply failed: user="
-                            + event.getAuthor().getAsTag()
-                            + " (" + event.getAuthor().getId() + ") error=" + error.getMessage());
-                }
-        );
-    }
-    public void handleDeveloperGuildsButton(ButtonInteractionEvent event) {
-        String id = event.getComponentId();
-        if (!id.startsWith(DEV_GUILDS_BUTTON_PREFIX)) {
-            return;
-        }
-        String[] parts = id.substring(DEV_GUILDS_BUTTON_PREFIX.length()).split(":", 2);
-        if (parts.length != 2) {
-            event.deferEdit().queue();
-            return;
-        }
-        Long requesterId = parseLongOrNull(parts[0]);
-        Integer page = parseIntOrNull(parts[1]);
-        if (requesterId == null || page == null) {
-            event.deferEdit().queue();
-            return;
-        }
-        if (event.getUser().getIdLong() != requesterId || !isConfiguredDeveloper(event.getUser().getIdLong())) {
-            event.reply("This developer control is not yours.").setEphemeral(true).queue();
-            return;
-        }
-
-        int totalPages = developerGuildTotalPages(event.getJDA().getGuilds().size());
-        int safePage = clampPage(page, totalPages);
-        event.editMessageEmbeds(developerGuildsEmbed(event.getJDA(), safePage).build())
-                .setComponents(ActionRow.of(developerGuildButtons(requesterId, safePage, totalPages)))
-                .queue();
-    }
-    public void handleDeveloperInfoRefreshButton(ButtonInteractionEvent event) {
-        String id = event.getComponentId();
-        if (!id.startsWith(DEV_INFO_REFRESH_BUTTON_PREFIX)) {
-            return;
-        }
-        Long requesterId = parseLongOrNull(id.substring(DEV_INFO_REFRESH_BUTTON_PREFIX.length()));
-        if (requesterId == null) {
-            event.deferEdit().queue();
-            return;
-        }
-        if (event.getUser().getIdLong() != requesterId || !isConfiguredDeveloper(event.getUser().getIdLong())) {
-            event.reply("This developer control is not yours.").setEphemeral(true).queue();
-            return;
-        }
-
-        event.editMessageEmbeds(developerInfoEmbed(event.getJDA()).build())
-                .setComponents(ActionRow.of(Button.secondary(
-                        DEV_INFO_REFRESH_BUTTON_PREFIX + requesterId,
-                        "Refresh")))
-                .queue();
-    }
-
-    private EmbedBuilder developerGuildsEmbed(JDA jda, int page) {
-        List<Guild> guilds = jda.getGuilds();
-        int totalPages = developerGuildTotalPages(guilds.size());
-        int safePage = clampPage(page, totalPages);
-        EmbedBuilder embed = developerBaseEmbed("Developer Guilds")
-                .addField("Total", "`" + guilds.size() + "`", true)
-                .addField("Page", "`" + (safePage + 1) + " / " + totalPages + "`", true);
-        if (guilds.isEmpty()) {
-            return embed.setDescription("No joined guilds.");
-        }
-        int from = safePage * DEV_GUILDS_PAGE_SIZE;
-        int to = Math.min(guilds.size(), from + DEV_GUILDS_PAGE_SIZE);
-        StringBuilder builder = new StringBuilder();
-        for (int i = from; i < to; i++) {
-            Guild guild = guilds.get(i);
-            builder.append(i + 1)
-                    .append(". ")
-                    .append(guild.getName().replace("`", "'"))
-                    .append(" (`")
-                    .append(guild.getId())
-                    .append("`)\n");
-        }
-        return embed.setDescription(builder.toString());
-    }
-
-    private List<Button> developerGuildButtons(long requesterId, int page, int totalPages) {
-        return List.of(
-                Button.secondary(DEV_GUILDS_BUTTON_PREFIX + requesterId + ":" + (page - 1), "Previous")
-                        .withDisabled(page <= 0),
-                Button.secondary(DEV_GUILDS_BUTTON_PREFIX + requesterId + ":" + (page + 1), "Next")
-                        .withDisabled(page >= totalPages - 1)
-        );
-    }
-
-    private int developerGuildTotalPages(int guildCount) {
-        return Math.max(1, (int) Math.ceil(guildCount / (double) DEV_GUILDS_PAGE_SIZE));
-    }
-
-    private int clampPage(int page, int totalPages) {
-        return Math.max(0, Math.min(page, Math.max(1, totalPages) - 1));
-    }
-
-    private Long parseLongOrNull(String raw) {
-        try {
-            return Long.parseLong(raw);
-        } catch (RuntimeException ignored) {
-            return null;
-        }
-    }
-
-    private Integer parseIntOrNull(String raw) {
-        try {
-            return Integer.parseInt(raw);
-        } catch (RuntimeException ignored) {
-            return null;
-        }
-    }
-
-    private void logDeveloperCommand(MessageReceivedEvent event, String action, String result) {
-        User user = event.getAuthor();
-        String location = event.isFromGuild()
-                ? "guild=" + event.getGuild().getId() + " channel=" + event.getChannel().getId()
-                : "dm";
-        System.out.println("[NoRule] Developer command " + result
-                + ": action=" + action
-                + " user=" + user.getAsTag()
-                + " (" + user.getId() + ") "
-                + location);
     }
 
     @Override
@@ -1237,7 +986,7 @@ public class MusicCommandService extends ListenerAdapter {
         }
 
         if ("member-channel".equals(target)) {
-            BotConfig.Notifications notifications = settingsService.getNotifications(event.getGuild().getIdLong());
+            var notifications = settingsService.getNotifications(event.getGuild().getIdLong());
             boolean split = notifications.getMemberJoinChannelId() != null || notifications.getMemberLeaveChannelId() != null;
             if (!split) {
                 openSharedMemberChannelPicker(event, token, lang);
@@ -1282,7 +1031,7 @@ public class MusicCommandService extends ListenerAdapter {
     }
 
     private StringSelectMenu settingsMemberSplitMenu(String token, long guildId, String lang) {
-        BotConfig.Notifications n = settingsService.getNotifications(guildId);
+        var n = settingsService.getNotifications(guildId);
         String joinValue = safe(formatTextChannelById(guildId, n.getMemberJoinChannelId()), 80);
         String leaveValue = safe(formatTextChannelById(guildId, n.getMemberLeaveChannelId()), 80);
         return StringSelectMenu.create(SETTINGS_LOGS_MEMBER_SPLIT_PREFIX + token)
@@ -1526,8 +1275,8 @@ public class MusicCommandService extends ListenerAdapter {
 
     private StringSelectMenu settingsMusicMenu(String token, Guild guild, String lang) {
         long guildId = guild.getIdLong();
-        BotConfig.Music music = settingsService.getMusic(guildId);
-        BotConfig.PrivateRoom room = settingsService.getPrivateRoom(guildId);
+        var music = settingsService.getMusic(guildId);
+        var room = settingsService.getPrivateRoom(guildId);
         return StringSelectMenu.create(SETTINGS_MUSIC_SELECT_PREFIX + token)
                 .setPlaceholder(i18n.t(lang, "settings.music_menu_placeholder"))
                 .addOptions(
@@ -1552,8 +1301,8 @@ public class MusicCommandService extends ListenerAdapter {
 
     private EmbedBuilder musicMenuEmbed(Guild guild, String lang, String changedText) {
         long guildId = guild.getIdLong();
-        BotConfig.Music music = settingsService.getMusic(guildId);
-        BotConfig.PrivateRoom room = settingsService.getPrivateRoom(guildId);
+        var music = settingsService.getMusic(guildId);
+        var room = settingsService.getPrivateRoom(guildId);
         String body = String.join("\n\n",
                 quotedSettingLine(lang, "settings.key_music_autoLeaveEnabled", "settings.status_label",
                         boolText(lang, music.isAutoLeaveEnabled())),
@@ -1863,7 +1612,14 @@ public class MusicCommandService extends ListenerAdapter {
         }
 
         String token = UUID.randomUUID().toString().replace("-", "");
-        deleteRequests.put(token, new DeleteRequest(event.getUser().getIdLong(), channel == null ? null : channel.getIdLong(), targetUserId, lookback, amount));
+        deleteRequests.put(token, new DeleteRequest(
+                event.getUser().getIdLong(),
+                channel == null ? null : channel.getIdLong(),
+                targetUserId,
+                lookback,
+                amount,
+                Instant.now().plus(DELETE_REQUEST_TTL)
+        ));
 
                 event.replyEmbeds(new EmbedBuilder()
                         .setTitle(i18n.t(lang, "delete.confirm_title"))
@@ -1885,7 +1641,8 @@ public class MusicCommandService extends ListenerAdapter {
         String id = event.getComponentId();
         String token = id.substring(id.lastIndexOf(':') + 1);
         DeleteRequest req = deleteRequests.get(token);
-        if (req == null) {
+        if (req == null || Instant.now().isAfter(req.expiresAt)) {
+            deleteRequests.remove(token);
             event.reply(i18n.t(lang, "delete.cancelled")).setEphemeral(true).queue();
             return;
         }
@@ -2071,14 +1828,14 @@ public class MusicCommandService extends ListenerAdapter {
         long guildId = guild.getIdLong();
         String currentSection = section == null || section.isBlank() ? "notifications" : section;
         GuildSettingsService.GuildSettings settings = settingsService.getSettings(guildId);
-        BotConfig.Notifications n = settings.getNotifications();
-        BotConfig.Notifications nDef = runtimeConfig.getDefaultNotifications();
-        BotConfig.MessageLogs logs = settings.getMessageLogs();
-        BotConfig.MessageLogs logsDef = runtimeConfig.getDefaultMessageLogs();
-        BotConfig.Music music = settings.getMusic();
-        BotConfig.Music musicDef = runtimeConfig.getDefaultMusic();
-        BotConfig.PrivateRoom room = settings.getPrivateRoom();
-        BotConfig.PrivateRoom roomDef = runtimeConfig.getDefaultPrivateRoom();
+        var n = settings.getNotifications();
+        var nDef = runtimeConfig.getDefaultNotifications();
+        var logs = settings.getMessageLogs();
+        var logsDef = runtimeConfig.getDefaultMessageLogs();
+        var music = settings.getMusic();
+        var musicDef = runtimeConfig.getDefaultMusic();
+        var room = settings.getPrivateRoom();
+        var roomDef = runtimeConfig.getDefaultPrivateRoom();
         boolean numberChainEnabled = moderationService.isNumberChainEnabled(guildId);
         Long numberChainChannelId = moderationService.getNumberChainChannelId(guildId);
         long numberChainNext = moderationService.getNumberChainNext(guildId);
@@ -2090,8 +1847,8 @@ public class MusicCommandService extends ListenerAdapter {
                 line(lang, "settings.info_key_member_leave_enabled", compare(lang, moduleSwitchTextCode(lang, n.isMemberLeaveEnabled()), moduleSwitchTextCode(lang, nDef.isMemberLeaveEnabled()))),
                 line(lang, "settings.info_key_voice_log_enabled", compare(lang, moduleSwitchTextCode(lang, n.isVoiceLogEnabled()), moduleSwitchTextCode(lang, nDef.isVoiceLogEnabled()))),
                 line(lang, "settings.info_key_member_channel_mode", compare(lang,
-                        formatMemberChannelMode(lang, n),
-                        formatMemberChannelMode(lang, nDef))),
+                        formatMemberChannelMode(lang, n.getMemberJoinChannelId(), n.getMemberLeaveChannelId()),
+                        formatMemberChannelMode(lang, nDef.getMemberJoinChannelId(), nDef.getMemberLeaveChannelId()))),
                 line(lang, "settings.info_key_member_channel", compare(lang,
                         formatTextChannelInfo(guild, n.getMemberChannelId()),
                         formatTextChannelInfo(guild, nDef.getMemberChannelId()))),
@@ -2782,7 +2539,7 @@ public class MusicCommandService extends ListenerAdapter {
         switch (templateType) {
             case "member-join" -> {
                 settingsService.updateSettings(guildId, s -> {
-                    BotConfig.Notifications notifications = s.getNotifications().withMemberJoinMessage(template);
+                    var notifications = s.getNotifications().withMemberJoinMessage(template);
                     if (color != null) {
                         notifications = notifications.withMemberJoinColor(color);
                     }
@@ -2792,7 +2549,7 @@ public class MusicCommandService extends ListenerAdapter {
             }
             case "member-leave" -> {
                 settingsService.updateSettings(guildId, s -> {
-                    BotConfig.Notifications notifications = s.getNotifications().withMemberLeaveMessage(template);
+                    var notifications = s.getNotifications().withMemberLeaveMessage(template);
                     if (color != null) {
                         notifications = notifications.withMemberLeaveColor(color);
                     }
@@ -3046,10 +2803,10 @@ public class MusicCommandService extends ListenerAdapter {
         buttons.add(Button.primary(PANEL_SKIP, "\u23ED " + musicUx(lang, "btn_skip")));
         buttons.add(Button.danger(PANEL_STOP, "\u23F9 " + musicUx(lang, "btn_stop")));
         buttons.add(Button.secondary(PANEL_LEAVE, "\uD83D\uDCE4 " + musicUx(lang, "btn_leave")));
-        buttons.add(currentVolume <= 0
+        buttons.add(currentVolume <= 1
                 ? Button.secondary(PANEL_VOLUME_DOWN, "\uD83D\uDD09 " + musicUx(lang, "btn_volume_down")).asDisabled()
                 : Button.secondary(PANEL_VOLUME_DOWN, "\uD83D\uDD09 " + musicUx(lang, "btn_volume_down")));
-        buttons.add(currentVolume >= 200
+        buttons.add(currentVolume >= 100
                 ? Button.secondary(PANEL_VOLUME_UP, "\uD83D\uDD0A " + musicUx(lang, "btn_volume_up")).asDisabled()
                 : Button.secondary(PANEL_VOLUME_UP, "\uD83D\uDD0A " + musicUx(lang, "btn_volume_up")));
         buttons.add(Button.secondary(PANEL_REFRESH, "\uD83D\uDD04 " + musicUx(lang, "btn_refresh")));
@@ -3083,7 +2840,7 @@ public class MusicCommandService extends ListenerAdapter {
 
     int adjustPanelVolume(Guild guild, int delta) {
         int current = musicService.getVolume(guild);
-        int target = Math.max(0, Math.min(200, current + delta));
+        int target = Math.max(1, Math.min(100, current + delta));
         return musicService.setVolume(guild, target);
     }
 
@@ -3298,6 +3055,18 @@ public class MusicCommandService extends ListenerAdapter {
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED));
         commands.add(Commands.slash(CMD_PING_ZH, "\u6aa2\u67e5 Bot \u5ef6\u9072")
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED));
+        commands.add(Commands.slash("url", "Create a short URL")
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+                .addOptions(
+                        new OptionData(OptionType.STRING, "url", "Target URL (http/https)", true),
+                        new OptionData(OptionType.STRING, "slug", "Custom slug (optional), e.g. discord", false)
+                ));
+        commands.add(Commands.slash(CMD_SHORT_URL_ZH, "\u5efa\u7acb\u77ed\u7db2\u5740")
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+                .addOptions(
+                        new OptionData(OptionType.STRING, "url", "目標網址（http/https）", true),
+                        new OptionData(OptionType.STRING, "slug", "自訂代碼（選填），例如 discord", false)
+                ));
         commands.add(Commands.slash("welcome", "Edit member join welcome message")
                 .addOptions(
                         buildWelcomeActionOption(false),
@@ -3356,11 +3125,11 @@ public class MusicCommandService extends ListenerAdapter {
                         .addChoice("all", "ALL")));
         commands.add(Commands.slash("volume", "Set playback volume")
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
-                .addOptions(new OptionData(OptionType.INTEGER, "value", "0-200", true).setRequiredRange(0, 200)));
+                .addOptions(new OptionData(OptionType.INTEGER, "value", "1-100", true).setRequiredRange(1, 100)));
         commands.add(Commands.slash(CMD_VOLUME_ZH, "\u8a2d\u5b9a\u64ad\u653e\u97f3\u91cf")
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
                 .addOptions(localizedOptionName(
-                        new OptionData(OptionType.INTEGER, "value", "0-200", true).setRequiredRange(0, 200),
+                        new OptionData(OptionType.INTEGER, "value", "1-100", true).setRequiredRange(1, 100),
                         OPTION_VOLUME_VALUE_ZH,
                         OPTION_VOLUME_VALUE_ZH
                 )));
@@ -3446,8 +3215,7 @@ public class MusicCommandService extends ListenerAdapter {
     private SlashCommandData buildTicketCommand(String commandName) {
         boolean zh = CMD_TICKET_ZH.equals(commandName);
         return Commands.slash(commandName, zh ? "\u5ba2\u670d\u55ae\u7cfb\u7d71" : "Ticket system")
-                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
-                .addOptions(buildTicketActionOption(zh));
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED);
     }
 
     private SlashCommandData buildUserInfoCommand(String commandName) {
@@ -3629,25 +3397,6 @@ public class MusicCommandService extends ListenerAdapter {
         return option;
     }
 
-    private OptionData buildTicketActionOption(boolean zh) {
-        OptionData option = new OptionData(OptionType.STRING, "action",
-                zh ? "\u5ba2\u670d\u55ae\u7cfb\u7d71" : "Ticket system", true)
-                .addChoices(
-                        new Command.Choice(zh ? SUB_GENERIC_ENABLE_ZH : "enable", "enable"),
-                        new Command.Choice(zh ? SUB_GENERIC_STATUS_ZH : "status", "status"),
-                        new Command.Choice(zh ? "\u9762\u677f" : "panel", "panel"),
-                        new Command.Choice(zh ? "\u95dc\u9589" : "close", "close"),
-                        new Command.Choice(zh ? "\u4e0a\u9650" : "limit", "limit"),
-                        new Command.Choice(zh ? "\u9ed1\u540d\u55ae\u65b0\u589e" : "blacklist-add", "blacklist-add"),
-                        new Command.Choice(zh ? "\u9ed1\u540d\u55ae\u79fb\u9664" : "blacklist-remove", "blacklist-remove"),
-                        new Command.Choice(zh ? "\u9ed1\u540d\u55ae\u5217\u8868" : "blacklist-list", "blacklist-list")
-                );
-        if (zh) {
-            option.setNameLocalization(DiscordLocale.CHINESE_TAIWAN, "\u9078\u9805");
-            option.setNameLocalization(DiscordLocale.CHINESE_CHINA, "\u9009\u9879");
-        }
-        return option;
-    }
     public void handleWarningsSlash(SlashCommandInteractionEvent event, String lang) {
         if (!has(event.getMember(), Permission.MODERATE_MEMBERS)) {
             event.reply(i18n.t(lang, "general.missing_permissions",
@@ -3678,8 +3427,8 @@ public class MusicCommandService extends ListenerAdapter {
             }
             case "view" -> {
                 int count = moderationService.getWarnings(guildId, target.getIdLong());
-                event.reply(i18n.t(lang, "warnings.result_view",
-                                Map.of("user", target.getAsMention(), "count", String.valueOf(count))))
+                event.replyEmbeds(warningsResultEmbed(i18n.t(lang, "warnings.result_view",
+                                Map.of("user", target.getAsMention(), "count", String.valueOf(count)))).build())
                         .queue();
             }
             case "clear" -> {
@@ -3722,7 +3471,9 @@ public class MusicCommandService extends ListenerAdapter {
         }
         String reason = Objects.requireNonNull(event.getValue("reason")).getAsString().trim();
         if (reason.isBlank()) {
-            event.reply(i18n.t(lang, "warnings.reason_required")).setEphemeral(true).queue();
+            event.replyEmbeds(warningsResultEmbed(i18n.t(lang, "warnings.reason_required")).build())
+                    .setEphemeral(true)
+                    .queue();
             return;
         }
         User target = jda == null ? null : jda.getUserById(request.targetUserId);
@@ -3749,7 +3500,13 @@ public class MusicCommandService extends ListenerAdapter {
             }
         }
         result = result + "\n" + i18n.t(lang, "warnings.reason_line", Map.of("reason", reason));
-        event.reply(result).queue();
+        event.replyEmbeds(warningsResultEmbed(result).build()).queue();
+    }
+
+    private EmbedBuilder warningsResultEmbed(String content) {
+        return new EmbedBuilder()
+                .setColor(new Color(241, 196, 15))
+                .setDescription(content);
     }
     public void handleAntiDuplicateSlash(SlashCommandInteractionEvent event, String lang) {
         if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
@@ -4065,6 +3822,7 @@ public class MusicCommandService extends ListenerAdapter {
             case CMD_SERVER_INFO_ZH -> "server-info";
             case CMD_STATS_ZH -> "stats";
             case CMD_LEADERBOARD_ZH -> "top";
+            case CMD_SHORT_URL_ZH -> "url";
             default -> name;
         };
     }
@@ -4182,6 +3940,7 @@ public class MusicCommandService extends ListenerAdapter {
                 || "user-info".equals(name)
                 || "role-info".equals(name)
                 || "server-info".equals(name)
+                || "url".equals(name)
                 || "stats".equals(name)
                 || "top".equals(name);
     }
@@ -4221,7 +3980,7 @@ public class MusicCommandService extends ListenerAdapter {
         return command;
     }
     public void logCommandUsage(Guild guild, Member member, String commandText, long channelId) {
-        BotConfig.MessageLogs logs = settingsService.getMessageLogs(guild.getIdLong());
+        var logs = settingsService.getMessageLogs(guild.getIdLong());
         if (!logs.isEnabled() || !logs.isCommandUsageLogEnabled() || member == null) {
             return;
         }
@@ -4443,17 +4202,7 @@ public class MusicCommandService extends ListenerAdapter {
                 || "SPOTIFY_PLAYLIST_COOLDOWN".equalsIgnoreCase(rawError)) {
             return i18n.t(lang, "music.spotify_rate_limited");
         }
-        if ("SPOTIFY_PERSONAL_PLAYLIST_UNSUPPORTED".equalsIgnoreCase(rawError)) {
-            boolean zhCn = lang != null && lang.startsWith("zh-CN");
-            boolean zh = lang != null && lang.startsWith("zh");
-            if (zhCn) {
-                return "此 Spotify 播放列表当前无法解析。请改用你自己创建且公开的播放列表，或改用单曲链接。";
-            }
-            if (zh) {
-                return "此 Spotify 播放清單目前無法解析。請改用你自己建立且公開的播放清單，或改用單曲連結。";
-            }
-            return "This Spotify playlist cannot be resolved right now. Use a public playlist you created, or use a track link.";
-        }
+        if ("SPOTIFY_PERSONAL_PLAYLIST_UNSUPPORTED".equalsIgnoreCase(rawError)) {            boolean zhCn = lang != null && lang.startsWith("zh-CN");            boolean zh = lang != null && lang.startsWith("zh");            if (zhCn) {                return "This Spotify playlist cannot be resolved right now. Please use a public playlist you created, or use a track link.";            }            if (zh) {                return "This Spotify playlist cannot be resolved right now. Please use a public playlist you created, or use a track link.";            }            return "This Spotify playlist cannot be resolved right now. Use a public playlist you created, or use a track link.";        }
         return i18n.t(lang, YoutubePlaybackErrorMapper.toMessageKey(rawError));
     }
 
@@ -4501,7 +4250,7 @@ public class MusicCommandService extends ListenerAdapter {
         boolean zhCn = lang != null && lang.startsWith("zh-CN");
         boolean zh = lang != null && lang.startsWith("zh");
         String value = switch (key) {
-            case "volume_usage" -> zhCn ? "\u8BF7\u4F7F\u7528 `!volume <0-200>`\u3002" : (zh ? "\u8ACB\u4F7F\u7528 `!volume <0-200>`\u3002" : "Use `!volume <0-200>`.");
+            case "volume_usage" -> zhCn ? "\u8BF7\u4F7F\u7528 `!volume <1-100>`\u3002" : (zh ? "\u8ACB\u4F7F\u7528 `!volume <1-100>`\u3002" : "Use `!volume <1-100>`.");
             case "volume_set" -> zhCn ? "\u97F3\u91CF\u5DF2\u8BBE\u7F6E\u4E3A `{value}%`\u3002" : (zh ? "\u97F3\u91CF\u5DF2\u8A2D\u5B9A\u70BA `{value}%`\u3002" : "Volume set to `{value}%`.");
             case "playlist_usage" -> zhCn ? "\u8BF7\u4F7F\u7528 `!playlist <save|load|add|delete|list|view|export> [name]`\u3001`!playlist list <mine|all>` \u6216 `!playlist import <code> [name]`\u3002" : (zh ? "\u8ACB\u4F7F\u7528 `!playlist <save|load|add|delete|list|view|export> [name]`\u3001`!playlist list <mine|all>` \u6216 `!playlist import <code> [name]`\u3002" : "Use `!playlist <save|load|add|delete|list|view|export> [name]`, `!playlist list <mine|all>`, or `!playlist import <code> [name]`.");
             case "playlist_name_required" -> zhCn ? "\u8BF7\u63D0\u4F9B\u6B4C\u5355\u540D\u79F0\u3002" : (zh ? "\u8ACB\u63D0\u4F9B\u6B4C\u55AE\u540D\u7A31\u3002" : "Please provide a playlist name.");
@@ -4629,7 +4378,7 @@ public class MusicCommandService extends ListenerAdapter {
     }
 
     int resolveTemplateColor(long guildId, String templateType) {
-        BotConfig.Notifications notifications = settingsService.getNotifications(guildId);
+        var notifications = settingsService.getNotifications(guildId);
         return switch (templateType) {
             case "member-join" -> notifications.getMemberJoinColor();
             case "member-leave" -> notifications.getMemberLeaveColor();
@@ -4741,8 +4490,7 @@ public class MusicCommandService extends ListenerAdapter {
         return channel == null ? "#" + id : "<#" + id + ">";
     }
 
-    private String formatMemberChannelMode(String lang, BotConfig.Notifications notifications) {
-        boolean split = notifications.getMemberJoinChannelId() != null || notifications.getMemberLeaveChannelId() != null;
+    private String formatMemberChannelMode(String lang, Long memberJoinChannelId, Long memberLeaveChannelId) {        boolean split = memberJoinChannelId != null || memberLeaveChannelId != null;
         return split ? i18n.t(lang, "settings.member_channel_mode_split") : i18n.t(lang, "settings.member_channel_mode_same");
     }
 
@@ -4822,8 +4570,8 @@ public class MusicCommandService extends ListenerAdapter {
 
     private String logsModuleStatusText(String lang, long guildId, String target) {
         GuildSettingsService.GuildSettings s = settingsService.getSettings(guildId);
-        BotConfig.MessageLogs logs = s.getMessageLogs();
-        BotConfig.Notifications n = s.getNotifications();
+        var logs = s.getMessageLogs();
+        var n = s.getNotifications();
         String module = switch (target) {
             case "default-channel" -> i18n.t(lang, "settings.logs_menu_module_default");
             case "messages-channel" ->
@@ -5014,13 +4762,15 @@ public class MusicCommandService extends ListenerAdapter {
         private final Long targetUserId;
         private final Duration lookback;
         private final Integer amount;
+        private final Instant expiresAt;
 
-        private DeleteRequest(long requestUserId, Long channelId, Long targetUserId, Duration lookback, Integer amount) {
+        private DeleteRequest(long requestUserId, Long channelId, Long targetUserId, Duration lookback, Integer amount, Instant expiresAt) {
             this.requestUserId = requestUserId;
             this.channelId = channelId;
             this.targetUserId = targetUserId;
             this.lookback = lookback;
             this.amount = amount;
+            this.expiresAt = expiresAt;
         }
     }
 

@@ -31,7 +31,7 @@ NoRule Bot 是 Java + JDA 製作的 Discord 多功能機器人，提供音樂播
 - `/stop`、`/停止`：停止播放並清空佇列。
 - `/leave`、`/離開`：離開語音頻道。
 - `/repeat mode:<OFF|SINGLE|ALL>`、`/循環 mode:<OFF|SINGLE|ALL>`：設定循環模式。
-- `/volume value:<0-200>`、`/音量 音量:<0-200>`：設定播放音量。
+- `/volume value:<1-100>`、`/音量 音量:<1-100>`：設定播放音量。
 - `/history`、`/播放歷史`：查看最近播放紀錄。
 - `/music stats`、`/音樂 統計`：查看熱門歌曲、熱門點歌者、今日播放時間與歷史筆數。
 - `/music-panel`、`/音樂面板`：建立互動式音樂控制面板。
@@ -100,7 +100,7 @@ NoRule Bot 是 Java + JDA 製作的 Discord 多功能機器人，提供音樂播
 - `!help`
 - `!join`
 - `!play <關鍵字或URL>`
-- `!volume <0-200>`
+- `!volume <1-100>`
 - `!history`
 - `!music`
 - `!playlist <save|load|delete|list|view|export> [name]`
@@ -190,7 +190,7 @@ music:
 在 Discord Developer Portal 建立 OAuth2 應用，Redirect URI 填入：
 
 ```text
-http://localhost:60000/auth/callback
+https://dash.norule.me/auth/callback
 ```
 
 設定 `config.yml`：
@@ -198,18 +198,20 @@ http://localhost:60000/auth/callback
 ```yml
 web:
   enabled: true
-  host: "0.0.0.0"
-  port: 60000
-  baseUrl: "http://localhost:60000"
+  bind:
+    host: "0.0.0.0"
+    port: 60000
+  public:
+    baseUrl: "https://dash.norule.me"
   discordClientId: "YOUR_CLIENT_ID"
   discordClientSecret: "YOUR_CLIENT_SECRET"
-  discordRedirectUri: "http://localhost:60000/auth/callback"
+  discordRedirectUri: "https://dash.norule.me/auth/callback"
 ```
 
 啟動後開啟：
 
 ```text
-http://localhost:60000
+https://dash.norule.me
 ```
 
 ### HTTPS

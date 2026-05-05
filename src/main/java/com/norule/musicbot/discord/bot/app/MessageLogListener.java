@@ -7,13 +7,11 @@ import net.dv8tion.jda.api.events.message.MessageUpdateEvent;
 import net.dv8tion.jda.api.events.message.MessageDeleteEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
-import java.nio.file.Path;
-
 public class MessageLogListener extends ListenerAdapter {
     private final MessageLogService service;
 
-    public MessageLogListener(GuildSettingsService settingsService, I18nService i18n, Path cacheDir) {
-        this.service = new MessageLogService(settingsService, i18n, cacheDir);
+    public MessageLogListener(GuildSettingsService settingsService, I18nService i18n, MessageLogCacheRepository cacheRepository) {
+        this.service = new MessageLogService(settingsService, i18n, cacheRepository);
     }
 
     @Override

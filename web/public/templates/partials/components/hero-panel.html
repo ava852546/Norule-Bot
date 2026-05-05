@@ -1,0 +1,23 @@
+<div class="relative z-10 flex flex-col justify-between gap-[14px] p-4 rounded-[calc(var(--radius-xl)-4px)] border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015)),radial-gradient(circle_at_top_right,rgba(76,141,255,0.16),transparent_42%)]">
+  <div class="m-0 min-h-[170px] rounded-[22px] border border-[rgba(255,255,255,0.08)] bg-[radial-gradient(circle_at_14%_18%,rgba(76,141,255,0.20),transparent_34%),radial-gradient(circle_at_82%_82%,rgba(54,213,141,0.14),transparent_36%),rgba(255,255,255,0.025)] flex items-center justify-center">
+    __BOT_AVATAR_BLOCK__
+  </div>
+  <div class="flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2 pt-[14px] mt-[14px] border-t border-[rgba(255,255,255,0.08)]">
+      <span id="langLabel" class="text-[14px] leading-[1.7] text-[var(--muted)]" data-i18n="langLabel">Language</span>
+      <div id="uiLangButtons" class="flex flex-wrap gap-2"></div>
+    </div>
+    <div id="authBlock" class="flex">
+      <button id="loginBtn" class="w-full inline-flex items-center justify-center min-h-[46px] rounded-[14px] px-[13px] py-[11px] font-extrabold tracking-[0.01em] bg-gradient-to-r from-[var(--accent-2)] to-[var(--accent)] border border-transparent shadow-[0_12px_24px_rgba(0,0,0,0.16)] hover:translate-y-[-1px] active:translate-y-0" data-i18n="loginBtn">Sign in with Discord</button>
+    </div>
+    <div id="userBlock" class="hidden">
+      <div class="flex items-center gap-3 w-full border border-[rgba(255,255,255,0.10)] rounded-[14px] px-3 py-[10px] bg-[rgba(255,255,255,0.03)]">
+        <img id="meAvatar" class="w-[42px] h-[42px] rounded-full object-cover border border-[rgba(255,255,255,0.16)] bg-[#0b1220] hidden" alt="avatar" loading="lazy" referrerpolicy="no-referrer" />
+        <div class="min-w-0 flex-1 font-extrabold text-[#e5efff] whitespace-nowrap overflow-hidden text-ellipsis">
+          <div id="meLine"></div>
+        </div>
+        <button id="logoutBtn" class="ml-auto w-auto min-h-[40px] rounded-xl px-[13px] py-[9px] font-extrabold bg-gradient-to-r from-[var(--danger)] to-[var(--danger-2)] border border-transparent text-white shadow-[0_12px_24px_rgba(0,0,0,0.16)] hover:translate-y-[-1px] active:translate-y-0" data-i18n="logoutBtn">Logout</button>
+      </div>
+    </div>
+  </div>
+</div>

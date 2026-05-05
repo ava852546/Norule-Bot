@@ -1,8 +1,7 @@
 package com.norule.musicbot.discord.bot.app;
 
-import com.norule.musicbot.config.*;
-import com.norule.musicbot.i18n.*;
-
+import com.norule.musicbot.config.GuildSettingsService;
+import com.norule.musicbot.i18n.I18nService;
 
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
@@ -11,20 +10,11 @@ import net.dv8tion.jda.api.entities.channel.attribute.ICategorizableChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.Category;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
-import net.dv8tion.jda.api.events.session.ReadyEvent;
 import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
-import org.yaml.snakeyaml.DumperOptions;
-import org.yaml.snakeyaml.Yaml;
+import net.dv8tion.jda.api.events.session.ReadyEvent;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.Writer;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,37 +33,29 @@ public class PrivateRoomService {
             Permission.MESSAGE_EMBED_LINKS,
             Permission.USE_APPLICATION_COMMANDS
     );
+
     private final GuildSettingsService settingsService;
     private final I18nService i18n;
+    private final PrivateRoomCacheRepository cacheRepository;
     private final Map<Long, Set<Long>> privateChannelsByGuild = new ConcurrentHashMap<>();
     private static final Map<Long, Set<Long>> PRIVATE_CHANNELS = new ConcurrentHashMap<>();
     private static final Map<Long, Map<Long, Long>> ROOM_OWNERS = new ConcurrentHashMap<>();
     private static volatile PrivateRoomService activeInstance;
-    private final Path cacheFile;
-    private final Object cacheLock = new Object();
 
-    public PrivateRoomService(GuildSettingsService settingsService, I18nService i18n, Path cacheDir) {
+    public PrivateRoomService(GuildSettingsService settingsService,
+                              I18nService i18n,
+                              PrivateRoomCacheRepository cacheRepository) {
         this.settingsService = settingsService;
         this.i18n = i18n;
-        this.cacheFile = cacheDir.resolve("private-room-cache.yml");
-        migrateLegacyCache(settingsService.getSettingsDirectory().resolve("private-room-cache.yml"));
-        loadCacheFromDisk();
+        this.cacheRepository = cacheRepository;
+        loadCacheFromRepository();
         activeInstance = this;
     }
 
-    private void migrateLegacyCache(Path legacyFile) {
-        if (legacyFile == null || legacyFile.equals(cacheFile) || !Files.exists(legacyFile) || Files.exists(cacheFile)) {
-            return;
-        }
-        try {
-            Files.createDirectories(cacheFile.getParent());
-            Files.copy(legacyFile, cacheFile, StandardCopyOption.REPLACE_EXISTING);
-        } catch (Exception ignored) {
-        }
-    }
     public void onReady(ReadyEvent event) {
         reconcileCachedRooms(event.getJDA().getGuilds());
     }
+
     public void onGuildVoiceUpdate(GuildVoiceUpdateEvent event) {
         handleCreate(event);
         handleCleanup(event);
@@ -85,7 +67,7 @@ public class PrivateRoomService {
             return;
         }
 
-        BotConfig.PrivateRoom cfg = settingsService.getPrivateRoom(event.getGuild().getIdLong());
+        var cfg = settingsService.getPrivateRoom(event.getGuild().getIdLong());
         if (!cfg.isEnabled() || cfg.getTriggerVoiceChannelId() == null) {
             return;
         }
@@ -96,7 +78,7 @@ public class PrivateRoomService {
         Member member = event.getEntity();
         String roomName = buildRoomName(member);
         event.getGuild().createVoiceChannel(roomName)
-                .setParent(resolveCategory(event, cfg))
+                .setParent(resolveCategory(event, cfg.getTriggerVoiceChannelId()))
                 .setUserlimit(cfg.getUserLimit())
                 .setBitrate(resolveMaxBitrate(event))
                 .addRolePermissionOverride(
@@ -117,11 +99,14 @@ public class PrivateRoomService {
                         0L
                 )
                 .queue(created -> {
+                    long guildId = created.getGuild().getIdLong();
+                    long channelId = created.getIdLong();
+                    long ownerId = member.getIdLong();
                     rememberPrivateChannel(created);
                     ROOM_OWNERS
-                            .computeIfAbsent(created.getGuild().getIdLong(), id -> new ConcurrentHashMap<>())
-                            .put(created.getIdLong(), member.getIdLong());
-                    persistCacheQuietly();
+                            .computeIfAbsent(guildId, id -> new ConcurrentHashMap<>())
+                            .put(channelId, ownerId);
+                    upsertCacheEntry(guildId, channelId, ownerId);
                     event.getGuild().moveVoiceMember(member, created).queue();
                 });
     }
@@ -144,17 +129,19 @@ public class PrivateRoomService {
             return;
         }
         voice.delete().queue(v -> {
-            removeManagedPrivateChannel(event.getGuild().getIdLong(), voice.getIdLong());
-            persistCacheQuietly();
+            long guildId = event.getGuild().getIdLong();
+            long channelId = voice.getIdLong();
+            removeManagedPrivateChannel(guildId, channelId);
+            removeCacheEntry(guildId, channelId);
         }, e -> {
         });
     }
 
-    private Category resolveCategory(GuildVoiceUpdateEvent event, BotConfig.PrivateRoom cfg) {
-        if (cfg.getTriggerVoiceChannelId() != null) {
-            AudioChannel trigger = event.getGuild().getVoiceChannelById(cfg.getTriggerVoiceChannelId());
+    private Category resolveCategory(GuildVoiceUpdateEvent event, Long triggerVoiceChannelId) {
+        if (triggerVoiceChannelId != null) {
+            AudioChannel trigger = event.getGuild().getVoiceChannelById(triggerVoiceChannelId);
             if (trigger == null) {
-                trigger = event.getGuild().getStageChannelById(cfg.getTriggerVoiceChannelId());
+                trigger = event.getGuild().getStageChannelById(triggerVoiceChannelId);
             }
             if (trigger instanceof ICategorizableChannel) {
                 ICategorizableChannel categorizable = (ICategorizableChannel) trigger;
@@ -191,14 +178,13 @@ public class PrivateRoomService {
             snapshot.put(entry.getKey(), new HashSet<>(entry.getValue()));
         }
 
-        boolean changed = false;
         for (Map.Entry<Long, Set<Long>> entry : snapshot.entrySet()) {
             long guildId = entry.getKey();
             Guild guild = guildById.get(guildId);
             if (guild == null) {
                 for (Long channelId : entry.getValue()) {
                     if (removeManagedPrivateChannel(guildId, channelId)) {
-                        changed = true;
+                        removeCacheEntry(guildId, channelId);
                     }
                 }
                 continue;
@@ -208,7 +194,7 @@ public class PrivateRoomService {
                 VoiceChannel channel = guild.getVoiceChannelById(channelId);
                 if (channel == null) {
                     if (removeManagedPrivateChannel(guildId, channelId)) {
-                        changed = true;
+                        removeCacheEntry(guildId, channelId);
                     }
                     continue;
                 }
@@ -217,17 +203,13 @@ public class PrivateRoomService {
                     channel.delete().queue(
                             success -> {
                                 removeManagedPrivateChannel(guildId, targetChannelId);
-                                persistCacheQuietly();
+                                removeCacheEntry(guildId, targetChannelId);
                             },
                             error -> {
                             }
                     );
                 }
             }
-        }
-
-        if (changed) {
-            persistCacheQuietly();
         }
     }
 
@@ -257,149 +239,39 @@ public class PrivateRoomService {
         return changed;
     }
 
-    private void loadCacheFromDisk() {
-        synchronized (cacheLock) {
-            if (!Files.exists(cacheFile)) {
-                return;
-            }
-            try (InputStream input = Files.newInputStream(cacheFile)) {
-                Object loaded = new Yaml().load(input);
-                Map<String, Object> root = asMap(loaded);
-                privateChannelsByGuild.clear();
-                PRIVATE_CHANNELS.clear();
-                ROOM_OWNERS.clear();
-                restorePrivateChannels(asMap(root.get("privateChannels")));
-                restoreRoomOwners(asMap(root.get("roomOwners")));
-            } catch (Exception e) {
-                System.err.println("[NoRule] Failed to load private room cache: " + e.getMessage());
-            }
-        }
-    }
-
-    private void restorePrivateChannels(Map<String, Object> channelsMap) {
-        for (Map.Entry<String, Object> entry : channelsMap.entrySet()) {
-            Long guildId = parseLong(entry.getKey());
-            if (guildId == null) {
-                continue;
-            }
-            Set<Long> channelIds = ConcurrentHashMap.newKeySet();
-            Object value = entry.getValue();
-            if (value instanceof Iterable<?> iterable) {
-                for (Object item : iterable) {
-                    Long channelId = parseLong(item);
-                    if (channelId != null) {
-                        channelIds.add(channelId);
-                    }
-                }
-            } else {
-                Long channelId = parseLong(value);
-                if (channelId != null) {
-                    channelIds.add(channelId);
-                }
-            }
-            if (!channelIds.isEmpty()) {
-                privateChannelsByGuild.put(guildId, channelIds);
-                Set<Long> globalSet = ConcurrentHashMap.newKeySet();
-                globalSet.addAll(channelIds);
-                PRIVATE_CHANNELS.put(guildId, globalSet);
-            }
-        }
-    }
-
-    private void restoreRoomOwners(Map<String, Object> ownersRoot) {
-        for (Map.Entry<String, Object> guildEntry : ownersRoot.entrySet()) {
-            Long guildId = parseLong(guildEntry.getKey());
-            if (guildId == null) {
-                continue;
-            }
-            Map<String, Object> ownersByChannel = asMap(guildEntry.getValue());
-            if (ownersByChannel.isEmpty()) {
-                continue;
-            }
-            Map<Long, Long> owners = new ConcurrentHashMap<>();
-            for (Map.Entry<String, Object> ownerEntry : ownersByChannel.entrySet()) {
-                Long channelId = parseLong(ownerEntry.getKey());
-                Long ownerId = parseLong(ownerEntry.getValue());
-                if (channelId != null && ownerId != null) {
-                    owners.put(channelId, ownerId);
-                }
-            }
-            if (!owners.isEmpty()) {
-                ROOM_OWNERS.put(guildId, owners);
-            }
-        }
-    }
-
-    private void persistCacheQuietly() {
-        synchronized (cacheLock) {
-            Map<String, Object> root = new LinkedHashMap<>();
-            root.put("privateChannels", snapshotPrivateChannels());
-            root.put("roomOwners", snapshotRoomOwners());
-            DumperOptions options = new DumperOptions();
-            options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
-            options.setPrettyFlow(true);
-            options.setIndent(2);
-            Yaml yaml = new Yaml(options);
-            try {
-                Files.createDirectories(cacheFile.getParent());
-            } catch (IOException ignored) {
-            }
-            try (Writer writer = Files.newBufferedWriter(cacheFile)) {
-                yaml.dump(root, writer);
-            } catch (IOException e) {
-                System.err.println("[NoRule] Failed to persist private room cache: " + e.getMessage());
-            }
-        }
-    }
-
-    private Map<String, Object> snapshotPrivateChannels() {
-        Map<String, Object> map = new LinkedHashMap<>();
-        for (Map.Entry<Long, Set<Long>> entry : privateChannelsByGuild.entrySet()) {
-            if (entry.getValue() == null || entry.getValue().isEmpty()) {
-                continue;
-            }
-            List<String> channelIds = entry.getValue().stream().map(String::valueOf).sorted().toList();
-            map.put(String.valueOf(entry.getKey()), channelIds);
-        }
-        return map;
-    }
-
-    private Map<String, Object> snapshotRoomOwners() {
-        Map<String, Object> map = new LinkedHashMap<>();
-        for (Map.Entry<Long, Map<Long, Long>> entry : ROOM_OWNERS.entrySet()) {
-            Map<Long, Long> owners = entry.getValue();
-            if (owners == null || owners.isEmpty()) {
-                continue;
-            }
-            Map<String, Object> guildOwners = new LinkedHashMap<>();
-            for (Map.Entry<Long, Long> ownerEntry : owners.entrySet()) {
-                guildOwners.put(String.valueOf(ownerEntry.getKey()), String.valueOf(ownerEntry.getValue()));
-            }
-            map.put(String.valueOf(entry.getKey()), guildOwners);
-        }
-        return map;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> asMap(Object value) {
-        if (value instanceof Map<?, ?> raw) {
-            return (Map<String, Object>) raw;
-        }
-        return Map.of();
-    }
-
-    private Long parseLong(Object value) {
-        if (value == null) {
-            return null;
-        }
+    private void loadCacheFromRepository() {
+        privateChannelsByGuild.clear();
+        PRIVATE_CHANNELS.clear();
+        ROOM_OWNERS.clear();
+        List<PrivateRoomCacheEntry> entries;
         try {
-            String text = String.valueOf(value).trim();
-            if (text.isBlank()) {
-                return null;
+            entries = cacheRepository.findAll();
+        } catch (Exception e) {
+            System.err.println("[NoRule] Failed to load private room cache: " + e.getMessage());
+            return;
+        }
+        for (PrivateRoomCacheEntry entry : entries) {
+            long guildId = entry.getGuildId();
+            long channelId = entry.getChannelId();
+            privateChannelsByGuild.computeIfAbsent(guildId, id -> ConcurrentHashMap.newKeySet()).add(channelId);
+            PRIVATE_CHANNELS.computeIfAbsent(guildId, id -> ConcurrentHashMap.newKeySet()).add(channelId);
+            if (entry.getOwnerId() != null) {
+                ROOM_OWNERS.computeIfAbsent(guildId, id -> new ConcurrentHashMap<>()).put(channelId, entry.getOwnerId());
             }
-            return Long.parseLong(text);
-        } catch (NumberFormatException e) {
-            return null;
+        }
+    }
+
+    private void upsertCacheEntry(long guildId, long channelId, Long ownerId) {
+        try {
+            cacheRepository.upsert(new PrivateRoomCacheEntry(guildId, channelId, ownerId, System.currentTimeMillis()));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void removeCacheEntry(long guildId, long channelId) {
+        try {
+            cacheRepository.remove(guildId, channelId);
+        } catch (Exception ignored) {
         }
     }
 
@@ -424,9 +296,11 @@ public class PrivateRoomService {
 
     public static void setRoomOwner(long guildId, long channelId, long userId) {
         ROOM_OWNERS.computeIfAbsent(guildId, id -> new ConcurrentHashMap<>()).put(channelId, userId);
+        PRIVATE_CHANNELS.computeIfAbsent(guildId, id -> ConcurrentHashMap.newKeySet()).add(channelId);
         PrivateRoomService listener = activeInstance;
         if (listener != null) {
-            listener.persistCacheQuietly();
+            listener.privateChannelsByGuild.computeIfAbsent(guildId, id -> ConcurrentHashMap.newKeySet()).add(channelId);
+            listener.upsertCacheEntry(guildId, channelId, userId);
         }
     }
 
@@ -444,10 +318,3 @@ public class PrivateRoomService {
         return roomName.length() > 100 ? roomName.substring(0, 100) : roomName;
     }
 }
-
-
-
-
-
-
-

@@ -1,22 +1,9 @@
 package com.norule.musicbot.config;
 
-import org.yaml.snakeyaml.Yaml;
-import org.yaml.snakeyaml.DumperOptions;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStreamWriter;
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -41,10 +28,11 @@ public class BotConfig {
     private final Music music;
     private final PrivateRoom privateRoom;
     private final Ticket ticket;
+    private final ShortUrl shortUrl;
     private final Web web;
     private final Stats stats;
 
-    private BotConfig(String token,
+    public BotConfig(String token,
                       String prefix,
                       boolean debug,
                       Long commandGuildId,
@@ -62,6 +50,7 @@ public class BotConfig {
                       Music music,
                       PrivateRoom privateRoom,
                       Ticket ticket,
+                      ShortUrl shortUrl,
                       Web web,
                       Stats stats) {
         this.token = token;
@@ -82,371 +71,14 @@ public class BotConfig {
         this.music = music;
         this.privateRoom = privateRoom;
         this.ticket = ticket;
+        this.shortUrl = shortUrl;
         this.web = web;
         this.stats = stats;
     }
 
-    public static BotConfig load(Path path) {
-        if (!Files.exists(path)) {
-            throw new IllegalStateException("config.yml not found: " + path.toAbsolutePath());
-        }
+    
 
-        try (InputStream inputStream = Files.newInputStream(path)) {
-            Yaml yaml = new Yaml();
-            Object rootObject = yaml.load(inputStream);
-            Map<String, Object> root = asMap(rootObject);
-
-            String tokenFromConfig = getString(root, "token", "");
-            String tokenFromEnv = System.getenv("DISCORD_TOKEN");
-            String token = !tokenFromConfig.isBlank() ? tokenFromConfig : nullToEmpty(tokenFromEnv);
-            if (token.isBlank()) {
-                throw new IllegalStateException("Token missing. Set token in config.yml or DISCORD_TOKEN.");
-            }
-
-            String prefix = getString(root, "prefix", "!");
-            boolean debug = getBoolean(root, "debug", false);
-            Long commandGuildId = toLong(root.get("commandGuildId"));
-            DataPaths dataPaths = DataPaths.fromConfig(root);
-            String guildSettingsDir = dataPaths.getGuildSettingsDir();
-            String languageDir = dataPaths.getLanguageDir();
-            String defaultLanguage = getString(root, "defaultLanguage", "en");
-            int commandCooldownSeconds = Math.max(0, getInt(root, "commandCooldownSeconds", 3));
-            int numberChainReactionDelayMillis = Math.max(0, getInt(root, "numberChainReactionDelayMillis", 500));
-            BotProfile botProfile = BotProfile.fromMap(asMap(root.get("bot")), null);
-            Developers developers = Developers.fromMap(asMap(root.get("developers")), null);
-            Notifications notifications = Notifications.fromMap(asMap(root.get("notifications")), null);
-            Welcome welcome = Welcome.fromMap(asMap(root.get("welcome")), null);
-            MessageLogs messageLogs = MessageLogs.fromMap(asMap(root.get("messageLogs")), null);
-            Music music = Music.fromMap(asMap(root.get("music")), null);
-            PrivateRoom privateRoom = PrivateRoom.fromMap(asMap(root.get("privateRoom")), null);
-            Ticket ticket = Ticket.fromMap(asMap(root.get("ticket")), null);
-            Web web = Web.fromMap(asMap(root.get("web")), null);
-            Stats stats = Stats.fromMap(asMap(root.get("stats")), null);
-
-            return new BotConfig(token, prefix, debug, commandGuildId, guildSettingsDir, languageDir, dataPaths, defaultLanguage, commandCooldownSeconds, numberChainReactionDelayMillis, botProfile, developers,
-                    notifications, welcome, messageLogs, music, privateRoom, ticket, web, stats);
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to read config.yml: " + path.toAbsolutePath(), e);
-        }
-    }
-
-    @SuppressWarnings("unused")
-    private static void initializeConfigAndLang(Path configPath) {
-        Map<String, Object> defaultConfig = readDefaultConfigMap();
-        if (defaultConfig.isEmpty()) {
-            return;
-        }
-
-        try {
-            Path parent = configPath.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-
-            if (!Files.exists(configPath)) {
-                writeResourceIfMissing("defaults/config.yml", configPath);
-                if (!Files.exists(configPath)) {
-                    writeYaml(configPath, defaultConfig);
-                }
-            }
-
-            Map<String, Object> currentConfig = readYamlMap(configPath);
-            if (currentConfig == null) {
-                return;
-            }
-            if (currentConfig.isEmpty()) {
-                currentConfig = new LinkedHashMap<>();
-            }
-
-            String languageDir = DataPaths.fromConfigWithDefaults(currentConfig, defaultConfig).getLanguageDir();
-            Path baseDir = parent == null ? Path.of(".") : parent;
-            Path languagePath = resolvePath(baseDir, languageDir);
-            ensureDefaultLanguageFiles(languagePath);
-            mergeLanguageDefaults(languagePath);
-            ensureWebCertificateDirectory(baseDir, currentConfig, defaultConfig);
-
-            Map<String, Object> merged = deepMerge(defaultConfig, currentConfig);
-            pruneGuildScopedRootSettings(merged);
-            if (!merged.equals(currentConfig)) {
-                backupConfig(configPath);
-                writeYaml(configPath, merged);
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static void pruneGuildScopedRootSettings(Map<String, Object> config) {
-        if (config == null || config.isEmpty()) {
-            return;
-        }
-        for (String key : List.of("notifications", "welcome", "messageLogs", "privateRoom", "ticket")) {
-            config.remove(key);
-        }
-        Map<String, Object> music = asMap(config.get("music"));
-        if (!music.isEmpty()) {
-            Map<String, Object> youtube = asMap(music.get("youtube"));
-            Map<String, Object> spotify = asMap(music.get("spotify"));
-            Map<String, Object> globalMusic = new LinkedHashMap<>();
-            if (!youtube.isEmpty()) {
-                globalMusic.put("youtube", youtube);
-            }
-            if (!spotify.isEmpty()) {
-                globalMusic.put("spotify", spotify);
-            }
-            config.put("music", globalMusic);
-        }
-    }
-
-    private static Map<String, Object> readDefaultConfigMap() {
-        try (InputStream in = BotConfig.class.getClassLoader().getResourceAsStream("defaults/config.yml")) {
-            if (in == null) {
-                return Map.of();
-            }
-            Object obj = new Yaml().load(in);
-            return asMap(obj);
-        } catch (Exception ignored) {
-            return Map.of();
-        }
-    }
-
-    private static Map<String, Object> readYamlMap(Path file) {
-        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            Object obj = new Yaml().load(reader);
-            return asMap(obj);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private static void ensureDefaultLanguageFiles(Path languageDir) {
-        try {
-            Files.createDirectories(languageDir);
-            Files.createDirectories(languageDir.resolve("web"));
-            writeResourceIfMissing("defaults/lang/zh-TW.yml", languageDir.resolve("zh-TW.yml"));
-            writeResourceIfMissing("defaults/lang/zh-CN.yml", languageDir.resolve("zh-CN.yml"));
-            writeResourceIfMissing("defaults/lang/en.yml", languageDir.resolve("en.yml"));
-            migrateLegacyWebLanguageFiles(languageDir);
-            writeResourceIfMissing("defaults/lang/web/web-zh-TW.yml", languageDir.resolve("web").resolve("web-zh-TW.yml"));
-            writeResourceIfMissing("defaults/lang/web/web-zh-CN.yml", languageDir.resolve("web").resolve("web-zh-CN.yml"));
-            writeResourceIfMissing("defaults/lang/web/web-en.yml", languageDir.resolve("web").resolve("web-en.yml"));
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static void mergeLanguageDefaults(Path languageDir) {
-        try {
-            mergeLanguageFile(languageDir.resolve("zh-TW.yml"), "defaults/lang/zh-TW.yml");
-            mergeLanguageFile(languageDir.resolve("zh-CN.yml"), "defaults/lang/zh-CN.yml");
-            mergeLanguageFile(languageDir.resolve("en.yml"), "defaults/lang/en.yml");
-            mergeLanguageFile(languageDir.resolve("web").resolve("web-zh-TW.yml"), "defaults/lang/web/web-zh-TW.yml");
-            mergeLanguageFile(languageDir.resolve("web").resolve("web-zh-CN.yml"), "defaults/lang/web/web-zh-CN.yml");
-            mergeLanguageFile(languageDir.resolve("web").resolve("web-en.yml"), "defaults/lang/web/web-en.yml");
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static void migrateLegacyWebLanguageFiles(Path languageDir) {
-        migrateLegacyWebLanguageFile(languageDir, "web-zh-TW.yml");
-        migrateLegacyWebLanguageFile(languageDir, "web-zh-CN.yml");
-        migrateLegacyWebLanguageFile(languageDir, "web-en.yml");
-    }
-
-    private static void migrateLegacyWebLanguageFile(Path languageDir, String fileName) {
-        Path legacy = languageDir.resolve(fileName);
-        Path target = languageDir.resolve("web").resolve(fileName);
-        try {
-            if (!Files.exists(legacy) || Files.exists(target)) {
-                return;
-            }
-            Files.move(legacy, target, StandardCopyOption.REPLACE_EXISTING);
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static void ensureWebCertificateDirectory(Path baseDir, Map<String, Object> currentConfig, Map<String, Object> defaultConfig) {
-        try {
-            Map<String, Object> currentWeb = asMap(currentConfig.get("web"));
-            Map<String, Object> defaultWeb = asMap(defaultConfig.get("web"));
-            Map<String, Object> currentSsl = asMap(currentWeb.get("ssl"));
-            Map<String, Object> defaultSsl = asMap(defaultWeb.get("ssl"));
-            String certDirRaw = getString(currentSsl, "certDir", getString(defaultSsl, "certDir", "certs"));
-            if (certDirRaw.isBlank()) {
-                certDirRaw = "certs";
-            }
-            Path certDir = resolvePath(baseDir, certDirRaw);
-            Files.createDirectories(certDir);
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static Path resolvePath(Path baseDir, String rawPath) {
-        if (rawPath == null || rawPath.isBlank()) {
-            return baseDir.resolve("certs").normalize();
-        }
-        Path path = Path.of(rawPath);
-        if (path.isAbsolute()) {
-            return path.normalize();
-        }
-        return baseDir.resolve(path).normalize();
-    }
-
-    private static void mergeLanguageFile(Path targetFile, String resourcePath) {
-        Map<String, Object> defaults = readYamlResourceMap(resourcePath);
-        if (defaults.isEmpty()) {
-            return;
-        }
-        YamlReadResult existingResult = readYamlMapWithStatus(targetFile);
-        if (existingResult.parseError) {
-            backupCorruptedLanguageFile(targetFile);
-            writeQuietly(targetFile, defaults);
-            return;
-        }
-        Map<String, Object> existing = existingResult.map;
-        if (existing == null || existing.isEmpty()) {
-            writeQuietly(targetFile, defaults);
-            return;
-        }
-        Map<String, Object> merged = deepMerge(defaults, existing);
-        if (!merged.equals(existing)) {
-            writeQuietly(targetFile, merged);
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private static YamlReadResult readYamlMapWithStatus(Path file) {
-        if (file == null || !Files.exists(file)) {
-            return new YamlReadResult(Map.of(), false);
-        }
-        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            Object obj = new Yaml().load(reader);
-            if (obj == null) {
-                return new YamlReadResult(Map.of(), false);
-            }
-            if (obj instanceof Map<?, ?> map) {
-                return new YamlReadResult((Map<String, Object>) map, false);
-            }
-            return new YamlReadResult(Map.of(), true);
-        } catch (Exception ignored) {
-            return new YamlReadResult(Map.of(), true);
-        }
-    }
-
-    private static Map<String, Object> readYamlResourceMap(String resourcePath) {
-        try (InputStream in = BotConfig.class.getClassLoader().getResourceAsStream(resourcePath)) {
-            if (in == null) {
-                return Map.of();
-            }
-            Object obj = new Yaml().load(in);
-            return asMap(obj);
-        } catch (Exception ignored) {
-            return Map.of();
-        }
-    }
-
-    private static void writeQuietly(Path file, Map<String, Object> root) {
-        try {
-            Path parent = file.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            writeYaml(file, root);
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static void writeResourceIfMissing(String resourcePath, Path target) {
-        if (Files.exists(target)) {
-            return;
-        }
-        try (InputStream in = BotConfig.class.getClassLoader().getResourceAsStream(resourcePath)) {
-            if (in == null) {
-                return;
-            }
-            Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
-        } catch (Exception ignored) {
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> deepMerge(Map<String, Object> defaults, Map<String, Object> existing) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        for (Map.Entry<String, Object> entry : defaults.entrySet()) {
-            String key = entry.getKey();
-            Object defaultValue = entry.getValue();
-            if (!existing.containsKey(key)) {
-                result.put(key, defaultValue);
-                continue;
-            }
-            Object existingValue = existing.get(key);
-            if (defaultValue instanceof Map<?, ?> defaultMap && existingValue instanceof Map<?, ?> existingMap) {
-                result.put(key, deepMerge((Map<String, Object>) defaultMap, (Map<String, Object>) existingMap));
-            } else {
-                result.put(key, existingValue);
-            }
-        }
-        for (Map.Entry<String, Object> entry : existing.entrySet()) {
-            if (!result.containsKey(entry.getKey())) {
-                result.put(entry.getKey(), entry.getValue());
-            }
-        }
-        return result;
-    }
-
-    private static void backupConfig(Path configPath) {
-        if (!Files.exists(configPath)) {
-            return;
-        }
-        try {
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
-            String fileName = configPath.getFileName().toString();
-            int dot = fileName.lastIndexOf('.');
-            String base = dot > 0 ? fileName.substring(0, dot) : fileName;
-            String ext = dot > 0 ? fileName.substring(dot) : "";
-            Path backup = configPath.resolveSibling(base + ".backup-" + timestamp + ext);
-            Files.copy(configPath, backup, StandardCopyOption.REPLACE_EXISTING);
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static void backupCorruptedLanguageFile(Path path) {
-        if (path == null || !Files.exists(path)) {
-            return;
-        }
-        try {
-            String fileName = path.getFileName().toString();
-            int dot = fileName.lastIndexOf('.');
-            String base = dot > 0 ? fileName.substring(0, dot) : fileName;
-            String ext = dot > 0 ? fileName.substring(dot) : "";
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
-            Path backup = path.resolveSibling(base + ".corrupt-" + timestamp + ext + ".bak");
-            Files.copy(path, backup, StandardCopyOption.REPLACE_EXISTING);
-            System.out.println("[NoRule] Corrupted language file backed up: " + backup.getFileName());
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static class YamlReadResult {
-        private final Map<String, Object> map;
-        private final boolean parseError;
-
-        private YamlReadResult(Map<String, Object> map, boolean parseError) {
-            this.map = map == null ? Map.of() : map;
-            this.parseError = parseError;
-        }
-    }
-
-    private static void writeYaml(Path file, Map<String, Object> root) throws IOException {
-        DumperOptions options = new DumperOptions();
-        options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
-        options.setPrettyFlow(true);
-        options.setIndent(2);
-        Yaml yaml = new Yaml(options);
-        try (Writer writer = new OutputStreamWriter(Files.newOutputStream(file), StandardCharsets.UTF_8)) {
-            yaml.dump(root, writer);
-        }
-    }
-
-    public String getToken() {
+public String getToken() {
         return token;
     }
 
@@ -553,7 +185,7 @@ public class BotConfig {
             this.logDir = blankToDefault(logDir, "LOG");
         }
 
-        private static DataPaths fromConfig(Map<String, Object> root) {
+        public static DataPaths fromConfig(Map<String, Object> root) {
             return fromConfigWithDefaults(root, Map.of());
         }
 
@@ -660,6 +292,10 @@ public class BotConfig {
         return ticket;
     }
 
+    public ShortUrl getShortUrl() {
+        return shortUrl;
+    }
+
     public Web getWeb() {
         return web;
     }
@@ -757,7 +393,7 @@ public class BotConfig {
             private final String path;
 
             private Sqlite(String path) {
-                this.path = (path == null || path.isBlank()) ? "stats/message-stats.db" : path.trim();
+                this.path = (path == null || path.isBlank()) ? "data/message-stats.db" : path.trim();
             }
 
             public static Sqlite fromMap(Map<String, Object> map, Sqlite fallback) {
@@ -766,7 +402,7 @@ public class BotConfig {
             }
 
             public static Sqlite defaultValues() {
-                return new Sqlite("stats/message-stats.db");
+                return new Sqlite("data/message-stats.db");
             }
 
             public String getPath() {
@@ -2339,11 +1975,342 @@ public class BotConfig {
             return result;
         }
     }
-public static class Web {
+
+    public static class ShortUrl {
+        public static final class Bind {
+            private final String host;
+            private final int port;
+
+            private Bind(String host, int port) {
+                this.host = (host == null || host.isBlank()) ? "0.0.0.0" : host.trim();
+                this.port = Math.max(1, port);
+            }
+
+            private static Bind fromMap(Map<String, Object> map, Bind fallback) {
+                Bind defaults = fallback == null ? defaultValues() : fallback;
+                return new Bind(
+                        getString(map, "host", defaults.getHost()),
+                        getInt(map, "port", defaults.getPort())
+                );
+            }
+
+            private static Bind defaultValues() {
+                return new Bind("0.0.0.0", 60001);
+            }
+
+            public String getHost() {
+                return host;
+            }
+
+            public int getPort() {
+                return port;
+            }
+        }
+
+        public static final class Public {
+            private final String baseUrl;
+
+            private Public(String baseUrl) {
+                String normalized = (baseUrl == null || baseUrl.isBlank()) ? "https://s.norule.me" : baseUrl.trim();
+                this.baseUrl = normalized.endsWith("/") ? normalized.substring(0, normalized.length() - 1) : normalized;
+            }
+
+            private static Public fromMap(Map<String, Object> map, Public fallback) {
+                Public defaults = fallback == null ? defaultValues() : fallback;
+                return new Public(getString(map, "baseUrl", defaults.getBaseUrl()));
+            }
+
+            private static Public defaultValues() {
+                return new Public("https://s.norule.me");
+            }
+
+            public String getBaseUrl() {
+                return baseUrl;
+            }
+        }
+
         private final boolean enabled;
-        private final String host;
-        private final int port;
-        private final String baseUrl;
+        private final Bind bind;
+        private final Public publicConfig;
+        private final String storage;
+        private final boolean dedupe;
+        private final int ttlDays;
+        private final int cleanupIntervalMinutes;
+        private final Mysql mysql;
+        private final Sqlite sqlite;
+
+        private ShortUrl(boolean enabled,
+                         Bind bind,
+                         Public publicConfig,
+                         String storage,
+                         boolean dedupe,
+                         int ttlDays,
+                         int cleanupIntervalMinutes,
+                         Mysql mysql,
+                         Sqlite sqlite) {
+            this.enabled = enabled;
+            this.bind = bind == null ? Bind.defaultValues() : bind;
+            this.publicConfig = publicConfig == null ? Public.defaultValues() : publicConfig;
+            this.storage = normalizeStorage(storage);
+            this.dedupe = dedupe;
+            this.ttlDays = Math.max(1, ttlDays);
+            this.cleanupIntervalMinutes = Math.max(1, cleanupIntervalMinutes);
+            this.mysql = mysql == null ? Mysql.defaultValues() : mysql;
+            this.sqlite = sqlite == null ? Sqlite.defaultValues() : sqlite;
+        }
+
+        public static ShortUrl fromMap(Map<String, Object> map, ShortUrl fallback) {
+            ShortUrl defaults = fallback == null ? defaultValues() : fallback;
+            Map<String, Object> bindMap = asMap(map.get("bind"));
+            Map<String, Object> publicMap = asMap(map.get("public"));
+
+            Map<String, Object> effectiveBindMap = new LinkedHashMap<>(bindMap);
+            if (!effectiveBindMap.containsKey("host")) {
+                effectiveBindMap.put("host", getString(map, "host", defaults.getBindHost()));
+            }
+            if (!effectiveBindMap.containsKey("port")) {
+                effectiveBindMap.put("port", getInt(map, "port", defaults.getBindPort()));
+            }
+            Bind bind = Bind.fromMap(effectiveBindMap, defaults.getBind());
+
+            Map<String, Object> effectivePublicMap = new LinkedHashMap<>(publicMap);
+            String publicBaseUrl = getString(effectivePublicMap, "baseUrl", "");
+            if (publicBaseUrl.isBlank()) {
+                publicBaseUrl = getString(map, "baseUrl", "");
+            }
+            if (publicBaseUrl.isBlank()) {
+                String legacyDomain = getString(map, "domain", "");
+                if (!legacyDomain.isBlank()) {
+                    publicBaseUrl = "https://" + legacyDomain.trim().toLowerCase(Locale.ROOT);
+                }
+            }
+            if (publicBaseUrl.isBlank()) {
+                publicBaseUrl = defaults.getPublicBaseUrl();
+            }
+            effectivePublicMap.put("baseUrl", publicBaseUrl);
+            Public publicConfig = Public.fromMap(effectivePublicMap, defaults.getPublic());
+
+            return new ShortUrl(
+                    getBoolean(map, "enabled", defaults.isEnabled()),
+                    bind,
+                    publicConfig,
+                    getString(map, "storage", defaults.getStorage()),
+                    getBoolean(map, "dedupe", defaults.isDedupe()),
+                    getInt(map, "ttlDays", defaults.getTtlDays()),
+                    getInt(map, "cleanupIntervalMinutes", defaults.getCleanupIntervalMinutes()),
+                    Mysql.fromMap(asMap(map.get("mysql")), defaults.getMysql()),
+                    Sqlite.fromMap(asMap(map.get("sqlite")), defaults.getSqlite())
+            );
+        }
+
+        public static ShortUrl defaultValues() {
+            return new ShortUrl(
+                    true,
+                    Bind.defaultValues(),
+                    Public.defaultValues(),
+                    "sqlite",
+                    true,
+                    180,
+                    1440,
+                    Mysql.defaultValues(),
+                    Sqlite.defaultValues()
+            );
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public Bind getBind() {
+            return bind;
+        }
+
+        public Public getPublic() {
+            return publicConfig;
+        }
+
+        public String getBindHost() {
+            return bind.getHost();
+        }
+
+        public int getBindPort() {
+            return bind.getPort();
+        }
+
+        public String getPublicBaseUrl() {
+            return publicConfig.getBaseUrl();
+        }
+
+        @Deprecated
+        public String getHost() {
+            return getBindHost();
+        }
+
+        @Deprecated
+        public int getPort() {
+            return getBindPort();
+        }
+
+        public String getStorage() {
+            return storage;
+        }
+
+        public boolean isDedupe() {
+            return dedupe;
+        }
+
+        public int getTtlDays() {
+            return ttlDays;
+        }
+
+        public int getCleanupIntervalMinutes() {
+            return cleanupIntervalMinutes;
+        }
+
+        public Mysql getMysql() {
+            return mysql;
+        }
+
+        public Sqlite getSqlite() {
+            return sqlite;
+        }
+
+        private static String normalizeStorage(String storage) {
+            return (storage == null || storage.isBlank())
+                    ? "sqlite"
+                    : storage.trim().toLowerCase(Locale.ROOT);
+        }
+
+        public static class Mysql {
+            private final String jdbcUrl;
+            private final String username;
+            private final String password;
+            private final int poolSize;
+
+            private Mysql(String jdbcUrl, String username, String password, int poolSize) {
+                this.jdbcUrl = jdbcUrl;
+                this.username = username;
+                this.password = password;
+                this.poolSize = Math.max(2, poolSize);
+            }
+
+            public static Mysql fromMap(Map<String, Object> map, Mysql fallback) {
+                Mysql defaults = fallback == null ? defaultValues() : fallback;
+                return new Mysql(
+                        getString(map, "jdbcUrl", defaults.getJdbcUrl()),
+                        getString(map, "username", defaults.getUsername()),
+                        getString(map, "password", defaults.getPassword()),
+                        getInt(map, "poolSize", defaults.getPoolSize())
+                );
+            }
+
+            public static Mysql defaultValues() {
+                return new Mysql(
+                        "jdbc:mysql://localhost:3306/discord_bot?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC",
+                        "root",
+                        "",
+                        8
+                );
+            }
+
+            public String getJdbcUrl() {
+                return jdbcUrl;
+            }
+
+            public String getUsername() {
+                return username;
+            }
+
+            public String getPassword() {
+                return password;
+            }
+
+            public int getPoolSize() {
+                return poolSize;
+            }
+        }
+
+        public static class Sqlite {
+            private final String path;
+
+            private Sqlite(String path) {
+                this.path = (path == null || path.isBlank()) ? "data/short-url.db" : path.trim();
+            }
+
+            public static Sqlite fromMap(Map<String, Object> map, Sqlite fallback) {
+                Sqlite defaults = fallback == null ? defaultValues() : fallback;
+                return new Sqlite(getString(map, "path", defaults.getPath()));
+            }
+
+            public static Sqlite defaultValues() {
+                return new Sqlite("data/short-url.db");
+            }
+
+            public String getPath() {
+                return path;
+            }
+        }
+    }
+
+    public static class Web {
+        public static final class Bind {
+            private final String host;
+            private final int port;
+
+            private Bind(String host, int port) {
+                this.host = host == null || host.isBlank() ? "0.0.0.0" : host.trim();
+                this.port = Math.max(1, port);
+            }
+
+            private static Bind fromMap(Map<String, Object> map, Bind fallback) {
+                Bind defaults = fallback == null ? defaultValues() : fallback;
+                return new Bind(
+                        getString(map, "host", defaults.getHost()),
+                        getInt(map, "port", defaults.getPort())
+                );
+            }
+
+            private static Bind defaultValues() {
+                return new Bind("0.0.0.0", 60000);
+            }
+
+            public String getHost() {
+                return host;
+            }
+
+            public int getPort() {
+                return port;
+            }
+        }
+
+        public static final class Public {
+            private final String baseUrl;
+
+            private Public(String baseUrl) {
+                String normalized = baseUrl == null ? "" : baseUrl.trim();
+                if (normalized.endsWith("/")) {
+                    normalized = normalized.substring(0, normalized.length() - 1);
+                }
+                this.baseUrl = normalized;
+            }
+
+            private static Public fromMap(Map<String, Object> map, Public fallback) {
+                Public defaults = fallback == null ? defaultValues() : fallback;
+                return new Public(getString(map, "baseUrl", defaults.getBaseUrl()));
+            }
+
+            private static Public defaultValues() {
+                return new Public("https://dash.example.com");
+            }
+
+            public String getBaseUrl() {
+                return baseUrl;
+            }
+        }
+
+        private final boolean enabled;
+        private final Bind bind;
+        private final Public publicConfig;
         private final int sessionExpireMinutes;
         private final String discordClientId;
         private final String discordClientSecret;
@@ -2351,50 +2318,76 @@ public static class Web {
         private final Ssl ssl;
 
         private Web(boolean enabled,
-                    String host,
-                    int port,
-                    String baseUrl,
+                    Bind bind,
+                    Public publicConfig,
                     int sessionExpireMinutes,
                     String discordClientId,
                     String discordClientSecret,
                     String discordRedirectUri,
                     Ssl ssl) {
             this.enabled = enabled;
-            this.host = host;
-            this.port = Math.max(1, port);
-            this.baseUrl = baseUrl;
+            this.bind = bind == null ? Bind.defaultValues() : bind;
+            this.publicConfig = publicConfig == null ? Public.defaultValues() : publicConfig;
             this.sessionExpireMinutes = Math.max(5, sessionExpireMinutes);
-            this.discordClientId = discordClientId;
-            this.discordClientSecret = discordClientSecret;
-            this.discordRedirectUri = discordRedirectUri;
+            this.discordClientId = discordClientId == null ? "" : discordClientId.trim();
+            this.discordClientSecret = discordClientSecret == null ? "" : discordClientSecret.trim();
+            String redirect = discordRedirectUri == null ? "" : discordRedirectUri.trim();
+            if (redirect.isBlank()) {
+                redirect = defaultRedirectUri(this.publicConfig.getBaseUrl());
+            }
+            this.discordRedirectUri = redirect;
             this.ssl = ssl == null ? Ssl.defaultValues() : ssl;
         }
 
         public static Web fromMap(Map<String, Object> map, Web fallback) {
             Web defaults = fallback == null ? defaultValues() : fallback;
+            Map<String, Object> bindMap = asMap(map.get("bind"));
+            Map<String, Object> publicMap = asMap(map.get("public"));
+
+            Map<String, Object> effectiveBindMap = new LinkedHashMap<>(bindMap);
+            if (!effectiveBindMap.containsKey("host")) {
+                effectiveBindMap.put("host", getString(map, "host", defaults.getBindHost()));
+            }
+            if (!effectiveBindMap.containsKey("port")) {
+                effectiveBindMap.put("port", getInt(map, "port", defaults.getBindPort()));
+            }
+            Bind bind = Bind.fromMap(effectiveBindMap, defaults.getBind());
+
+            Map<String, Object> effectivePublicMap = new LinkedHashMap<>(publicMap);
+            String publicBaseUrl = getString(effectivePublicMap, "baseUrl", "");
+            if (publicBaseUrl.isBlank()) {
+                publicBaseUrl = getString(map, "baseUrl", defaults.getPublicBaseUrl());
+            }
+            effectivePublicMap.put("baseUrl", publicBaseUrl);
+            Public publicConfig = Public.fromMap(effectivePublicMap, defaults.getPublic());
+
+            String redirectUri = getString(map, "discordRedirectUri", defaults.getDiscordRedirectUri());
+            if (redirectUri.isBlank()) {
+                redirectUri = defaultRedirectUri(publicBaseUrl);
+            }
+
             return new Web(
                     getBoolean(map, "enabled", defaults.isEnabled()),
-                    getString(map, "host", defaults.getHost()),
-                    getInt(map, "port", defaults.getPort()),
-                    getString(map, "baseUrl", defaults.getBaseUrl()),
+                    bind,
+                    publicConfig,
                     getInt(map, "sessionExpireMinutes", defaults.getSessionExpireMinutes()),
                     getString(map, "discordClientId", defaults.getDiscordClientId()),
                     getString(map, "discordClientSecret", defaults.getDiscordClientSecret()),
-                    getString(map, "discordRedirectUri", defaults.getDiscordRedirectUri()),
+                    redirectUri,
                     Ssl.fromMap(asMap(map.get("ssl")), defaults.getSsl())
             );
         }
 
         public static Web defaultValues() {
+            Public publicConfig = Public.defaultValues();
             return new Web(
                     false,
-                    "0.0.0.0",
-                    60000,
-                    "http://localhost:60000",
+                    Bind.defaultValues(),
+                    publicConfig,
                     720,
                     "",
                     "",
-                    "http://localhost:60000/auth/callback",
+                    defaultRedirectUri(publicConfig.getBaseUrl()),
                     Ssl.defaultValues()
             );
         }
@@ -2403,16 +2396,39 @@ public static class Web {
             return enabled;
         }
 
+        public Bind getBind() {
+            return bind;
+        }
+
+        public Public getPublic() {
+            return publicConfig;
+        }
+
+        public String getBindHost() {
+            return bind.getHost();
+        }
+
+        public int getBindPort() {
+            return bind.getPort();
+        }
+
+        public String getPublicBaseUrl() {
+            return publicConfig.getBaseUrl();
+        }
+
+        @Deprecated
         public String getHost() {
-            return host;
+            return getBindHost();
         }
 
+        @Deprecated
         public int getPort() {
-            return port;
+            return getBindPort();
         }
 
+        @Deprecated
         public String getBaseUrl() {
-            return baseUrl;
+            return getPublicBaseUrl();
         }
 
         public int getSessionExpireMinutes() {
@@ -2433,6 +2449,17 @@ public static class Web {
 
         public Ssl getSsl() {
             return ssl;
+        }
+
+        private static String defaultRedirectUri(String publicBaseUrl) {
+            if (publicBaseUrl == null || publicBaseUrl.isBlank()) {
+                return "";
+            }
+            String base = publicBaseUrl.trim();
+            if (base.endsWith("/")) {
+                base = base.substring(0, base.length() - 1);
+            }
+            return base + "/auth/callback";
         }
 
         public static class Ssl {

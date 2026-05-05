@@ -1,6 +1,5 @@
 package com.norule.musicbot.discord.bot.app;
 
-import com.norule.musicbot.config.BotConfig;
 
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
@@ -35,7 +34,7 @@ public final class WelcomeCommandHandler {
         }
         String action = event.getOption("action") == null ? null : event.getOption("action").getAsString();
         if (action != null && !action.isBlank()) {
-            BotConfig.Welcome current = owner.settingsService().getWelcome(event.getGuild().getIdLong());
+            var current = owner.settingsService().getWelcome(event.getGuild().getIdLong());
             switch (action) {
                 case "enable" -> {
                     boolean enabled = !current.isEnabled();
@@ -97,8 +96,8 @@ public final class WelcomeCommandHandler {
                     .queue();
             return;
         }
-        BotConfig.Welcome welcome = owner.settingsService().getWelcome(event.getGuild().getIdLong());
-        event.replyModal(buildWelcomeModal(welcome, lang)).queue();
+        var welcome = owner.settingsService().getWelcome(event.getGuild().getIdLong());
+        event.replyModal(buildWelcomeModal(welcome.getTitle(), welcome.getMessage(), lang)).queue();
     }
     public void handleWelcomeModal(ModalInteractionEvent event, String lang) {
         if (!owner.has(event.getMember(), Permission.MANAGE_SERVER)) {
@@ -133,8 +132,8 @@ public final class WelcomeCommandHandler {
         event.replyEmbeds(preview.build()).setEphemeral(true).queue();
     }
 
-    private Modal buildWelcomeModal(BotConfig.Welcome welcome, String lang) {
-        String defaultTitle = welcome.getTitle();
+    private Modal buildWelcomeModal(String currentTitle, String currentMessage, String lang) {
+        String defaultTitle = currentTitle;
         if (defaultTitle == null || defaultTitle.isBlank()) {
             defaultTitle = owner.i18nService().t(lang, "welcome.default_title");
         }
@@ -146,7 +145,7 @@ public final class WelcomeCommandHandler {
             titleInput.setValue(defaultTitle.length() > 100 ? defaultTitle.substring(0, 100) : defaultTitle);
         }
 
-        String defaultBody = welcome.getMessage();
+        String defaultBody = currentMessage;
         TextInput.Builder bodyInput = TextInput.create("message", TextInputStyle.PARAGRAPH)
                 .setPlaceholder(owner.i18nService().t(lang, "welcome.modal_message_placeholder"))
                 .setRequired(true)

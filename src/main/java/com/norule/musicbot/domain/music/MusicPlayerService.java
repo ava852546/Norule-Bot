@@ -118,6 +118,15 @@ public class MusicPlayerService {
         applyGlobalMusicConfig(globalMusicConfig == null ? MusicConfig.defaultValues() : globalMusicConfig);
     }
 
+    public void cleanupTransientCaches(long nowMillis) {
+        long now = nowMillis <= 0L ? System.currentTimeMillis() : nowMillis;
+        spotifyRateLimitGuildCooldownUntil.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= now);
+        spotifyRateLimitUserCooldownUntil.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= now);
+        spotifyPlaylistCooldownByGuild.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= now);
+        youtubePlaylistCache.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue().expiresAtMs <= now);
+        musicDataService.cleanupTransientCaches();
+    }
+
     private void applyGlobalMusicConfig(MusicConfig config) {
         this.youtubeConfig = config.getYoutube();
         this.spotifyConfig = config.getSpotify();

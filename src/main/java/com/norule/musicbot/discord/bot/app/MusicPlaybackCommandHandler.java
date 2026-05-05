@@ -1,6 +1,5 @@
 package com.norule.musicbot.discord.bot.app;
 
-import com.norule.musicbot.config.BotConfig;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -34,6 +33,12 @@ public final class MusicPlaybackCommandHandler {
     public MusicPlaybackCommandHandler(MusicCommandService owner) {
         this.owner = owner;
     }
+
+    void cleanupExpiredRequests(Instant now) {
+        Instant cutoff = now == null ? Instant.now() : now;
+        searchRequests.entrySet().removeIf(entry -> entry.getValue() == null || cutoff.isAfter(entry.getValue().expiresAt));
+    }
+
     public void handleVolumeSlash(SlashCommandInteractionEvent event, String lang) {
         long guildId = event.getGuild().getIdLong();
         OptionMapping volumeOption = event.getOption("value");
@@ -433,7 +438,7 @@ public final class MusicPlaybackCommandHandler {
         if (event.getChannelType() == ChannelType.TEXT) {
             return event.getChannel().getIdLong();
         }
-        BotConfig.Music configuredMusic = owner.settingsService().getMusic(event.getGuild().getIdLong());
+        var configuredMusic = owner.settingsService().getMusic(event.getGuild().getIdLong());
         if (configuredMusic != null && configuredMusic.getCommandChannelId() != null) {
             TextChannel configured = event.getGuild().getTextChannelById(configuredMusic.getCommandChannelId());
             if (configured != null) {
