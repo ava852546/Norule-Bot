@@ -379,7 +379,7 @@ public class ModerationService {
         if (!containsDigit(text)) {
             return new ExpressionEvaluationResult(false, null);
         }
-        // Number chain accepts pure integer or simple binary expression (e.g. 1+1, 1X1).
+        // Number chain accepts pure integer or arithmetic expression (e.g. 1+1, 1-2+3, 1X1).
         if (text.matches("\\d+")) {
             if (text.length() > 18) {
                 return new ExpressionEvaluationResult(true, null);
@@ -399,36 +399,57 @@ public class ModerationService {
             }
         }
         String normalizedOp = text.replace('X', '*').replace('x', '*').replace('?', '*');
-        if (!normalizedOp.matches("\\d+(?:\\.\\d+)?[+\\-*/]\\d+(?:\\.\\d+)?")) {
+        if (!normalizedOp.matches("\\d+(?:\\.\\d+)?(?:[+\\-*/]\\d+(?:\\.\\d+)?)+")) {
             return new ExpressionEvaluationResult(false, null);
         }
-        String[] parts = normalizedOp.split("([+\\-*/])", 2);
-        if (parts.length != 2) {
-            return new ExpressionEvaluationResult(true, null);
-        }
-        char op = normalizedOp.replaceAll("\\d", "").charAt(0);
         try {
-            BigDecimal left = new BigDecimal(parts[0]);
-            BigDecimal right = new BigDecimal(parts[1]);
-            BigDecimal computed;
-            switch (op) {
-                case '+' -> computed = left.add(right);
-                case '-' -> computed = left.subtract(right);
-                case '*' -> computed = left.multiply(right);
-                case '/' -> {
-                    if (right.compareTo(BigDecimal.ZERO) == 0) {
-                        return new ExpressionEvaluationResult(true, null);
-                    }
-                    computed = left.divide(right, 16, RoundingMode.HALF_UP);
-                }
-                default -> {
-                    return new ExpressionEvaluationResult(true, null);
-                }
-            }
-            return new ExpressionEvaluationResult(true, toRoundedLong(computed));
+            return new ExpressionEvaluationResult(true, evaluateFlatExpression(normalizedOp));
         } catch (Exception ignored) {
             return new ExpressionEvaluationResult(true, null);
         }
+    }
+
+    private Long evaluateFlatExpression(String expression) {
+        int firstOpIndex = nextOperatorIndex(expression, 0);
+        if (firstOpIndex <= 0) {
+            return null;
+        }
+        BigDecimal computed = new BigDecimal(expression.substring(0, firstOpIndex));
+        int opIndex = firstOpIndex;
+        while (opIndex >= 0) {
+            char op = expression.charAt(opIndex);
+            int nextOpIndex = nextOperatorIndex(expression, opIndex + 1);
+            String rightToken = nextOpIndex < 0
+                    ? expression.substring(opIndex + 1)
+                    : expression.substring(opIndex + 1, nextOpIndex);
+            BigDecimal right = new BigDecimal(rightToken);
+            switch (op) {
+                case '+' -> computed = computed.add(right);
+                case '-' -> computed = computed.subtract(right);
+                case '*' -> computed = computed.multiply(right);
+                case '/' -> {
+                    if (right.compareTo(BigDecimal.ZERO) == 0) {
+                        return null;
+                    }
+                    computed = computed.divide(right, 16, RoundingMode.HALF_UP);
+                }
+                default -> {
+                    return null;
+                }
+            }
+            opIndex = nextOpIndex;
+        }
+        return toRoundedLong(computed);
+    }
+
+    private int nextOperatorIndex(String expression, int start) {
+        for (int i = Math.max(0, start); i < expression.length(); i++) {
+            char ch = expression.charAt(i);
+            if (ch == '+' || ch == '-' || ch == '*' || ch == '/') {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private Long toRoundedLong(BigDecimal value) {
