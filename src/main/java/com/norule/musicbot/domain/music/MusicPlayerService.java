@@ -63,6 +63,8 @@ public class MusicPlayerService {
     private static final String SPOTIFY_RATE_LIMIT_ERROR_KEY = "SPOTIFY_RATE_LIMITED";
     private static final String SPOTIFY_PLAYLIST_COOLDOWN_ERROR_KEY = "SPOTIFY_PLAYLIST_COOLDOWN";
     private static final String SPOTIFY_PERSONAL_PLAYLIST_ERROR_KEY = "SPOTIFY_PERSONAL_PLAYLIST_UNSUPPORTED";
+    private static final String SPOTIFY_UNSUPPORTED_LINK_ERROR_KEY = "SPOTIFY_UNSUPPORTED_LINK";
+    private static final String SPOTIFY_JAM_UNSUPPORTED_ERROR_KEY = "SPOTIFY_JAM_UNSUPPORTED";
     private static final String STRICT_YOUTUBE_PLAYLIST_PREFIX = "https://www.youtube.com/playlist?list=";
     private static final long YOUTUBE_PLAYLIST_CACHE_TTL_MS = 30 * 60_000L;
     private static final int YOUTUBE_PLAYLIST_BATCH_SIZE = 25;
@@ -89,13 +91,33 @@ public class MusicPlayerService {
             .connectTimeout(Duration.ofSeconds(8))
             .build();
 
-    @SuppressWarnings("deprecation")
     public MusicPlayerService(Path dataDir,
                               LongToIntFunction historyLimitProvider,
                               LongToIntFunction statsRetentionDaysProvider,
                               LongToIntFunction playlistTrackLimitProvider,
                               MusicConfig globalMusicConfig) {
-        this.musicDataService = new MusicDataService(dataDir, historyLimitProvider, statsRetentionDaysProvider, playlistTrackLimitProvider);
+        this(dataDir,
+                historyLimitProvider,
+                statsRetentionDaysProvider,
+                playlistTrackLimitProvider,
+                globalMusicConfig,
+                null);
+    }
+
+    @SuppressWarnings("deprecation")
+    public MusicPlayerService(Path dataDir,
+                              LongToIntFunction historyLimitProvider,
+                              LongToIntFunction statsRetentionDaysProvider,
+                              LongToIntFunction playlistTrackLimitProvider,
+                              MusicConfig globalMusicConfig,
+                              Path sqliteDbPath) {
+        this.musicDataService = new MusicDataService(
+                dataDir,
+                historyLimitProvider,
+                statsRetentionDaysProvider,
+                playlistTrackLimitProvider,
+                sqliteDbPath
+        );
         applyGlobalMusicConfig(globalMusicConfig == null ? MusicConfig.defaultValues() : globalMusicConfig);
         playerManager = new DefaultAudioPlayerManager();
         configureYouTubePoToken();
@@ -631,6 +653,14 @@ public class MusicPlayerService {
             @Override
             public void loadFailed(FriendlyException exception) {
                 logLoadFailureDetails("queue/load", userInput, identifier, exception);
+                if (isSpotifyJamLink(userInput)) {
+                    messageSender.accept("LOAD_FAILED:" + SPOTIFY_JAM_UNSUPPORTED_ERROR_KEY);
+                    return;
+                }
+                if (isSpotifyProfileLink(userInput)) {
+                    messageSender.accept("LOAD_FAILED:" + SPOTIFY_UNSUPPORTED_LINK_ERROR_KEY);
+                    return;
+                }
                 if (isSpotifyPlaylistUrl(userInput) && isSpotifySecretFailure(exception)) {
                     messageSender.accept("LOAD_FAILED:" + SPOTIFY_PERSONAL_PLAYLIST_ERROR_KEY);
                     return;
@@ -642,6 +672,10 @@ public class MusicPlayerService {
                         spotifyRateLimitUserCooldownUntil.put(requesterId, cooldownUntil);
                     }
                     messageSender.accept("LOAD_FAILED:" + SPOTIFY_RATE_LIMIT_ERROR_KEY);
+                    return;
+                }
+                if (looksLikeSpotifyOrShareUrl(userInput) && isUnknownFileFormat(exception)) {
+                    messageSender.accept("LOAD_FAILED:" + SPOTIFY_UNSUPPORTED_LINK_ERROR_KEY);
                     return;
                 }
                 if (allowFallback && looksLikeYouTubeUrl(userInput)) {
@@ -704,6 +738,18 @@ public class MusicPlayerService {
                         || lower.contains("no secret array found")) {
                     return true;
                 }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean isUnknownFileFormat(FriendlyException exception) {
+        Throwable current = exception;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.toLowerCase().contains("unknown file format")) {
+                return true;
             }
             current = current.getCause();
         }
@@ -1661,6 +1707,36 @@ public class MusicPlayerService {
     private boolean looksLikeSpotifyUrl(String text) {
         String lower = text.toLowerCase();
         return lower.contains("open.spotify.com/") || lower.startsWith("spotify:");
+    }
+
+    private boolean looksLikeSpotifyOrShareUrl(String text) {
+        if (text == null) {
+            return false;
+        }
+        String lower = text.toLowerCase();
+        return looksLikeSpotifyUrl(text)
+                || lower.contains("spotify.link/")
+                || lower.contains("spotify.app.link/");
+    }
+
+    private boolean isSpotifyJamLink(String text) {
+        if (text == null) {
+            return false;
+        }
+        String lower = text.toLowerCase();
+        return lower.contains("open.spotify.com/socialsession/")
+                || lower.contains("spotify.link/")
+                || lower.contains("spotify.app.link/");
+    }
+
+    private boolean isSpotifyProfileLink(String text) {
+        if (text == null) {
+            return false;
+        }
+        String lower = text.toLowerCase();
+        return lower.contains("open.spotify.com/account/profile")
+                || lower.contains("open.spotify.com/user/")
+                || lower.contains("open.spotify.com/intl-") && lower.contains("/account/profile");
     }
 
     private boolean looksLikeSpotifyTrackUrl(String text) {

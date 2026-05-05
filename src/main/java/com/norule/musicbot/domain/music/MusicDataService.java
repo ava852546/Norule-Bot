@@ -8,6 +8,12 @@ import java.io.InputStream;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -173,11 +179,20 @@ public class MusicDataService {
     private volatile LongToIntFunction playlistTrackLimitProvider;
     private final Map<Long, GuildMusicData> cache = new ConcurrentHashMap<>();
     private final Map<String, SharedPlaylistData> playlistShares = new ConcurrentHashMap<>();
+    private final SqliteMusicStore sqliteStore;
 
     public MusicDataService(Path dir,
                             LongToIntFunction historyLimitProvider,
                             LongToIntFunction statsRetentionDaysProvider,
                             LongToIntFunction playlistTrackLimitProvider) {
+        this(dir, historyLimitProvider, statsRetentionDaysProvider, playlistTrackLimitProvider, null);
+    }
+
+    public MusicDataService(Path dir,
+                            LongToIntFunction historyLimitProvider,
+                            LongToIntFunction statsRetentionDaysProvider,
+                            LongToIntFunction playlistTrackLimitProvider,
+                            Path sqliteDbPath) {
         this.dir = dir;
         this.historyLimitProvider = historyLimitProvider == null ? ignored -> 100 : historyLimitProvider;
         this.statsRetentionDaysProvider = statsRetentionDaysProvider == null ? ignored -> 30 : statsRetentionDaysProvider;
@@ -186,6 +201,21 @@ public class MusicDataService {
             Files.createDirectories(dir);
         } catch (IOException e) {
             throw new IllegalStateException("Unable to create music data directory: " + dir.toAbsolutePath(), e);
+        }
+        this.sqliteStore = createSqliteStore(sqliteDbPath);
+    }
+
+    private SqliteMusicStore createSqliteStore(Path sqliteDbPath) {
+        if (sqliteDbPath == null) {
+            return null;
+        }
+        try {
+            SqliteMusicStore store = new SqliteMusicStore(sqliteDbPath);
+            System.out.println("[NoRule] Music history/playlist storage: sqlite (" + sqliteDbPath.toAbsolutePath().normalize() + ")");
+            return store;
+        } catch (Exception e) {
+            System.out.println("[NoRule] Music sqlite storage disabled: " + e.getMessage());
+            return null;
         }
     }
 
@@ -704,9 +734,26 @@ public class MusicDataService {
         return cache.computeIfAbsent(guildId, this::loadGuildData);
     }
 
-    @SuppressWarnings("unchecked")
     private GuildMusicData loadGuildData(long guildId) {
-        Path file = file(guildId);
+        GuildMusicData defaults = loadGuildDataFromYaml(file(guildId), guildId);
+        if (sqliteStore == null) {
+            return defaults;
+        }
+        try {
+            SqliteMusicStore.GuildPayload payload = sqliteStore.loadGuildPayload(guildId, getPlaylistTrackLimit(guildId));
+            if (payload != null) {
+                defaults.history = new LinkedList<>(payload.history());
+                defaults.playlists = new LinkedHashMap<>(payload.playlists());
+                trimHistory(guildId, defaults);
+            }
+        } catch (Exception e) {
+            System.out.println("[NoRule] Failed to load music sqlite data for guild " + guildId + ": " + e.getMessage());
+        }
+        return defaults;
+    }
+
+    @SuppressWarnings("unchecked")
+    private GuildMusicData loadGuildDataFromYaml(Path file, long guildId) {
         GuildMusicData defaults = new GuildMusicData();
         if (!Files.exists(file)) {
             return defaults;
@@ -727,17 +774,7 @@ public class MusicDataService {
                         continue;
                     }
                     Map<String, Object> map = (Map<String, Object>) rawItem;
-                    defaults.history.add(new PlaybackEntry(
-                            readLong(map.get("playedAtEpochMillis"), Instant.now().toEpochMilli()),
-                            readText(map.get("title")),
-                            readText(map.get("author")),
-                            readText(map.get("source")),
-                            readText(map.get("uri")),
-                            readText(map.get("artworkUrl")),
-                            readLong(map.get("durationMillis"), 0L),
-                            readNullableLong(map.get("requesterId")),
-                            readText(map.get("requesterName"))
-                    ));
+                    defaults.history.add(parsePlaybackEntryMap(map));
                 }
             }
             trimHistory(guildId, defaults);
@@ -796,42 +833,11 @@ public class MusicDataService {
                         continue;
                     }
                     Map<String, Object> map = (Map<String, Object>) rawItem;
-                    String playlistName = safePlaylistDisplayName(readText(map.get("name")));
-                    String normalized = normalizePlaylistName(playlistName);
-                    if (normalized.isBlank()) {
+                    PlaylistData playlist = parsePlaylistMap(map, getPlaylistTrackLimit(guildId));
+                    if (playlist == null) {
                         continue;
                     }
-                    PlaylistData playlist = new PlaylistData();
-                    playlist.name = playlistName;
-                    playlist.updatedAtEpochMillis = readLong(map.get("updatedAtEpochMillis"), 0L);
-                    playlist.ownerId = readNullableLong(map.get("ownerId"));
-                    playlist.ownerName = safePlaylistOwnerName(readText(map.get("ownerName")));
-                    Object tracksObj = map.get("tracks");
-                    if (tracksObj instanceof List<?> tracksList) {
-                        for (Object trackItem : tracksList) {
-                            if (!(trackItem instanceof Map<?, ?> rawTrack)) {
-                                continue;
-                            }
-                            Map<String, Object> trackMap = (Map<String, Object>) rawTrack;
-                            playlist.tracks.add(new PlaybackEntry(
-                                    readLong(trackMap.get("playedAtEpochMillis"), Instant.now().toEpochMilli()),
-                                    readText(trackMap.get("title")),
-                                    readText(trackMap.get("author")),
-                                    readText(trackMap.get("source")),
-                                    readText(trackMap.get("uri")),
-                                    readText(trackMap.get("artworkUrl")),
-                                    readLong(trackMap.get("durationMillis"), 0L),
-                                    readNullableLong(trackMap.get("requesterId")),
-                                    readText(trackMap.get("requesterName"))
-                            ));
-                            if (playlist.tracks.size() >= getPlaylistTrackLimit(guildId)) {
-                                break;
-                            }
-                        }
-                    }
-                    if (!playlist.tracks.isEmpty()) {
-                        defaults.playlists.put(normalized, playlist);
-                    }
+                    defaults.playlists.put(normalizePlaylistName(playlist.name), playlist);
                 }
             }
         } catch (Exception ignored) {
@@ -839,28 +845,84 @@ public class MusicDataService {
         return defaults;
     }
 
+    private PlaylistData parsePlaylistMap(Map<String, Object> map, int trackLimit) {
+        String playlistName = safePlaylistDisplayName(readText(map.get("name")));
+        String normalized = normalizePlaylistName(playlistName);
+        if (normalized.isBlank()) {
+            return null;
+        }
+        PlaylistData playlist = new PlaylistData();
+        playlist.name = playlistName;
+        playlist.updatedAtEpochMillis = readLong(map.get("updatedAtEpochMillis"), 0L);
+        playlist.ownerId = readNullableLong(map.get("ownerId"));
+        playlist.ownerName = safePlaylistOwnerName(readText(map.get("ownerName")));
+        Object tracksObj = map.get("tracks");
+        if (tracksObj instanceof List<?> tracksList) {
+            for (Object trackItem : tracksList) {
+                if (!(trackItem instanceof Map<?, ?> rawTrack)) {
+                    continue;
+                }
+                @SuppressWarnings("unchecked")
+                Map<String, Object> trackMap = (Map<String, Object>) rawTrack;
+                playlist.tracks.add(parsePlaybackEntryMap(trackMap));
+                if (playlist.tracks.size() >= trackLimit) {
+                    break;
+                }
+            }
+        }
+        return playlist.tracks.isEmpty() ? null : playlist;
+    }
+
+    private PlaybackEntry parsePlaybackEntryMap(Map<String, Object> map) {
+        return new PlaybackEntry(
+                readLong(map.get("playedAtEpochMillis"), Instant.now().toEpochMilli()),
+                readText(map.get("title")),
+                readText(map.get("author")),
+                readText(map.get("source")),
+                readText(map.get("uri")),
+                readText(map.get("artworkUrl")),
+                readLong(map.get("durationMillis"), 0L),
+                readNullableLong(map.get("requesterId")),
+                readText(map.get("requesterName"))
+        );
+    }
+
+    private Map<String, Object> toPlaybackEntryMap(PlaybackEntry entry) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("playedAtEpochMillis", entry.playedAtEpochMillis());
+        map.put("title", entry.title());
+        map.put("author", entry.author());
+        map.put("source", entry.source());
+        map.put("uri", entry.uri());
+        map.put("artworkUrl", entry.artworkUrl());
+        map.put("durationMillis", entry.durationMillis());
+        map.put("requesterId", entry.requesterId() == null ? "" : String.valueOf(entry.requesterId()));
+        map.put("requesterName", entry.requesterName());
+        return map;
+    }
+
     private void save(long guildId, GuildMusicData data) {
+        if (sqliteStore != null) {
+            try {
+                sqliteStore.replaceGuildData(guildId, data.history, data.playlists);
+            } catch (Exception e) {
+                System.out.println("[NoRule] Failed to save music sqlite data for guild " + guildId + ": " + e.getMessage());
+            }
+        }
+
         Path file = file(guildId);
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("guildId", String.valueOf(guildId));
         root.put("volume", clampVolume(data.volume));
         root.put("playbackSpeed", clampPlaybackSpeed(data.playbackSpeed));
 
-        List<Map<String, Object>> history = new ArrayList<>();
-        for (PlaybackEntry entry : data.history) {
-            Map<String, Object> map = new LinkedHashMap<>();
-            map.put("playedAtEpochMillis", entry.playedAtEpochMillis());
-            map.put("title", entry.title());
-            map.put("author", entry.author());
-            map.put("source", entry.source());
-            map.put("uri", entry.uri());
-            map.put("artworkUrl", entry.artworkUrl());
-            map.put("durationMillis", entry.durationMillis());
-            map.put("requesterId", entry.requesterId() == null ? "" : String.valueOf(entry.requesterId()));
-            map.put("requesterName", entry.requesterName());
-            history.add(map);
+        if (sqliteStore == null) {
+            List<Map<String, Object>> history = new ArrayList<>();
+            for (PlaybackEntry entry : data.history) {
+                history.add(toPlaybackEntryMap(entry));
+            }
+            root.put("history", history);
         }
-        root.put("history", history);
 
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("songPlayCounts", data.songPlayCounts);
@@ -880,35 +942,27 @@ public class MusicDataService {
         stats.put("todayPlaybackMillis", data.todayPlaybackMillis);
         root.put("stats", stats);
 
-        List<Map<String, Object>> playlists = new ArrayList<>();
-        for (PlaylistData playlist : data.playlists.values()) {
-            if (playlist == null || playlist.name == null || playlist.name.isBlank()
-                    || playlist.tracks == null || playlist.tracks.isEmpty()) {
-                continue;
+        if (sqliteStore == null) {
+            List<Map<String, Object>> playlists = new ArrayList<>();
+            for (PlaylistData playlist : data.playlists.values()) {
+                if (playlist == null || playlist.name == null || playlist.name.isBlank()
+                        || playlist.tracks == null || playlist.tracks.isEmpty()) {
+                    continue;
+                }
+                Map<String, Object> playlistMap = new LinkedHashMap<>();
+                playlistMap.put("name", playlist.name);
+                playlistMap.put("updatedAtEpochMillis", playlist.updatedAtEpochMillis);
+                playlistMap.put("ownerId", playlist.ownerId == null ? "" : String.valueOf(playlist.ownerId));
+                playlistMap.put("ownerName", safePlaylistOwnerName(playlist.ownerName));
+                List<Map<String, Object>> tracks = new ArrayList<>();
+                for (PlaybackEntry entry : playlist.tracks) {
+                    tracks.add(toPlaybackEntryMap(entry));
+                }
+                playlistMap.put("tracks", tracks);
+                playlists.add(playlistMap);
             }
-            Map<String, Object> playlistMap = new LinkedHashMap<>();
-            playlistMap.put("name", playlist.name);
-            playlistMap.put("updatedAtEpochMillis", playlist.updatedAtEpochMillis);
-            playlistMap.put("ownerId", playlist.ownerId == null ? "" : String.valueOf(playlist.ownerId));
-            playlistMap.put("ownerName", safePlaylistOwnerName(playlist.ownerName));
-            List<Map<String, Object>> tracks = new ArrayList<>();
-            for (PlaybackEntry entry : playlist.tracks) {
-                Map<String, Object> map = new LinkedHashMap<>();
-                map.put("playedAtEpochMillis", entry.playedAtEpochMillis());
-                map.put("title", entry.title());
-                map.put("author", entry.author());
-                map.put("source", entry.source());
-                map.put("uri", entry.uri());
-                map.put("artworkUrl", entry.artworkUrl());
-                map.put("durationMillis", entry.durationMillis());
-                map.put("requesterId", entry.requesterId() == null ? "" : String.valueOf(entry.requesterId()));
-                map.put("requesterName", entry.requesterName());
-                tracks.add(map);
-            }
-            playlistMap.put("tracks", tracks);
-            playlists.add(playlistMap);
+            root.put("playlists", playlists);
         }
-        root.put("playlists", playlists);
 
         DumperOptions options = new DumperOptions();
         options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
@@ -1163,6 +1217,266 @@ public class MusicDataService {
             return trimmed;
         }
         return trimmed.substring(0, 60);
+    }
+
+    private final class SqliteMusicStore {
+        private static final String SQL_CREATE_PLAY_HISTORY = """
+                CREATE TABLE IF NOT EXISTS play_history (
+                    guild_id INTEGER NOT NULL,
+                    history_index INTEGER NOT NULL,
+                    played_at_epoch_millis INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    author TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    uri TEXT NOT NULL,
+                    artwork_url TEXT NOT NULL,
+                    duration_millis INTEGER NOT NULL,
+                    requester_id TEXT NOT NULL,
+                    requester_name TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, history_index)
+                )
+                """;
+        private static final String SQL_CREATE_USER_PLAYLISTS = """
+                CREATE TABLE IF NOT EXISTS user_playlists (
+                    guild_id INTEGER NOT NULL,
+                    normalized_name TEXT NOT NULL,
+                    playlist_name TEXT NOT NULL,
+                    updated_at_epoch_millis INTEGER NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    owner_name TEXT NOT NULL,
+                    tracks_yaml TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, normalized_name)
+                )
+                """;
+        private static final String SQL_CREATE_PLAY_HISTORY_GUILD_INDEX = """
+                CREATE INDEX IF NOT EXISTS idx_play_history_guild
+                ON play_history(guild_id)
+                """;
+        private static final String SQL_CREATE_USER_PLAYLISTS_GUILD_INDEX = """
+                CREATE INDEX IF NOT EXISTS idx_user_playlists_guild
+                ON user_playlists(guild_id)
+                """;
+        private static final String SQL_DELETE_PLAY_HISTORY_BY_GUILD = "DELETE FROM play_history WHERE guild_id = ?";
+        private static final String SQL_DELETE_USER_PLAYLISTS_BY_GUILD = "DELETE FROM user_playlists WHERE guild_id = ?";
+        private static final String SQL_INSERT_PLAY_HISTORY = """
+                INSERT INTO play_history (
+                    guild_id, history_index, played_at_epoch_millis, title, author, source, uri,
+                    artwork_url, duration_millis, requester_id, requester_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """;
+        private static final String SQL_INSERT_USER_PLAYLISTS = """
+                INSERT INTO user_playlists (
+                    guild_id, normalized_name, playlist_name, updated_at_epoch_millis, owner_id, owner_name, tracks_yaml
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """;
+        private static final String SQL_SELECT_PLAY_HISTORY = """
+                SELECT history_index, played_at_epoch_millis, title, author, source, uri,
+                       artwork_url, duration_millis, requester_id, requester_name
+                FROM play_history
+                WHERE guild_id = ?
+                ORDER BY history_index ASC
+                """;
+        private static final String SQL_SELECT_USER_PLAYLISTS = """
+                SELECT normalized_name, playlist_name, updated_at_epoch_millis, owner_id, owner_name, tracks_yaml
+                FROM user_playlists
+                WHERE guild_id = ?
+                ORDER BY normalized_name ASC
+                """;
+
+        private final String jdbcUrl;
+
+        private record GuildPayload(List<PlaybackEntry> history, Map<String, PlaylistData> playlists) {
+        }
+
+        private SqliteMusicStore(Path dbFilePath) {
+            try {
+                Class.forName("org.sqlite.JDBC");
+            } catch (ClassNotFoundException e) {
+                throw new IllegalStateException("SQLite JDBC driver not found (org.sqlite.JDBC)", e);
+            }
+            try {
+                Path parent = dbFilePath.toAbsolutePath().normalize().getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to prepare sqlite directory for music data", e);
+            }
+            this.jdbcUrl = "jdbc:sqlite:" + dbFilePath.toAbsolutePath().normalize();
+            initializeSchema();
+        }
+
+        private void initializeSchema() {
+            try (Connection connection = DriverManager.getConnection(jdbcUrl);
+                 Statement statement = connection.createStatement()) {
+                statement.execute(SQL_CREATE_PLAY_HISTORY);
+                statement.execute(SQL_CREATE_USER_PLAYLISTS);
+                statement.execute(SQL_CREATE_PLAY_HISTORY_GUILD_INDEX);
+                statement.execute(SQL_CREATE_USER_PLAYLISTS_GUILD_INDEX);
+            } catch (SQLException e) {
+                throw new IllegalStateException("Failed to initialize music sqlite schema", e);
+            }
+        }
+
+        private GuildPayload loadGuildPayload(long guildId, int playlistTrackLimit) throws SQLException {
+            List<PlaybackEntry> history = new ArrayList<>();
+            Map<String, PlaylistData> playlists = new LinkedHashMap<>();
+
+            try (Connection connection = DriverManager.getConnection(jdbcUrl)) {
+                try (PreparedStatement historyStmt = connection.prepareStatement(SQL_SELECT_PLAY_HISTORY)) {
+                    historyStmt.setLong(1, guildId);
+                    try (ResultSet rs = historyStmt.executeQuery()) {
+                        while (rs.next()) {
+                            history.add(new PlaybackEntry(
+                                    rs.getLong("played_at_epoch_millis"),
+                                    rs.getString("title"),
+                                    rs.getString("author"),
+                                    rs.getString("source"),
+                                    rs.getString("uri"),
+                                    rs.getString("artwork_url"),
+                                    rs.getLong("duration_millis"),
+                                    readNullableLong(rs.getString("requester_id")),
+                                    rs.getString("requester_name")
+                            ));
+                        }
+                    }
+                }
+
+                try (PreparedStatement playlistStmt = connection.prepareStatement(SQL_SELECT_USER_PLAYLISTS)) {
+                    playlistStmt.setLong(1, guildId);
+                    try (ResultSet rs = playlistStmt.executeQuery()) {
+                        while (rs.next()) {
+                            PlaylistData playlist = new PlaylistData();
+                            playlist.name = safePlaylistDisplayName(rs.getString("playlist_name"));
+                            playlist.updatedAtEpochMillis = rs.getLong("updated_at_epoch_millis");
+                            playlist.ownerId = readNullableLong(rs.getString("owner_id"));
+                            playlist.ownerName = safePlaylistOwnerName(rs.getString("owner_name"));
+                            playlist.tracks = parseTracksYaml(rs.getString("tracks_yaml"), playlistTrackLimit);
+                            if (playlist.tracks.isEmpty()) {
+                                continue;
+                            }
+                            String normalized = normalizePlaylistName(rs.getString("normalized_name"));
+                            if (normalized.isBlank()) {
+                                normalized = normalizePlaylistName(playlist.name);
+                            }
+                            if (normalized.isBlank()) {
+                                continue;
+                            }
+                            playlists.put(normalized, playlist);
+                        }
+                    }
+                }
+            }
+
+            if (history.isEmpty() && playlists.isEmpty()) {
+                return null;
+            }
+            return new GuildPayload(history, playlists);
+        }
+
+        private void replaceGuildData(long guildId, List<PlaybackEntry> history, Map<String, PlaylistData> playlists) throws SQLException {
+            try (Connection connection = DriverManager.getConnection(jdbcUrl)) {
+                connection.setAutoCommit(false);
+                try {
+                    try (PreparedStatement deleteHistory = connection.prepareStatement(SQL_DELETE_PLAY_HISTORY_BY_GUILD);
+                         PreparedStatement deletePlaylists = connection.prepareStatement(SQL_DELETE_USER_PLAYLISTS_BY_GUILD)) {
+                        deleteHistory.setLong(1, guildId);
+                        deleteHistory.executeUpdate();
+                        deletePlaylists.setLong(1, guildId);
+                        deletePlaylists.executeUpdate();
+                    }
+
+                    try (PreparedStatement insertHistory = connection.prepareStatement(SQL_INSERT_PLAY_HISTORY)) {
+                        int index = 0;
+                        for (PlaybackEntry entry : history) {
+                            if (entry == null) {
+                                continue;
+                            }
+                            insertHistory.setLong(1, guildId);
+                            insertHistory.setInt(2, index++);
+                            insertHistory.setLong(3, entry.playedAtEpochMillis());
+                            insertHistory.setString(4, readText(entry.title()));
+                            insertHistory.setString(5, readText(entry.author()));
+                            insertHistory.setString(6, readText(entry.source()));
+                            insertHistory.setString(7, readText(entry.uri()));
+                            insertHistory.setString(8, readText(entry.artworkUrl()));
+                            insertHistory.setLong(9, Math.max(0L, entry.durationMillis()));
+                            insertHistory.setString(10, entry.requesterId() == null ? "" : String.valueOf(entry.requesterId()));
+                            insertHistory.setString(11, readText(entry.requesterName()));
+                            insertHistory.addBatch();
+                        }
+                        insertHistory.executeBatch();
+                    }
+
+                    try (PreparedStatement insertPlaylists = connection.prepareStatement(SQL_INSERT_USER_PLAYLISTS)) {
+                        for (Map.Entry<String, PlaylistData> entry : playlists.entrySet()) {
+                            String normalized = normalizePlaylistName(entry.getKey());
+                            PlaylistData playlist = entry.getValue();
+                            if (normalized.isBlank() || playlist == null || playlist.tracks == null || playlist.tracks.isEmpty()) {
+                                continue;
+                            }
+                            insertPlaylists.setLong(1, guildId);
+                            insertPlaylists.setString(2, normalized);
+                            insertPlaylists.setString(3, safePlaylistDisplayName(playlist.name));
+                            insertPlaylists.setLong(4, Math.max(0L, playlist.updatedAtEpochMillis));
+                            insertPlaylists.setString(5, playlist.ownerId == null ? "" : String.valueOf(playlist.ownerId));
+                            insertPlaylists.setString(6, safePlaylistOwnerName(playlist.ownerName));
+                            insertPlaylists.setString(7, buildTracksYaml(playlist.tracks));
+                            insertPlaylists.addBatch();
+                        }
+                        insertPlaylists.executeBatch();
+                    }
+                    connection.commit();
+                } catch (Exception ex) {
+                    connection.rollback();
+                    throw ex;
+                } finally {
+                    connection.setAutoCommit(true);
+                }
+            }
+        }
+
+        private String buildTracksYaml(List<PlaybackEntry> tracks) {
+            List<Map<String, Object>> rows = new ArrayList<>();
+            for (PlaybackEntry track : tracks) {
+                if (track == null) {
+                    continue;
+                }
+                rows.add(toPlaybackEntryMap(track));
+            }
+            DumperOptions options = new DumperOptions();
+            options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+            options.setPrettyFlow(true);
+            options.setIndent(2);
+            return new Yaml(options).dump(rows);
+        }
+
+        @SuppressWarnings("unchecked")
+        private List<PlaybackEntry> parseTracksYaml(String raw, int playlistTrackLimit) {
+            if (raw == null || raw.isBlank()) {
+                return List.of();
+            }
+            List<PlaybackEntry> tracks = new ArrayList<>();
+            try {
+                Object loaded = new Yaml().load(raw);
+                if (!(loaded instanceof List<?> list)) {
+                    return List.of();
+                }
+                for (Object item : list) {
+                    if (!(item instanceof Map<?, ?> rawMap)) {
+                        continue;
+                    }
+                    Map<String, Object> map = (Map<String, Object>) rawMap;
+                    tracks.add(parsePlaybackEntryMap(map));
+                    if (tracks.size() >= Math.max(1, playlistTrackLimit)) {
+                        break;
+                    }
+                }
+            } catch (Exception ignored) {
+                return List.of();
+            }
+            return tracks;
+        }
     }
 }
 

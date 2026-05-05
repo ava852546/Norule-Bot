@@ -102,6 +102,10 @@ public final class RuntimeBootstrap {
         Path ticketDataPath = resolveDataPath(baseDir, config.getTicketDataDir());
         Path ticketTranscriptPath = resolveDataPath(baseDir, config.getTicketTranscriptDir());
         Path honeypotDataPath = resolveDataPath(baseDir, config.getHoneypotDataDir());
+        StatsConfig statsConfig = new StatsConfig(config.getStats());
+        Path musicSqlitePath = "sqlite".equalsIgnoreCase(statsConfig.getStorage())
+                ? resolveDataPath(baseDir, statsConfig.getSqlite().getPath())
+                : null;
 
         GuildSettingsService guildSettingsService =
                 new GuildSettingsService(guildSettingsPath, config);
@@ -112,7 +116,8 @@ public final class RuntimeBootstrap {
                 guildConfigAdapter::getMusicHistoryLimit,
                 guildConfigAdapter::getMusicStatsRetentionDays,
                 guildConfigAdapter::getMusicPlaylistTrackLimit,
-                globalMusicConfig
+                globalMusicConfig,
+                musicSqlitePath
         );
         ModerationService moderationService = new ModerationService(resolveDataPath(baseDir, config.getModerationDataDir()));
         HoneypotService honeypotService = new HoneypotService(honeypotDataPath);
@@ -120,7 +125,6 @@ public final class RuntimeBootstrap {
         ShortUrlService shortUrlService = createShortUrlService(config, baseDir);
         TICKET_SERVICE.set(ticketService);
         SHORT_URL_SERVICE.set(shortUrlService);
-        StatsConfig statsConfig = new StatsConfig(config.getStats());
         MessageStatsListener messageStatsListener = createMessageStatsListener(statsConfig, config, baseDir);
         MessageLogCacheRepository messageLogCacheRepository = createMessageLogCacheRepository(statsConfig, baseDir);
         DuplicateMessageCacheRepository duplicateMessageCacheRepository = createDuplicateMessageCacheRepository(statsConfig, baseDir);

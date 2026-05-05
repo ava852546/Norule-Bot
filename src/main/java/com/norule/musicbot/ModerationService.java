@@ -481,16 +481,20 @@ public class ModerationService {
     }
 
     private String normalizeExpressionSource(String raw) {
+        if (raw == null) {
+            return null;
+        }
         String normalized = raw.trim()
-                .replaceAll("https?://\\S+", " ")
-                .replaceAll("<@!?\\d+>", " ")
-                .replaceAll("<@&\\d+>", " ")
-                .replaceAll("<#\\d+>", " ")
-                .replaceAll("</[^:>]+:\\d+>", " ")
-                .replaceAll("<a?:[^:>]+:\\d+>", " ")
-                .replaceAll("<t:\\d+(?::[tTdDfFR])?>", " ")
                 .replace('\u00A0', ' ')
                 .replace('\\', '/');
+        if (normalized.isBlank()) {
+            return null;
+        }
+        // Number chain only accepts pure numeric input or arithmetic expressions.
+        // Any extra text (including mentions, links, emoji text, etc.) is ignored.
+        if (!normalized.matches("[0-9.\\s+\\-*/xX?]+")) {
+            return null;
+        }
         normalized = normalized.replaceAll("(?<=\\d)\\s*[xX]\\s*(?=\\d)", "*");
         return normalized;
     }

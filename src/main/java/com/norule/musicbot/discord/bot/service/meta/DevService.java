@@ -149,7 +149,7 @@ public final class DevService {
                 .addField("Guilds", "`" + guildCount + "`", true)
                 .addField("Members", "`" + totalMembers + "`", true)
                 .addField("Playing Guilds", "`" + activePlaybackGuildCountSupplier.getAsInt() + "`", true)
-                .addField("Memory", "`RSS " + memory.rssUsedMb + " MB / Limit " + memory.limitLabel() + " (" + memory.source + ")`", false)
+                .addField("Memory", "`RSS " + memory.rssUsedMb + " MB / Limit " + memory.limitLabel() + "`", false)
                 .addField("Heap", "`" + memory.heapUsedMb + " / " + memory.heapMaxMb + " MB`", true)
                 .addField("CPU", "`" + developerCpuInfo() + "`", false);
     }
@@ -177,16 +177,14 @@ public final class DevService {
                     bytesToMb(rssBytes),
                     bytesToMb(cgroupLimitBytes),
                     bytesToMb(heapUsedBytes),
-                    bytesToMb(heapMaxBytes),
-                    processRssBytes != null ? "rss+cgroup" : "cgroup"
+                    bytesToMb(heapMaxBytes)
             );
         }
         return new MemoryView(
                 bytesToMb(rssBytes),
                 -1L,
                 bytesToMb(heapUsedBytes),
-                bytesToMb(heapMaxBytes),
-                processRssBytes != null ? "rss" : "heap"
+                bytesToMb(heapMaxBytes)
         );
     }
 
@@ -250,14 +248,12 @@ public final class DevService {
         private final long limitMb;
         private final long heapUsedMb;
         private final long heapMaxMb;
-        private final String source;
 
-        private MemoryView(long rssUsedMb, long limitMb, long heapUsedMb, long heapMaxMb, String source) {
+        private MemoryView(long rssUsedMb, long limitMb, long heapUsedMb, long heapMaxMb) {
             this.rssUsedMb = rssUsedMb;
             this.limitMb = limitMb;
             this.heapUsedMb = heapUsedMb;
             this.heapMaxMb = heapMaxMb;
-            this.source = source;
         }
 
         private String limitLabel() {

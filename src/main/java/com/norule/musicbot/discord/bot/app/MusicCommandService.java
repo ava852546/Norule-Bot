@@ -4202,7 +4202,35 @@ public class MusicCommandService extends ListenerAdapter {
                 || "SPOTIFY_PLAYLIST_COOLDOWN".equalsIgnoreCase(rawError)) {
             return i18n.t(lang, "music.spotify_rate_limited");
         }
-        if ("SPOTIFY_PERSONAL_PLAYLIST_UNSUPPORTED".equalsIgnoreCase(rawError)) {            boolean zhCn = lang != null && lang.startsWith("zh-CN");            boolean zh = lang != null && lang.startsWith("zh");            if (zhCn) {                return "This Spotify playlist cannot be resolved right now. Please use a public playlist you created, or use a track link.";            }            if (zh) {                return "This Spotify playlist cannot be resolved right now. Please use a public playlist you created, or use a track link.";            }            return "This Spotify playlist cannot be resolved right now. Use a public playlist you created, or use a track link.";        }
+        boolean zhCn = lang != null && lang.startsWith("zh-CN");
+        boolean zh = lang != null && lang.startsWith("zh");
+        if ("SPOTIFY_PERSONAL_PLAYLIST_UNSUPPORTED".equalsIgnoreCase(rawError)) {
+            if (zhCn) {
+                return "这个 Spotify 歌单暂时无法解析。请改用你自己建立且公开的歌单，或直接贴歌曲链接。";
+            }
+            if (zh) {
+                return "這個 Spotify 播放清單目前無法解析。請改用你自己建立且公開的清單，或直接貼歌曲連結。";
+            }
+            return "This Spotify playlist cannot be resolved right now. Use a public playlist you created, or use a track link.";
+        }
+        if ("SPOTIFY_JAM_UNSUPPORTED".equalsIgnoreCase(rawError)) {
+            if (zhCn) {
+                return "不支持 Spotify Jam / 分享短链接。请改贴 Spotify 歌曲、专辑或歌单的正式链接。";
+            }
+            if (zh) {
+                return "不支援 Spotify Jam / 分享短連結。請改貼 Spotify 歌曲、專輯或播放清單的正式連結。";
+            }
+            return "Spotify Jam/share short links are not supported. Please use a regular Spotify track/album/playlist link.";
+        }
+        if ("SPOTIFY_UNSUPPORTED_LINK".equalsIgnoreCase(rawError)) {
+            if (zhCn) {
+                return "这个 Spotify 链接类型不支持（例如个人主页）。请改贴歌曲、专辑或歌单链接。";
+            }
+            if (zh) {
+                return "這種 Spotify 連結類型不支援（例如個人頁面）。請改貼歌曲、專輯或播放清單連結。";
+            }
+            return "This Spotify link type is not supported (for example, profile pages). Please use a track, album, or playlist link.";
+        }
         return i18n.t(lang, YoutubePlaybackErrorMapper.toMessageKey(rawError));
     }
 
