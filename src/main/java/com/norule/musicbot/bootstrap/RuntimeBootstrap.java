@@ -3,6 +3,7 @@ package com.norule.musicbot.bootstrap;
 import com.norule.musicbot.config.*;
 import com.norule.musicbot.config.domain.GuildDomainConfigAdapter;
 import com.norule.musicbot.config.domain.MusicConfig;
+import com.norule.musicbot.config.domain.MinecraftStatusConfig;
 import com.norule.musicbot.config.domain.RuntimeConfigSnapshot;
 import com.norule.musicbot.config.domain.ShortUrlConfig;
 import com.norule.musicbot.config.domain.StatsConfig;
@@ -10,6 +11,12 @@ import com.norule.musicbot.config.loader.ConfigLoader;
 import com.norule.musicbot.domain.music.*;
 import com.norule.musicbot.i18n.*;
 import com.norule.musicbot.discord.bot.app.*;
+import com.norule.musicbot.discord.bot.gateway.WordChainMessageListener;
+import com.norule.musicbot.discord.bot.gateway.wordchain.DictionaryApiHttpGateway;
+import com.norule.musicbot.discord.bot.ops.wordchain.WordChainOps;
+import com.norule.musicbot.discord.bot.service.wordchain.DictionaryApiService;
+import com.norule.musicbot.discord.bot.service.wordchain.WordChainService;
+import com.norule.musicbot.discord.bot.service.wordchain.WordChainStateRepository;
 import com.norule.musicbot.discord.gateway.InMemorySignals;
 import com.norule.musicbot.discord.gateway.Signals;
 import com.norule.musicbot.discord.gateway.signals.TicketClosedSignal;
@@ -119,7 +126,13 @@ public final class RuntimeBootstrap {
                 globalMusicConfig,
                 musicSqlitePath
         );
-        ModerationService moderationService = new ModerationService(resolveDataPath(baseDir, config.getModerationDataDir()));
+        Path moderationDataPath = resolveDataPath(baseDir, config.getModerationDataDir());
+        ModerationService moderationService = new ModerationService(moderationDataPath);
+        WordChainService wordChainService = new WordChainService(
+                new WordChainStateRepository(moderationDataPath.resolve("wordchain")),
+                new DictionaryApiService(new DictionaryApiHttpGateway())
+        );
+        WordChainOps wordChainOps = new WordChainOps(wordChainService);
         HoneypotService honeypotService = new HoneypotService(honeypotDataPath);
         TicketService ticketService = new TicketService(ticketDataPath, ticketTranscriptPath);
         ShortUrlService shortUrlService = createShortUrlService(config, baseDir);
@@ -151,7 +164,8 @@ public final class RuntimeBootstrap {
                 signals,
                 shortUrlService,
                 ticketService,
-                messageStatsListener == null ? null : messageStatsListener.service()
+                messageStatsListener == null ? null : messageStatsListener.service(),
+                wordChainOps
         );
 
         AudioModuleConfig audioConfig = new AudioModuleConfig()
@@ -184,6 +198,7 @@ public final class RuntimeBootstrap {
                                     RuntimeConfigSnapshot snapshot = RUNTIME_SNAPSHOT.get();
                                     return snapshot == null ? 500L : snapshot.getNumberChainReactionDelayMillis();
                                 }),
+                        new WordChainMessageListener(wordChainOps),
                         new VoiceAutoLeaveListener(guildSettingsService, playerService, i18nService),
                         new PrivateRoomListener(guildSettingsService, i18nService, privateRoomCacheRepository)
                 );
@@ -538,6 +553,12 @@ public final class RuntimeBootstrap {
                                         ssl.getKeyPassword()
                                 )
                         );
+                    },
+                    () -> {
+                        BotConfig cfg = RUNTIME_CONFIG.get();
+                        return cfg == null
+                                ? new MinecraftStatusConfig("NoRuleBot/1.0 contact: admin@norule.me", 15_000, 60)
+                                : new MinecraftStatusConfig(cfg.getMinecraftStatus());
                     },
                     () -> {
                         BotConfig cfg = RUNTIME_CONFIG.get();

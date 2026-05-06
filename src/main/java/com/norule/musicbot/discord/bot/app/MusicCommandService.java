@@ -1,15 +1,19 @@
 package com.norule.musicbot.discord.bot.app;
 
 import com.norule.musicbot.config.*;
+import com.norule.musicbot.config.domain.MinecraftStatusConfig;
 import com.norule.musicbot.config.domain.GuildDomainConfigAdapter;
 import com.norule.musicbot.config.domain.RuntimeConfigSnapshot;
 import com.norule.musicbot.discord.bot.app.stats.MessageStatsEventService;
 import com.norule.musicbot.domain.music.*;
 import com.norule.musicbot.i18n.*;
+import com.norule.musicbot.gateway.minecraft.McSrvStatGateway;
 
 import com.norule.musicbot.*;
 import com.norule.musicbot.discord.bot.infra.CommandRegistrar;
+import com.norule.musicbot.ops.minecraft.MinecraftStatusOps;
 import com.norule.musicbot.discord.bot.ops.ticket.TicketOps;
+import com.norule.musicbot.discord.bot.ops.wordchain.WordChainOps;
 
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -97,6 +101,7 @@ public class MusicCommandService extends ListenerAdapter {
     static final String CMD_ANTI_DUPLICATE_ZH = "\u9632\u6d17\u983b";
     static final String CMD_HONEYPOT_ZH = "\u5bc6\u7f50\u983b\u9053";
     static final String CMD_NUMBER_CHAIN_ZH = "\u6578\u5b57\u63a5\u9f8d";
+    static final String CMD_WORD_CHAIN_ZH = "\u82f1\u6587\u63a5\u9f8d";
     static final String CMD_TICKET_ZH = "\u5ba2\u670d\u55ae";
     static final String CMD_USER_INFO_ZH = "\u4f7f\u7528\u8005\u8cc7\u8a0a";
     static final String CMD_ROLE_INFO_ZH = "\u8eab\u5206\u7d44\u8cc7\u8a0a";
@@ -104,6 +109,7 @@ public class MusicCommandService extends ListenerAdapter {
     static final String CMD_STATS_ZH = "\u7d71\u8a08";
     static final String CMD_LEADERBOARD_ZH = "\u6392\u884c\u699c";
     static final String CMD_SHORT_URL_ZH = "\u77ed\u7db2\u5740";
+    static final String CMD_MINECRAFT_STATUS_ZH = "mc\u72c0\u614b";
     static final String SUB_SETTINGS_INFO_ZH = "\u8a73\u7d30\u8cc7\u8a0a";
     static final String SUB_SETTINGS_RELOAD_ZH = "\u91cd\u8f09\u8a2d\u5b9a";
     static final String SUB_SETTINGS_RESET_ZH = "\u6062\u5fa9\u9810\u8a2d";
@@ -207,6 +213,7 @@ public class MusicCommandService extends ListenerAdapter {
     private final HoneypotCommandHandler honeypotCommandHandler;
     private final InfoCommandHandler infoCommandHandler;
     private final UrlCommandHandler urlCommandHandler;
+    private final MinecraftStatusCommandHandler minecraftStatusCommandHandler;
     private final InteractionRouter interactionRouter;
     private final TicketOps ticketOps;
     private final MessageStatsEventService statsEventService;
@@ -230,7 +237,8 @@ public class MusicCommandService extends ListenerAdapter {
                                HoneypotService honeypotService,
                                ShortUrlService shortUrlService,
                                com.norule.musicbot.TicketService ticketService,
-                               MessageStatsEventService statsEventService) {
+                               MessageStatsEventService statsEventService,
+                               WordChainOps wordChainOps) {
         this.musicService = musicService;
         this.moderationService = moderationService;
         this.honeypotService = honeypotService;
@@ -255,10 +263,17 @@ public class MusicCommandService extends ListenerAdapter {
         this.honeypotCommandHandler = new HoneypotCommandHandler(this);
         this.infoCommandHandler = new InfoCommandHandler(this);
         this.urlCommandHandler = new UrlCommandHandler(this);
+        MinecraftStatusOps minecraftStatusOps = new MinecraftStatusOps(
+                new com.norule.musicbot.service.minecraft.MinecraftStatusService(
+                        new McSrvStatGateway(),
+                        () -> new MinecraftStatusConfig(this.runtimeConfig.getMinecraftStatus())
+                )
+        );
+        this.minecraftStatusCommandHandler = new MinecraftStatusCommandHandler(this, minecraftStatusOps);
         this.statsEventService = statsEventService;
         this.ticketConfigAdapter = new GuildDomainConfigAdapter(settingsService, runtimeConfig.getDefaultMusic());
         this.ticketOps = new TicketOps(new com.norule.musicbot.discord.bot.ops.ticket.TicketService(ticketConfigAdapter, ticketService, i18n));
-        this.interactionRouter = new InteractionRouter(this);
+        this.interactionRouter = new InteractionRouter(this, wordChainOps);
         this.scheduler.scheduleAtFixedRate(this::refreshAllPanelsSafely, 5, PANEL_PERIODIC_REFRESH_MS / 1000L, TimeUnit.SECONDS);
         this.scheduler.scheduleAtFixedRate(this::cleanupTransientStateSafely, 1, 1, TimeUnit.MINUTES);
     }
@@ -404,6 +419,9 @@ public class MusicCommandService extends ListenerAdapter {
     }
     public UrlCommandHandler urlCommandHandler() {
         return urlCommandHandler;
+    }
+    public MinecraftStatusCommandHandler minecraftStatusCommandHandler() {
+        return minecraftStatusCommandHandler;
     }
     public ShortUrlService shortUrlService() {
         return shortUrlService;
@@ -636,13 +654,19 @@ public class MusicCommandService extends ListenerAdapter {
             default -> option;
         };
     }
-    public void openTemplateMenu(SlashCommandInteractionEvent event, String lang) {
+
+    private String registerMenuRequest(Map<String, MenuRequest> requests, long requestUserId, long guildId) {
         String token = UUID.randomUUID().toString().replace("-", "");
-        templateMenuRequests.put(token, new MenuRequest(
-                event.getUser().getIdLong(),
-                event.getGuild().getIdLong(),
+        requests.put(token, new MenuRequest(
+                requestUserId,
+                guildId,
                 Instant.now().plusSeconds(120)
         ));
+        return token;
+    }
+
+    public void openTemplateMenu(SlashCommandInteractionEvent event, String lang) {
+        String token = registerMenuRequest(templateMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.replyEmbeds(new EmbedBuilder()
                         .setColor(new Color(46, 204, 113))
                         .setTitle(i18n.t(lang, "settings.template_menu_title"))
@@ -652,6 +676,19 @@ public class MusicCommandService extends ListenerAdapter {
                         .build())
                 .addComponents(ActionRow.of(settingsTemplateMenu(token, lang)))
                 .setEphemeral(true)
+                .queue();
+    }
+
+    public void openTemplateMenu(StringSelectInteractionEvent event, String lang) {
+        String token = registerMenuRequest(templateMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
+        event.editMessageEmbeds(new EmbedBuilder()
+                        .setColor(new Color(46, 204, 113))
+                        .setTitle(i18n.t(lang, "settings.template_menu_title"))
+                        .setDescription(i18n.t(lang, "settings.template_menu_desc")
+                                + "\n\n"
+                                + i18n.t(lang, "settings.template_member_placeholders_guide"))
+                        .build())
+                .setComponents(ActionRow.of(settingsTemplateMenu(token, lang)))
                 .queue();
     }
 
@@ -706,15 +743,17 @@ public class MusicCommandService extends ListenerAdapter {
         }
     }
     public void openModuleMenu(SlashCommandInteractionEvent event, String lang) {
-        String token = UUID.randomUUID().toString().replace("-", "");
-        moduleMenuRequests.put(token, new MenuRequest(
-                event.getUser().getIdLong(),
-                event.getGuild().getIdLong(),
-                Instant.now().plusSeconds(120)
-        ));
+        String token = registerMenuRequest(moduleMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.replyEmbeds(moduleMenuEmbed(event.getGuild(), lang, null).build())
                 .addComponents(ActionRow.of(settingsModuleMenu(token, event.getGuild().getIdLong(), lang)))
                 .setEphemeral(true)
+                .queue();
+    }
+
+    public void openModuleMenu(StringSelectInteractionEvent event, String lang) {
+        String token = registerMenuRequest(moduleMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
+        event.editMessageEmbeds(moduleMenuEmbed(event.getGuild(), lang, null).build())
+                .setComponents(ActionRow.of(settingsModuleMenu(token, event.getGuild().getIdLong(), lang)))
                 .queue();
     }
 
@@ -924,12 +963,7 @@ public class MusicCommandService extends ListenerAdapter {
         }
     }
     public void openLogsMenu(SlashCommandInteractionEvent event, String lang) {
-        String token = UUID.randomUUID().toString().replace("-", "");
-        logsMenuRequests.put(token, new MenuRequest(
-                event.getUser().getIdLong(),
-                event.getGuild().getIdLong(),
-                Instant.now().plusSeconds(120)
-        ));
+        String token = registerMenuRequest(logsMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.replyEmbeds(new EmbedBuilder()
                         .setColor(new Color(241, 196, 15))
                         .setTitle(i18n.t(lang, "settings.logs_menu_title"))
@@ -937,6 +971,17 @@ public class MusicCommandService extends ListenerAdapter {
                         .build())
                 .addComponents(ActionRow.of(settingsLogsMenu(token, event.getGuild().getIdLong(), lang)))
                 .setEphemeral(true)
+                .queue();
+    }
+
+    public void openLogsMenu(StringSelectInteractionEvent event, String lang) {
+        String token = registerMenuRequest(logsMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
+        event.editMessageEmbeds(new EmbedBuilder()
+                        .setColor(new Color(241, 196, 15))
+                        .setTitle(i18n.t(lang, "settings.logs_menu_title"))
+                        .setDescription(i18n.t(lang, "settings.logs_menu_desc"))
+                        .build())
+                .setComponents(ActionRow.of(settingsLogsMenu(token, event.getGuild().getIdLong(), lang)))
                 .queue();
     }
 
@@ -1261,15 +1306,17 @@ public class MusicCommandService extends ListenerAdapter {
         };
     }
     public void openMusicMenu(SlashCommandInteractionEvent event, String lang) {
-        String token = UUID.randomUUID().toString().replace("-", "");
-        musicMenuRequests.put(token, new MenuRequest(
-                event.getUser().getIdLong(),
-                event.getGuild().getIdLong(),
-                Instant.now().plusSeconds(120)
-        ));
+        String token = registerMenuRequest(musicMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.replyEmbeds(musicMenuEmbed(event.getGuild(), lang, null).build())
                 .addComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)))
                 .setEphemeral(true)
+                .queue();
+    }
+
+    public void openMusicMenu(StringSelectInteractionEvent event, String lang) {
+        String token = registerMenuRequest(musicMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
+        event.editMessageEmbeds(musicMenuEmbed(event.getGuild(), lang, null).build())
+                .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)))
                 .queue();
     }
 
@@ -3067,6 +3114,8 @@ public class MusicCommandService extends ListenerAdapter {
                         new OptionData(OptionType.STRING, "url", "目標網址（http/https）", true),
                         new OptionData(OptionType.STRING, "slug", "自訂代碼（選填），例如 discord", false)
                 ));
+        commands.add(buildMinecraftStatusCommand("mcstatus"));
+        commands.add(buildMinecraftStatusCommand(CMD_MINECRAFT_STATUS_ZH));
         commands.add(Commands.slash("welcome", "Edit member join welcome message")
                 .addOptions(
                         buildWelcomeActionOption(false),
@@ -3165,6 +3214,8 @@ public class MusicCommandService extends ListenerAdapter {
         commands.add(buildHoneypotCommand(CMD_HONEYPOT_ZH));
         commands.add(buildNumberChainCommand("number-chain"));
         commands.add(buildNumberChainCommand(CMD_NUMBER_CHAIN_ZH));
+        commands.add(buildWordChainCommand("wordchain", false));
+        commands.add(buildWordChainCommand(CMD_WORD_CHAIN_ZH, true));
         commands.add(buildTicketCommand("ticket"));
         commands.add(buildTicketCommand(CMD_TICKET_ZH));
         commands.add(buildUserInfoCommand("user-info"));
@@ -3196,6 +3247,25 @@ public class MusicCommandService extends ListenerAdapter {
         return Commands.slash(commandName, zh ? "\u6578\u5b57\u63a5\u9f8d\u8a2d\u5b9a" : "Number chain settings")
                 .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_SERVER))
                 .addOptions(buildNumberChainActionOption(zh), channel, reset);
+    }
+
+    private SlashCommandData buildWordChainCommand(String commandName, boolean zh) {
+        OptionData setChannelOption = new OptionData(OptionType.CHANNEL, "channel",
+                zh ? "\u55ae\u5b57\u63a5\u9f8d\u983b\u9053" : "Word chain text channel", true)
+                .setChannelTypes(ChannelType.TEXT);
+        SubcommandData setChannel = new SubcommandData("set-channel", zh ? "\u8a2d\u5b9a\u63a5\u9f8d\u983b\u9053" : "Set word chain channel")
+                .addOptions(setChannelOption);
+        SubcommandData disable = new SubcommandData("disable", zh ? "\u95dc\u9589\u55ae\u5b57\u63a5\u9f8d" : "Disable word chain");
+        SubcommandData reset = new SubcommandData("reset", zh ? "\u91cd\u7f6e\u7576\u524d\u9032\u5ea6" : "Reset current word chain progress");
+        SubcommandData status = new SubcommandData("status", zh ? "\u986f\u793a\u63a5\u9f8d\u72c0\u614b" : "Show current word chain status");
+        SubcommandData rules = new SubcommandData("rules", zh ? "\u986f\u793a\u898f\u5247" : "Show word chain rules");
+        SubcommandData stats = new SubcommandData("stats", zh ? "\u986f\u793a\u7d71\u8a08" : "Show stats")
+                .addOptions(new OptionData(OptionType.USER, "user", zh ? "\u76ee\u6a19\u4f7f\u7528\u8005" : "Target user", false));
+        SubcommandData leaderboard = new SubcommandData("leaderboard", zh ? "\u986f\u793a\u6392\u884c\u699c" : "Show leaderboard")
+                .addOptions(new OptionData(OptionType.INTEGER, "limit", zh ? "\u540d\u6b21\u6578\u91cf(1-20)" : "Ranking size (1-20)", false));
+        return Commands.slash(commandName, zh ? "\u82f1\u6587\u55ae\u5b57\u63a5\u9f8d" : "English word chain")
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+                .addSubcommands(setChannel, disable, reset, status, rules, stats, leaderboard);
     }
 
     private OptionData buildNumberChainActionOption(boolean zh) {
@@ -3347,7 +3417,7 @@ public class MusicCommandService extends ListenerAdapter {
 
     private OptionData buildSettingsActionOption(boolean zh) {
         OptionData option = new OptionData(OptionType.STRING, "action",
-                zh ? "\u4f3a\u670d\u5668\u8a2d\u5b9a" : "Guild settings", true)
+                zh ? "\u4f3a\u670d\u5668\u8a2d\u5b9a" : "Guild settings", false)
                 .addChoices(
                         new Command.Choice(zh ? SUB_SETTINGS_INFO_ZH : "info", "info"),
                         new Command.Choice(zh ? SUB_SETTINGS_RELOAD_ZH : "reload", "reload"),
@@ -3556,12 +3626,7 @@ public class MusicCommandService extends ListenerAdapter {
                 .queue();
     }
     public void openLanguageMenu(SlashCommandInteractionEvent event, String lang) {
-        String token = UUID.randomUUID().toString().replace("-", "");
-        languageMenuRequests.put(token, new MenuRequest(
-                event.getUser().getIdLong(),
-                event.getGuild().getIdLong(),
-                Instant.now().plusSeconds(120)
-        ));
+        String token = registerMenuRequest(languageMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.replyEmbeds(new EmbedBuilder()
                         .setColor(new Color(52, 152, 219))
                         .setTitle(i18n.t(lang, "settings.language_menu_title"))
@@ -3571,16 +3636,46 @@ public class MusicCommandService extends ListenerAdapter {
                 .setEphemeral(true)
                 .queue();
     }
-    public void openNumberChainMenu(SlashCommandInteractionEvent event, String lang) {
+
+    void openSettingsResetMenu(StringSelectInteractionEvent event, String lang) {
         String token = UUID.randomUUID().toString().replace("-", "");
-        numberChainMenuRequests.put(token, new MenuRequest(
+        resetRequests.put(token, new ResetRequest(
                 event.getUser().getIdLong(),
                 event.getGuild().getIdLong(),
                 Instant.now().plusSeconds(120)
         ));
+        event.editMessageEmbeds(new EmbedBuilder()
+                        .setColor(new Color(230, 126, 34))
+                        .setTitle(i18n.t(lang, "settings.reset_title"))
+                        .setDescription(i18n.t(lang, "settings.reset_desc"))
+                        .build())
+                .setComponents(ActionRow.of(settingsResetMenu(token, lang)))
+                .queue();
+    }
+
+    public void openLanguageMenu(StringSelectInteractionEvent event, String lang) {
+        String token = registerMenuRequest(languageMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
+        event.editMessageEmbeds(new EmbedBuilder()
+                        .setColor(new Color(52, 152, 219))
+                        .setTitle(i18n.t(lang, "settings.language_menu_title"))
+                        .setDescription(i18n.t(lang, "settings.language_menu_desc"))
+                        .build())
+                .setComponents(ActionRow.of(settingsLanguageMenu(token, event.getGuild().getIdLong(), lang)))
+                .queue();
+    }
+
+    public void openNumberChainMenu(SlashCommandInteractionEvent event, String lang) {
+        String token = registerMenuRequest(numberChainMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.replyEmbeds(numberChainMenuEmbed(event.getGuild(), lang, null).build())
                 .addComponents(ActionRow.of(settingsNumberChainMenu(token, event.getGuild(), lang)))
                 .setEphemeral(true)
+                .queue();
+    }
+
+    public void openNumberChainMenu(StringSelectInteractionEvent event, String lang) {
+        String token = registerMenuRequest(numberChainMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
+        event.editMessageEmbeds(numberChainMenuEmbed(event.getGuild(), lang, null).build())
+                .setComponents(ActionRow.of(settingsNumberChainMenu(token, event.getGuild(), lang)))
                 .queue();
     }
 
@@ -3793,6 +3888,24 @@ public class MusicCommandService extends ListenerAdapter {
         return Commands.slash(commandName, zh ? "\u5efa\u7acb\u5bc6\u7f50\u6587\u5b57\u983b\u9053" : "Create a honeypot text channel")
                 .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_SERVER));
     }
+
+    private SlashCommandData buildMinecraftStatusCommand(String commandName) {
+        boolean zh = CMD_MINECRAFT_STATUS_ZH.equals(commandName);
+        OptionData addressOption = new OptionData(
+                OptionType.STRING,
+                "address",
+                zh ? "\u4f3a\u670d\u5668\u4f4d\u5740\uff08\u4e0d\u8981\u542b http:// \u6216 https://\uff09" : "Server address (without http:// or https://)",
+                true
+        );
+        OptionData typeOption = new OptionData(OptionType.STRING, "type", zh ? "\u4f3a\u670d\u5668\u985e\u578b" : "Server type", false)
+                .addChoices(
+                        new Command.Choice("JAVA", "JAVA"),
+                        new Command.Choice("BEDROCK", "BEDROCK")
+                );
+        return Commands.slash(commandName, zh ? "\u67e5\u8a62 Minecraft \u4f3a\u670d\u5668\u72c0\u614b" : "Query Minecraft server status")
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
+                .addOptions(addressOption, typeOption);
+    }
     public String canonicalSlashName(String name) {
         return switch (name) {
             case CMD_HELP_ZH -> "help";
@@ -3816,6 +3929,7 @@ public class MusicCommandService extends ListenerAdapter {
             case CMD_ANTI_DUPLICATE_ZH -> "anti-duplicate";
             case CMD_HONEYPOT_ZH -> "honeypot-channel";
             case CMD_NUMBER_CHAIN_ZH -> "number-chain";
+            case CMD_WORD_CHAIN_ZH -> "wordchain";
             case CMD_TICKET_ZH -> "ticket";
             case CMD_USER_INFO_ZH -> "user-info";
             case CMD_ROLE_INFO_ZH -> "role-info";
@@ -3823,6 +3937,7 @@ public class MusicCommandService extends ListenerAdapter {
             case CMD_STATS_ZH -> "stats";
             case CMD_LEADERBOARD_ZH -> "top";
             case CMD_SHORT_URL_ZH -> "url";
+            case CMD_MINECRAFT_STATUS_ZH -> "mcstatus";
             default -> name;
         };
     }
@@ -3937,10 +4052,12 @@ public class MusicCommandService extends ListenerAdapter {
                 || "anti-duplicate".equals(name)
                 || "honeypot-channel".equals(name)
                 || "number-chain".equals(name)
+                || "wordchain".equals(name)
                 || "user-info".equals(name)
                 || "role-info".equals(name)
                 || "server-info".equals(name)
                 || "url".equals(name)
+                || "mcstatus".equals(name)
                 || "stats".equals(name)
                 || "top".equals(name);
     }
@@ -4259,6 +4376,11 @@ public class MusicCommandService extends ListenerAdapter {
         }
         return s.length() <= max ? s : s.substring(0, max - 1);
     }
+
+    String limitText(String value, int max) {
+        return safe(value, max);
+    }
+
     public String musicUx(String lang, String key) {
         return musicUx(lang, key, Map.of());
     }

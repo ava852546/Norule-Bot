@@ -7,6 +7,7 @@ import com.norule.musicbot.discord.bot.ops.moderation.ModerationOps;
 import com.norule.musicbot.discord.bot.ops.music.MusicOps;
 import com.norule.musicbot.discord.bot.ops.stats.StatsOps;
 import com.norule.musicbot.discord.bot.ops.ticket.TicketOps;
+import com.norule.musicbot.discord.bot.ops.wordchain.WordChainOps;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 
 public final class SlashOps {
@@ -16,14 +17,16 @@ public final class SlashOps {
     private final ModerationOps moderationOps;
     private final MetaOps metaOps;
     private final StatsOps statsOps;
+    private final WordChainOps wordChainOps;
 
-    public SlashOps(MusicCommandService owner) {
+    public SlashOps(MusicCommandService owner, WordChainOps wordChainOps) {
         this.owner = owner;
         this.musicOps = new MusicOps(owner);
         this.guildConfigOps = new GuildConfigOps(owner);
         this.moderationOps = new ModerationOps(owner);
         this.metaOps = new MetaOps(owner);
         this.statsOps = new StatsOps(owner);
+        this.wordChainOps = wordChainOps;
     }
 
     public void handle(SlashCommandInteractionEvent event) {
@@ -41,6 +44,9 @@ public final class SlashOps {
             return;
         }
         if (guildConfigOps.handleSlash(commandName, event, lang)) {
+            return;
+        }
+        if (wordChainOps != null && wordChainOps.handleSlash(commandName, event, lang)) {
             return;
         }
         if (moderationOps.handleSlash(commandName, event, lang)) {

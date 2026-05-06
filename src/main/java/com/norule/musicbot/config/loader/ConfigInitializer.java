@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,8 +71,9 @@ public final class ConfigInitializer {
 
             Map<String, Object> merged = deepMerge(defaultConfig, currentConfig);
             pruneGuildScopedRootSettings(merged);
-            String rendered = dumpYaml(merged);
-            if (migrated || !merged.equals(currentConfig)) {
+            String rendered = withHelpfulComments(dumpYaml(merged));
+            boolean needsCommentUpgrade = !hasHelpfulCommentMarker(configPath);
+            if (migrated || !merged.equals(currentConfig) || needsCommentUpgrade) {
                 backupConfig(configPath);
                 writeYaml(configPath, rendered);
             }
@@ -231,6 +233,15 @@ public final class ConfigInitializer {
         }
     }
 
+    private boolean hasHelpfulCommentMarker(Path file) {
+        try {
+            String content = Files.readString(file, StandardCharsets.UTF_8);
+            return content.contains("# Discord Bot Token");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private String dumpYaml(Map<String, Object> root) {
         DumperOptions options = new DumperOptions();
         options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
@@ -243,6 +254,73 @@ public final class ConfigInitializer {
         rendered = TAGGED_BOOL.matcher(rendered).replaceAll("$1");
         rendered = TAGGED_INT.matcher(rendered).replaceAll("$1");
         return rendered;
+    }
+
+    private String withHelpfulComments(String yamlText) {
+        if (yamlText == null || yamlText.isBlank()) {
+            return yamlText;
+        }
+        List<String> lines = yamlText.lines().toList();
+        List<String> out = new ArrayList<>(lines.size() + 24);
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("token:")) {
+                out.add("# Discord Bot Token (or set DISCORD_TOKEN env var)");
+            } else if (trimmed.startsWith("prefix:")) {
+                out.add("");
+                out.add("# Command prefix");
+            } else if (trimmed.startsWith("debug:")) {
+                out.add("");
+                out.add("# Enable debug logging");
+            } else if (trimmed.startsWith("commandGuildId:")) {
+                out.add("");
+                out.add("# Restrict slash command registration to a guild ID (empty = global)");
+            } else if ("data:".equals(trimmed)) {
+                out.add("");
+                out.add("# Data and resource paths");
+            } else if (trimmed.startsWith("defaultLanguage:")) {
+                out.add("");
+                out.add("# Default language");
+            } else if (trimmed.startsWith("commandCooldownSeconds:")) {
+                out.add("");
+                out.add("# Command cooldown in seconds");
+            } else if (trimmed.startsWith("numberChainReactionDelayMillis:")) {
+                out.add("");
+                out.add("# Number-chain reaction delay in milliseconds");
+            } else if ("bot:".equals(trimmed)) {
+                out.add("");
+                out.add("# Bot profile / presence");
+            } else if ("developers:".equals(trimmed)) {
+                out.add("");
+                out.add("# Developer whitelist IDs");
+            } else if ("music:".equals(trimmed)) {
+                out.add("");
+                out.add("# Global music integrations");
+            } else if ("youtube:".equals(trimmed) && line.startsWith("  ")) {
+                out.add("  # YouTube source options");
+            } else if ("spotify:".equals(trimmed) && line.startsWith("  ")) {
+                out.add("  # Spotify source options");
+            } else if ("web:".equals(trimmed)) {
+                out.add("");
+                out.add("# Web control panel");
+            } else if ("database:".equals(trimmed)) {
+                out.add("");
+                out.add("# Shared database settings");
+            } else if ("stats:".equals(trimmed)) {
+                out.add("");
+                out.add("# Stats advanced settings (reserved)");
+            } else if ("shortUrl:".equals(trimmed)) {
+                out.add("");
+                out.add("# Short URL service");
+            } else if ("minecraftStatus:".equals(trimmed)) {
+                out.add("");
+                out.add("# Minecraft status query settings");
+            }
+            out.add(line);
+        }
+
+        return String.join("\n", out) + "\n";
     }
 
     private static final class SingleQuotedStringRepresenter extends Representer {
@@ -300,6 +378,7 @@ public final class ConfigInitializer {
         Map<String, Object> shortUrl = mutableMap(config.get("shortUrl"));
         if (shortUrl != null && !shortUrl.isEmpty()) {
             changed |= migrateBindAndPublicUrl(shortUrl, "host", "port", "baseUrl", "domain");
+            changed |= ensureFlatShortUrlKeys(shortUrl);
 
             String storage = getString(shortUrl, "storage", "");
             if ("db".equalsIgnoreCase(storage)) {
@@ -411,12 +490,62 @@ public final class ConfigInitializer {
             changed |= removeKey(stats, "mysql");
             changed |= removeKey(stats, "sqlite");
         }
-        if (shortUrl != null) {
-            changed |= removeKey(shortUrl, "storage");
-            changed |= removeKey(shortUrl, "mysql");
-            changed |= removeKey(shortUrl, "sqlite");
+
+        return changed;
+    }
+
+    private boolean ensureFlatShortUrlKeys(Map<String, Object> shortUrl) {
+        if (shortUrl == null || shortUrl.isEmpty()) {
+            return false;
+        }
+        boolean changed = false;
+        Map<String, Object> bind = mutableMap(shortUrl.get("bind"));
+        Map<String, Object> pub = mutableMap(shortUrl.get("public"));
+
+        String bindHost = getString(shortUrl, "bindHost", "");
+        if (bindHost.isBlank()) {
+            String nestedHost = getString(bind == null ? Map.of() : bind, "host", "");
+            if (!nestedHost.isBlank()) {
+                shortUrl.put("bindHost", nestedHost);
+                changed = true;
+            }
         }
 
+        Object bindPort = shortUrl.get("bindPort");
+        int bindPortValue = -1;
+        if (bindPort instanceof Number n) {
+            bindPortValue = n.intValue();
+        } else if (bindPort != null) {
+            try {
+                bindPortValue = Integer.parseInt(String.valueOf(bindPort).trim());
+            } catch (Exception ignored) {
+                bindPortValue = -1;
+            }
+        }
+        if (bindPortValue <= 0) {
+            int nestedPort = -1;
+            String nestedPortRaw = getString(bind == null ? Map.of() : bind, "port", "");
+            if (!nestedPortRaw.isBlank()) {
+                try {
+                    nestedPort = Integer.parseInt(nestedPortRaw.trim());
+                } catch (Exception ignored) {
+                    nestedPort = -1;
+                }
+            }
+            if (nestedPort > 0) {
+                shortUrl.put("bindPort", nestedPort);
+                changed = true;
+            }
+        }
+
+        String publicBaseUrl = getString(shortUrl, "publicBaseUrl", "");
+        if (publicBaseUrl.isBlank()) {
+            String nestedBaseUrl = getString(pub == null ? Map.of() : pub, "baseUrl", "");
+            if (!nestedBaseUrl.isBlank()) {
+                shortUrl.put("publicBaseUrl", nestedBaseUrl);
+                changed = true;
+            }
+        }
         return changed;
     }
 

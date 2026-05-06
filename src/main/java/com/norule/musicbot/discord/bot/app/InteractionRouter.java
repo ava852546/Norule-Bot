@@ -5,6 +5,7 @@ import com.norule.musicbot.discord.bot.ops.ButtonOps;
 import com.norule.musicbot.discord.bot.ops.ModalOps;
 import com.norule.musicbot.discord.bot.ops.SelectOps;
 import com.norule.musicbot.discord.bot.ops.SlashOps;
+import com.norule.musicbot.discord.bot.ops.wordchain.WordChainOps;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.CommandAutoCompleteInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
@@ -19,10 +20,10 @@ public final class InteractionRouter {
     private final ModalOps modalOps;
     private final SelectOps selectOps;
 
-    public InteractionRouter(MusicCommandService owner) {
-        this.slashOps = new SlashOps(owner);
+    public InteractionRouter(MusicCommandService owner, WordChainOps wordChainOps) {
+        this.slashOps = new SlashOps(owner, wordChainOps);
         this.autoCompleteOps = new AutoCompleteOps(owner);
-        this.buttonOps = new ButtonOps(owner);
+        this.buttonOps = new ButtonOps(owner, wordChainOps);
         this.modalOps = new ModalOps(owner);
         this.selectOps = new SelectOps(owner);
     }

@@ -60,7 +60,7 @@ const I18N = {
     errorInvalidUrlOrCode: '\u7db2\u5740\u6216\u81ea\u8a02\u4ee3\u78bc\u7121\u6548\u3002',
     errorMissingUrl: '\u7f3a\u5c11\u7db2\u5740\u53c3\u6578\u3002',
     errorMethodNotAllowed: '\u4e0d\u652f\u63f4\u7684\u8acb\u6c42\u65b9\u5f0f\u3002',
-    errorTargetAlreadyShortened: '\u6b64\u7db2\u5740\u5df2\u5b58\u5728\u77ed\u9023\u7d50\uff1a{url}'
+    errorMissingShortUrl: '\u56de\u61c9\u7f3a\u5c11\u77ed\u7db2\u5740\u6b04\u4f4d\u3002'
   },
   en: {
     pageTitle: 'Short URL',
@@ -84,7 +84,7 @@ const I18N = {
     errorInvalidUrlOrCode: 'Invalid URL or custom code.',
     errorMissingUrl: 'Missing URL parameter.',
     errorMethodNotAllowed: 'Method not allowed.',
-    errorTargetAlreadyShortened: 'This URL already has a short link: {url}'
+    errorMissingShortUrl: 'Response missing short URL field.'
   }
 };
 
@@ -126,13 +126,16 @@ const mapBackendError = (message) => {
 
 const mapBackendPayloadError = (payload) => {
   const code = String(payload?.errorCode || '').trim().toUpperCase();
-  if (code === 'TARGET_ALREADY_SHORTENED') {
-    return t('errorTargetAlreadyShortened').replace('{url}', String(payload?.url || '').trim() || '-');
-  }
   if (code === 'INVALID_URL_OR_CODE') return t('errorInvalidUrlOrCode');
   if (code === 'MISSING_URL') return t('errorMissingUrl');
   if (code === 'METHOD_NOT_ALLOWED') return t('errorMethodNotAllowed');
   return mapBackendError(payload?.error);
+};
+
+const resolveShortUrlFields = (payload) => {
+  const shortUrl = String(payload?.shortUrl || payload?.url || '').trim();
+  const targetUrl = String(payload?.targetUrl || payload?.target || '').trim();
+  return { shortUrl, targetUrl };
 };
 
 const applyLanguage = (lang) => {
@@ -179,18 +182,19 @@ form.addEventListener('submit', async (event) => {
   setLoading(true);
 
   try {
-    const body = new URLSearchParams();
-    body.set('url', url);
+    const body = {
+      url
+    };
     if (code) {
-      body.set('code', code);
+      body.customCode = code;
     }
 
     const response = await fetch('/api/short', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+        'Content-Type': 'application/json;charset=UTF-8'
       },
-      body: body.toString()
+      body: JSON.stringify(body)
     });
 
     let payload = null;
@@ -200,16 +204,17 @@ form.addEventListener('submit', async (event) => {
       payload = null;
     }
 
-    if (!response.ok || !payload?.ok || !payload?.url) {
-      const errorCode = String(payload?.errorCode || '').trim().toUpperCase();
-      if (errorCode === 'TARGET_ALREADY_SHORTENED' && payload?.url) {
-        showResult(String(payload.url), String(payload?.target || url));
-      }
+    const resolved = resolveShortUrlFields(payload || {});
+    if (!response.ok) {
       setError(mapBackendPayloadError(payload || {}));
       return;
     }
+    if (!resolved.shortUrl) {
+      setError(t('errorMissingShortUrl'));
+      return;
+    }
 
-    showResult(payload.url, payload.target || url);
+    showResult(resolved.shortUrl, resolved.targetUrl || url);
   } catch (error) {
     setError(error instanceof Error ? error.message : t('errorRequestFailed'));
   } finally {

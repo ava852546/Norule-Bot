@@ -1,16 +1,21 @@
 package com.norule.musicbot.web.infra;
 
 import com.norule.musicbot.config.GuildSettingsService;
+import com.norule.musicbot.config.domain.MinecraftStatusConfig;
 import com.norule.musicbot.domain.music.*;
+import com.norule.musicbot.gateway.minecraft.McSrvStatGateway;
 import com.norule.musicbot.i18n.*;
 import com.norule.musicbot.*;
+import com.norule.musicbot.ops.minecraft.MinecraftStatusOps;
 import com.norule.musicbot.web.adapter.DiscordOAuthClient;
 import com.norule.musicbot.web.controller.GuildSettingsController;
+import com.norule.musicbot.web.controller.MinecraftStatusController;
 import com.norule.musicbot.web.controller.ShortUrlController;
 import com.norule.musicbot.web.controller.TicketTranscriptController;
 import com.norule.musicbot.web.controller.WebAuthController;
 import com.norule.musicbot.web.controller.WebMetadataController;
 import com.norule.musicbot.web.controller.WebStaticAssetController;
+import com.norule.musicbot.web.service.MinecraftStatusWebService;
 import com.norule.musicbot.web.service.WebLanguageService;
 import com.norule.musicbot.web.service.WelcomePreviewService;
 import com.norule.musicbot.web.session.WebSessionManager;
@@ -90,6 +95,7 @@ import java.util.regex.Pattern;
     private final GuildSettingsController guildSettingsController;
     private final TicketTranscriptController ticketTranscriptController;
     private final ShortUrlController shortUrlController;
+    private final MinecraftStatusController minecraftStatusController;
     private final WelcomePreviewService welcomePreviewService;
     private final WebRouteBinder webRouteBinder;
     private final ShortUrlService shortUrlService;
@@ -105,6 +111,7 @@ import java.util.regex.Pattern;
                             TicketService ticketService,
                             ShortUrlService shortUrlService,
                             Supplier<WebSettings> settingsSupplier,
+                            Supplier<MinecraftStatusConfig> minecraftStatusConfigSupplier,
                             Supplier<String> languageDirSupplier,
                             I18nService i18n) {
         this.jda = jda;
@@ -126,12 +133,24 @@ import java.util.regex.Pattern;
         this.guildSettingsController = new GuildSettingsController(this);
         this.ticketTranscriptController = new TicketTranscriptController(this);
         this.shortUrlController = new ShortUrlController(this);
+        MinecraftStatusConfig defaultMinecraftStatusConfig = new MinecraftStatusConfig("NoRuleBot/1.0 contact: admin@norule.me", 15_000, 60);
+        Supplier<MinecraftStatusConfig> safeMinecraftStatusSupplier = minecraftStatusConfigSupplier == null
+                ? () -> defaultMinecraftStatusConfig
+                : minecraftStatusConfigSupplier;
+        MinecraftStatusOps minecraftStatusOps = new MinecraftStatusOps(
+                new com.norule.musicbot.service.minecraft.MinecraftStatusService(
+                        new McSrvStatGateway(),
+                        safeMinecraftStatusSupplier
+                )
+        );
+        this.minecraftStatusController = new MinecraftStatusController(new MinecraftStatusWebService(this, minecraftStatusOps));
         this.welcomePreviewService = new WelcomePreviewService(this);
         this.webRouteBinder = new WebRouteBinder(
                 webAuthController,
                 webMetadataController,
                 guildSettingsController,
                 shortUrlController,
+                minecraftStatusController,
                 webStaticAssetController
         );
         cleanupExecutor.scheduleAtFixedRate(sessionManager::cleanupExpired, 5, 5, TimeUnit.MINUTES);

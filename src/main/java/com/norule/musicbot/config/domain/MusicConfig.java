@@ -5,17 +5,20 @@ import com.norule.musicbot.config.BotConfig;
 public final class MusicConfig {
     public static final class Youtube {
         private final boolean oauthEnabled;
+        private final boolean cipherEnabled;
         private final String oauthRefreshToken;
         private final String cipherServer;
         private final String cipherPassword;
         private final String cipherUserAgent;
 
         public Youtube(boolean oauthEnabled,
+                       boolean cipherEnabled,
                        String oauthRefreshToken,
                        String cipherServer,
                        String cipherPassword,
                        String cipherUserAgent) {
             this.oauthEnabled = oauthEnabled;
+            this.cipherEnabled = cipherEnabled;
             this.oauthRefreshToken = oauthRefreshToken == null ? "" : oauthRefreshToken;
             this.cipherServer = cipherServer == null ? "" : cipherServer;
             this.cipherPassword = cipherPassword == null ? "" : cipherPassword;
@@ -26,6 +29,7 @@ public final class MusicConfig {
             BotConfig.Music.Youtube value = legacy == null ? BotConfig.Music.Youtube.defaultValues() : legacy;
             return new Youtube(
                     value.isOauthEnabled(),
+                    value.isCipherEnabled(),
                     value.getOauthRefreshToken(),
                     value.getCipherServer(),
                     value.getCipherPassword(),
@@ -34,6 +38,7 @@ public final class MusicConfig {
         }
 
         public boolean isOauthEnabled() { return oauthEnabled; }
+        public boolean isCipherEnabled() { return cipherEnabled; }
         public String getOauthRefreshToken() { return oauthRefreshToken; }
         public String getCipherServer() { return cipherServer; }
         public String getCipherPassword() { return cipherPassword; }
@@ -41,6 +46,7 @@ public final class MusicConfig {
     }
 
     public static final class Spotify {
+        private final boolean enabled;
         private final String clientId;
         private final String clientSecret;
         private final String spDc;
@@ -50,7 +56,8 @@ public final class MusicConfig {
         private final int playlistMaxTracks;
         private final int playlistLoadCooldownSeconds;
 
-        public Spotify(String clientId,
+        public Spotify(boolean enabled,
+                       String clientId,
                        String clientSecret,
                        String spDc,
                        String countryCode,
@@ -58,6 +65,7 @@ public final class MusicConfig {
                        String customTokenEndpoint,
                        int playlistMaxTracks,
                        int playlistLoadCooldownSeconds) {
+            this.enabled = enabled;
             this.clientId = clientId == null ? "" : clientId;
             this.clientSecret = clientSecret == null ? "" : clientSecret;
             this.spDc = spDc == null ? "" : spDc;
@@ -71,6 +79,7 @@ public final class MusicConfig {
         public static Spotify fromLegacy(BotConfig.Music.Spotify legacy) {
             BotConfig.Music.Spotify value = legacy == null ? BotConfig.Music.Spotify.defaultValues() : legacy;
             return new Spotify(
+                    value.isEnabled(),
                     value.getClientId(),
                     value.getClientSecret(),
                     value.getSpDc(),
@@ -82,6 +91,7 @@ public final class MusicConfig {
             );
         }
 
+        public boolean isEnabled() { return enabled; }
         public String getClientId() { return clientId; }
         public String getClientSecret() { return clientSecret; }
         public String getSpDc() { return spDc; }

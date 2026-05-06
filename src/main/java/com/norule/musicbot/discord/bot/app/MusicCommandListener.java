@@ -9,6 +9,7 @@ import com.norule.musicbot.config.GuildSettingsService;
 import com.norule.musicbot.discord.bot.app.stats.MessageStatsEventService;
 import com.norule.musicbot.discord.bot.gateway.InteractionGateway;
 import com.norule.musicbot.discord.bot.ops.meta.DevOps;
+import com.norule.musicbot.discord.bot.ops.wordchain.WordChainOps;
 import com.norule.musicbot.discord.bot.service.meta.DevService;
 import com.norule.musicbot.discord.gateway.InMemorySignals;
 import com.norule.musicbot.discord.gateway.Signals;
@@ -47,7 +48,7 @@ public class MusicCommandListener extends ListenerAdapter {
                                 ShortUrlService shortUrlService,
                                 TicketService ticketService,
                                 MessageStatsEventService statsEventService) {
-        this(musicService, runtimeConfig, settingsService, moderationService, honeypotService, new InMemorySignals(), shortUrlService, ticketService, statsEventService);
+        this(musicService, runtimeConfig, settingsService, moderationService, honeypotService, new InMemorySignals(), shortUrlService, ticketService, statsEventService, null);
     }
 
     public MusicCommandListener(MusicPlayerService musicService,
@@ -58,7 +59,7 @@ public class MusicCommandListener extends ListenerAdapter {
                                 Signals signals,
                                 ShortUrlService shortUrlService,
                                 TicketService ticketService) {
-        this(musicService, runtimeConfig, settingsService, moderationService, honeypotService, signals, shortUrlService, ticketService, null);
+        this(musicService, runtimeConfig, settingsService, moderationService, honeypotService, signals, shortUrlService, ticketService, null, null);
     }
 
     public MusicCommandListener(MusicPlayerService musicService,
@@ -69,8 +70,19 @@ public class MusicCommandListener extends ListenerAdapter {
                                 Signals signals,
                                 ShortUrlService shortUrlService,
                                 TicketService ticketService,
-                                MessageStatsEventService statsEventService) {
-        this.service = new MusicCommandService(musicService, runtimeConfig, settingsService, moderationService, honeypotService, shortUrlService, ticketService, statsEventService);
+                                MessageStatsEventService statsEventService,
+                                WordChainOps wordChainOps) {
+        this.service = new MusicCommandService(
+                musicService,
+                runtimeConfig,
+                settingsService,
+                moderationService,
+                honeypotService,
+                shortUrlService,
+                ticketService,
+                statsEventService,
+                wordChainOps
+        );
         this.gateway = new InteractionGateway(service, signals);
         this.devOps = new DevOps(new DevService(runtimeConfig, musicService::getActivePlaybackGuildCount));
     }

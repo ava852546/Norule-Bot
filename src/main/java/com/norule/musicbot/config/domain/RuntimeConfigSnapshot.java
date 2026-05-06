@@ -20,6 +20,7 @@ public final class RuntimeConfigSnapshot {
     private final BotConfig.Music defaultMusic;
     private final BotConfig.PrivateRoom defaultPrivateRoom;
     private final BotConfig.Ticket defaultTicket;
+    private final BotConfig.MinecraftStatus minecraftStatus;
 
     public RuntimeConfigSnapshot(String prefix,
                                  int commandCooldownSeconds,
@@ -33,7 +34,8 @@ public final class RuntimeConfigSnapshot {
                                  BotConfig.MessageLogs defaultMessageLogs,
                                  BotConfig.Music defaultMusic,
                                  BotConfig.PrivateRoom defaultPrivateRoom,
-                                 BotConfig.Ticket defaultTicket) {
+                                 BotConfig.Ticket defaultTicket,
+                                 BotConfig.MinecraftStatus minecraftStatus) {
         this.prefix = prefix == null ? "!" : prefix;
         this.commandCooldownSeconds = Math.max(0, commandCooldownSeconds);
         this.defaultLanguage = defaultLanguage == null ? "en" : defaultLanguage;
@@ -47,6 +49,7 @@ public final class RuntimeConfigSnapshot {
         this.defaultMusic = defaultMusic == null ? BotConfig.Music.defaultValues() : defaultMusic;
         this.defaultPrivateRoom = defaultPrivateRoom == null ? BotConfig.PrivateRoom.defaultValues() : defaultPrivateRoom;
         this.defaultTicket = defaultTicket == null ? BotConfig.Ticket.defaultValues() : defaultTicket;
+        this.minecraftStatus = minecraftStatus == null ? BotConfig.MinecraftStatus.defaultValues() : minecraftStatus;
     }
 
     public static RuntimeConfigSnapshot from(BotConfig config, Path baseDir) {
@@ -69,7 +72,8 @@ public final class RuntimeConfigSnapshot {
                 config.getMessageLogs(),
                 config.getMusic(),
                 config.getPrivateRoom(),
-                config.getTicket()
+                config.getTicket(),
+                config.getMinecraftStatus()
         );
     }
 
@@ -86,4 +90,5 @@ public final class RuntimeConfigSnapshot {
     public BotConfig.Music getDefaultMusic() { return defaultMusic; }
     public BotConfig.PrivateRoom getDefaultPrivateRoom() { return defaultPrivateRoom; }
     public BotConfig.Ticket getDefaultTicket() { return defaultTicket; }
+    public BotConfig.MinecraftStatus getMinecraftStatus() { return minecraftStatus; }
 }

@@ -15,6 +15,7 @@ target/
 /guild-honeypot/
 /ticket-transcripts/
 /cache/
+/lib/
 /LOG/
 /certs/
 /guild/

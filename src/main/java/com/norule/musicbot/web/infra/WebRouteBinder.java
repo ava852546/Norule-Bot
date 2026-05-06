@@ -1,6 +1,7 @@
 package com.norule.musicbot.web.infra;
 
 import com.norule.musicbot.web.controller.GuildSettingsController;
+import com.norule.musicbot.web.controller.MinecraftStatusController;
 import com.norule.musicbot.web.controller.ShortUrlController;
 import com.norule.musicbot.web.controller.WebAuthController;
 import com.norule.musicbot.web.controller.WebMetadataController;
@@ -12,17 +13,20 @@ final class WebRouteBinder {
     private final WebMetadataController metadataController;
     private final GuildSettingsController guildSettingsController;
     private final ShortUrlController shortUrlController;
+    private final MinecraftStatusController minecraftStatusController;
     private final WebStaticAssetController staticAssetController;
 
     WebRouteBinder(WebAuthController authController,
                    WebMetadataController metadataController,
                    GuildSettingsController guildSettingsController,
                    ShortUrlController shortUrlController,
+                   MinecraftStatusController minecraftStatusController,
                    WebStaticAssetController staticAssetController) {
         this.authController = authController;
         this.metadataController = metadataController;
         this.guildSettingsController = guildSettingsController;
         this.shortUrlController = shortUrlController;
+        this.minecraftStatusController = minecraftStatusController;
         this.staticAssetController = staticAssetController;
     }
 
@@ -34,6 +38,7 @@ final class WebRouteBinder {
         server.createContext("/api/guilds", metadataController::handleApiGuilds);
         server.createContext("/api/web/i18n", metadataController::handleApiWebI18n);
         server.createContext("/api/short", shortUrlController::handleCreateShortUrl);
+        server.createContext("/api/minecraft/status", minecraftStatusController::handleApiMinecraftStatus);
         server.createContext("/api/guild/", guildSettingsController::handleApiGuildRoute);
         server.createContext("/web/", staticAssetController::handleWebAsset);
         server.createContext("/", staticAssetController::handleRoot);

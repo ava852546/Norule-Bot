@@ -60,6 +60,7 @@ public class MusicPlayerService {
     private static final String YT_SEARCH_PREFIX = "ytsearch:";
     private static final Pattern JSON_FIELD_PATTERN_TEMPLATE = Pattern.compile("\"%s\"\\s*:\\s*\"(.*?)\"");
     private static final long SPOTIFY_RATE_LIMIT_COOLDOWN_MS = 10 * 60_000L;
+    private static final int SPOTIFY_TIMEOUT_RETRY_MAX_ATTEMPTS = 2;
     private static final String SPOTIFY_RATE_LIMIT_ERROR_KEY = "SPOTIFY_RATE_LIMITED";
     private static final String SPOTIFY_PLAYLIST_COOLDOWN_ERROR_KEY = "SPOTIFY_PLAYLIST_COOLDOWN";
     private static final String SPOTIFY_PERSONAL_PLAYLIST_ERROR_KEY = "SPOTIFY_PERSONAL_PLAYLIST_UNSUPPORTED";
@@ -158,6 +159,10 @@ public class MusicPlayerService {
     }
 
     private boolean registerSpotifySourceIfConfigured() {
+        if (!isSpotifySourceInitializationEnabled()) {
+            System.out.println("[NoRule] Spotify source initialization disabled.");
+            return false;
+        }
         String clientId = firstNonBlank(System.getenv("SPOTIFY_CLIENT_ID"), spotifyConfig.getClientId());
         String clientSecret = firstNonBlank(System.getenv("SPOTIFY_CLIENT_SECRET"), spotifyConfig.getClientSecret());
         String spDc = firstNonBlank(System.getenv("SPOTIFY_SP_DC"), spotifyConfig.getSpDc());
@@ -278,6 +283,10 @@ public class MusicPlayerService {
         return value == null ? fallback : isTruthy(value);
     }
 
+    private boolean isSpotifySourceInitializationEnabled() {
+        return getBooleanEnvOverride("SPOTIFY_ENABLED", spotifyConfig.isEnabled());
+    }
+
     private void tryInvokeBooleanSetter(Class<?> type, Object instance, String methodName, boolean value) {
         try {
             type.getMethod(methodName, boolean.class).invoke(instance, value);
@@ -305,11 +314,14 @@ public class MusicPlayerService {
         clients.add(new AndroidVrWithThumbnail());
         clients.add(new AndroidMusicWithThumbnail());
         clients.add(new IosWithThumbnail());
-        String remoteCipherUrl = firstNonBlank(
+        boolean remoteCipherEnabled = isYouTubeCipherEnabled();
+        String remoteCipherUrl = remoteCipherEnabled
+                ? firstNonBlank(
                 System.getenv("YOUTUBE_CIPHER_SERVER"),
                 System.getenv("YOUTUBE_REMOTE_CIPHER_URL"),
                 youtubeConfig.getCipherServer()
-        );
+        )
+                : null;
         dev.lavalink.youtube.clients.skeleton.Client[] clientArray =
                 clients.toArray(dev.lavalink.youtube.clients.skeleton.Client[]::new);
         if (remoteCipherUrl == null) {
@@ -329,6 +341,10 @@ public class MusicPlayerService {
                 .setRemoteCipher(remoteCipherUrl, remoteCipherPassword, remoteCipherUserAgent);
         System.out.println("[NoRule] YouTube remote cipher server configured: " + remoteCipherUrl);
         return new YoutubeAudioSourceManager(options, clientArray);
+    }
+
+    private boolean isYouTubeCipherEnabled() {
+        return getBooleanEnvOverride("YOUTUBE_CIPHER_ENABLED", youtubeConfig.isCipherEnabled());
     }
 
     private void configureYouTubePoToken() {
@@ -665,6 +681,19 @@ public class MusicPlayerService {
                     messageSender.accept("LOAD_FAILED:" + SPOTIFY_PERSONAL_PLAYLIST_ERROR_KEY);
                     return;
                 }
+                if (looksLikeSpotifyUrl(userInput)
+                        && isSpotifyTimeout(exception)
+                        && spotifyRateLimitRetryAttempt < SPOTIFY_TIMEOUT_RETRY_MAX_ATTEMPTS) {
+                    int nextAttempt = spotifyRateLimitRetryAttempt + 1;
+                    System.out.println("[NoRule] Spotify load timeout, retrying attempt "
+                            + nextAttempt
+                            + "/"
+                            + SPOTIFY_TIMEOUT_RETRY_MAX_ATTEMPTS
+                            + " for input="
+                            + userInput);
+                    load(guildId, guildMusicManager, messageSender, userInput, identifier, sourceLabel, allowFallback, requesterId, requesterName, nextAttempt);
+                    return;
+                }
                 if (looksLikeSpotifyUrl(userInput) && isSpotifyRateLimited(exception)) {
                     long cooldownUntil = System.currentTimeMillis() + SPOTIFY_RATE_LIMIT_COOLDOWN_MS;
                     spotifyRateLimitGuildCooldownUntil.put(guildId, cooldownUntil);
@@ -736,6 +765,24 @@ public class MusicPlayerService {
                 if (lower.contains("failed to retrieve secret")
                         || lower.contains("no secret found")
                         || lower.contains("no secret array found")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean isSpotifyTimeout(FriendlyException exception) {
+        Throwable current = exception;
+        while (current != null) {
+            if (current instanceof java.net.SocketTimeoutException) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase();
+                if (lower.contains("read timed out") || lower.contains("connect timed out")) {
                     return true;
                 }
             }

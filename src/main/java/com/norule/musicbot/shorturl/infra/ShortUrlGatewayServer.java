@@ -4,18 +4,25 @@ import com.norule.musicbot.ShortUrlService;
 import com.norule.musicbot.config.BotConfig;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import net.dv8tion.jda.api.utils.data.DataObject;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
 
 public final class ShortUrlGatewayServer {
+    private static final Set<String> RESERVED_PATHS = Set.of(
+            "api", "assets", "static", "web", "dashboard", "short-url", "index", "404"
+    );
+
     private final ShortUrlService shortUrlService;
     private final Supplier<BotConfig.ShortUrl> configSupplier;
     private volatile HttpServer server;
@@ -103,7 +110,7 @@ public final class ShortUrlGatewayServer {
             return;
         }
         String code = rawPath.startsWith("/") ? rawPath.substring(1) : rawPath;
-        if (code.isBlank() || code.contains("/")) {
+        if (code.isBlank() || code.contains("/") || RESERVED_PATHS.contains(code.toLowerCase(Locale.ROOT))) {
             sendHtml(exchange, 404, buildShortUrlNotFoundPage());
             return;
         }
@@ -120,35 +127,40 @@ public final class ShortUrlGatewayServer {
 
     private void handleCreateShortUrl(HttpExchange exchange) throws IOException {
         if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-            sendJson(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+            sendJson(exchange, 405, DataObject.empty()
+                    .put("error", "Method Not Allowed")
+                    .put("errorCode", "METHOD_NOT_ALLOWED")
+                    .toString());
             return;
         }
 
         String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-        Map<String, String> form = parseUrlEncoded(body);
+        String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+        Map<String, String> form = parseRequestBody(body, contentType);
         String target = form.getOrDefault("url", "").trim();
-        String customCode = form.getOrDefault("code", form.getOrDefault("slug", "")).trim();
+        String customCode = form.getOrDefault("customCode", form.getOrDefault("code", form.getOrDefault("slug", ""))).trim();
         if (target.isBlank()) {
-            sendJson(exchange, 400, "{\"error\":\"Missing url\"}");
+            sendJson(exchange, 400, DataObject.empty()
+                    .put("error", "Missing url")
+                    .put("errorCode", "MISSING_URL")
+                    .toString());
             return;
         }
 
         ShortUrlService.ShortUrlEntry created = shortUrlService.create(target, customCode);
         if (created == null) {
-            sendJson(exchange, 400, "{\"error\":\"Invalid url or code\"}");
+            sendJson(exchange, 400, DataObject.empty()
+                    .put("error", "Invalid url or code")
+                    .put("errorCode", "INVALID_URL_OR_CODE")
+                    .toString());
             return;
         }
 
-        String shortUrl = shortUrlService.toPublicUrl(created.getCode());
-        String payload = "{"
-                + "\"ok\":true,"
-                + "\"code\":\"" + escapeJson(created.getCode()) + "\","
-                + "\"url\":\"" + escapeJson(shortUrl) + "\","
-                + "\"target\":\"" + escapeJson(created.getTarget()) + "\","
-                + "\"createdAt\":" + created.getCreatedAt() + ","
-                + "\"expiresAt\":" + created.getExpiresAt()
-                + "}";
-        sendJson(exchange, 200, payload);
+        sendJson(exchange, 200, DataObject.empty()
+                .put("code", created.getCode())
+                .put("shortUrl", shortUrlService.toPublicUrl(created.getCode()))
+                .put("targetUrl", created.getTarget())
+                .toString());
     }
 
     private void handleWebAsset(HttpExchange exchange) throws IOException {
@@ -185,8 +197,8 @@ public final class ShortUrlGatewayServer {
     private String buildShortUrlNotFoundPage() {
         return renderTemplateString(loadTemplate("web/404.html"), Map.of(
                 "__NOT_FOUND_KICKER__", "NoRule URL",
-                "__NOT_FOUND_TITLE__", "Short URL Not Found",
-                "__NOT_FOUND_DESCRIPTION__", "This short link does not exist, has expired, or was removed.",
+                "__NOT_FOUND_TITLE__", "短網址不存在或已失效",
+                "__NOT_FOUND_DESCRIPTION__", "短網址不存在或已失效",
                 "__NOT_FOUND_ACTION_URL__", "/",
                 "__NOT_FOUND_ACTION_TEXT__", "Back to Short URL Home"
         ));
@@ -228,6 +240,23 @@ public final class ShortUrlGatewayServer {
         return map;
     }
 
+    private Map<String, String> parseRequestBody(String body, String contentType) {
+        if (contentType != null && contentType.toLowerCase(Locale.ROOT).contains("application/json")) {
+            try {
+                DataObject json = DataObject.fromJson(body == null ? "{}" : body);
+                Map<String, String> map = new HashMap<>();
+                map.put("url", json.getString("url", "").trim());
+                map.put("customCode", json.getString("customCode", "").trim());
+                map.put("code", json.getString("code", "").trim());
+                map.put("slug", json.getString("slug", "").trim());
+                return map;
+            } catch (Exception ignored) {
+                return Map.of();
+            }
+        }
+        return parseUrlEncoded(body);
+    }
+
     private String urlDecode(String value) {
         return java.net.URLDecoder.decode(value == null ? "" : value, StandardCharsets.UTF_8);
     }
@@ -246,13 +275,6 @@ public final class ShortUrlGatewayServer {
             return "application/json; charset=UTF-8";
         }
         return "text/plain; charset=UTF-8";
-    }
-
-    private String escapeJson(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private void sendText(HttpExchange exchange, int statusCode, String text) throws IOException {

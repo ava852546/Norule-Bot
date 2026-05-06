@@ -9,10 +9,14 @@ import net.dv8tion.jda.api.utils.data.DataObject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public final class ShortUrlWebService {
-    private static final String PUBLIC_BASE_URL = "https://s.norule.me";
+    private static final Set<String> RESERVED_PATHS = Set.of(
+            "api", "assets", "static", "web", "dashboard", "short-url", "index", "404"
+    );
 
     private final WebControlServer owner;
     private final ShortUrlOps shortUrlOps;
@@ -31,27 +35,15 @@ public final class ShortUrlWebService {
         }
 
         String body = owner.readBody(exchange);
-        Map<String, String> form = owner.parseUrlEncoded(body);
+        String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+        Map<String, String> form = parseRequestBody(body, contentType);
         String target = form.getOrDefault("url", "").trim();
-        String customCode = form.getOrDefault("code", form.getOrDefault("slug", "")).trim();
+        String customCode = form.getOrDefault("customCode", form.getOrDefault("code", form.getOrDefault("slug", ""))).trim();
         if (target.isBlank()) {
             owner.sendJson(exchange, 400, DataObject.empty()
                     .put("error", "Missing url")
                     .put("errorCode", "MISSING_URL"));
             return;
-        }
-
-        if (!customCode.isBlank()) {
-            ShortUrl existingByTarget = shortUrlOps.findActiveByTarget(target);
-            if (existingByTarget != null) {
-                owner.sendJson(exchange, 409, DataObject.empty()
-                        .put("error", "Target already shortened")
-                        .put("errorCode", "TARGET_ALREADY_SHORTENED")
-                        .put("url", buildPublicUrl(existingByTarget.code()))
-                        .put("code", existingByTarget.code())
-                        .put("target", existingByTarget.target()));
-                return;
-            }
         }
 
         ShortUrl created = shortUrlOps.create(target, customCode);
@@ -63,12 +55,9 @@ public final class ShortUrlWebService {
         }
 
         owner.sendJson(exchange, 200, DataObject.empty()
-                .put("ok", true)
                 .put("code", created.code())
-                .put("url", buildPublicUrl(created.code()))
-                .put("target", created.target())
-                .put("createdAt", created.createdAt())
-                .put("expiresAt", created.expiresAt()));
+                .put("shortUrl", owner.shortUrlService().toPublicUrl(created.code()))
+                .put("targetUrl", created.target()));
     }
 
     public void handleResolveShortUrl(HttpExchange exchange) throws IOException {
@@ -80,7 +69,7 @@ public final class ShortUrlWebService {
 
         String path = exchange.getRequestURI().getPath();
         if (path == null || path.isBlank() || "/".equals(path)) {
-            sendHtml(exchange, 200, loadTemplate("web/index.html"));
+            sendHtml(exchange, 200, loadTemplate("web/short-url.html"));
             return;
         }
 
@@ -99,19 +88,12 @@ public final class ShortUrlWebService {
         owner.redirect(exchange, resolved.target());
     }
 
-    private String buildPublicUrl(String code) {
-        if (code == null || code.isBlank()) {
-            return "";
-        }
-        return PUBLIC_BASE_URL + "/" + code.trim();
-    }
-
     private String extractCode(String path) {
         if (!path.startsWith("/")) {
             return null;
         }
         String value = path.substring(1).trim();
-        if (value.isBlank() || value.contains("/")) {
+        if (value.isBlank() || value.contains("/") || RESERVED_PATHS.contains(value.toLowerCase(Locale.ROOT))) {
             return null;
         }
         return value;
@@ -132,11 +114,28 @@ public final class ShortUrlWebService {
     private String buildShortUrlNotFoundPage() {
         return renderTemplateString(loadTemplate("web/404.html"), Map.of(
                 "__NOT_FOUND_KICKER__", "NoRule URL",
-                "__NOT_FOUND_TITLE__", "Short URL Not Found",
-                "__NOT_FOUND_DESCRIPTION__", "This short link does not exist, has expired, or was removed.",
+                "__NOT_FOUND_TITLE__", "短網址不存在或已失效",
+                "__NOT_FOUND_DESCRIPTION__", "短網址不存在或已失效",
                 "__NOT_FOUND_ACTION_URL__", "/",
                 "__NOT_FOUND_ACTION_TEXT__", "Back to Short URL Home"
         ));
+    }
+
+    private Map<String, String> parseRequestBody(String body, String contentType) {
+        if (contentType != null && contentType.toLowerCase(Locale.ROOT).contains("application/json")) {
+            try {
+                DataObject json = DataObject.fromJson(body == null ? "{}" : body);
+                return Map.of(
+                        "url", json.getString("url", "").trim(),
+                        "customCode", json.getString("customCode", "").trim(),
+                        "code", json.getString("code", "").trim(),
+                        "slug", json.getString("slug", "").trim()
+                );
+            } catch (Exception ignored) {
+                return Map.of();
+            }
+        }
+        return owner.parseUrlEncoded(body);
     }
 
     private String renderTemplateString(String template, Map<String, String> replacements) {

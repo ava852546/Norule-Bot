@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class SettingsCommandHandler {
+    private static final String SETTINGS_ACTION_SELECT_ID = "settings:action:select";
     private static final String LOG_SETTINGS_SELECT_PREFIX = "settings:log-settings:select:";
     private static final String LOG_SETTINGS_MEMBER_PREFIX = "settings:log-settings:member:";
     private static final String LOG_SETTINGS_ROLE_PREFIX = "settings:log-settings:role:";
@@ -62,7 +63,14 @@ public final class SettingsCommandHandler {
             sub = event.getOption("action").getAsString();
         }
         if (sub == null || sub.isBlank()) {
-            event.reply(owner.i18nService().t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            event.replyEmbeds(new EmbedBuilder()
+                            .setColor(new Color(52, 152, 219))
+                            .setTitle(owner.i18nService().t(lang, "settings.action"))
+                            .setDescription(owner.i18nService().t(lang, "settings.info_desc"))
+                            .build())
+                    .addComponents(ActionRow.of(settingsActionMenu(lang)))
+                    .setEphemeral(true)
+                    .queue();
             return;
         }
         sub = owner.canonicalSettingsSubcommand(sub);
@@ -120,6 +128,40 @@ public final class SettingsCommandHandler {
                 .addComponents(ActionRow.of(logSettingsMenu(token, lang)))
                 .setEphemeral(true)
                 .queue();
+    }
+
+    private void openLogSettingsMenu(StringSelectInteractionEvent event, String lang) {
+        String token = Long.toHexString(System.nanoTime());
+        logSettingsRequests.put(token, new LogSettingsRequest(
+                event.getUser().getIdLong(),
+                event.getGuild().getIdLong(),
+                Instant.now().plusSeconds(120)
+        ));
+        event.editMessageEmbeds(new EmbedBuilder()
+                        .setColor(new Color(52, 152, 219))
+                        .setTitle(owner.i18nService().t(lang, "settings.log_settings.title"))
+                        .setDescription(owner.i18nService().t(lang, "settings.log_settings.menu_desc"))
+                        .build())
+                .setComponents(ActionRow.of(logSettingsMenu(token, lang)))
+                .queue();
+    }
+
+    private StringSelectMenu settingsActionMenu(String lang) {
+        return StringSelectMenu.create(SETTINGS_ACTION_SELECT_ID)
+                .setPlaceholder(owner.i18nService().t(lang, "settings.action"))
+                .addOptions(
+                        SelectOption.of(owner.i18nService().t(lang, "settings.info"), "info"),
+                        SelectOption.of(owner.i18nService().t(lang, "settings.reload"), "reload"),
+                        SelectOption.of(owner.i18nService().t(lang, "settings.template"), "template"),
+                        SelectOption.of(owner.i18nService().t(lang, "settings.module"), "module"),
+                        SelectOption.of(owner.i18nService().t(lang, "settings.logs"), "logs"),
+                        SelectOption.of(owner.i18nService().t(lang, "settings.log_settings.title"), "log-settings"),
+                        SelectOption.of(owner.i18nService().t(lang, "settings.music"), "music"),
+                        SelectOption.of(owner.i18nService().t(lang, "settings.info_number_chain"), "number-chain"),
+                        SelectOption.of(owner.i18nService().t(lang, "settings.info_language"), "language"),
+                        SelectOption.of(owner.i18nService().t(lang, "settings.reset"), "reset")
+                )
+                .build();
     }
 
     private StringSelectMenu logSettingsMenu(String token, String lang) {
@@ -551,6 +593,40 @@ public final class SettingsCommandHandler {
 
     public boolean handleStringSelectInteraction(StringSelectInteractionEvent event, String lang) {
         String componentId = event.getComponentId();
+        if (SETTINGS_ACTION_SELECT_ID.equals(componentId)) {
+            String action = event.getValues().isEmpty() ? "" : owner.canonicalSettingsSubcommand(event.getValues().get(0));
+            switch (action) {
+                case "info" -> event.editMessageEmbeds(owner.settingsInfoEmbed(event.getGuild(), lang, "notifications").build())
+                        .setComponents(
+                                ActionRow.of(owner.settingsInfoMenu(lang, "notifications")),
+                                ActionRow.of(owner.settingsInfoButtons(lang, "notifications", 0)),
+                                ActionRow.of(owner.settingsInfoButtons(lang, "notifications", 1))
+                        )
+                        .queue();
+                case "reload" -> {
+                    long guildId = event.getGuild().getIdLong();
+                    owner.settingsService().reload(guildId);
+                    owner.moderationService().reload(guildId);
+                    event.editMessageEmbeds(new EmbedBuilder()
+                                    .setColor(new Color(46, 204, 113))
+                                    .setTitle(owner.i18nService().t(lang, "settings.info_title"))
+                                    .setDescription("\u2705 " + owner.i18nService().t(lang, "settings.reload_done"))
+                                    .build())
+                            .setComponents(ActionRow.of(settingsActionMenu(lang)))
+                            .queue();
+                }
+                case "language" -> owner.openLanguageMenu(event, lang);
+                case "template" -> owner.openTemplateMenu(event, lang);
+                case "module" -> owner.openModuleMenu(event, lang);
+                case "reset" -> owner.openSettingsResetMenu(event, lang);
+                case "logs" -> owner.openLogsMenu(event, lang);
+                case "music" -> owner.openMusicMenu(event, lang);
+                case "number-chain" -> owner.openNumberChainMenu(event, lang);
+                case "log-settings" -> openLogSettingsMenu(event, lang);
+                default -> event.reply(owner.i18nService().t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            }
+            return true;
+        }
         if (MusicCommandService.SETTINGS_INFO_SELECT_ID.equals(componentId)) {
             String section = event.getValues().isEmpty() ? "notifications" : event.getValues().get(0);
             event.editMessageEmbeds(owner.settingsInfoEmbed(event.getGuild(), lang, section).build())

@@ -25,7 +25,7 @@ final class BotConfigParser {
             String tokenFromEnv = System.getenv("DISCORD_TOKEN");
             String token = !tokenFromConfig.isBlank() ? tokenFromConfig : nullToEmpty(tokenFromEnv);
             if (token.isBlank()) {
-                throw new IllegalStateException("Token missing. Set token in config.yml or DISCORD_TOKEN.");
+                throw new IllegalStateException("依賴檢查完成，請到 config.yml 輸入 token，或設定 DISCORD_TOKEN。");
             }
 
             String prefix = getString(root, "prefix", "!");
@@ -49,6 +49,7 @@ final class BotConfigParser {
             Map<String, Object> shortUrlMap = applySharedDatabase(asMap(root.get("shortUrl")), sharedDatabase);
             Map<String, Object> statsMap = applySharedDatabase(asMap(root.get("stats")), sharedDatabase);
             BotConfig.ShortUrl shortUrl = BotConfig.ShortUrl.fromMap(shortUrlMap, null);
+            BotConfig.MinecraftStatus minecraftStatus = BotConfig.MinecraftStatus.fromMap(asMap(root.get("minecraftStatus")), null);
             BotConfig.Web web = BotConfig.Web.fromMap(asMap(root.get("web")), null);
             BotConfig.Stats stats = BotConfig.Stats.fromMap(statsMap, null);
 
@@ -72,6 +73,7 @@ final class BotConfigParser {
                     privateRoom,
                     ticket,
                     shortUrl,
+                    minecraftStatus,
                     web,
                     stats
             );
@@ -154,15 +156,15 @@ final class BotConfigParser {
             result.putAll(module);
         }
         Object storage = sharedDatabase.get("storage");
-        if (storage != null) {
+        if (storage != null && !result.containsKey("storage")) {
             result.put("storage", String.valueOf(storage));
         }
         Object mysql = sharedDatabase.get("mysql");
-        if (mysql instanceof Map<?, ?> mysqlMap) {
+        if (mysql instanceof Map<?, ?> mysqlMap && !result.containsKey("mysql")) {
             result.put("mysql", new LinkedHashMap<>((Map<String, Object>) mysqlMap));
         }
         Object sqlite = sharedDatabase.get("sqlite");
-        if (sqlite instanceof Map<?, ?> sqliteMap) {
+        if (sqlite instanceof Map<?, ?> sqliteMap && !result.containsKey("sqlite")) {
             result.put("sqlite", new LinkedHashMap<>((Map<String, Object>) sqliteMap));
         }
         return result;

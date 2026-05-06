@@ -136,11 +136,23 @@ public final class WebStaticAssetController {
 
     private String buildTabPaneHtml(String tabId) {
         return switch (tabId) {
+            case "general" -> buildGeneralTabHtml();
             case "notifications" -> buildNotificationsTabHtml();
             case "welcome" -> buildWelcomeTabHtml();
             case "ticket" -> buildTicketTabHtml();
             default -> loadWebTemplate("web/templates/tabs/" + tabId + ".html");
         };
+    }
+
+    private String buildGeneralTabHtml() {
+        return renderTemplate("web/templates/tabs/general.html", Map.of(
+                "__PANE_HEAD__", buildPaneHead(
+                        "general_group_title",
+                        "section_language",
+                        "language",
+                        buildResetButton("resetGeneralBtn")
+                )
+        ));
     }
 
     private String buildNotificationsTabHtml() {

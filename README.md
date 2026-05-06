@@ -165,7 +165,6 @@ commandGuildId: ""
 data:
   guildSettingsDir: "guild-configs"
   languageDir: "lang"
-  cacheDir: "cache"
   musicDir: "guild-music"
   moderationDir: "guild-moderation"
   ticketDir: "guild-tickets"

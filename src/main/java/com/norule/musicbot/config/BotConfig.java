@@ -29,6 +29,7 @@ public class BotConfig {
     private final PrivateRoom privateRoom;
     private final Ticket ticket;
     private final ShortUrl shortUrl;
+    private final MinecraftStatus minecraftStatus;
     private final Web web;
     private final Stats stats;
 
@@ -51,6 +52,7 @@ public class BotConfig {
                       PrivateRoom privateRoom,
                       Ticket ticket,
                       ShortUrl shortUrl,
+                      MinecraftStatus minecraftStatus,
                       Web web,
                       Stats stats) {
         this.token = token;
@@ -72,6 +74,7 @@ public class BotConfig {
         this.privateRoom = privateRoom;
         this.ticket = ticket;
         this.shortUrl = shortUrl;
+        this.minecraftStatus = minecraftStatus == null ? MinecraftStatus.defaultValues() : minecraftStatus;
         this.web = web;
         this.stats = stats;
     }
@@ -104,10 +107,6 @@ public String getToken() {
 
     public DataPaths getDataPaths() {
         return dataPaths;
-    }
-
-    public String getCacheDir() {
-        return dataPaths.getCacheDir();
     }
 
     public String getMusicDataDir() {
@@ -157,7 +156,6 @@ public String getToken() {
     public static class DataPaths {
         private final String guildSettingsDir;
         private final String languageDir;
-        private final String cacheDir;
         private final String musicDir;
         private final String moderationDir;
         private final String ticketDir;
@@ -167,7 +165,6 @@ public String getToken() {
 
         private DataPaths(String guildSettingsDir,
                           String languageDir,
-                          String cacheDir,
                           String musicDir,
                           String moderationDir,
                           String ticketDir,
@@ -176,7 +173,6 @@ public String getToken() {
                           String logDir) {
             this.guildSettingsDir = blankToDefault(guildSettingsDir, "guild/configs");
             this.languageDir = blankToDefault(languageDir, "lang");
-            this.cacheDir = blankToDefault(cacheDir, "cache");
             this.musicDir = blankToDefault(musicDir, "guild/music");
             this.moderationDir = blankToDefault(moderationDir, "guild/moderation");
             this.ticketDir = blankToDefault(ticketDir, "guild/tickets");
@@ -195,7 +191,6 @@ public String getToken() {
             return new DataPaths(
                     configuredPath(data, root, defaults, defaultRoot, "guildSettingsDir", "guild/configs"),
                     configuredPath(data, root, defaults, defaultRoot, "languageDir", "lang"),
-                    configuredPath(data, root, defaults, defaultRoot, "cacheDir", "cache"),
                     configuredPath(data, root, defaults, defaultRoot, "musicDir", "guild/music"),
                     configuredPath(data, root, defaults, defaultRoot, "moderationDir", "guild/moderation"),
                     configuredPath(data, root, defaults, defaultRoot, "ticketDir", "guild/tickets"),
@@ -237,10 +232,6 @@ public String getToken() {
 
         public String getLanguageDir() {
             return languageDir;
-        }
-
-        public String getCacheDir() {
-            return cacheDir;
         }
 
         public String getMusicDir() {
@@ -294,6 +285,10 @@ public String getToken() {
 
     public ShortUrl getShortUrl() {
         return shortUrl;
+    }
+
+    public MinecraftStatus getMinecraftStatus() {
+        return minecraftStatus;
     }
 
     public Web getWeb() {
@@ -1166,6 +1161,7 @@ public String getToken() {
         }
 
         public static class Spotify {
+            private final boolean enabled;
             private final String clientId;
             private final String clientSecret;
             private final String spDc;
@@ -1175,7 +1171,8 @@ public String getToken() {
             private final int playlistMaxTracks;
             private final int playlistLoadCooldownSeconds;
 
-            private Spotify(String clientId,
+            private Spotify(boolean enabled,
+                            String clientId,
                             String clientSecret,
                             String spDc,
                             String countryCode,
@@ -1183,6 +1180,7 @@ public String getToken() {
                             String customTokenEndpoint,
                             int playlistMaxTracks,
                             int playlistLoadCooldownSeconds) {
+                this.enabled = enabled;
                 this.clientId = nullToEmpty(clientId);
                 this.clientSecret = nullToEmpty(clientSecret);
                 this.spDc = nullToEmpty(spDc);
@@ -1196,6 +1194,7 @@ public String getToken() {
             public static Spotify fromMap(Map<String, Object> map, Spotify fallback) {
                 Spotify defaults = fallback == null ? defaultValues() : fallback;
                 return new Spotify(
+                        getBoolean(map, "enabled", defaults.isEnabled()),
                         getString(map, "clientId", defaults.getClientId()),
                         getString(map, "clientSecret", defaults.getClientSecret()),
                         getString(map, "spDc", defaults.getSpDc()),
@@ -1208,7 +1207,11 @@ public String getToken() {
             }
 
             public static Spotify defaultValues() {
-                return new Spotify("", "", "", "TW", false, "", 50, 60);
+                return new Spotify(false, "", "", "", "TW", false, "", 50, 60);
+            }
+
+            public boolean isEnabled() {
+                return enabled;
             }
 
             public String getClientId() {
@@ -1246,17 +1249,20 @@ public String getToken() {
 
         public static class Youtube {
             private final boolean oauthEnabled;
+            private final boolean cipherEnabled;
             private final String oauthRefreshToken;
             private final String cipherServer;
             private final String cipherPassword;
             private final String cipherUserAgent;
 
             private Youtube(boolean oauthEnabled,
+                            boolean cipherEnabled,
                             String oauthRefreshToken,
                             String cipherServer,
                             String cipherPassword,
                             String cipherUserAgent) {
                 this.oauthEnabled = oauthEnabled;
+                this.cipherEnabled = cipherEnabled;
                 this.oauthRefreshToken = nullToEmpty(oauthRefreshToken);
                 this.cipherServer = nullToEmpty(cipherServer);
                 this.cipherPassword = nullToEmpty(cipherPassword);
@@ -1267,6 +1273,7 @@ public String getToken() {
                 Youtube defaults = fallback == null ? defaultValues() : fallback;
                 return new Youtube(
                         getBoolean(map, "oauthEnabled", defaults.isOauthEnabled()),
+                        getBoolean(map, "cipherEnabled", defaults.isCipherEnabled()),
                         getString(map, "oauthRefreshToken", defaults.getOauthRefreshToken()),
                         getString(map, "cipherServer", defaults.getCipherServer()),
                         getString(map, "cipherPassword", defaults.getCipherPassword()),
@@ -1275,11 +1282,15 @@ public String getToken() {
             }
 
             public static Youtube defaultValues() {
-                return new Youtube(false, "", "", "", "");
+                return new Youtube(false, false, "", "", "", "");
             }
 
             public boolean isOauthEnabled() {
                 return oauthEnabled;
+            }
+
+            public boolean isCipherEnabled() {
+                return cipherEnabled;
             }
 
             public String getOauthRefreshToken() {
@@ -1976,6 +1987,46 @@ public String getToken() {
         }
     }
 
+    public static class MinecraftStatus {
+        private final String userAgent;
+        private final int requestTimeoutMillis;
+        private final int internalCacheSeconds;
+
+        private MinecraftStatus(String userAgent, int requestTimeoutMillis, int internalCacheSeconds) {
+            String normalizedUserAgent = userAgent == null ? "" : userAgent.trim();
+            this.userAgent = normalizedUserAgent.isBlank()
+                    ? "NoRuleBot/1.0 contact: admin@norule.me"
+                    : normalizedUserAgent;
+            this.requestTimeoutMillis = Math.max(1_000, requestTimeoutMillis);
+            this.internalCacheSeconds = Math.max(0, internalCacheSeconds);
+        }
+
+        public static MinecraftStatus fromMap(Map<String, Object> map, MinecraftStatus fallback) {
+            MinecraftStatus defaults = fallback == null ? defaultValues() : fallback;
+            return new MinecraftStatus(
+                    getString(map, "userAgent", defaults.getUserAgent()),
+                    getInt(map, "requestTimeoutMillis", defaults.getRequestTimeoutMillis()),
+                    getInt(map, "internalCacheSeconds", defaults.getInternalCacheSeconds())
+            );
+        }
+
+        public static MinecraftStatus defaultValues() {
+            return new MinecraftStatus("NoRuleBot/1.0 contact: admin@norule.me", 15_000, 60);
+        }
+
+        public String getUserAgent() {
+            return userAgent;
+        }
+
+        public int getRequestTimeoutMillis() {
+            return requestTimeoutMillis;
+        }
+
+        public int getInternalCacheSeconds() {
+            return internalCacheSeconds;
+        }
+    }
+
     public static class ShortUrl {
         public static final class Bind {
             private final String host;
@@ -2032,6 +2083,8 @@ public String getToken() {
         private final boolean enabled;
         private final Bind bind;
         private final Public publicConfig;
+        private final int codeLength;
+        private final boolean allowPrivateTargets;
         private final String storage;
         private final boolean dedupe;
         private final int ttlDays;
@@ -2042,6 +2095,8 @@ public String getToken() {
         private ShortUrl(boolean enabled,
                          Bind bind,
                          Public publicConfig,
+                         int codeLength,
+                         boolean allowPrivateTargets,
                          String storage,
                          boolean dedupe,
                          int ttlDays,
@@ -2051,6 +2106,8 @@ public String getToken() {
             this.enabled = enabled;
             this.bind = bind == null ? Bind.defaultValues() : bind;
             this.publicConfig = publicConfig == null ? Public.defaultValues() : publicConfig;
+            this.codeLength = Math.max(4, Math.min(32, codeLength));
+            this.allowPrivateTargets = allowPrivateTargets;
             this.storage = normalizeStorage(storage);
             this.dedupe = dedupe;
             this.ttlDays = Math.max(1, ttlDays);
@@ -2065,6 +2122,14 @@ public String getToken() {
             Map<String, Object> publicMap = asMap(map.get("public"));
 
             Map<String, Object> effectiveBindMap = new LinkedHashMap<>(bindMap);
+            String bindHost = getString(map, "bindHost", "");
+            if (!bindHost.isBlank()) {
+                effectiveBindMap.put("host", bindHost);
+            }
+            int bindPort = getInt(map, "bindPort", -1);
+            if (bindPort > 0) {
+                effectiveBindMap.put("port", bindPort);
+            }
             if (!effectiveBindMap.containsKey("host")) {
                 effectiveBindMap.put("host", getString(map, "host", defaults.getBindHost()));
             }
@@ -2074,7 +2139,11 @@ public String getToken() {
             Bind bind = Bind.fromMap(effectiveBindMap, defaults.getBind());
 
             Map<String, Object> effectivePublicMap = new LinkedHashMap<>(publicMap);
-            String publicBaseUrl = getString(effectivePublicMap, "baseUrl", "");
+            String publicBaseUrl = getString(map, "publicBaseUrl", "");
+            if (!publicBaseUrl.isBlank()) {
+                effectivePublicMap.put("baseUrl", publicBaseUrl);
+            }
+            publicBaseUrl = getString(effectivePublicMap, "baseUrl", "");
             if (publicBaseUrl.isBlank()) {
                 publicBaseUrl = getString(map, "baseUrl", "");
             }
@@ -2094,6 +2163,8 @@ public String getToken() {
                     getBoolean(map, "enabled", defaults.isEnabled()),
                     bind,
                     publicConfig,
+                    getInt(map, "codeLength", defaults.getCodeLength()),
+                    getBoolean(map, "allowPrivateTargets", defaults.isAllowPrivateTargets()),
                     getString(map, "storage", defaults.getStorage()),
                     getBoolean(map, "dedupe", defaults.isDedupe()),
                     getInt(map, "ttlDays", defaults.getTtlDays()),
@@ -2105,13 +2176,15 @@ public String getToken() {
 
         public static ShortUrl defaultValues() {
             return new ShortUrl(
-                    true,
+                    false,
                     Bind.defaultValues(),
                     Public.defaultValues(),
+                    7,
+                    false,
                     "sqlite",
                     true,
-                    180,
-                    1440,
+                    7,
+                    10,
                     Mysql.defaultValues(),
                     Sqlite.defaultValues()
             );
@@ -2139,6 +2212,14 @@ public String getToken() {
 
         public String getPublicBaseUrl() {
             return publicConfig.getBaseUrl();
+        }
+
+        public int getCodeLength() {
+            return codeLength;
+        }
+
+        public boolean isAllowPrivateTargets() {
+            return allowPrivateTargets;
         }
 
         @Deprecated

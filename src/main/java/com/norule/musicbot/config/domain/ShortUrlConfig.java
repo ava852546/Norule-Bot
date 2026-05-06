@@ -39,6 +39,8 @@ public final class ShortUrlConfig {
     private final String bindHost;
     private final int bindPort;
     private final String publicBaseUrl;
+    private final int codeLength;
+    private final boolean allowPrivateTargets;
     private final boolean dedupe;
     private final int ttlDays;
     private final int cleanupIntervalMinutes;
@@ -49,6 +51,8 @@ public final class ShortUrlConfig {
                           String bindHost,
                           int bindPort,
                           String publicBaseUrl,
+                          int codeLength,
+                          boolean allowPrivateTargets,
                           String storage,
                           boolean dedupe,
                           int ttlDays,
@@ -64,6 +68,8 @@ public final class ShortUrlConfig {
         this.publicBaseUrl = normalizedBaseUrl.endsWith("/")
                 ? normalizedBaseUrl.substring(0, normalizedBaseUrl.length() - 1)
                 : normalizedBaseUrl;
+        this.codeLength = Math.max(4, Math.min(32, codeLength));
+        this.allowPrivateTargets = allowPrivateTargets;
         this.storage = normalizeStorage(storage);
         this.dedupe = dedupe;
         this.ttlDays = Math.max(1, ttlDays);
@@ -78,6 +84,8 @@ public final class ShortUrlConfig {
         this.bindHost = source.getBindHost();
         this.bindPort = source.getBindPort();
         this.publicBaseUrl = source.getPublicBaseUrl();
+        this.codeLength = source.getCodeLength();
+        this.allowPrivateTargets = source.isAllowPrivateTargets();
         this.storage = source.getStorage();
         this.dedupe = source.isDedupe();
         this.ttlDays = source.getTtlDays();
@@ -96,7 +104,9 @@ public final class ShortUrlConfig {
                 dedupe,
                 ttlDays * 24L * 60L * 60L * 1000L,
                 cleanupIntervalMinutes * 60L * 1000L,
-                publicBaseUrl
+                publicBaseUrl,
+                codeLength,
+                allowPrivateTargets
         );
     }
 
@@ -104,6 +114,8 @@ public final class ShortUrlConfig {
     public String getBindHost() { return bindHost; }
     public int getBindPort() { return bindPort; }
     public String getPublicBaseUrl() { return publicBaseUrl; }
+    public int getCodeLength() { return codeLength; }
+    public boolean isAllowPrivateTargets() { return allowPrivateTargets; }
     @Deprecated
     public String getHost() { return getBindHost(); }
     @Deprecated

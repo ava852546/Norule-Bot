@@ -36,6 +36,10 @@ public final class MetaOps {
                 owner.urlCommandHandler().handleUrlSlash(event, lang);
                 yield true;
             }
+            case "mcstatus" -> {
+                owner.minecraftStatusCommandHandler().handleStatusSlash(event, lang);
+                yield true;
+            }
             default -> false;
         };
     }

@@ -5,15 +5,18 @@ import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.app.PlaylistCommandHandler;
 import com.norule.musicbot.discord.bot.ops.stats.StatsOps;
 import com.norule.musicbot.discord.bot.ops.ticket.TicketOps;
+import com.norule.musicbot.discord.bot.ops.wordchain.WordChainOps;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 
 public final class ButtonOps {
     private final MusicCommandService owner;
     private final StatsOps statsOps;
+    private final WordChainOps wordChainOps;
 
-    public ButtonOps(MusicCommandService owner) {
+    public ButtonOps(MusicCommandService owner, WordChainOps wordChainOps) {
         this.owner = owner;
         this.statsOps = new StatsOps(owner);
+        this.wordChainOps = wordChainOps;
     }
 
     public void handle(ButtonInteractionEvent event) {
@@ -26,6 +29,9 @@ public final class ButtonOps {
             return;
         }
         String lang = owner.lang(event.getGuild().getIdLong());
+        if (wordChainOps != null && wordChainOps.handleButton(event, lang)) {
+            return;
+        }
         if (statsOps.handleButton(event)) {
             return;
         }
