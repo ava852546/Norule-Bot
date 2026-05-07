@@ -159,7 +159,7 @@ help:
     音乐面板支持播放控制、音量调整、循环模式、自动推荐、封面显示、播放历史与音乐统计。
   content_settings: |
     服务器设置
-    `/settings action:info|reload|reset|template|module|logs|music|number-chain|language`
+    `/settings action:info|reload|reset|template|module|logs|music|number-chain|wordchain|language`
     `/設定 選項:詳細資訊|重載設定|恢復預設|模板編輯|模組開關|日誌頻道|音樂設定|接龍遊戲|語言設置`
 
     欢迎消息
@@ -259,6 +259,14 @@ settings:
   number_chain_menu_pick_channel_title: "选择数字接龙频道"
   number_chain_menu_pick_channel_desc: "请选择用于数字接龙的文字频道。"
   number_chain_menu_channel_placeholder: "选择文字频道"
+  word_chain_menu_title: "英文接龙设置"
+  word_chain_menu_desc: "使用下拉菜单调整英文接龙设置。"
+  word_chain_menu_placeholder: "选择英文接龙设置"
+  word_chain_menu_expired: "英文接龙设置菜单已过期，请重新执行 `/settings` 并选择英文接龙。"
+  word_chain_menu_pick_channel_title: "选择英文接龙频道"
+  word_chain_menu_pick_channel_desc: "请选择用于英文接龙的文字频道。"
+  word_chain_menu_channel_placeholder: "选择文字频道"
+  word_chain_channel_required: "请先设置英文接龙频道。"
   option_not_allowed: "`{option}` 不能与 `{action}` 一起使用。"
   validation_expected_text_channel: "请选择文字频道。"
   validation_expected_voice_channel: "请选择语音频道或舞台频道。"
@@ -272,6 +280,7 @@ settings:
   info_music: "音乐设置"
   info_private_room: "私人包厢"
   info_number_chain: "数字接龙"
+  info_word_chain: "英文接龙"
   info_module: "模块"
   info_select_placeholder: "选择信息区块"
   info_section_overview: "总览"
@@ -321,6 +330,11 @@ settings:
   info_key_number_chain_enabled: "数字接龙启用"
   info_key_number_chain_channel: "数字接龙频道"
   info_key_number_chain_next: "下一个数字"
+  info_key_word_chain_enabled: "英文接龙启用"
+  info_key_word_chain_channel: "英文接龙频道"
+  info_key_word_chain_last_word: "上一个单词"
+  info_key_word_chain_next: "下一个字母"
+  info_key_word_chain_chain_count: "当前接龙数"
   key_notifications_enabled: "通知启用"
   key_notifications_memberChannelId: "成员加入/离开通知频道"
   key_notifications_voiceChannelId: "语音通知频道"

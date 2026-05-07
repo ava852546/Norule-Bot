@@ -23,6 +23,7 @@ import java.awt.Color;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class WordChainOps {
@@ -41,6 +42,22 @@ public final class WordChainOps {
 
     public WordChainOps(WordChainService wordChainService) {
         this.wordChainService = wordChainService;
+    }
+
+    public CompletableFuture<WordChainStatusSnapshot> status(long guildId) {
+        return wordChainService.status(guildId);
+    }
+
+    public CompletableFuture<WordChainStatusSnapshot> setChannel(long guildId, long channelId) {
+        return wordChainService.setChannel(guildId, channelId);
+    }
+
+    public CompletableFuture<WordChainStatusSnapshot> disable(long guildId) {
+        return wordChainService.disable(guildId);
+    }
+
+    public CompletableFuture<WordChainStatusSnapshot> reset(long guildId) {
+        return wordChainService.reset(guildId);
     }
 
     public boolean handleSlash(String commandName, SlashCommandInteractionEvent event, String lang) {

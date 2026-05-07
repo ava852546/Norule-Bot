@@ -109,6 +109,7 @@ public final class SettingsCommandHandler {
             case "log-settings" -> openLogSettingsMenu(event, lang);
             case "music" -> owner.openMusicMenu(event, lang);
             case "number-chain" -> owner.openNumberChainMenu(event, lang);
+            case "wordchain" -> owner.openWordChainMenu(event, lang);
             default -> event.reply(owner.i18nService().t(lang, "general.unknown_command")).setEphemeral(true).queue();
         }
     }
@@ -158,6 +159,7 @@ public final class SettingsCommandHandler {
                         SelectOption.of(owner.i18nService().t(lang, "settings.log_settings.title"), "log-settings"),
                         SelectOption.of(owner.i18nService().t(lang, "settings.music"), "music"),
                         SelectOption.of(owner.i18nService().t(lang, "settings.info_number_chain"), "number-chain"),
+                        SelectOption.of(owner.i18nService().t(lang, "settings.info_word_chain"), "wordchain"),
                         SelectOption.of(owner.i18nService().t(lang, "settings.info_language"), "language"),
                         SelectOption.of(owner.i18nService().t(lang, "settings.reset"), "reset")
                 )
@@ -538,9 +540,8 @@ public final class SettingsCommandHandler {
 
         List<String> responses = new ArrayList<>();
 
-        if ("enable".equals(action)) {
-            boolean currentEnabled = owner.moderationService().isNumberChainEnabled(guildId);
-            boolean nextEnabled = !currentEnabled;
+        if ("enable".equals(action) || "disable".equals(action)) {
+            boolean nextEnabled = "enable".equals(action);
             owner.moderationService().setNumberChainEnabled(guildId, nextEnabled);
             responses.add(owner.i18nService().t(lang, "number_chain.result_set_enabled",
                     Map.of("status", owner.boolText(lang, nextEnabled))));
@@ -588,6 +589,12 @@ public final class SettingsCommandHandler {
     }
 
     private String numberChainStatusTitle(String lang) {
+        if ("zh-CN".equalsIgnoreCase(lang)) {
+            return "数字接龙状态";
+        }
+        if (lang != null && lang.toLowerCase().startsWith("zh")) {
+            return "數字接龍狀態";
+        }
         return "Number Chain Status";
     }
 
@@ -622,6 +629,7 @@ public final class SettingsCommandHandler {
                 case "logs" -> owner.openLogsMenu(event, lang);
                 case "music" -> owner.openMusicMenu(event, lang);
                 case "number-chain" -> owner.openNumberChainMenu(event, lang);
+                case "wordchain" -> owner.openWordChainMenu(event, lang);
                 case "log-settings" -> openLogSettingsMenu(event, lang);
                 default -> event.reply(owner.i18nService().t(lang, "general.unknown_command")).setEphemeral(true).queue();
             }
@@ -668,6 +676,10 @@ public final class SettingsCommandHandler {
         }
         if (componentId.startsWith(MusicCommandService.SETTINGS_NUMBER_CHAIN_SELECT_PREFIX)) {
             owner.handleNumberChainMenuSelect(event, lang);
+            return true;
+        }
+        if (componentId.startsWith(MusicCommandService.SETTINGS_WORD_CHAIN_SELECT_PREFIX)) {
+            owner.handleWordChainMenuSelect(event, lang);
             return true;
         }
         if (componentId.startsWith(MusicCommandService.SETTINGS_RESET_SELECT_PREFIX)) {
@@ -982,6 +994,10 @@ public final class SettingsCommandHandler {
         }
         if (componentId.startsWith(MusicCommandService.SETTINGS_NUMBER_CHAIN_CHANNEL_PREFIX)) {
             owner.handleNumberChainChannelSelect(event, lang);
+            return true;
+        }
+        if (componentId.startsWith(MusicCommandService.SETTINGS_WORD_CHAIN_CHANNEL_PREFIX)) {
+            owner.handleWordChainChannelSelect(event, lang);
             return true;
         }
         return false;

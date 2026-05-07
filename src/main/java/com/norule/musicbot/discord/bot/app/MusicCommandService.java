@@ -5,6 +5,7 @@ import com.norule.musicbot.config.domain.MinecraftStatusConfig;
 import com.norule.musicbot.config.domain.GuildDomainConfigAdapter;
 import com.norule.musicbot.config.domain.RuntimeConfigSnapshot;
 import com.norule.musicbot.discord.bot.app.stats.MessageStatsEventService;
+import com.norule.musicbot.domain.wordchain.WordChainStatusSnapshot;
 import com.norule.musicbot.domain.music.*;
 import com.norule.musicbot.i18n.*;
 import com.norule.musicbot.gateway.minecraft.McSrvStatGateway;
@@ -120,7 +121,9 @@ public class MusicCommandService extends ListenerAdapter {
     static final String SUB_SETTINGS_MUSIC_ZH = "\u97f3\u6a02\u8a2d\u5b9a";
     static final String SUB_SETTINGS_LANGUAGE_ZH = "\u8a9e\u8a00\u8a2d\u7f6e";
     static final String SUB_SETTINGS_NUMBER_CHAIN_ZH = "\u63a5\u9f8d\u904a\u6232";
+    static final String SUB_SETTINGS_WORD_CHAIN_ZH = "\u82f1\u6587\u63a5\u9f8d";
     static final String SUB_GENERIC_ENABLE_ZH = "\u555f\u7528";
+    static final String SUB_GENERIC_DISABLE_ZH = "\u95dc\u9589";
     static final String SUB_GENERIC_STATUS_ZH = "\u72c0\u614b";
     static final String SUB_MUSIC_STATS_ZH = "\u7d71\u8a08";
     static final String SUB_PLAYLIST_SAVE_ZH = "\u5132\u5b58";
@@ -155,6 +158,8 @@ public class MusicCommandService extends ListenerAdapter {
     static final String SETTINGS_LANGUAGE_SELECT_PREFIX = "settings:language:select:";
     static final String SETTINGS_NUMBER_CHAIN_SELECT_PREFIX = "settings:numberchain:select:";
     static final String SETTINGS_NUMBER_CHAIN_CHANNEL_PREFIX = "settings:numberchain:channel:";
+    static final String SETTINGS_WORD_CHAIN_SELECT_PREFIX = "settings:wordchain:select:";
+    static final String SETTINGS_WORD_CHAIN_CHANNEL_PREFIX = "settings:wordchain:channel:";
     static final String SETTINGS_RESET_SELECT_PREFIX = "settings:reset:";
     static final String SETTINGS_RESET_CONFIRM_PREFIX = "settings:reset:confirm:";
     static final String SETTINGS_RESET_CANCEL_PREFIX = "settings:reset:cancel:";
@@ -199,6 +204,7 @@ public class MusicCommandService extends ListenerAdapter {
     private final Map<String, MenuRequest> musicMenuRequests = new ConcurrentHashMap<>();
     private final Map<String, MenuRequest> languageMenuRequests = new ConcurrentHashMap<>();
     private final Map<String, MenuRequest> numberChainMenuRequests = new ConcurrentHashMap<>();
+    private final Map<String, MenuRequest> wordChainMenuRequests = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private volatile JDA jda;
     private final CommandRegistrar commandRegistrar;
@@ -215,6 +221,7 @@ public class MusicCommandService extends ListenerAdapter {
     private final UrlCommandHandler urlCommandHandler;
     private final MinecraftStatusCommandHandler minecraftStatusCommandHandler;
     private final InteractionRouter interactionRouter;
+    private final WordChainOps wordChainOps;
     private final TicketOps ticketOps;
     private final MessageStatsEventService statsEventService;
     private final ShortUrlService shortUrlService;
@@ -271,6 +278,7 @@ public class MusicCommandService extends ListenerAdapter {
         );
         this.minecraftStatusCommandHandler = new MinecraftStatusCommandHandler(this, minecraftStatusOps);
         this.statsEventService = statsEventService;
+        this.wordChainOps = wordChainOps;
         this.ticketConfigAdapter = new GuildDomainConfigAdapter(settingsService, runtimeConfig.getDefaultMusic());
         this.ticketOps = new TicketOps(new com.norule.musicbot.discord.bot.ops.ticket.TicketService(ticketConfigAdapter, ticketService, i18n));
         this.interactionRouter = new InteractionRouter(this, wordChainOps);
@@ -299,6 +307,7 @@ public class MusicCommandService extends ListenerAdapter {
         musicMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
         languageMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
         numberChainMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        wordChainMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
         commandCooldowns.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= nowMillis);
         panelButtonCooldowns.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= nowMillis);
         playbackCommandHandler.cleanupExpiredRequests(now);
@@ -578,6 +587,13 @@ public class MusicCommandService extends ListenerAdapter {
                 if (hasPrefix) yield settingsActionOptionError(lang, route, "prefix");
                 yield null;
             }
+            case "wordchain" -> {
+                if (hasCode) yield settingsActionOptionError(lang, route, "code");
+                if (hasLogSetting) yield settingsActionOptionError(lang, route, "log-setting");
+                if (hasUser) yield settingsActionOptionError(lang, route, "user");
+                if (hasPrefix) yield settingsActionOptionError(lang, route, "prefix");
+                yield null;
+            }
             case "log-settings" -> {
                 if (hasCode) yield settingsActionOptionError(lang, route, "code");
                 if (hasValue) yield settingsActionOptionError(lang, route, "value");
@@ -637,6 +653,7 @@ public class MusicCommandService extends ListenerAdapter {
             case "music" -> i18n.t(lang, "settings.music");
             case "language" -> i18n.t(lang, "settings.info_language");
             case "number-chain" -> i18n.t(lang, "settings.info_number_chain");
+            case "wordchain" -> i18n.t(lang, "settings.info_word_chain");
             default -> route;
         };
     }
@@ -3245,24 +3262,67 @@ public class MusicCommandService extends ListenerAdapter {
         OptionData reset = new OptionData(OptionType.BOOLEAN, "reset",
                 zh ? "\u5c07\u9032\u5ea6\u91cd\u8a2d\u56de 1" : "Reset progress back to 1", false);
         return Commands.slash(commandName, zh ? "\u6578\u5b57\u63a5\u9f8d\u8a2d\u5b9a" : "Number chain settings")
-                .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_SERVER))
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
                 .addOptions(buildNumberChainActionOption(zh), channel, reset);
     }
 
     private SlashCommandData buildWordChainCommand(String commandName, boolean zh) {
-        OptionData setChannelOption = new OptionData(OptionType.CHANNEL, "channel",
-                zh ? "\u55ae\u5b57\u63a5\u9f8d\u983b\u9053" : "Word chain text channel", true)
-                .setChannelTypes(ChannelType.TEXT);
-        SubcommandData setChannel = new SubcommandData("set-channel", zh ? "\u8a2d\u5b9a\u63a5\u9f8d\u983b\u9053" : "Set word chain channel")
-                .addOptions(setChannelOption);
-        SubcommandData disable = new SubcommandData("disable", zh ? "\u95dc\u9589\u55ae\u5b57\u63a5\u9f8d" : "Disable word chain");
-        SubcommandData reset = new SubcommandData("reset", zh ? "\u91cd\u7f6e\u7576\u524d\u9032\u5ea6" : "Reset current word chain progress");
-        SubcommandData status = new SubcommandData("status", zh ? "\u986f\u793a\u63a5\u9f8d\u72c0\u614b" : "Show current word chain status");
-        SubcommandData rules = new SubcommandData("rules", zh ? "\u986f\u793a\u898f\u5247" : "Show word chain rules");
-        SubcommandData stats = new SubcommandData("stats", zh ? "\u986f\u793a\u7d71\u8a08" : "Show stats")
-                .addOptions(new OptionData(OptionType.USER, "user", zh ? "\u76ee\u6a19\u4f7f\u7528\u8005" : "Target user", false));
-        SubcommandData leaderboard = new SubcommandData("leaderboard", zh ? "\u986f\u793a\u6392\u884c\u699c" : "Show leaderboard")
-                .addOptions(new OptionData(OptionType.INTEGER, "limit", zh ? "\u540d\u6b21\u6578\u91cf(1-20)" : "Ranking size (1-20)", false));
+        OptionData setChannelOption = localizedOptionName(
+                new OptionData(OptionType.CHANNEL, "channel",
+                        zh ? "\u55ae\u5b57\u63a5\u9f8d\u983b\u9053" : "Word chain text channel", true)
+                        .setChannelTypes(ChannelType.TEXT),
+                "\u983b\u9053",
+                "\u9891\u9053"
+        );
+        OptionData statsUserOption = localizedOptionName(
+                new OptionData(OptionType.USER, "user", zh ? "\u76ee\u6a19\u4f7f\u7528\u8005" : "Target user", false),
+                "\u4f7f\u7528\u8005",
+                "\u7528\u6237"
+        );
+        OptionData leaderboardLimitOption = localizedOptionName(
+                new OptionData(OptionType.INTEGER, "limit", zh ? "\u540d\u6b21\u6578\u91cf(1-20)" : "Ranking size (1-20)", false),
+                "\u540d\u6b21",
+                "\u540d\u6b21"
+        );
+
+        SubcommandData setChannel = localizedSubcommandName(
+                new SubcommandData("set-channel", zh ? "\u8a2d\u5b9a\u63a5\u9f8d\u983b\u9053" : "Set word chain channel")
+                        .addOptions(setChannelOption),
+                "\u8a2d\u5b9a\u983b\u9053",
+                "\u8bbe\u7f6e\u9891\u9053"
+        );
+        SubcommandData disable = localizedSubcommandName(
+                new SubcommandData("disable", zh ? "\u95dc\u9589\u55ae\u5b57\u63a5\u9f8d" : "Disable word chain"),
+                "\u95dc\u9589",
+                "\u5173\u95ed"
+        );
+        SubcommandData reset = localizedSubcommandName(
+                new SubcommandData("reset", zh ? "\u91cd\u7f6e\u7576\u524d\u9032\u5ea6" : "Reset current word chain progress"),
+                "\u91cd\u7f6e",
+                "\u91cd\u7f6e"
+        );
+        SubcommandData status = localizedSubcommandName(
+                new SubcommandData("status", zh ? "\u986f\u793a\u63a5\u9f8d\u72c0\u614b" : "Show current word chain status"),
+                "\u72c0\u614b",
+                "\u72b6\u6001"
+        );
+        SubcommandData rules = localizedSubcommandName(
+                new SubcommandData("rules", zh ? "\u986f\u793a\u898f\u5247" : "Show word chain rules"),
+                "\u898f\u5247",
+                "\u89c4\u5219"
+        );
+        SubcommandData stats = localizedSubcommandName(
+                new SubcommandData("stats", zh ? "\u986f\u793a\u7d71\u8a08" : "Show stats")
+                        .addOptions(statsUserOption),
+                "\u7d71\u8a08",
+                "\u7edf\u8ba1"
+        );
+        SubcommandData leaderboard = localizedSubcommandName(
+                new SubcommandData("leaderboard", zh ? "\u986f\u793a\u6392\u884c\u699c" : "Show leaderboard")
+                        .addOptions(leaderboardLimitOption),
+                "\u6392\u884c\u699c",
+                "\u6392\u884c\u699c"
+        );
         return Commands.slash(commandName, zh ? "\u82f1\u6587\u55ae\u5b57\u63a5\u9f8d" : "English word chain")
                 .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
                 .addSubcommands(setChannel, disable, reset, status, rules, stats, leaderboard);
@@ -3273,6 +3333,7 @@ public class MusicCommandService extends ListenerAdapter {
                 zh ? "\u6578\u5b57\u63a5\u9f8d\u8a2d\u5b9a" : "Number chain settings", false)
                 .addChoices(
                         new Command.Choice(zh ? SUB_GENERIC_ENABLE_ZH : "enable", "enable"),
+                        new Command.Choice(zh ? SUB_GENERIC_DISABLE_ZH : "disable", "disable"),
                         new Command.Choice(zh ? SUB_GENERIC_STATUS_ZH : "status", "status")
                 );
         if (zh) {
@@ -3428,6 +3489,7 @@ public class MusicCommandService extends ListenerAdapter {
                         new Command.Choice(zh ? SUB_SETTINGS_LOG_SETTINGS_ZH : "log-settings", "log-settings"),
                         new Command.Choice(zh ? SUB_SETTINGS_MUSIC_ZH : "music", "music"),
                         new Command.Choice(zh ? SUB_SETTINGS_NUMBER_CHAIN_ZH : "number-chain", "number-chain"),
+                        new Command.Choice(zh ? SUB_SETTINGS_WORD_CHAIN_ZH : "wordchain", "wordchain"),
                         new Command.Choice(zh ? SUB_SETTINGS_LANGUAGE_ZH : "language", "language")
                 );
         if (zh) {
@@ -3827,6 +3889,222 @@ public class MusicCommandService extends ListenerAdapter {
                 .queue();
     }
 
+    public void openWordChainMenu(SlashCommandInteractionEvent event, String lang) {
+        if (wordChainOps == null) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        String token = registerMenuRequest(wordChainMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
+        event.deferReply(true).queue(hook -> wordChainOps.status(event.getGuild().getIdLong())
+                .thenAccept(status -> hook.editOriginalEmbeds(wordChainMenuEmbed(event.getGuild(), lang, status, null).build())
+                        .setComponents(ActionRow.of(settingsWordChainMenu(token, event.getGuild(), lang, status)))
+                        .queue())
+                .exceptionally(error -> {
+                    hook.editOriginal(i18n.t(lang, "general.action_failed")).queue();
+                    return null;
+                }));
+    }
+
+    public void openWordChainMenu(StringSelectInteractionEvent event, String lang) {
+        if (wordChainOps == null) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        String token = registerMenuRequest(wordChainMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
+        event.deferEdit().queue(ignored -> wordChainOps.status(event.getGuild().getIdLong())
+                .thenAccept(status -> event.getHook().editOriginalEmbeds(wordChainMenuEmbed(event.getGuild(), lang, status, null).build())
+                        .setComponents(ActionRow.of(settingsWordChainMenu(token, event.getGuild(), lang, status)))
+                        .queue())
+                .exceptionally(error -> {
+                    event.getHook().editOriginal(i18n.t(lang, "general.action_failed")).queue();
+                    return null;
+                }));
+    }
+
+    private StringSelectMenu settingsWordChainMenu(String token, Guild guild, String lang, WordChainStatusSnapshot status) {
+        return StringSelectMenu.create(SETTINGS_WORD_CHAIN_SELECT_PREFIX + token)
+                .setPlaceholder(i18n.t(lang, "settings.word_chain_menu_placeholder"))
+                .addOptions(
+                        SelectOption.of(i18n.t(lang, "settings.info_key_word_chain_enabled"), "enable-toggle")
+                                .withDescription(i18n.t(lang, "settings.music_menu_current",
+                                        Map.of("value", boolText(lang, status.enabled())))),
+                        SelectOption.of(i18n.t(lang, "settings.info_key_word_chain_channel"), "set-channel")
+                                .withDescription(i18n.t(lang, "settings.music_menu_current",
+                                        Map.of("value", safe(formatTextChannel(guild, status.channelId()), 60)))),
+                        SelectOption.of(i18n.t(lang, "settings.info_key_word_chain_next"), "reset")
+                                .withDescription(i18n.t(lang, "settings.music_menu_current",
+                                        Map.of("value", wordChainNextLetter(status))))
+                )
+                .build();
+    }
+
+    private EmbedBuilder wordChainMenuEmbed(Guild guild, String lang, WordChainStatusSnapshot status, String changedText) {
+        String body = String.join("\n\n",
+                quotedSettingLine(lang, "settings.info_key_word_chain_enabled", "settings.status_label",
+                        boolText(lang, status.enabled())),
+                quotedSettingLine(lang, "settings.info_key_word_chain_channel", "settings.value_label",
+                        formatTextChannel(guild, status.channelId())),
+                quotedSettingLine(lang, "settings.info_key_word_chain_last_word", "settings.value_label",
+                        status.lastWord() == null || status.lastWord().isBlank() ? "-" : status.lastWord()),
+                quotedSettingLine(lang, "settings.info_key_word_chain_next", "settings.value_label",
+                        wordChainNextLetter(status)),
+                quotedSettingLine(lang, "settings.info_key_word_chain_chain_count", "settings.value_label",
+                        String.valueOf(status.chainCount()))
+        );
+        EmbedBuilder eb = new EmbedBuilder()
+                .setColor(new Color(46, 204, 113))
+                .setTitle("\uD83D\uDD20 " + i18n.t(lang, "settings.word_chain_menu_title"))
+                .setDescription(i18n.t(lang, "settings.word_chain_menu_desc"))
+                .addField("\uD83D\uDD20 " + i18n.t(lang, "settings.info_word_chain"), body, false);
+        if (changedText != null && !changedText.isBlank()) {
+            eb.addField(i18n.t(lang, "settings.template_updated"), changedText, false);
+        }
+        return eb;
+    }
+
+    public void handleWordChainMenuSelect(StringSelectInteractionEvent event, String lang) {
+        if (wordChainOps == null) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        String token = event.getComponentId().substring(SETTINGS_WORD_CHAIN_SELECT_PREFIX.length());
+        MenuRequest request = wordChainMenuRequests.get(token);
+        if (request == null || Instant.now().isAfter(request.expiresAt)) {
+            wordChainMenuRequests.remove(token);
+            event.reply(i18n.t(lang, "settings.word_chain_menu_expired")).setEphemeral(true).queue();
+            return;
+        }
+        if (event.getGuild().getIdLong() != request.guildId) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        if (event.getUser().getIdLong() != request.requestUserId) {
+            event.reply(i18n.t(lang, "delete.only_requester")).setEphemeral(true).queue();
+            return;
+        }
+        long guildId = event.getGuild().getIdLong();
+        String action = event.getValues().isEmpty() ? "" : event.getValues().get(0);
+        switch (action) {
+            case "enable-toggle" -> event.deferEdit().queue(ignored -> wordChainOps.status(guildId)
+                    .thenAccept(current -> {
+                        if (current.enabled()) {
+                            wordChainOps.disable(guildId)
+                                    .thenAccept(updated -> {
+                                        String changed = i18n.t(lang, "general.settings_saved",
+                                                Map.of("key", i18n.t(lang, "settings.info_key_word_chain_enabled"),
+                                                        "value", boolText(lang, updated.enabled())));
+                                        event.getHook().editOriginalEmbeds(wordChainMenuEmbed(event.getGuild(), lang, updated, changed).build())
+                                                .setComponents(ActionRow.of(settingsWordChainMenu(token, event.getGuild(), lang, updated)))
+                                                .queue();
+                                    })
+                                    .exceptionally(error -> {
+                                        event.getHook().editOriginal(i18n.t(lang, "general.action_failed")).queue();
+                                        return null;
+                                    });
+                            return;
+                        }
+                        if (current.channelId() == null) {
+                            String changed = i18n.t(lang, "settings.word_chain_channel_required");
+                            event.getHook().editOriginalEmbeds(wordChainMenuEmbed(event.getGuild(), lang, current, changed).build())
+                                    .setComponents(ActionRow.of(settingsWordChainMenu(token, event.getGuild(), lang, current)))
+                                    .queue();
+                            return;
+                        }
+                        wordChainOps.setChannel(guildId, current.channelId())
+                                .thenAccept(updated -> {
+                                    String changed = i18n.t(lang, "general.settings_saved",
+                                            Map.of("key", i18n.t(lang, "settings.info_key_word_chain_enabled"),
+                                                    "value", boolText(lang, updated.enabled())));
+                                    event.getHook().editOriginalEmbeds(wordChainMenuEmbed(event.getGuild(), lang, updated, changed).build())
+                                            .setComponents(ActionRow.of(settingsWordChainMenu(token, event.getGuild(), lang, updated)))
+                                            .queue();
+                                })
+                                .exceptionally(error -> {
+                                    event.getHook().editOriginal(i18n.t(lang, "general.action_failed")).queue();
+                                    return null;
+                                });
+                    })
+                    .exceptionally(error -> {
+                        event.getHook().editOriginal(i18n.t(lang, "general.action_failed")).queue();
+                        return null;
+                    }));
+            case "set-channel" -> {
+                EntitySelectMenu channelMenu = EntitySelectMenu
+                        .create(SETTINGS_WORD_CHAIN_CHANNEL_PREFIX + token, EntitySelectMenu.SelectTarget.CHANNEL)
+                        .setChannelTypes(ChannelType.TEXT)
+                        .setRequiredRange(1, 1)
+                        .setPlaceholder(i18n.t(lang, "settings.word_chain_menu_channel_placeholder"))
+                        .build();
+                event.editMessageEmbeds(new EmbedBuilder()
+                                .setColor(new Color(46, 204, 113))
+                                .setTitle(i18n.t(lang, "settings.word_chain_menu_pick_channel_title"))
+                                .setDescription(i18n.t(lang, "settings.word_chain_menu_pick_channel_desc"))
+                                .build())
+                        .setComponents(ActionRow.of(channelMenu))
+                        .queue();
+            }
+            case "reset" -> event.deferEdit().queue(ignored -> wordChainOps.reset(guildId)
+                    .thenAccept(status -> {
+                        String changed = i18n.t(lang, "general.settings_saved",
+                                Map.of("key", i18n.t(lang, "settings.info_key_word_chain_chain_count"), "value", "0"));
+                        event.getHook().editOriginalEmbeds(wordChainMenuEmbed(event.getGuild(), lang, status, changed).build())
+                                .setComponents(ActionRow.of(settingsWordChainMenu(token, event.getGuild(), lang, status)))
+                                .queue();
+                    })
+                    .exceptionally(error -> {
+                        event.getHook().editOriginal(i18n.t(lang, "general.action_failed")).queue();
+                        return null;
+                    }));
+            default -> event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+        }
+    }
+
+    public void handleWordChainChannelSelect(EntitySelectInteractionEvent event, String lang) {
+        if (wordChainOps == null) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        String token = event.getComponentId().substring(SETTINGS_WORD_CHAIN_CHANNEL_PREFIX.length());
+        MenuRequest request = wordChainMenuRequests.get(token);
+        if (request == null || Instant.now().isAfter(request.expiresAt)) {
+            wordChainMenuRequests.remove(token);
+            event.reply(i18n.t(lang, "settings.word_chain_menu_expired")).setEphemeral(true).queue();
+            return;
+        }
+        if (event.getGuild().getIdLong() != request.guildId) {
+            event.reply(i18n.t(lang, "general.unknown_command")).setEphemeral(true).queue();
+            return;
+        }
+        if (event.getUser().getIdLong() != request.requestUserId) {
+            event.reply(i18n.t(lang, "delete.only_requester")).setEphemeral(true).queue();
+            return;
+        }
+        List<IMentionable> values = event.getValues();
+        if (values.isEmpty() || !(values.get(0) instanceof TextChannel channel)) {
+            event.reply(i18n.t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
+            return;
+        }
+        event.deferEdit().queue(ignored -> wordChainOps.setChannel(event.getGuild().getIdLong(), channel.getIdLong())
+                .thenAccept(status -> {
+                    String changed = i18n.t(lang, "general.settings_saved",
+                            Map.of("key", i18n.t(lang, "settings.info_key_word_chain_channel"), "value", channel.getAsMention()));
+                    event.getHook().editOriginalEmbeds(wordChainMenuEmbed(event.getGuild(), lang, status, changed).build())
+                            .setComponents(ActionRow.of(settingsWordChainMenu(token, event.getGuild(), lang, status)))
+                            .queue();
+                })
+                .exceptionally(error -> {
+                    event.getHook().editOriginal(i18n.t(lang, "general.action_failed")).queue();
+                    return null;
+                }));
+    }
+
+    private String wordChainNextLetter(WordChainStatusSnapshot status) {
+        if (status == null || status.nextRequiredStartLetter() == null) {
+            return "-";
+        }
+        return String.valueOf(status.nextRequiredStartLetter());
+    }
+
     private StringSelectMenu settingsLanguageMenu(String token, long guildId, String lang) {
         String current = settingsService.getLanguage(guildId);
         StringSelectMenu.Builder builder = StringSelectMenu.create(SETTINGS_LANGUAGE_SELECT_PREFIX + token)
@@ -3970,6 +4248,7 @@ public class MusicCommandService extends ListenerAdapter {
             case SUB_SETTINGS_MUSIC_ZH -> "music";
             case SUB_SETTINGS_LANGUAGE_ZH -> "language";
             case SUB_SETTINGS_NUMBER_CHAIN_ZH -> "number-chain";
+            case SUB_SETTINGS_WORD_CHAIN_ZH -> "wordchain";
             default -> sub;
         };
     }
@@ -4887,10 +5166,10 @@ public class MusicCommandService extends ListenerAdapter {
     }
     public String numberChainTopContributorsLabel(String lang) {
         if ("zh-CN".equalsIgnoreCase(lang)) {
-            return "\u63a5\u9f99\u6210\u5458 Top 5";
+            return "\u63a5\u9f99\u6210\u5458\u524d 5 \u540d";
         }
         if (lang != null && lang.toLowerCase().startsWith("zh")) {
-            return "\u63a5\u9f8d\u6210\u54e1 Top 5";
+            return "\u63a5\u9f8d\u6210\u54e1\u524d 5 \u540d";
         }
         return "Top 5 Contributors";
     }

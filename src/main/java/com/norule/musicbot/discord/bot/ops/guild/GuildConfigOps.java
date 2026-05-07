@@ -16,8 +16,8 @@ public final class GuildConfigOps {
                 owner.settingsCommandHandler().handleSettings(event, lang);
                 yield true;
             }
-            case "number-chain" -> {
-                owner.settingsCommandHandler().handleSettingsNumberChain(event, lang);
+            case "number-chain", "\u6578\u5b57\u63a5\u9f8d" -> {
+                owner.openNumberChainMenu(event, lang);
                 yield true;
             }
             case "private-room-settings" -> {

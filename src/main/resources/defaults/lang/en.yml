@@ -159,7 +159,7 @@ help:
     The music panel supports playback controls, volume, repeat modes, autoplay, artwork, history, and server music stats.
   content_settings: |
     Server Settings
-    `/settings action:info|reload|reset|template|module|logs|music|number-chain|language`
+    `/settings action:info|reload|reset|template|module|logs|music|number-chain|wordchain|language`
     `/設定 選項:詳細資訊|重載設定|恢復預設|模板編輯|模組開關|日誌頻道|音樂設定|接龍遊戲|語言設置`
 
     Welcome Message
@@ -171,7 +171,7 @@ help:
     `/歡迎訊息 頻道:<文字頻道>`
 
     Features
-    Manage modules, notification templates, log channels, music settings, number chain, language, and welcome messages.
+    Manage modules, notification templates, log channels, music settings, number chain, word chain, language, and welcome messages.
   content_moderation: |
     Message Cleanup
     `/delete-messages channel`, `/delete-messages user`
@@ -257,6 +257,14 @@ settings:
   number_chain_menu_pick_channel_title: "Select Number Chain Channel"
   number_chain_menu_pick_channel_desc: "Choose the text channel used for number chain."
   number_chain_menu_channel_placeholder: "Choose a text channel"
+  word_chain_menu_title: "Word Chain Settings"
+  word_chain_menu_desc: "Use the dropdown menu to adjust word chain settings."
+  word_chain_menu_placeholder: "Choose a word-chain setting"
+  word_chain_menu_expired: "Word chain settings menu expired. Run `/settings` and choose word chain again."
+  word_chain_menu_pick_channel_title: "Select Word Chain Channel"
+  word_chain_menu_pick_channel_desc: "Choose the text channel used for word chain."
+  word_chain_menu_channel_placeholder: "Choose a text channel"
+  word_chain_channel_required: "Please set a word chain channel first."
   option_not_allowed: "`{option}` cannot be used with `{action}`."
   validation_expected_text_channel: "Please select a text channel."
   validation_expected_voice_channel: "Please select a voice channel or stage channel."
@@ -270,6 +278,7 @@ settings:
   info_music: "Music Settings"
   info_private_room: "Private Room"
   info_number_chain: "Number Chain"
+  info_word_chain: "Word Chain"
   info_module: "Module"
   info_select_placeholder: "Choose a section"
   info_section_overview: "Overview"
@@ -319,6 +328,11 @@ settings:
   info_key_number_chain_enabled: "Number Chain Enabled"
   info_key_number_chain_channel: "Number Chain Channel"
   info_key_number_chain_next: "Next Number"
+  info_key_word_chain_enabled: "Word Chain Enabled"
+  info_key_word_chain_channel: "Word Chain Channel"
+  info_key_word_chain_last_word: "Last Word"
+  info_key_word_chain_next: "Next Letter"
+  info_key_word_chain_chain_count: "Current Chain Count"
   key_notifications_enabled: "Notifications Enabled"
   key_notifications_memberChannelId: "Member Join/Leave Notification Channel"
   key_notifications_voiceChannelId: "Voice Notification Channel"
