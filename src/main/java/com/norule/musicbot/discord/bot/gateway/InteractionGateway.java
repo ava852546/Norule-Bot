@@ -2,6 +2,7 @@ package com.norule.musicbot.discord.bot.gateway;
 
 import com.norule.musicbot.discord.bot.flow.AutoCompleteFlow;
 import com.norule.musicbot.discord.bot.flow.ButtonFlow;
+import com.norule.musicbot.discord.bot.flow.ComponentInteractionRateGate;
 import com.norule.musicbot.discord.bot.flow.ModalFlow;
 import com.norule.musicbot.discord.bot.flow.SelectFlow;
 import com.norule.musicbot.discord.bot.flow.SlashFlow;
@@ -22,10 +23,11 @@ public final class InteractionGateway {
     private final AutoCompleteFlow autoCompleteFlow;
 
     public InteractionGateway(MusicCommandService owner, Signals signals) {
+        ComponentInteractionRateGate rateGate = new ComponentInteractionRateGate();
         this.slashFlow = new SlashFlow(owner, signals);
-        this.buttonFlow = new ButtonFlow(owner);
+        this.buttonFlow = new ButtonFlow(owner, rateGate);
         this.modalFlow = new ModalFlow(owner);
-        this.selectFlow = new SelectFlow(owner);
+        this.selectFlow = new SelectFlow(owner, rateGate);
         this.autoCompleteFlow = new AutoCompleteFlow(owner);
     }
 

@@ -6,7 +6,7 @@ public class Main {
             if (RuntimeDependencyBootstrap.ensureDependenciesAndRelaunchIfNeeded(args)) {
                 return;
             }
-            new RuntimeBootstrap().run(args);
+            new RuntimeBootstrap().run();
         } catch (IllegalStateException ex) {
             System.out.println("[NoRule] " + ex.getMessage());
             System.exit(1);
