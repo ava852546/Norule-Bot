@@ -1,19 +1,85 @@
 # NoRule Bot
 
-NoRule Bot 是 Java + JDA 製作的 Discord 多功能機器人，提供音樂播放、伺服器設定、管理工具、客服單、私人包廂、日誌、Web UI 與防廣告密罐頻道。
+NoRule Bot 是以 Java 17 + JDA 製作的 Discord 多功能社群機器人，整合音樂播放、歌單管理、伺服器設定、管理工具、客服單、私人包廂、日誌、Web UI、短網址服務與 Minecraft 伺服器狀態查詢。
+
+本專案採用單一 Java 後端為核心，Web UI 前端可使用 Vite 開發與打包，正式部署時仍可由 Java Web Server 提供 API、OAuth、Session 與靜態資源。
+
+## 目前版本
+
+- 專案版本：`1.6`
+- Java：`17+`
+- Discord 函式庫：`JDA 6.3.1`
+- 音樂核心：`Lavaplayer 2.2.6`、`youtube-source 1.18.0`、`lavasrc 4.8.1`
+- Web 前端：`Vite`
+- 資料儲存：檔案、SQLite、MySQL / HikariCP，依模組設定使用
+- 授權：GPL-3.0
 
 ## 功能介紹
 
-- 音樂播放：支援 YouTube 關鍵字/URL、Spotify 連結轉搜尋、SoundCloud/一般 URL、播放佇列、音量、循環、歷史紀錄、統計與互動式音樂面板。
-- 歌單管理：可儲存目前播放與佇列、載入、刪除、查看、移除單曲，並可用 6 位數代碼跨伺服器匯入。
-- 自動推薦：佇列結束後可依目前歌曲推薦下一首，並避開最近播放過的歌曲。
-- 伺服器設定：可透過 Discord 指令或 Web UI 管理語言、模組開關、日誌、音樂、數字接龍與模板。
-- 日誌系統：支援訊息、指令使用、頻道生命週期、身分組與管理事件紀錄。
-- 管理工具：刪除訊息、使用者警告、防重複訊息、數字接龍。
-- 密罐頻道：建立「請勿發送訊息」文字頻道，使用者在該頻道發言後會刪除訊息、清理 24 小時內發言並踢出伺服器。
-- 客服單：支援開單面板、開單前表單、分類選項、關閉/重開/刪除、HTML 紀錄、黑名單與每人開單上限。
-- 私人包廂：進入指定語音頻道後自動建立私人語音房，支援改名、限制人數、轉移擁有者與自動刪除。
-- Web UI：Discord OAuth2 登入後管理伺服器設定，可選擇 HTTP 或 HTTPS。
+### 音樂播放
+
+- 支援 YouTube 關鍵字 / URL、Spotify 連結轉搜尋、SoundCloud 與一般 URL。
+- 支援加入語音、播放、跳過、停止、離開、音量、循環模式與播放佇列。
+- 支援播放歷史、熱門歌曲、熱門點歌者、今日播放時間與統計資料。
+- 支援互動式音樂控制面板。
+- 支援佇列結束後自動推薦歌曲，並避開最近播放過的歌曲。
+
+### 歌單管理
+
+- 可儲存目前歌曲與佇列。
+- 可載入、刪除、列出、查看歌單。
+- 可移除歌單中的指定歌曲。
+- 可產生 6 位數匯出代碼，支援跨伺服器匯入歌單。
+
+### 伺服器設定
+
+- 可透過 Discord 指令與 Web UI 管理伺服器設定。
+- 支援語言切換、模組開關、日誌設定、音樂設定、數字接龍與訊息模板。
+- 支援全域設定重載與伺服器設定重設。
+
+### 管理與安全
+
+- 刪除指定頻道或指定使用者的訊息。
+- 使用者警告新增、減少、查看與清除。
+- 防重複訊息偵測。
+- 數字接龍遊戲。
+- 密罐頻道：建立「請勿發送訊息」頻道，使用者誤發後可自動刪除訊息、清理 24 小時內發言並踢出伺服器。
+
+### 客服單
+
+- 支援客服單開關、狀態查看與開單面板。
+- 支援開單前表單、分類選項、關閉、重開、刪除。
+- 支援 HTML Transcript 紀錄。
+- 支援黑名單與每人同時開單上限。
+
+### 私人包廂
+
+- 使用者進入指定語音頻道後，自動建立私人語音房。
+- 支援改名、限制人數、轉移擁有者與自動刪除。
+
+### Web UI
+
+- 支援 Discord OAuth2 登入。
+- 可管理伺服器設定、語言、歡迎訊息、音樂、日誌、客服單等模組。
+- 支援 HTTP 或 HTTPS。
+- Java 後端負責 `/api/**`、Session、OAuth Callback 與靜態資源。
+- `web/` 目錄使用 Vite 作為前端開發與打包 workspace。
+
+### 短網址服務
+
+- 可使用獨立短網址網域，例如 `https://s.norule.me`。
+- 首頁 `/` 提供長網址輸入與短網址建立頁面。
+- `POST /api/short-url` 可建立短網址。
+- `/{code}` 會轉址到原始網址。
+- 支援自訂代碼、隨機代碼、重複網址去重、過期時間與過期清理。
+- 會阻擋無效網址、保留路徑、短網址自我指向與私有 / 本機目標，除非設定允許。
+- 短網址不存在或過期時會顯示統一風格的 404 頁面。
+
+### Minecraft 伺服器狀態
+
+- Web 後端整合 Minecraft 伺服器狀態查詢流程。
+- 可設定查詢 User-Agent、請求逾時與內部快取時間。
+- 適合用於 Web UI 或 API 顯示 Minecraft Server 狀態。
 
 ## 指令
 
@@ -115,6 +181,30 @@ NoRule Bot 是 Java + JDA 製作的 Discord 多功能機器人，提供音樂播
 - `reload`：重新載入全域設定、伺服器設定、音樂資料、管理資料、客服單與密罐資料。
 - `stop`、`end`：安全關閉 Bot。
 
+## 專案結構
+
+```text
+src/main/java/com/norule/musicbot
+├─ bootstrap/             # 啟動入口
+├─ config/                # 全域設定、伺服器設定、DomainConfig
+├─ discord/               # Discord 指令與事件處理
+├─ domain/                # 純邏輯與領域模型
+├─ i18n/                  # 語言與翻譯服務
+├─ service/               # 業務服務
+├─ shorturl/              # 短網址資料儲存介面與實作
+├─ web/                   # Web Controller / Service / Ops / Session / Infra
+├─ HoneypotService.java
+├─ ModerationService.java
+├─ ShortUrlService.java
+└─ TicketService.java
+
+web/
+├─ src/                   # Web UI 前端原始碼
+├─ public/                # 前端公開資源
+├─ package.json           # Vite 指令與依賴
+└─ vite.config.js
+```
+
 ## 部署教學
 
 ### 需求
@@ -122,25 +212,37 @@ NoRule Bot 是 Java + JDA 製作的 Discord 多功能機器人，提供音樂播
 - Java 17 或更新版本。
 - Maven 3.9 或更新版本。
 - Discord Bot Token。
+- 若要編譯 Web UI，需安裝 Node.js 與 npm。
 - Bot 邀請到伺服器時需勾選 `bot` 與 `applications.commands` scope。
 - 常用權限：查看頻道、發送訊息、嵌入連結、管理訊息、讀取訊息歷史、連接語音、語音發話、管理頻道、踢出成員、管理伺服器。依功能啟用狀態可再縮減。
 
 ### 建置
 
+一般 Java 建置：
+
 ```bash
 mvn clean package -DskipTests
+```
+
+包含 Web UI 前端建置：
+
+```bash
+mvn clean package -DskipTests -Pweb-build
 ```
 
 建置完成後會產生：
 
 ```text
-target/discord-music-bot-1.2.3.jar
+target/discord-music-bot-1.6.jar
+lib/
 ```
+
+目前專案採用「主程式 jar + 外部 lib 依賴」模式，Maven 會在打包時將 runtime 依賴複製到 `lib/`。
 
 ### 首次啟動
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.2.3.jar
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.6.jar
 ```
 
 首次啟動會自動建立 `config.yml`、語言檔與必要資料夾。停止程式後，編輯 `config.yml`：
@@ -153,24 +255,29 @@ defaultLanguage: "zh-TW"
 再重新啟動：
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.2.3.jar
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.6.jar
 ```
 
-### 常用設定
+## 常用設定
 
 ```yml
 prefix: "!"
+debug: false
 commandGuildId: ""
+defaultLanguage: "zh-TW"
+commandCooldownSeconds: 3
+numberChainReactionDelayMillis: 500
 
 data:
-  guildSettingsDir: "guild-configs"
+  guildSettingsDir: "guild/configs"
   languageDir: "lang"
-  musicDir: "guild-music"
-  moderationDir: "guild-moderation"
-  ticketDir: "guild-tickets"
-  ticketTranscriptDir: "ticket-transcripts"
-  honeypotDir: "guild-honeypot"
-  logDir: "LOG"
+  cacheDir: "cache"
+  musicDir: "guild/music"
+  moderationDir: "guild/moderation"
+  ticketDir: "guild/tickets"
+  ticketTranscriptDir: "ticket/transcripts"
+  honeypotDir: "guild/honeypot"
+  logDir: "logs"
 
 music:
   autoLeaveEnabled: true
@@ -184,7 +291,7 @@ music:
 
 `commandGuildId` 留空會註冊全域 Slash 指令；開發測試時可填單一伺服器 ID，加快指令更新速度。
 
-### Web UI
+## Web UI 設定
 
 在 Discord Developer Portal 建立 OAuth2 應用，Redirect URI 填入：
 
@@ -197,11 +304,9 @@ https://dash.norule.me/auth/callback
 ```yml
 web:
   enabled: true
-  bind:
-    host: "0.0.0.0"
-    port: 60000
-  public:
-    baseUrl: "https://dash.norule.me"
+  host: "0.0.0.0"
+  port: 60000
+  baseUrl: "https://dash.norule.me"
   discordClientId: "YOUR_CLIENT_ID"
   discordClientSecret: "YOUR_CLIENT_SECRET"
   discordRedirectUri: "https://dash.norule.me/auth/callback"
@@ -213,7 +318,74 @@ web:
 https://dash.norule.me
 ```
 
-### HTTPS
+## 短網址設定
+
+短網址服務可使用獨立網域，例如 `s.norule.me`。建議由 Nginx / Cloudflare 將該網域反向代理到短網址服務或同一個 Java Web Server 對應的連接埠。
+
+```yml
+shortUrl:
+  enabled: true
+  host: "0.0.0.0"
+  port: 60001
+  domain: "s.norule.me"
+  publicBaseUrl: "https://s.norule.me"
+  codeLength: 7
+  dedupeEnabled: true
+  ttlDays: 7
+  cleanupIntervalMinutes: 10
+  allowPrivateTargets: false
+```
+
+使用方式：
+
+```text
+https://s.norule.me/
+https://s.norule.me/abc1234
+```
+
+API 範例：
+
+```bash
+curl -X POST "https://s.norule.me/api/short-url" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com","customCode":"example"}'
+```
+
+## Minecraft 狀態查詢設定
+
+```yml
+minecraftStatus:
+  userAgent: "NoRuleBot/1.0 contact: admin@norule.me"
+  requestTimeoutMillis: 15000
+  internalCacheSeconds: 60
+```
+
+## 統計資料儲存設定
+
+統計資料可依需求使用 SQLite 或 MySQL。
+
+SQLite 範例：
+
+```yml
+stats:
+  storage: "sqlite"
+  sqlite:
+    path: "data/message-stats.db"
+```
+
+MySQL 範例：
+
+```yml
+stats:
+  storage: "mysql"
+  mysql:
+    jdbcUrl: "jdbc:mysql://localhost:3306/discord_bot?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+    username: "root"
+    password: ""
+    poolSize: 8
+```
+
+## HTTPS 設定
 
 PEM 憑證放在 `certs/`：
 
@@ -233,11 +405,62 @@ web:
     fullChainFile: "fullchain.pem"
 ```
 
-### 更新
+若前面已經使用 Nginx 或 Cloudflare 終止 HTTPS，Java Web Server 可維持 HTTP，讓反向代理負責 TLS。
+
+## Web UI 前端開發
+
+安裝依賴：
+
+```bash
+cd web
+npm install
+```
+
+建置一次：
+
+```bash
+npm run build
+```
+
+監看模式：
+
+```bash
+npm run dev
+```
+
+獨立 Vite dev server：
+
+```bash
+npm run dev:server
+```
+
+建議本地開發流程：
+
+1. 啟動 Java 後端。
+2. 在 `web/` 執行 `npm run dev`。
+3. 開啟 Java Web UI 網址，例如 `http://localhost:60000`。
+4. Vite watcher 會自動更新 `src/main/resources/web/app.js` 與 `app.css`。
+
+## 更新
 
 ```bash
 git pull
 mvn clean package -DskipTests
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.2.3.jar
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.6.jar
 ```
 
+若有更新 Web UI 前端：
+
+```bash
+git pull
+mvn clean package -DskipTests -Pweb-build
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.6.jar
+```
+
+## 注意事項
+
+- 請勿將 `config.yml`、Token、OAuth Secret、資料庫密碼提交到 Git。
+- 若使用短網址服務，建議只開放 HTTPS 對外入口，並由 Nginx 或 Cloudflare 代理。
+- 若使用 MySQL，請先建立資料庫並確認 Bot 主機可連線。
+- 若 Slash 指令更新較慢，可在測試階段設定 `commandGuildId` 為單一伺服器 ID。
+- 若 Discord 顯示亂碼，請確認啟動參數包含 `-Dfile.encoding=UTF-8`。
