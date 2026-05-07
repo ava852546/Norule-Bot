@@ -28,7 +28,7 @@ public final class ShortUrlConfig {
         private final String path;
 
         public Sqlite(String path) {
-            this.path = path == null ? "data/short-url.db" : path;
+            this.path = path == null ? "data/norule.db" : path;
         }
 
         public String getPath() { return path; }
@@ -75,7 +75,7 @@ public final class ShortUrlConfig {
         this.ttlDays = Math.max(1, ttlDays);
         this.cleanupIntervalMinutes = Math.max(1, cleanupIntervalMinutes);
         this.mysql = mysql == null ? new Mysql("", "", "", 8) : mysql;
-        this.sqlite = sqlite == null ? new Sqlite("data/short-url.db") : sqlite;
+        this.sqlite = sqlite == null ? new Sqlite("data/norule.db") : sqlite;
     }
 
     public ShortUrlConfig(BotConfig.ShortUrl config) {

@@ -2,6 +2,7 @@ package com.norule.musicbot.discord.bot.app;
 
 import com.norule.musicbot.config.*;
 import com.norule.musicbot.i18n.*;
+import com.norule.musicbot.ModerationService;
 
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.audit.ActionType;
@@ -25,10 +26,12 @@ import java.util.stream.Collectors;
 public class ServerLogService {
     private final GuildSettingsService settingsService;
     private final I18nService i18n;
+    private final ModerationService moderationService;
 
-    public ServerLogService(GuildSettingsService settingsService, I18nService i18n) {
+    public ServerLogService(GuildSettingsService settingsService, I18nService i18n, ModerationService moderationService) {
         this.settingsService = settingsService;
         this.i18n = i18n;
+        this.moderationService = moderationService;
     }
     public void onGuildMemberRoleAdd(GuildMemberRoleAddEvent event) {
         var logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
@@ -103,6 +106,14 @@ public class ServerLogService {
         EmbedBuilder eb = base(event.getGuild(), "\u26D4 " + t(event.getGuild(), "logs.user_banned"), new Color(192, 57, 43))
                 .addField(t(event.getGuild(), "logs.user"), event.getUser().getAsMention() + " (`" + event.getUser().getAsTag() + "`)", false);
         send(event.getGuild(), logs.getModerationLogChannelId(), eb);
+        moderationService.recordModerationAction(
+                event.getGuild().getIdLong(),
+                event.getUser().getIdLong(),
+                null,
+                "BAN",
+                "",
+                "event"
+        );
     }
     public void onGuildUnban(GuildUnbanEvent event) {
         var logs = settingsService.getMessageLogs(event.getGuild().getIdLong());
@@ -112,6 +123,14 @@ public class ServerLogService {
         EmbedBuilder eb = base(event.getGuild(), "\u2705 " + t(event.getGuild(), "logs.user_unbanned"), new Color(39, 174, 96))
                 .addField(t(event.getGuild(), "logs.user"), event.getUser().getAsMention() + " (`" + event.getUser().getAsTag() + "`)", false);
         send(event.getGuild(), logs.getModerationLogChannelId(), eb);
+        moderationService.recordModerationAction(
+                event.getGuild().getIdLong(),
+                event.getUser().getIdLong(),
+                null,
+                "UNBAN",
+                "",
+                "event"
+        );
     }
     public void onGuildAuditLogEntryCreate(GuildAuditLogEntryCreateEvent event) {
         if (event.getEntry().getType() != ActionType.KICK) {
@@ -130,6 +149,15 @@ public class ServerLogService {
                 .addField(t(event.getGuild(), "logs.target"), targetText, false)
                 .addField(t(event.getGuild(), "logs.moderator"), actorText, false);
         send(event.getGuild(), logs.getModerationLogChannelId(), eb);
+        long userId = event.getEntry().getTargetIdLong();
+        moderationService.recordModerationAction(
+                event.getGuild().getIdLong(),
+                userId,
+                actor == null ? null : actor.getIdLong(),
+                "KICK",
+                "",
+                "audit"
+        );
     }
 
     private EmbedBuilder base(Guild guild, String title, Color color) {

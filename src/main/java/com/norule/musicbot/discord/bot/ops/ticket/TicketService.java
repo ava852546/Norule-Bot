@@ -855,7 +855,7 @@ public class TicketService {
             }
             String reason = event.getValue("reason") == null ? "" : event.getValue("reason").getAsString().trim();
             event.reply(i18n.t(lang, "ticket.closing")).setEphemeral(true).queue();
-            worker.execute(() -> closeTicketChannel(event.getGuild(), channel, record, event.getUser().getAsTag(), reason, false));
+            worker.execute(() -> closeTicketChannel(event.getGuild(), channel, record, event.getUser().getAsTag(), event.getUser().getIdLong(), reason, false));
             return;
         }
         if (LIMIT_MODAL_ID.equals(modalId)) {
@@ -1366,6 +1366,7 @@ public class TicketService {
                                     TextChannel channel,
                                     com.norule.musicbot.TicketService.TicketRecord record,
                                     String closedBy,
+                                    Long closedByUserId,
                                     String reason,
                                     boolean autoClosed) {
         if (guild == null || channel == null || record == null) {
@@ -1396,8 +1397,16 @@ public class TicketService {
         String finalReason = reason == null || reason.isBlank()
                 ? (autoClosed ? i18n.t(lang, "ticket.auto_close_reason") : i18n.t(lang, "ticket.close_reason_default"))
                 : reason;
-        com.norule.musicbot.TicketService.TicketRecord closedRecord = ticketService.closeTicket(guild.getIdLong(), channel.getIdLong(), finalReason);
+        com.norule.musicbot.TicketService.TicketRecord closedRecord = ticketService.closeTicket(
+                guild.getIdLong(),
+                channel.getIdLong(),
+                finalReason,
+                autoClosed ? null : closedByUserId
+        );
         Path transcriptFile = ticketService.writeTranscriptHtml(guild.getIdLong(), guild.getName(), channel, closedRecord == null ? record : closedRecord, closedBy);
+        if (transcriptFile != null) {
+            ticketService.setTranscriptPath(guild.getIdLong(), channel.getIdLong(), transcriptFile.toAbsolutePath().normalize().toString());
+        }
 
         EmbedBuilder closedEmbed = new EmbedBuilder()
                 .setColor(new Color(231, 76, 60))
@@ -1666,7 +1675,7 @@ public class TicketService {
                     ticketService.closeTicket(guild.getIdLong(), record.getChannelId(), "Auto closed (channel missing)");
                     continue;
                 }
-                closeTicketChannel(guild, channel, record, "AutoClose", "", true);
+                closeTicketChannel(guild, channel, record, "AutoClose", null, "", true);
             }
         }
     }

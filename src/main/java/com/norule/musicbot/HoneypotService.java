@@ -1,5 +1,6 @@
 package com.norule.musicbot;
 
+import com.norule.musicbot.storage.sqlite.HoneypotSqliteRepository;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
@@ -17,10 +18,16 @@ public class HoneypotService {
     private final Path dataFile;
     private final Map<Long, Long> channelByGuild = new ConcurrentHashMap<>();
     private final Yaml yaml;
+    private final HoneypotSqliteRepository sqliteRepository;
 
     public HoneypotService(Path dataDir) {
+        this(dataDir, null);
+    }
+
+    public HoneypotService(Path dataDir, HoneypotSqliteRepository sqliteRepository) {
         this.dataFile = dataDir.resolve("honeypots.yml");
         this.yaml = new Yaml(yamlOptions());
+        this.sqliteRepository = sqliteRepository;
         try {
             Files.createDirectories(dataDir);
         } catch (Exception ignored) {
@@ -45,6 +52,30 @@ public class HoneypotService {
     public synchronized void setChannel(long guildId, long channelId) {
         channelByGuild.put(guildId, channelId);
         save();
+    }
+
+    public void recordTrigger(long guildId,
+                              long userId,
+                              long channelId,
+                              String messageId,
+                              String actionResult,
+                              int deletedMessageCount,
+                              boolean kicked,
+                              String note) {
+        if (sqliteRepository == null) {
+            return;
+        }
+        sqliteRepository.appendTriggerEvent(
+                guildId,
+                userId,
+                channelId,
+                messageId,
+                actionResult,
+                deletedMessageCount,
+                kicked,
+                note,
+                System.currentTimeMillis()
+        );
     }
 
     @SuppressWarnings("unchecked")
@@ -73,6 +104,13 @@ public class HoneypotService {
             }
         } catch (Exception ignored) {
         }
+        if (sqliteRepository != null) {
+            Map<Long, Long> channels = sqliteRepository.loadChannels();
+            if (!channels.isEmpty()) {
+                channelByGuild.clear();
+                channelByGuild.putAll(channels);
+            }
+        }
     }
 
     private synchronized void save() {
@@ -91,6 +129,9 @@ public class HoneypotService {
                 yaml.dump(root, writer);
             }
         } catch (Exception ignored) {
+        }
+        if (sqliteRepository != null) {
+            sqliteRepository.replaceChannels(channelByGuild);
         }
     }
 

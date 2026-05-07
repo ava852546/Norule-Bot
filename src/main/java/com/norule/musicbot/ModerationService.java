@@ -1,5 +1,6 @@
 package com.norule.musicbot;
 
+import com.norule.musicbot.storage.sqlite.ModerationSqliteRepository;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
@@ -90,9 +91,15 @@ public class ModerationService {
 
     private final Path dir;
     private final Map<Long, GuildData> cache = new ConcurrentHashMap<>();
+    private final ModerationSqliteRepository sqliteRepository;
 
     public ModerationService(Path dir) {
+        this(dir, null);
+    }
+
+    public ModerationService(Path dir, ModerationSqliteRepository sqliteRepository) {
         this.dir = dir;
+        this.sqliteRepository = sqliteRepository;
         try {
             Files.createDirectories(dir);
         } catch (IOException e) {
@@ -116,16 +123,25 @@ public class ModerationService {
     }
 
     public int addWarnings(long guildId, long userId, int amount) {
+        return addWarnings(guildId, userId, amount, null, "");
+    }
+
+    public int addWarnings(long guildId, long userId, int amount, Long moderatorUserId, String reason) {
         GuildData data = get(guildId);
         synchronized (data) {
             int next = Math.max(0, data.warnings.getOrDefault(userId, 0) + Math.max(1, amount));
             data.warnings.put(userId, next);
             save(guildId, data);
+            recordModerationAction(guildId, userId, moderatorUserId, "WARN_ADD", reason, "count=" + next);
             return next;
         }
     }
 
     public int removeWarnings(long guildId, long userId, int amount) {
+        return removeWarnings(guildId, userId, amount, null, "");
+    }
+
+    public int removeWarnings(long guildId, long userId, int amount, Long moderatorUserId, String reason) {
         GuildData data = get(guildId);
         synchronized (data) {
             int next = Math.max(0, data.warnings.getOrDefault(userId, 0) - Math.max(1, amount));
@@ -135,15 +151,21 @@ public class ModerationService {
                 data.warnings.put(userId, next);
             }
             save(guildId, data);
+            recordModerationAction(guildId, userId, moderatorUserId, "WARN_REMOVE", reason, "count=" + next);
             return next;
         }
     }
 
     public void clearWarnings(long guildId, long userId) {
+        clearWarnings(guildId, userId, null, "");
+    }
+
+    public void clearWarnings(long guildId, long userId, Long moderatorUserId, String reason) {
         GuildData data = get(guildId);
         synchronized (data) {
             data.warnings.remove(userId);
             save(guildId, data);
+            recordModerationAction(guildId, userId, moderatorUserId, "WARN_CLEAR", reason, "count=0");
         }
     }
 
@@ -320,6 +342,19 @@ public class ModerationService {
             }
         } catch (Exception ignored) {
         }
+        if (sqliteRepository != null) {
+            ModerationSqliteRepository.GuildSnapshot snapshot = sqliteRepository.loadGuild(guildId);
+            if (hasSnapshotData(snapshot)) {
+                defaults.duplicateDetectionEnabled = snapshot.duplicateDetectionEnabled();
+                defaults.numberChainEnabled = snapshot.numberChainEnabled();
+                defaults.numberChainChannelId = snapshot.numberChainChannelId();
+                defaults.numberChainNext = Math.max(1L, snapshot.numberChainNext());
+                defaults.numberChainLastUserId = snapshot.numberChainLastUserId();
+                defaults.numberChainHighestNumber = Math.max(0L, snapshot.numberChainHighestNumber());
+                defaults.numberChainSuccessContributors = new LinkedHashMap<>(snapshot.contributors());
+                defaults.warnings = new LinkedHashMap<>(snapshot.warnings());
+            }
+        }
         return defaults;
     }
 
@@ -362,6 +397,56 @@ public class ModerationService {
             yaml.dump(root, writer);
         } catch (Exception ignored) {
         }
+        if (sqliteRepository != null) {
+            sqliteRepository.replaceGuild(guildId, toSnapshot(data));
+        }
+    }
+
+    public void recordModerationAction(long guildId,
+                                       long userId,
+                                       Long moderatorUserId,
+                                       String actionType,
+                                       String reason,
+                                       String result) {
+        if (sqliteRepository == null) {
+            return;
+        }
+        sqliteRepository.appendAction(
+                guildId,
+                userId,
+                moderatorUserId,
+                actionType,
+                reason,
+                result,
+                System.currentTimeMillis()
+        );
+    }
+
+    private ModerationSqliteRepository.GuildSnapshot toSnapshot(GuildData data) {
+        return new ModerationSqliteRepository.GuildSnapshot(
+                data.duplicateDetectionEnabled,
+                data.numberChainEnabled,
+                data.numberChainChannelId,
+                Math.max(1L, data.numberChainNext),
+                data.numberChainLastUserId,
+                Math.max(0L, data.numberChainHighestNumber),
+                Map.copyOf(data.numberChainSuccessContributors),
+                Map.copyOf(data.warnings)
+        );
+    }
+
+    private boolean hasSnapshotData(ModerationSqliteRepository.GuildSnapshot snapshot) {
+        if (snapshot == null) {
+            return false;
+        }
+        return snapshot.duplicateDetectionEnabled()
+                || snapshot.numberChainEnabled()
+                || snapshot.numberChainChannelId() != null
+                || snapshot.numberChainNext() > 1L
+                || snapshot.numberChainLastUserId() != null
+                || snapshot.numberChainHighestNumber() > 0L
+                || !snapshot.contributors().isEmpty()
+                || !snapshot.warnings().isEmpty();
     }
 
     private Path file(long guildId) {

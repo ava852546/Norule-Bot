@@ -109,6 +109,10 @@ public String getToken() {
         return dataPaths;
     }
 
+    public DataPaths.DataDatabase getDataDatabase() {
+        return dataPaths.getDatabase();
+    }
+
     public String getMusicDataDir() {
         return dataPaths.getMusicDir();
     }
@@ -154,6 +158,37 @@ public String getToken() {
     }
 
     public static class DataPaths {
+        public static final class DataDatabase {
+            private final String type;
+            private final String path;
+
+            private DataDatabase(String type, String path) {
+                this.type = type == null || type.isBlank() ? "sqlite" : type.trim().toLowerCase(Locale.ROOT);
+                this.path = blankToDefault(path, "data/norule.db");
+            }
+
+            private static DataDatabase fromMap(Map<String, Object> map, DataDatabase fallback) {
+                DataDatabase defaults = fallback == null ? defaultValues() : fallback;
+                String sqlitePath = getString(asMap(map.get("sqlite")), "path", defaults.getPath());
+                return new DataDatabase(
+                        getString(map, "type", defaults.getType()),
+                        sqlitePath
+                );
+            }
+
+            private static DataDatabase defaultValues() {
+                return new DataDatabase("sqlite", "data/norule.db");
+            }
+
+            public String getType() {
+                return type;
+            }
+
+            public String getPath() {
+                return path;
+            }
+        }
+
         private final String guildSettingsDir;
         private final String languageDir;
         private final String musicDir;
@@ -162,6 +197,7 @@ public String getToken() {
         private final String ticketTranscriptDir;
         private final String honeypotDir;
         private final String logDir;
+        private final DataDatabase database;
 
         private DataPaths(String guildSettingsDir,
                           String languageDir,
@@ -170,7 +206,8 @@ public String getToken() {
                           String ticketDir,
                           String ticketTranscriptDir,
                           String honeypotDir,
-                          String logDir) {
+                          String logDir,
+                          DataDatabase database) {
             this.guildSettingsDir = blankToDefault(guildSettingsDir, "guild/configs");
             this.languageDir = blankToDefault(languageDir, "lang");
             this.musicDir = blankToDefault(musicDir, "guild/music");
@@ -179,6 +216,7 @@ public String getToken() {
             this.ticketTranscriptDir = blankToDefault(ticketTranscriptDir, "ticket-transcripts");
             this.honeypotDir = blankToDefault(honeypotDir, "guild/honeypot");
             this.logDir = blankToDefault(logDir, "LOG");
+            this.database = database == null ? DataDatabase.defaultValues() : database;
         }
 
         public static DataPaths fromConfig(Map<String, Object> root) {
@@ -188,6 +226,20 @@ public String getToken() {
         private static DataPaths fromConfigWithDefaults(Map<String, Object> root, Map<String, Object> defaultRoot) {
             Map<String, Object> data = asMap(root.get("data"));
             Map<String, Object> defaults = asMap(defaultRoot.get("data"));
+            Map<String, Object> dataDatabase = asMap(data.get("database"));
+            Map<String, Object> defaultDataDatabase = asMap(defaults.get("database"));
+            Map<String, Object> rootDatabase = asMap(root.get("database"));
+            Map<String, Object> defaultRootDatabase = asMap(defaultRoot.get("database"));
+            DataDatabase database = DataDatabase.fromMap(
+                    firstNonEmptyMap(dataDatabase, defaultDataDatabase, rootDatabase, defaultRootDatabase),
+                    DataDatabase.defaultValues()
+            );
+            if (getString(asMap(dataDatabase.get("sqlite")), "path", "").isBlank()) {
+                String legacyDbPath = getString(asMap(rootDatabase.get("sqlite")), "path", "");
+                if (!legacyDbPath.isBlank()) {
+                    database = new DataDatabase(database.getType(), legacyDbPath);
+                }
+            }
             return new DataPaths(
                     configuredPath(data, root, defaults, defaultRoot, "guildSettingsDir", "guild/configs"),
                     configuredPath(data, root, defaults, defaultRoot, "languageDir", "lang"),
@@ -196,7 +248,8 @@ public String getToken() {
                     configuredPath(data, root, defaults, defaultRoot, "ticketDir", "guild/tickets"),
                     configuredPath(data, root, defaults, defaultRoot, "ticketTranscriptDir", "ticket-transcripts"),
                     configuredPath(data, root, defaults, defaultRoot, "honeypotDir", "guild/honeypot"),
-                    configuredPath(data, root, defaults, defaultRoot, "logDir", "LOG")
+                    configuredPath(data, root, defaults, defaultRoot, "logDir", "LOG"),
+                    database
             );
         }
 
@@ -256,6 +309,23 @@ public String getToken() {
 
         public String getLogDir() {
             return logDir;
+        }
+
+        public DataDatabase getDatabase() {
+            return database;
+        }
+
+        @SafeVarargs
+        private static Map<String, Object> firstNonEmptyMap(Map<String, Object>... maps) {
+            if (maps == null) {
+                return Map.of();
+            }
+            for (Map<String, Object> map : maps) {
+                if (map != null && !map.isEmpty()) {
+                    return map;
+                }
+            }
+            return Map.of();
         }
     }
 
@@ -2315,7 +2385,7 @@ public String getToken() {
             private final String path;
 
             private Sqlite(String path) {
-                this.path = (path == null || path.isBlank()) ? "data/short-url.db" : path.trim();
+                this.path = (path == null || path.isBlank()) ? "data/norule.db" : path.trim();
             }
 
             public static Sqlite fromMap(Map<String, Object> map, Sqlite fallback) {
@@ -2324,7 +2394,7 @@ public String getToken() {
             }
 
             public static Sqlite defaultValues() {
-                return new Sqlite("data/short-url.db");
+                return new Sqlite("data/norule.db");
             }
 
             public String getPath() {

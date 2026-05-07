@@ -446,6 +446,14 @@ public class MusicPlayerService {
         }
     }
 
+    public void reloadGuildData(long guildId) {
+        musicDataService.reload(guildId);
+    }
+
+    public int clearPlayHistoryByRetentionMillis(long retentionMillis) {
+        return musicDataService.clearPlayHistoryByRetentionMillis(retentionMillis);
+    }
+
     public GuildMusicManager getGuildMusicManager(Guild guild) {
         return musicManagers.computeIfAbsent(guild.getIdLong(), id -> {
             GuildMusicManager manager = new GuildMusicManager(

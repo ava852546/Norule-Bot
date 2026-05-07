@@ -1,5 +1,6 @@
 package com.norule.musicbot;
 
+import com.norule.musicbot.storage.sqlite.TicketSqliteRepository;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import org.yaml.snakeyaml.DumperOptions;
@@ -68,6 +69,8 @@ public class TicketService {
         private final boolean closed;
         private final long closedAt;
         private final String closeReason;
+        private final Long closedByUserId;
+        private final String transcriptPath;
         private final Set<Long> participants;
 
         private TicketRecord(long channelId,
@@ -79,6 +82,8 @@ public class TicketService {
                              boolean closed,
                              long closedAt,
                              String closeReason,
+                             Long closedByUserId,
+                             String transcriptPath,
                              Set<Long> participants) {
             this.channelId = channelId;
             this.ownerId = ownerId;
@@ -89,6 +94,8 @@ public class TicketService {
             this.closed = closed;
             this.closedAt = closedAt;
             this.closeReason = closeReason == null ? "" : closeReason;
+            this.closedByUserId = closedByUserId;
+            this.transcriptPath = transcriptPath == null ? "" : transcriptPath;
             this.participants = participants == null ? Set.of() : Set.copyOf(participants);
         }
 
@@ -128,6 +135,14 @@ public class TicketService {
             return closeReason;
         }
 
+        public Long getClosedByUserId() {
+            return closedByUserId;
+        }
+
+        public String getTranscriptPath() {
+            return transcriptPath;
+        }
+
         public Set<Long> getParticipants() {
             return participants;
         }
@@ -137,15 +152,19 @@ public class TicketService {
             if (userId > 0L) {
                 nextParticipants.add(userId);
             }
-            return new TicketRecord(channelId, ownerId, typeLabel, summary, openedAt, timestamp, closed, closedAt, closeReason, nextParticipants);
+            return new TicketRecord(channelId, ownerId, typeLabel, summary, openedAt, timestamp, closed, closedAt, closeReason, closedByUserId, transcriptPath, nextParticipants);
         }
 
-        private TicketRecord close(String reason, long timestamp) {
-            return new TicketRecord(channelId, ownerId, typeLabel, summary, openedAt, timestamp, true, timestamp, reason, participants);
+        private TicketRecord close(String reason, Long closedBy, long timestamp) {
+            return new TicketRecord(channelId, ownerId, typeLabel, summary, openedAt, timestamp, true, timestamp, reason, closedBy, transcriptPath, participants);
         }
 
         private TicketRecord reopen(long timestamp) {
-            return new TicketRecord(channelId, ownerId, typeLabel, summary, openedAt, timestamp, false, 0L, "", participants);
+            return new TicketRecord(channelId, ownerId, typeLabel, summary, openedAt, timestamp, false, 0L, "", null, "", participants);
+        }
+
+        private TicketRecord withTranscriptPath(String path) {
+            return new TicketRecord(channelId, ownerId, typeLabel, summary, openedAt, lastInteractionAt, closed, closedAt, closeReason, closedByUserId, path, participants);
         }
     }
 
@@ -153,11 +172,17 @@ public class TicketService {
     private final Path transcriptDir;
     private final Map<Long, Map<Long, TicketRecord>> guildCache = new ConcurrentHashMap<>();
     private final Yaml yaml;
+    private final TicketSqliteRepository sqliteRepository;
 
     public TicketService(Path storageDir, Path transcriptDir) {
+        this(storageDir, transcriptDir, null);
+    }
+
+    public TicketService(Path storageDir, Path transcriptDir, TicketSqliteRepository sqliteRepository) {
         this.storageDir = storageDir;
         this.transcriptDir = transcriptDir;
         this.yaml = new Yaml(yamlOptions());
+        this.sqliteRepository = sqliteRepository;
         try {
             Files.createDirectories(storageDir);
             Files.createDirectories(transcriptDir);
@@ -189,6 +214,8 @@ public class TicketService {
                     now,
                     false,
                     0L,
+                    "",
+                    null,
                     "",
                     participants
             );
@@ -242,13 +269,17 @@ public class TicketService {
     }
 
     public TicketRecord closeTicket(long guildId, long channelId, String reason) {
+        return closeTicket(guildId, channelId, reason, null);
+    }
+
+    public TicketRecord closeTicket(long guildId, long channelId, String reason, Long closedByUserId) {
         Map<Long, TicketRecord> map = ticketsForGuild(guildId);
         synchronized (map) {
             TicketRecord record = map.get(channelId);
             if (record == null) {
                 return null;
             }
-            TicketRecord closed = record.isClosed() ? record : record.close(reason, System.currentTimeMillis());
+            TicketRecord closed = record.isClosed() ? record : record.close(reason, closedByUserId, System.currentTimeMillis());
             map.put(channelId, closed);
             saveGuild(guildId, map);
             return closed;
@@ -266,6 +297,20 @@ public class TicketService {
             map.put(channelId, reopened);
             saveGuild(guildId, map);
             return reopened;
+        }
+    }
+
+    public TicketRecord setTranscriptPath(long guildId, long channelId, String transcriptPath) {
+        Map<Long, TicketRecord> map = ticketsForGuild(guildId);
+        synchronized (map) {
+            TicketRecord record = map.get(channelId);
+            if (record == null) {
+                return null;
+            }
+            TicketRecord updated = record.withTranscriptPath(transcriptPath == null ? "" : transcriptPath);
+            map.put(channelId, updated);
+            saveGuild(guildId, map);
+            return updated;
         }
     }
 
@@ -507,52 +552,75 @@ public class TicketService {
 
     private Map<Long, TicketRecord> loadGuild(long guildId) {
         Path file = file(guildId);
-        if (!Files.exists(file)) {
-            return new ConcurrentHashMap<>();
-        }
         Map<Long, TicketRecord> loaded = new ConcurrentHashMap<>();
-        try (var in = Files.newInputStream(file)) {
-            Object rootObj = yaml.load(in);
-            Map<String, Object> root = asMap(rootObj);
-            Object ticketsObj = root.get("tickets");
-            if (!(ticketsObj instanceof Iterable<?> rows)) {
-                return loaded;
-            }
-            for (Object rowObj : rows) {
-                Map<String, Object> row = asMap(rowObj);
-                long channelId = readLong(row.get("channelId"), 0L);
-                long ownerId = readLong(row.get("ownerId"), 0L);
-                if (channelId <= 0L || ownerId <= 0L) {
-                    continue;
-                }
-                Set<Long> participants = new LinkedHashSet<>();
-                Object participantsObj = row.get("participants");
-                if (participantsObj instanceof Iterable<?> iterable) {
-                    for (Object p : iterable) {
-                        long id = readLong(p, 0L);
-                        if (id > 0L) {
-                            participants.add(id);
+        if (Files.exists(file)) {
+            try (var in = Files.newInputStream(file)) {
+                Object rootObj = yaml.load(in);
+                Map<String, Object> root = asMap(rootObj);
+                Object ticketsObj = root.get("tickets");
+                if (ticketsObj instanceof Iterable<?> rows) {
+                    for (Object rowObj : rows) {
+                        Map<String, Object> row = asMap(rowObj);
+                        long channelId = readLong(row.get("channelId"), 0L);
+                        long ownerId = readLong(row.get("ownerId"), 0L);
+                        if (channelId <= 0L || ownerId <= 0L) {
+                            continue;
                         }
+                        Set<Long> participants = new LinkedHashSet<>();
+                        Object participantsObj = row.get("participants");
+                        if (participantsObj instanceof Iterable<?> iterable) {
+                            for (Object p : iterable) {
+                                long id = readLong(p, 0L);
+                                if (id > 0L) {
+                                    participants.add(id);
+                                }
+                            }
+                        }
+                        if (participants.isEmpty()) {
+                            participants.add(ownerId);
+                        }
+                        TicketRecord record = new TicketRecord(
+                                channelId,
+                                ownerId,
+                                readString(row.get("typeLabel")),
+                                readString(row.get("summary")),
+                                readLong(row.get("openedAt"), System.currentTimeMillis()),
+                                readLong(row.get("lastInteractionAt"), System.currentTimeMillis()),
+                                readBoolean(row.get("closed")),
+                                readLong(row.get("closedAt"), 0L),
+                                readString(row.get("closeReason")),
+                                readNullableLong(row.get("closedByUserId")),
+                                readString(row.get("transcriptPath")),
+                                participants
+                        );
+                        loaded.put(channelId, record);
                     }
                 }
-                if (participants.isEmpty()) {
-                    participants.add(ownerId);
-                }
-                TicketRecord record = new TicketRecord(
-                        channelId,
-                        ownerId,
-                        readString(row.get("typeLabel")),
-                        readString(row.get("summary")),
-                        readLong(row.get("openedAt"), System.currentTimeMillis()),
-                        readLong(row.get("lastInteractionAt"), System.currentTimeMillis()),
-                        readBoolean(row.get("closed")),
-                        readLong(row.get("closedAt"), 0L),
-                        readString(row.get("closeReason")),
-                        participants
-                );
-                loaded.put(channelId, record);
+            } catch (Exception ignored) {
             }
-        } catch (Exception ignored) {
+        }
+        if (sqliteRepository != null) {
+            Map<Long, TicketSqliteRepository.StoredTicket> sqliteTickets = sqliteRepository.loadGuild(guildId);
+            if (!sqliteTickets.isEmpty()) {
+                Map<Long, TicketRecord> migrated = new ConcurrentHashMap<>();
+                for (TicketSqliteRepository.StoredTicket ticket : sqliteTickets.values()) {
+                    migrated.put(ticket.channelId(), new TicketRecord(
+                            ticket.channelId(),
+                            ticket.ownerId(),
+                            ticket.typeLabel(),
+                            ticket.summary(),
+                            ticket.openedAt(),
+                            ticket.lastInteractionAt(),
+                            ticket.closed(),
+                            ticket.closedAt(),
+                            ticket.closeReason(),
+                            ticket.closedByUserId(),
+                            ticket.transcriptPath(),
+                            ticket.participants()
+                    ));
+                }
+                return migrated;
+            }
         }
         return loaded;
     }
@@ -573,6 +641,8 @@ public class TicketService {
             row.put("closed", record.isClosed());
             row.put("closedAt", record.getClosedAt());
             row.put("closeReason", record.getCloseReason());
+            row.put("closedByUserId", record.getClosedByUserId() == null ? "" : String.valueOf(record.getClosedByUserId()));
+            row.put("transcriptPath", record.getTranscriptPath());
             List<String> participants = record.getParticipants().stream().map(String::valueOf).toList();
             row.put("participants", participants);
             rows.add(row);
@@ -585,6 +655,9 @@ public class TicketService {
                 yaml.dump(root, writer);
             }
         } catch (Exception ignored) {
+        }
+        if (sqliteRepository != null) {
+            sqliteRepository.replaceGuild(guildId, map.values().stream().map(this::toStoredTicket).toList());
         }
     }
 
@@ -631,6 +704,41 @@ public class TicketService {
             return bool;
         }
         return Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private Long readNullableLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(text);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private TicketSqliteRepository.StoredTicket toStoredTicket(TicketRecord record) {
+        return new TicketSqliteRepository.StoredTicket(
+                record.getChannelId(),
+                record.getOwnerId(),
+                record.getTypeLabel(),
+                record.getSummary(),
+                record.getOpenedAt(),
+                record.getLastInteractionAt(),
+                record.isClosed(),
+                record.getClosedAt(),
+                record.getCloseReason(),
+                record.getClosedByUserId(),
+                record.getTranscriptPath(),
+                record.getParticipants()
+        );
     }
 }
 

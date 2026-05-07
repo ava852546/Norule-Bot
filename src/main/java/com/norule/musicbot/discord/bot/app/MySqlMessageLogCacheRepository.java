@@ -143,11 +143,11 @@ public final class MySqlMessageLogCacheRepository implements MessageLogCacheRepo
     }
 
     @Override
-    public void pruneExpired(long cutoffMillis) {
+    public int pruneExpired(long cutoffMillis) {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(SQL_PRUNE)) {
             statement.setLong(1, cutoffMillis);
-            statement.executeUpdate();
+            return statement.executeUpdate();
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to prune message-log cache entries", e);
         }

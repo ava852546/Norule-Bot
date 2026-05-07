@@ -58,21 +58,57 @@ public class HoneypotEventService {
         if (member == null) {
             return;
         }
+        long channelId = event.getChannel().getIdLong();
+        String messageId = event.getMessageId();
         cleanupExecutor.execute(() -> {
             int deletedMessages = deleteRecentMessages(guild, member.getIdLong(), Duration.ofHours(24));
-            kickAndNotify(guild, member, deletedMessages);
+            kickAndNotify(guild, member, channelId, messageId, deletedMessages);
         });
     }
 
-    private void kickAndNotify(Guild guild, Member member, int deletedMessages) {
+    private void kickAndNotify(Guild guild, Member member, long channelId, String messageId, int deletedMessages) {
         Member self = guild.getSelfMember();
         if (member.isOwner() || !self.hasPermission(Permission.KICK_MEMBERS) || !self.canInteract(member)) {
             sendModerationNotice(guild, member, false, deletedMessages);
+            honeypotService.recordTrigger(
+                    guild.getIdLong(),
+                    member.getIdLong(),
+                    channelId,
+                    messageId,
+                    "KICK_SKIPPED",
+                    deletedMessages,
+                    false,
+                    "Missing permission or hierarchy"
+            );
             return;
         }
         guild.kick(member).reason("Honeypot channel message").queue(
-                success -> sendModerationNotice(guild, member, true, deletedMessages),
-                error -> sendModerationNotice(guild, member, false, deletedMessages)
+                success -> {
+                    sendModerationNotice(guild, member, true, deletedMessages);
+                    honeypotService.recordTrigger(
+                            guild.getIdLong(),
+                            member.getIdLong(),
+                            channelId,
+                            messageId,
+                            "KICKED",
+                            deletedMessages,
+                            true,
+                            ""
+                    );
+                },
+                error -> {
+                    sendModerationNotice(guild, member, false, deletedMessages);
+                    honeypotService.recordTrigger(
+                            guild.getIdLong(),
+                            member.getIdLong(),
+                            channelId,
+                            messageId,
+                            "KICK_FAILED",
+                            deletedMessages,
+                            false,
+                            error.getMessage()
+                    );
+                }
         );
     }
 

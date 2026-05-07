@@ -2,6 +2,7 @@ package com.norule.musicbot.discord.bot.app;
 
 import com.norule.musicbot.config.GuildSettingsService;
 import com.norule.musicbot.i18n.I18nService;
+import com.norule.musicbot.ModerationService;
 import net.dv8tion.jda.api.events.channel.ChannelCreateEvent;
 import net.dv8tion.jda.api.events.channel.ChannelDeleteEvent;
 import net.dv8tion.jda.api.events.channel.update.ChannelUpdateNameEvent;
@@ -15,8 +16,8 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 public class ServerLogListener extends ListenerAdapter {
     private final ServerLogService service;
 
-    public ServerLogListener(GuildSettingsService settingsService, I18nService i18n) {
-        this.service = new ServerLogService(settingsService, i18n);
+    public ServerLogListener(GuildSettingsService settingsService, I18nService i18n, ModerationService moderationService) {
+        this.service = new ServerLogService(settingsService, i18n, moderationService);
     }
 
     @Override

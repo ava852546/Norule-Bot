@@ -31,6 +31,11 @@ import com.norule.musicbot.shorturl.MySqlShortUrlRepository;
 import com.norule.musicbot.shorturl.ShortUrlRepository;
 import com.norule.musicbot.shorturl.SqliteShortUrlRepository;
 import com.norule.musicbot.shorturl.infra.ShortUrlGatewayServer;
+import com.norule.musicbot.storage.sqlite.GuildSettingsSqliteRepository;
+import com.norule.musicbot.storage.sqlite.HoneypotSqliteRepository;
+import com.norule.musicbot.storage.sqlite.ModerationSqliteRepository;
+import com.norule.musicbot.storage.sqlite.SqliteDatabase;
+import com.norule.musicbot.storage.sqlite.TicketSqliteRepository;
 
 import com.norule.musicbot.*;
 
@@ -71,12 +76,17 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class RuntimeBootstrap {
     private static final DateTimeFormatter LOG_FILE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
     private static final DateTimeFormatter CONSOLE_TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final Set<String> SHUTDOWN_COMMANDS = Set.of("stop", "end");
     private static final Set<String> RELOAD_COMMANDS = Set.of("reload");
+    private static final Set<String> HELP_COMMANDS = Set.of("help", "?", "h");
+    private static final long DEFAULT_CLEAR_RETENTION_MILLIS = 7L * 24L * 60L * 60L * 1000L;
+    private static final Pattern RETENTION_SEGMENT_PATTERN = Pattern.compile("(\\d+)([dhms])");
     private static final AtomicBoolean SHUTDOWN_STARTED = new AtomicBoolean(false);
     private static final AtomicReference<ScheduledExecutorService> PRESENCE_ROTATION = new AtomicReference<>();
     private static final AtomicReference<BotConfig> RUNTIME_CONFIG = new AtomicReference<>();
@@ -90,6 +100,7 @@ public final class RuntimeBootstrap {
     private static final AtomicReference<DuplicateMessageCacheRepository> DUPLICATE_MESSAGE_CACHE_REPOSITORY = new AtomicReference<>();
     private static final AtomicReference<PrivateRoomCacheRepository> PRIVATE_ROOM_CACHE_REPOSITORY = new AtomicReference<>();
     private record ActivityTemplate(String type, String text) {}
+    private record ClearCommand(String target, long retentionMillis) {}
 
     public void run(String[] args) {
         Path configPath = resolveConfigPath();
@@ -109,13 +120,17 @@ public final class RuntimeBootstrap {
         Path ticketDataPath = resolveDataPath(baseDir, config.getTicketDataDir());
         Path ticketTranscriptPath = resolveDataPath(baseDir, config.getTicketTranscriptDir());
         Path honeypotDataPath = resolveDataPath(baseDir, config.getHoneypotDataDir());
+        BotConfig.DataPaths.DataDatabase dataDatabaseConfig = config.getDataDatabase();
+        Path sharedSqlitePath = resolveSharedSqlitePath(baseDir, dataDatabaseConfig);
+        SqliteDatabase sharedSqliteDatabase = createSharedSqliteDatabase(sharedSqlitePath);
         StatsConfig statsConfig = new StatsConfig(config.getStats());
-        Path musicSqlitePath = "sqlite".equalsIgnoreCase(statsConfig.getStorage())
+        Path musicSqlitePath = sharedSqlitePath != null ? sharedSqlitePath : ("sqlite".equalsIgnoreCase(statsConfig.getStorage())
                 ? resolveDataPath(baseDir, statsConfig.getSqlite().getPath())
-                : null;
+                : null);
 
+        GuildSettingsSqliteRepository guildSettingsSqliteRepository = sharedSqliteDatabase == null ? null : new GuildSettingsSqliteRepository(sharedSqliteDatabase);
         GuildSettingsService guildSettingsService =
-                new GuildSettingsService(guildSettingsPath, config);
+                new GuildSettingsService(guildSettingsPath, config, guildSettingsSqliteRepository);
         GuildDomainConfigAdapter guildConfigAdapter = new GuildDomainConfigAdapter(guildSettingsService, config.getMusic());
         MusicConfig globalMusicConfig = new MusicConfig(config.getMusic(), config.getMusic());
         MusicPlayerService playerService = new MusicPlayerService(
@@ -127,14 +142,17 @@ public final class RuntimeBootstrap {
                 musicSqlitePath
         );
         Path moderationDataPath = resolveDataPath(baseDir, config.getModerationDataDir());
-        ModerationService moderationService = new ModerationService(moderationDataPath);
+        ModerationSqliteRepository moderationSqliteRepository = sharedSqliteDatabase == null ? null : new ModerationSqliteRepository(sharedSqliteDatabase);
+        ModerationService moderationService = new ModerationService(moderationDataPath, moderationSqliteRepository);
         WordChainService wordChainService = new WordChainService(
                 new WordChainStateRepository(moderationDataPath.resolve("wordchain")),
                 new DictionaryApiService(new DictionaryApiHttpGateway())
         );
         WordChainOps wordChainOps = new WordChainOps(wordChainService);
-        HoneypotService honeypotService = new HoneypotService(honeypotDataPath);
-        TicketService ticketService = new TicketService(ticketDataPath, ticketTranscriptPath);
+        HoneypotSqliteRepository honeypotSqliteRepository = sharedSqliteDatabase == null ? null : new HoneypotSqliteRepository(sharedSqliteDatabase);
+        TicketSqliteRepository ticketSqliteRepository = sharedSqliteDatabase == null ? null : new TicketSqliteRepository(sharedSqliteDatabase);
+        HoneypotService honeypotService = new HoneypotService(honeypotDataPath, honeypotSqliteRepository);
+        TicketService ticketService = new TicketService(ticketDataPath, ticketTranscriptPath, ticketSqliteRepository);
         ShortUrlService shortUrlService = createShortUrlService(config, baseDir);
         TICKET_SERVICE.set(ticketService);
         SHORT_URL_SERVICE.set(shortUrlService);
@@ -190,7 +208,7 @@ public final class RuntimeBootstrap {
                         musicCommandListener,
                         new NotificationListener(guildSettingsService, i18nService),
                         new MessageLogListener(guildSettingsService, i18nService, messageLogCacheRepository),
-                        new ServerLogListener(guildSettingsService, i18nService),
+                        new ServerLogListener(guildSettingsService, i18nService, moderationService),
                         new DuplicateMessageListener(guildSettingsService, moderationService, i18nService, duplicateMessageCacheRepository),
                         new HoneypotListener(honeypotService, guildSettingsService),
                         new NumberChainListener(guildSettingsService, moderationService, i18nService,
@@ -373,9 +391,14 @@ public final class RuntimeBootstrap {
                                                        TicketService ticketService) {
         Thread listener = new Thread(() -> {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
+                System.out.println("[NoRule] Console commands ready: help | reload | stop | clear message_log [t:7d] | clear play_history [t:7d]");
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    String command = line.trim().toLowerCase(Locale.ROOT);
+                    String command = normalizeConsoleCommand(line);
+                    if (command.isBlank()) {
+                        continue;
+                    }
+                    System.out.println("[NoRule] Console command received: " + command);
                     if (SHUTDOWN_COMMANDS.contains(command)) {
                         System.out.println("[NoRule] Shutdown command received: " + command);
                         requestShutdown(jda, i18nService, language, true);
@@ -384,13 +407,173 @@ public final class RuntimeBootstrap {
                     if (RELOAD_COMMANDS.contains(command)) {
                         reloadRuntimeConfig(jda, configPath, musicCommandListener, playerService, guildSettingsService, guildConfigAdapter,
                                 moderationService, honeypotService, ticketService);
+                        continue;
                     }
+                    if (HELP_COMMANDS.contains(command)) {
+                        printConsoleHelp();
+                        continue;
+                    }
+                    if (handleClearCommand(command, playerService)) {
+                        continue;
+                    }
+                    System.out.println("[NoRule] Unknown console command: " + command);
                 }
+                System.out.println("[NoRule] Console command listener stopped (stdin closed).");
             } catch (Exception ignored) {
+                System.out.println("[NoRule] Console command listener failed: " + ignored.getMessage());
             }
         }, "ConsoleShutdownListener");
         listener.setDaemon(true);
         listener.start();
+    }
+
+    private static String normalizeConsoleCommand(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String normalized = raw
+                .replace('\uFEFF', ' ')
+                .replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ")
+                .trim()
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", " ");
+        return normalized;
+    }
+
+    private static void printConsoleHelp() {
+        System.out.println("[NoRule] Console command help:");
+        System.out.println("  help                              Show this help");
+        System.out.println("  reload                            Reload config/runtime state");
+        System.out.println("  stop                              Shutdown bot process");
+        System.out.println("  clear message_log [t:12d34m56s]   Prune old message_log_cache rows (default t:7d)");
+        System.out.println("  clear play_history [t:12d34m56s]  Prune old play_history rows (default t:7d)");
+    }
+
+    private static boolean handleClearCommand(String command, MusicPlayerService playerService) {
+        ClearCommand parsed = parseClearCommand(command);
+        if (parsed == null) {
+            return false;
+        }
+        if (parsed.target().startsWith("__")) {
+            return true;
+        }
+        long cutoffMillis = System.currentTimeMillis() - parsed.retentionMillis();
+        if ("message_log".equals(parsed.target())) {
+            MessageLogCacheRepository repository = MESSAGE_LOG_CACHE_REPOSITORY.get();
+            if (repository == null) {
+                System.out.println("[NoRule] clear message_log skipped: repository unavailable");
+                return true;
+            }
+            try {
+                int removed = repository.pruneExpired(cutoffMillis);
+                System.out.println("[NoRule] clear message_log completed: removed=" + removed + ", retention=" + formatRetention(parsed.retentionMillis()));
+            } catch (Exception e) {
+                System.out.println("[NoRule] clear message_log failed: " + e.getMessage());
+            }
+            return true;
+        }
+        if ("play_history".equals(parsed.target())) {
+            try {
+                int removed = playerService.clearPlayHistoryByRetentionMillis(parsed.retentionMillis());
+                System.out.println("[NoRule] clear play_history completed: removed=" + removed + ", retention=" + formatRetention(parsed.retentionMillis()));
+            } catch (Exception e) {
+                System.out.println("[NoRule] clear play_history failed: " + e.getMessage());
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private static ClearCommand parseClearCommand(String command) {
+        if (command == null || command.isBlank()) {
+            return null;
+        }
+        String[] tokens = command.split(" ");
+        if (tokens.length < 2 || !"clear".equals(tokens[0])) {
+            return null;
+        }
+        String rawTarget = tokens[1];
+        String target;
+        if ("message_log".equals(rawTarget) || "message_log_cache".equals(rawTarget)) {
+            target = "message_log";
+        } else if ("play_history".equals(rawTarget)) {
+            target = "play_history";
+        } else {
+            System.out.println("[NoRule] clear target unsupported: " + rawTarget + " (supported: message_log, play_history)");
+            return new ClearCommand("__unsupported__", DEFAULT_CLEAR_RETENTION_MILLIS);
+        }
+
+        long retentionMillis = DEFAULT_CLEAR_RETENTION_MILLIS;
+        for (int i = 2; i < tokens.length; i++) {
+            String token = tokens[i];
+            if (!token.startsWith("t:")) {
+                System.out.println("[NoRule] clear usage: clear message_log|play_history [t:12d34m56s]");
+                return new ClearCommand("__invalid__", DEFAULT_CLEAR_RETENTION_MILLIS);
+            }
+            String spec = token.substring(2).trim();
+            Long parsed = parseRetentionMillis(spec);
+            if (parsed == null) {
+                System.out.println("[NoRule] invalid retention: " + spec + " (example: t:12d34m56s)");
+                return new ClearCommand("__invalid__", DEFAULT_CLEAR_RETENTION_MILLIS);
+            }
+            retentionMillis = parsed;
+        }
+        return new ClearCommand(target, retentionMillis);
+    }
+
+    private static Long parseRetentionMillis(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) {
+            return null;
+        }
+        Matcher matcher = RETENTION_SEGMENT_PATTERN.matcher(normalized);
+        long total = 0L;
+        int consumed = 0;
+        while (matcher.find()) {
+            if (matcher.start() != consumed) {
+                return null;
+            }
+            consumed = matcher.end();
+            long amount;
+            try {
+                amount = Long.parseLong(matcher.group(1));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+            long unitMillis = switch (matcher.group(2)) {
+                case "d" -> 86_400_000L;
+                case "h" -> 3_600_000L;
+                case "m" -> 60_000L;
+                case "s" -> 1_000L;
+                default -> -1L;
+            };
+            if (unitMillis <= 0L) {
+                return null;
+            }
+            try {
+                total = Math.addExact(total, Math.multiplyExact(amount, unitMillis));
+            } catch (ArithmeticException e) {
+                return null;
+            }
+        }
+        if (consumed != normalized.length()) {
+            return null;
+        }
+        return Math.max(0L, total);
+    }
+
+    private static String formatRetention(long retentionMillis) {
+        long seconds = Math.max(0L, retentionMillis / 1000L);
+        long days = seconds / 86_400L;
+        seconds %= 86_400L;
+        long hours = seconds / 3_600L;
+        seconds %= 3_600L;
+        long minutes = seconds / 60L;
+        seconds %= 60L;
+        return days + "d" + hours + "h" + minutes + "m" + seconds + "s";
     }
 
     private static void reloadRuntimeConfig(JDA jda,
@@ -787,6 +970,30 @@ public final class RuntimeBootstrap {
             return raw.normalize();
         }
         return baseDir.resolve(raw).normalize();
+    }
+
+    private static Path resolveSharedSqlitePath(Path baseDir, BotConfig.DataPaths.DataDatabase database) {
+        if (database == null) {
+            return null;
+        }
+        if (!"sqlite".equalsIgnoreCase(database.getType())) {
+            return null;
+        }
+        return resolveDataPath(baseDir, database.getPath());
+    }
+
+    private static SqliteDatabase createSharedSqliteDatabase(Path sqlitePath) {
+        if (sqlitePath == null) {
+            return null;
+        }
+        try {
+            SqliteDatabase database = new SqliteDatabase(sqlitePath);
+            System.out.println("[NoRule] Shared data storage: sqlite (" + sqlitePath.toAbsolutePath().normalize() + ")");
+            return database;
+        } catch (Exception e) {
+            System.out.println("[NoRule] Shared sqlite storage disabled: " + e.getMessage());
+            return null;
+        }
     }
 
     private static void installConsoleFileLogging(Path baseDir, String logDirPath) {

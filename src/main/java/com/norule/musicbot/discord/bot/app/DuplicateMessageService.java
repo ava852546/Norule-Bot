@@ -87,15 +87,36 @@ public class DuplicateMessageService {
         Guild guild = event.getGuild();
         long guildId = guild.getIdLong();
         String lang = settingsService.getLanguage(guildId);
-        int warningCount = moderationService.addWarnings(guildId, member.getIdLong(), 1);
+        int warningCount = moderationService.addWarnings(
+                guildId,
+                member.getIdLong(),
+                1,
+                null,
+                "Auto moderation: duplicate messages"
+        );
 
         boolean timeoutAllowed = canTimeout(guild, member);
         if (timeoutAllowed) {
             member.timeoutFor(Duration.ofMinutes(10))
                     .reason("Auto moderation: duplicate messages")
-                    .queue(success -> {
-                    }, error -> {
-                    });
+                    .queue(
+                            success -> moderationService.recordModerationAction(
+                                    guildId,
+                                    member.getIdLong(),
+                                    null,
+                                    "TIMEOUT",
+                                    "Auto moderation: duplicate messages",
+                                    "success"
+                            ),
+                            error -> moderationService.recordModerationAction(
+                                    guildId,
+                                    member.getIdLong(),
+                                    null,
+                                    "TIMEOUT",
+                                    "Auto moderation: duplicate messages",
+                                    "failed:" + error.getMessage()
+                            )
+                    );
         }
 
         TextChannel target = resolveNotifyChannel(event);

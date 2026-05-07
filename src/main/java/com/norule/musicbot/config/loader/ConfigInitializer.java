@@ -426,11 +426,34 @@ public final class ConfigInitializer {
             }
         }
 
+        Map<String, Object> data = mutableMap(config.get("data"));
+        Map<String, Object> dataDatabase = data == null ? null : mutableMap(data.get("database"));
         Map<String, Object> database = mutableMap(config.get("database"));
         if (database == null) {
             database = new LinkedHashMap<>();
             config.put("database", database);
             changed = true;
+        }
+
+        String dataDbType = dataDatabase == null ? "" : getString(dataDatabase, "type", "");
+        if (!dataDbType.isBlank() && getString(database, "type", "").isBlank()) {
+            database.put("type", dataDbType.toLowerCase());
+            changed = true;
+        }
+        Map<String, Object> existingDbSqlite = mutableMap(database.get("sqlite"));
+        Map<String, Object> normalizedSqlite = new LinkedHashMap<>();
+        if (existingDbSqlite != null) {
+            normalizedSqlite.putAll(existingDbSqlite);
+        }
+        String sqlitePathFromDatabase = getString(normalizedSqlite, "path", "");
+        if (sqlitePathFromDatabase.isBlank()) {
+            String legacyDbFile = firstNonBlank(
+                    shortUrl == null ? "" : getString(asMap(shortUrl.get("sqlite")), "path", ""),
+                    stats == null ? "" : getString(asMap(stats.get("sqlite")), "path", "")
+            );
+            if (!legacyDbFile.isBlank()) {
+                normalizedSqlite.put("path", legacyDbFile);
+            }
         }
 
         String resolvedStorage = firstNonBlank(
@@ -468,27 +491,36 @@ public final class ConfigInitializer {
             }
         }
 
-        Map<String, Object> existingDbSqlite = mutableMap(database.get("sqlite"));
         Map<String, Object> sourceSqlite = firstNonEmptyMap(
-                existingDbSqlite,
+                normalizedSqlite,
                 stats == null ? null : mutableMap(stats.get("sqlite")),
                 shortUrl == null ? null : mutableMap(shortUrl.get("sqlite"))
         );
-        Map<String, Object> normalizedSqlite = new LinkedHashMap<>();
-        if (sourceSqlite != null) {
+        if (sourceSqlite != null && sourceSqlite != normalizedSqlite) {
             normalizedSqlite.putAll(sourceSqlite);
         }
-        String sqlitePath = normalizeSqlitePath(getString(normalizedSqlite, "path", ""));
+        String sqlitePath = getString(normalizedSqlite, "path", "");
+        sqlitePath = normalizeSqlitePath(sqlitePath);
         normalizedSqlite.put("path", sqlitePath);
         if (!normalizedSqlite.equals(existingDbSqlite)) {
             database.put("sqlite", normalizedSqlite);
             changed = true;
         }
 
+        if (data != null) {
+            changed |= removeKey(data, "database");
+        }
+        changed |= removeKey(database, "enabled");
+
         if (stats != null) {
             changed |= removeKey(stats, "storage");
             changed |= removeKey(stats, "mysql");
             changed |= removeKey(stats, "sqlite");
+        }
+        if (shortUrl != null) {
+            changed |= removeKey(shortUrl, "storage");
+            changed |= removeKey(shortUrl, "mysql");
+            changed |= removeKey(shortUrl, "sqlite");
         }
 
         return changed;
@@ -641,13 +673,13 @@ public final class ConfigInitializer {
     private static String normalizeSqlitePath(String rawPath) {
         String path = rawPath == null ? "" : rawPath.trim();
         if (path.isBlank()) {
-            return "data/data.db";
+            return "data/norule.db";
         }
         if ("db/short-url.db".equals(path)
                 || "data/short-url.db".equals(path)
                 || "stats/message-stats.db".equals(path)
                 || "data/message-stats.db".equals(path)) {
-            return "data/data.db";
+            return "data/norule.db";
         }
         return path;
     }

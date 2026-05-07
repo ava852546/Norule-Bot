@@ -240,6 +240,42 @@ public class MusicDataService {
         cleanupExpiredPlaylistShares();
     }
 
+    public int clearPlayHistoryByRetentionMillis(long retentionMillis) {
+        long safeRetention = Math.max(0L, retentionMillis);
+        long cutoffMillis = System.currentTimeMillis() - safeRetention;
+        int removed = 0;
+        boolean sqliteBacked = sqliteStore != null;
+
+        if (sqliteBacked) {
+            try {
+                removed += sqliteStore.deletePlayHistoryOlderThan(cutoffMillis);
+            } catch (Exception e) {
+                System.out.println("[NoRule] Failed to prune sqlite play history: " + e.getMessage());
+            }
+        }
+
+        for (Map.Entry<Long, GuildMusicData> entry : cache.entrySet()) {
+            long guildId = entry.getKey();
+            GuildMusicData data = entry.getValue();
+            if (data == null) {
+                continue;
+            }
+            synchronized (data) {
+                int before = data.history.size();
+                data.history.removeIf(item -> item != null && item.playedAtEpochMillis() < cutoffMillis);
+                int delta = before - data.history.size();
+                if (delta > 0) {
+                    if (!sqliteBacked) {
+                        removed += delta;
+                    }
+                    save(guildId, data);
+                }
+            }
+        }
+
+        return removed;
+    }
+
     public int getVolume(long guildId) {
         GuildMusicData data = get(guildId);
         synchronized (data) {
@@ -744,6 +780,8 @@ public class MusicDataService {
             if (payload != null) {
                 defaults.history = new LinkedList<>(payload.history());
                 defaults.playlists = new LinkedHashMap<>(payload.playlists());
+                defaults.requesterCounts = new LinkedHashMap<>(payload.requesterCounts());
+                defaults.requesterLastPlayedAt = new LinkedHashMap<>(payload.requesterLastPlayedAt());
                 trimHistory(guildId, defaults);
             }
         } catch (Exception e) {
@@ -904,7 +942,7 @@ public class MusicDataService {
     private void save(long guildId, GuildMusicData data) {
         if (sqliteStore != null) {
             try {
-                sqliteStore.replaceGuildData(guildId, data.history, data.playlists);
+                sqliteStore.replaceGuildData(guildId, data.history, data.playlists, data.requesterCounts, data.requesterLastPlayedAt);
             } catch (Exception e) {
                 System.out.println("[NoRule] Failed to save music sqlite data for guild " + guildId + ": " + e.getMessage());
             }
@@ -1256,8 +1294,22 @@ public class MusicDataService {
                 CREATE INDEX IF NOT EXISTS idx_user_playlists_guild
                 ON user_playlists(guild_id)
                 """;
+        private static final String SQL_CREATE_REQUESTER_STATS = """
+                CREATE TABLE IF NOT EXISTS music_requester_stats (
+                    guild_id INTEGER NOT NULL,
+                    requester_id INTEGER NOT NULL,
+                    play_count INTEGER NOT NULL,
+                    last_played_at INTEGER NOT NULL,
+                    PRIMARY KEY (guild_id, requester_id)
+                )
+                """;
+        private static final String SQL_CREATE_REQUESTER_STATS_GUILD_INDEX = """
+                CREATE INDEX IF NOT EXISTS idx_music_requester_stats_guild
+                ON music_requester_stats(guild_id)
+                """;
         private static final String SQL_DELETE_PLAY_HISTORY_BY_GUILD = "DELETE FROM play_history WHERE guild_id = ?";
         private static final String SQL_DELETE_USER_PLAYLISTS_BY_GUILD = "DELETE FROM user_playlists WHERE guild_id = ?";
+        private static final String SQL_DELETE_REQUESTER_STATS_BY_GUILD = "DELETE FROM music_requester_stats WHERE guild_id = ?";
         private static final String SQL_INSERT_PLAY_HISTORY = """
                 INSERT INTO play_history (
                     guild_id, history_index, played_at_epoch_millis, title, author, source, uri,
@@ -1276,16 +1328,36 @@ public class MusicDataService {
                 WHERE guild_id = ?
                 ORDER BY history_index ASC
                 """;
+        private static final String SQL_DELETE_PLAY_HISTORY_OLDER_THAN = """
+                DELETE FROM play_history
+                WHERE played_at_epoch_millis < ?
+                """;
         private static final String SQL_SELECT_USER_PLAYLISTS = """
                 SELECT normalized_name, playlist_name, updated_at_epoch_millis, owner_id, owner_name, tracks_yaml
                 FROM user_playlists
                 WHERE guild_id = ?
                 ORDER BY normalized_name ASC
                 """;
+        private static final String SQL_SELECT_REQUESTER_STATS = """
+                SELECT requester_id, play_count, last_played_at
+                FROM music_requester_stats
+                WHERE guild_id = ?
+                ORDER BY requester_id ASC
+                """;
+        private static final String SQL_INSERT_REQUESTER_STATS = """
+                INSERT INTO music_requester_stats (
+                    guild_id, requester_id, play_count, last_played_at
+                ) VALUES (?, ?, ?, ?)
+                """;
 
         private final String jdbcUrl;
 
-        private record GuildPayload(List<PlaybackEntry> history, Map<String, PlaylistData> playlists) {
+        private record GuildPayload(
+                List<PlaybackEntry> history,
+                Map<String, PlaylistData> playlists,
+                Map<Long, Integer> requesterCounts,
+                Map<Long, Long> requesterLastPlayedAt
+        ) {
         }
 
         private SqliteMusicStore(Path dbFilePath) {
@@ -1313,6 +1385,8 @@ public class MusicDataService {
                 statement.execute(SQL_CREATE_USER_PLAYLISTS);
                 statement.execute(SQL_CREATE_PLAY_HISTORY_GUILD_INDEX);
                 statement.execute(SQL_CREATE_USER_PLAYLISTS_GUILD_INDEX);
+                statement.execute(SQL_CREATE_REQUESTER_STATS);
+                statement.execute(SQL_CREATE_REQUESTER_STATS_GUILD_INDEX);
             } catch (SQLException e) {
                 throw new IllegalStateException("Failed to initialize music sqlite schema", e);
             }
@@ -1321,6 +1395,8 @@ public class MusicDataService {
         private GuildPayload loadGuildPayload(long guildId, int playlistTrackLimit) throws SQLException {
             List<PlaybackEntry> history = new ArrayList<>();
             Map<String, PlaylistData> playlists = new LinkedHashMap<>();
+            Map<Long, Integer> requesterCounts = new LinkedHashMap<>();
+            Map<Long, Long> requesterLastPlayedAt = new LinkedHashMap<>();
 
             try (Connection connection = DriverManager.getConnection(jdbcUrl)) {
                 try (PreparedStatement historyStmt = connection.prepareStatement(SQL_SELECT_PLAY_HISTORY)) {
@@ -1366,24 +1442,49 @@ public class MusicDataService {
                         }
                     }
                 }
+
+                try (PreparedStatement requesterStmt = connection.prepareStatement(SQL_SELECT_REQUESTER_STATS)) {
+                    requesterStmt.setLong(1, guildId);
+                    try (ResultSet rs = requesterStmt.executeQuery()) {
+                        while (rs.next()) {
+                            long requesterId = rs.getLong("requester_id");
+                            int playCount = rs.getInt("play_count");
+                            long lastPlayedAt = rs.getLong("last_played_at");
+                            if (requesterId <= 0L || playCount <= 0) {
+                                continue;
+                            }
+                            requesterCounts.put(requesterId, playCount);
+                            requesterLastPlayedAt.put(requesterId, Math.max(0L, lastPlayedAt));
+                        }
+                    }
+                }
             }
 
-            if (history.isEmpty() && playlists.isEmpty()) {
+            if (history.isEmpty() && playlists.isEmpty() && requesterCounts.isEmpty()) {
                 return null;
             }
-            return new GuildPayload(history, playlists);
+            return new GuildPayload(history, playlists, requesterCounts, requesterLastPlayedAt);
         }
 
-        private void replaceGuildData(long guildId, List<PlaybackEntry> history, Map<String, PlaylistData> playlists) throws SQLException {
+        private void replaceGuildData(long guildId,
+                                      List<PlaybackEntry> history,
+                                      Map<String, PlaylistData> playlists,
+                                      Map<Long, Integer> requesterCounts,
+                                      Map<Long, Long> requesterLastPlayedAt) throws SQLException {
+            Map<Long, Integer> safeRequesterCounts = requesterCounts == null ? Map.of() : requesterCounts;
+            Map<Long, Long> safeRequesterLastPlayedAt = requesterLastPlayedAt == null ? Map.of() : requesterLastPlayedAt;
             try (Connection connection = DriverManager.getConnection(jdbcUrl)) {
                 connection.setAutoCommit(false);
                 try {
                     try (PreparedStatement deleteHistory = connection.prepareStatement(SQL_DELETE_PLAY_HISTORY_BY_GUILD);
-                         PreparedStatement deletePlaylists = connection.prepareStatement(SQL_DELETE_USER_PLAYLISTS_BY_GUILD)) {
+                         PreparedStatement deletePlaylists = connection.prepareStatement(SQL_DELETE_USER_PLAYLISTS_BY_GUILD);
+                         PreparedStatement deleteRequester = connection.prepareStatement(SQL_DELETE_REQUESTER_STATS_BY_GUILD)) {
                         deleteHistory.setLong(1, guildId);
                         deleteHistory.executeUpdate();
                         deletePlaylists.setLong(1, guildId);
                         deletePlaylists.executeUpdate();
+                        deleteRequester.setLong(1, guildId);
+                        deleteRequester.executeUpdate();
                     }
 
                     try (PreparedStatement insertHistory = connection.prepareStatement(SQL_INSERT_PLAY_HISTORY)) {
@@ -1426,6 +1527,23 @@ public class MusicDataService {
                         }
                         insertPlaylists.executeBatch();
                     }
+
+                    try (PreparedStatement insertRequester = connection.prepareStatement(SQL_INSERT_REQUESTER_STATS)) {
+                        for (Map.Entry<Long, Integer> entry : safeRequesterCounts.entrySet()) {
+                            Long requesterId = entry.getKey();
+                            Integer playCount = entry.getValue();
+                            if (requesterId == null || requesterId <= 0L || playCount == null || playCount <= 0) {
+                                continue;
+                            }
+                            long lastPlayedAt = Math.max(0L, safeRequesterLastPlayedAt.getOrDefault(requesterId, 0L));
+                            insertRequester.setLong(1, guildId);
+                            insertRequester.setLong(2, requesterId);
+                            insertRequester.setInt(3, playCount);
+                            insertRequester.setLong(4, lastPlayedAt);
+                            insertRequester.addBatch();
+                        }
+                        insertRequester.executeBatch();
+                    }
                     connection.commit();
                 } catch (Exception ex) {
                     connection.rollback();
@@ -1433,6 +1551,14 @@ public class MusicDataService {
                 } finally {
                     connection.setAutoCommit(true);
                 }
+            }
+        }
+
+        private int deletePlayHistoryOlderThan(long cutoffMillis) throws SQLException {
+            try (Connection connection = DriverManager.getConnection(jdbcUrl);
+                 PreparedStatement statement = connection.prepareStatement(SQL_DELETE_PLAY_HISTORY_OLDER_THAN)) {
+                statement.setLong(1, cutoffMillis);
+                return statement.executeUpdate();
             }
         }
 

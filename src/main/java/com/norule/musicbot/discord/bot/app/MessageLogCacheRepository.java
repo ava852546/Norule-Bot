@@ -7,7 +7,7 @@ public interface MessageLogCacheRepository extends AutoCloseable {
 
     MessageLogCacheEntry remove(long messageId);
 
-    void pruneExpired(long cutoffMillis);
+    int pruneExpired(long cutoffMillis);
 
     @Override
     default void close() {

@@ -145,11 +145,11 @@ public final class SqliteMessageLogCacheRepository implements MessageLogCacheRep
     }
 
     @Override
-    public void pruneExpired(long cutoffMillis) {
+    public int pruneExpired(long cutoffMillis) {
         try (Connection connection = DriverManager.getConnection(jdbcUrl);
              PreparedStatement statement = connection.prepareStatement(SQL_PRUNE)) {
             statement.setLong(1, cutoffMillis);
-            statement.executeUpdate();
+            return statement.executeUpdate();
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to prune message-log cache entries", e);
         }

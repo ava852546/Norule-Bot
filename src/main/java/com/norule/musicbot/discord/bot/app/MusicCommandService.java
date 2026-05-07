@@ -3551,17 +3551,34 @@ public class MusicCommandService extends ListenerAdapter {
         String result;
         switch (request.action) {
             case "add" -> {
-                int count = moderationService.addWarnings(request.guildId, request.targetUserId, request.amount);
+                int count = moderationService.addWarnings(
+                        request.guildId,
+                        request.targetUserId,
+                        request.amount,
+                        event.getUser().getIdLong(),
+                        reason
+                );
                 result = i18n.t(lang, "warnings.result_add",
                         Map.of("user", userText, "count", String.valueOf(count)));
             }
             case "remove" -> {
-                int count = moderationService.removeWarnings(request.guildId, request.targetUserId, request.amount);
+                int count = moderationService.removeWarnings(
+                        request.guildId,
+                        request.targetUserId,
+                        request.amount,
+                        event.getUser().getIdLong(),
+                        reason
+                );
                 result = i18n.t(lang, "warnings.result_remove",
                         Map.of("user", userText, "count", String.valueOf(count)));
             }
             case "clear" -> {
-                moderationService.clearWarnings(request.guildId, request.targetUserId);
+                moderationService.clearWarnings(
+                        request.guildId,
+                        request.targetUserId,
+                        event.getUser().getIdLong(),
+                        reason
+                );
                 result = i18n.t(lang, "warnings.result_clear", Map.of("user", userText));
             }
             default -> {

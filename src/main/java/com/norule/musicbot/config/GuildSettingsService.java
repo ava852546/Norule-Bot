@@ -1,5 +1,6 @@
 package com.norule.musicbot.config;
 
+import com.norule.musicbot.storage.sqlite.GuildSettingsSqliteRepository;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
@@ -101,9 +102,15 @@ public class GuildSettingsService {
     private final Path settingsDir;
     private volatile GuildSettings defaults;
     private final Map<Long, GuildSettings> cache = new ConcurrentHashMap<>();
+    private final GuildSettingsSqliteRepository sqliteRepository;
 
     public GuildSettingsService(Path settingsDir, BotConfig defaultsConfig) {
+        this(settingsDir, defaultsConfig, null);
+    }
+
+    public GuildSettingsService(Path settingsDir, BotConfig defaultsConfig, GuildSettingsSqliteRepository sqliteRepository) {
         this.settingsDir = settingsDir;
+        this.sqliteRepository = sqliteRepository;
         this.defaults = new GuildSettings(
                 defaultsConfig.getDefaultLanguage(),
                 BotConfig.Notifications.defaultValues(),
@@ -187,6 +194,20 @@ public class GuildSettingsService {
 
     private GuildSettings loadOrCreateSettings(long guildId) {
         Path guildFile = settingsDir.resolve(guildId + ".yml");
+        if (sqliteRepository != null) {
+            String payload = sqliteRepository.findGuildPayload(guildId);
+            if (payload != null && !payload.isBlank()) {
+                try {
+                    Object root = new Yaml().load(payload);
+                    GuildSettings parsed = parseSettings(asMap(root));
+                    if (parsed != null) {
+                        return parsed;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
         if (!Files.exists(guildFile)) {
             writeTemplate(guildFile, guildId);
             return defaults;
@@ -195,14 +216,7 @@ public class GuildSettingsService {
         try (InputStream in = Files.newInputStream(guildFile)) {
             Object root = new Yaml().load(in);
             Map<String, Object> rootMap = asMap(root);
-            String language = readLanguage(rootMap.get("language"), defaults.getLanguage());
-            BotConfig.Notifications notifications = BotConfig.Notifications.fromMap(asMap(rootMap.get("notifications")), defaults.getNotifications());
-            BotConfig.Welcome welcome = BotConfig.Welcome.fromMap(asMap(rootMap.get("welcome")), defaults.getWelcome());
-            BotConfig.MessageLogs messageLogs = BotConfig.MessageLogs.fromMap(asMap(rootMap.get("messageLogs")), defaults.getMessageLogs());
-            BotConfig.Music music = BotConfig.Music.fromMap(asMap(rootMap.get("music")), defaults.getMusic());
-            BotConfig.PrivateRoom privateRoom = BotConfig.PrivateRoom.fromMap(asMap(rootMap.get("privateRoom")), defaults.getPrivateRoom());
-            BotConfig.Ticket ticket = BotConfig.Ticket.fromMap(asMap(rootMap.get("ticket")), defaults.getTicket());
-            return new GuildSettings(language, notifications, welcome, messageLogs, music, privateRoom, ticket);
+            return parseSettings(rootMap);
         } catch (Exception e) {
             return defaults;
         }
@@ -340,15 +354,33 @@ public class GuildSettingsService {
         options.setIndent(2);
 
         Yaml yaml = new Yaml(options);
+        String yamlPayload = yaml.dump(root);
         try {
             Files.createDirectories(guildFile.getParent());
         } catch (IOException ignored) {
         }
 
         try (Writer writer = Files.newBufferedWriter(guildFile)) {
-            yaml.dump(root, writer);
+            writer.write(yamlPayload);
         } catch (IOException ignored) {
         }
+        if (sqliteRepository != null) {
+            try {
+                sqliteRepository.saveGuildPayload(Long.parseLong(guildId), yamlPayload);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private GuildSettings parseSettings(Map<String, Object> rootMap) {
+        String language = readLanguage(rootMap.get("language"), defaults.getLanguage());
+        BotConfig.Notifications notifications = BotConfig.Notifications.fromMap(asMap(rootMap.get("notifications")), defaults.getNotifications());
+        BotConfig.Welcome welcome = BotConfig.Welcome.fromMap(asMap(rootMap.get("welcome")), defaults.getWelcome());
+        BotConfig.MessageLogs messageLogs = BotConfig.MessageLogs.fromMap(asMap(rootMap.get("messageLogs")), defaults.getMessageLogs());
+        BotConfig.Music music = BotConfig.Music.fromMap(asMap(rootMap.get("music")), defaults.getMusic());
+        BotConfig.PrivateRoom privateRoom = BotConfig.PrivateRoom.fromMap(asMap(rootMap.get("privateRoom")), defaults.getPrivateRoom());
+        BotConfig.Ticket ticket = BotConfig.Ticket.fromMap(asMap(rootMap.get("ticket")), defaults.getTicket());
+        return new GuildSettings(language, notifications, welcome, messageLogs, music, privateRoom, ticket);
     }
 
     @SuppressWarnings("unchecked")
