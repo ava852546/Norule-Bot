@@ -22,6 +22,7 @@ import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRefreshService;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRenderer;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelStateStore;
+import com.norule.musicbot.discord.bot.gateway.command.moderation.AntiDuplicateCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.moderation.DeleteMessagesCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.moderation.WarningCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.privateroom.PrivateRoomSettingsCommandHandler;
@@ -208,6 +209,7 @@ public class MusicCommandService extends ListenerAdapter {
     private final DiscordCommandCatalog discordCommandCatalog;
     private final DeleteMessagesCommandHandler deleteMessagesCommandHandler;
     private final PrivateRoomSettingsCommandHandler privateRoomSettingsCommandHandler;
+    private final AntiDuplicateCommandHandler antiDuplicateCommandHandler;
     private final WarningCommandHandler warningCommandHandler;
     private final SettingsCommandHandler settingsCommandHandler;
     private final HelpCommandHandler helpCommandHandler;
@@ -278,6 +280,7 @@ public class MusicCommandService extends ListenerAdapter {
         this.musicPlaybackText = new MusicPlaybackText(this::i18nService);
         this.deleteMessagesCommandHandler = new DeleteMessagesCommandHandler(this);
         this.privateRoomSettingsCommandHandler = new PrivateRoomSettingsCommandHandler(this);
+        this.antiDuplicateCommandHandler = new AntiDuplicateCommandHandler(this);
         this.warningCommandHandler = new WarningCommandHandler(this);
         this.playlistCommandHandler = new PlaylistCommandHandler(this, this.musicPanelController);
         this.playbackCommandHandler = new MusicPlaybackCommandHandler(this, this.musicPanelController, this.musicPlaybackText);
@@ -409,6 +412,9 @@ public class MusicCommandService extends ListenerAdapter {
     }
     public PrivateRoomSettingsCommandHandler privateRoomSettingsCommandHandler() {
         return privateRoomSettingsCommandHandler;
+    }
+    public AntiDuplicateCommandHandler antiDuplicateCommandHandler() {
+        return antiDuplicateCommandHandler;
     }
     public WarningCommandHandler warningCommandHandler() {
         return warningCommandHandler;
@@ -764,53 +770,6 @@ public class MusicCommandService extends ListenerAdapter {
         return discordCommandCatalog.buildCommands();
     }
 
-    public void handleAntiDuplicateSlash(SlashCommandInteractionEvent event, String lang) {
-        if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
-            event.reply(i18nService().t(lang, "general.missing_permissions",
-                            Map.of("permissions", Permission.MANAGE_SERVER.getName())))
-                    .setEphemeral(true)
-                    .queue();
-            return;
-        }
-        String sub = event.getSubcommandName();
-        if ((sub == null || sub.isBlank()) && event.getOption(ROUTE_ACTION) != null) {
-            sub = event.getOption(ROUTE_ACTION).getAsString();
-        }
-        long guildId = event.getGuild().getIdLong();
-        if ("enable".equals(sub)) {
-            boolean enabled = event.getOption(OPTION_VALUE) == null
-                    ? !moderationService.isDuplicateDetectionEnabled(guildId)
-                    : event.getOption(OPTION_VALUE).getAsBoolean();
-            if (enabled) {
-                Member self = event.getGuild().getSelfMember();
-                List<String> missingBotPermissions = new ArrayList<>();
-                if (!self.hasPermission(event.getGuildChannel(), Permission.MESSAGE_MANAGE)) {
-                    missingBotPermissions.add(Permission.MESSAGE_MANAGE.getName());
-                }
-                if (!self.hasPermission(Permission.MODERATE_MEMBERS)) {
-                    missingBotPermissions.add(Permission.MODERATE_MEMBERS.getName());
-                }
-                if (!missingBotPermissions.isEmpty()) {
-                    event.reply(i18nService().t(lang, "anti_duplicate.missing_bot_permissions",
-                                    Map.of("permissions", String.join(", ", missingBotPermissions))))
-                            .setEphemeral(true)
-                            .queue();
-                    return;
-                }
-            }
-            moderationService.setDuplicateDetectionEnabled(guildId, enabled);
-            event.reply(i18nService().t(lang, "anti_duplicate.result_set",
-                            Map.of("status", boolText(lang, enabled))))
-                    .setEphemeral(true)
-                    .queue();
-            return;
-        }
-        boolean enabled = moderationService.isDuplicateDetectionEnabled(guildId);
-        event.reply(i18nService().t(lang, "anti_duplicate.result_status",
-                        Map.of("status", boolText(lang, enabled))))
-                .setEphemeral(true)
-                .queue();
-    }
     public void openLanguageMenu(SlashCommandInteractionEvent event, String lang) {
         String token = registerMenuRequest(languageMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.replyEmbeds(new EmbedBuilder()

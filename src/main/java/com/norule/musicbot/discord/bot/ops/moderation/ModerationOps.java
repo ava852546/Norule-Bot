@@ -21,7 +21,7 @@ public final class ModerationOps {
                 yield true;
             }
             case "anti-duplicate" -> {
-                owner.handleAntiDuplicateSlash(event, lang);
+                owner.antiDuplicateCommandHandler().handleAntiDuplicateSlash(event, lang);
                 yield true;
             }
             case "honeypot-channel" -> {
