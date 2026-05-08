@@ -1,7 +1,7 @@
 package com.norule.musicbot.discord.bot.ops;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
-import com.norule.musicbot.discord.bot.app.MusicPlaybackCommandHandler;
+import com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackCommandHandler;
 import com.norule.musicbot.discord.bot.ops.stats.StatsOps;
 import com.norule.musicbot.discord.bot.ops.ticket.TicketOps;
 import net.dv8tion.jda.api.events.interaction.component.EntitySelectInteractionEvent;

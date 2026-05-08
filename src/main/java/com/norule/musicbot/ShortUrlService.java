@@ -5,78 +5,43 @@ import com.norule.musicbot.shorturl.ShortUrlRepository;
 
 import java.net.URI;
 import java.security.SecureRandom;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class ShortUrlService {
-    public static final class Options {
-        private final boolean dedupeEnabled;
-        private final long ttlMillis;
-        private final long cleanupIntervalMillis;
-        private final String publicBaseUrl;
-        private final int codeLength;
-        private final boolean allowPrivateTargets;
-
-        public Options(boolean dedupeEnabled,
-                       long ttlMillis,
-                       long cleanupIntervalMillis,
-                       String publicBaseUrl,
-                       int codeLength,
-                       boolean allowPrivateTargets) {
-            this.dedupeEnabled = dedupeEnabled;
-            this.ttlMillis = Math.max(1L, ttlMillis);
-            this.cleanupIntervalMillis = Math.max(60_000L, cleanupIntervalMillis);
-            String base = publicBaseUrl == null || publicBaseUrl.isBlank() ? "https://s.norule.me" : publicBaseUrl.trim();
-            this.publicBaseUrl = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
-            this.codeLength = Math.max(4, Math.min(32, codeLength));
-            this.allowPrivateTargets = allowPrivateTargets;
+    public record Options(
+            boolean dedupeEnabled,
+            long ttlMillis,
+            long cleanupIntervalMillis,
+            String publicBaseUrl,
+            int codeLength,
+            boolean allowPrivateTargets
+    ) {
+        public Options {
+            ttlMillis = Math.max(1L, ttlMillis);
+            cleanupIntervalMillis = Math.max(60_000L, cleanupIntervalMillis);
+            String base = publicBaseUrl == null || publicBaseUrl.isBlank() ? DEFAULT_PUBLIC_BASE_URL : publicBaseUrl.trim();
+            publicBaseUrl = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+            codeLength = Math.max(4, Math.min(32, codeLength));
         }
-
-        public boolean dedupeEnabled() { return dedupeEnabled; }
-        public long ttlMillis() { return ttlMillis; }
-        public long cleanupIntervalMillis() { return cleanupIntervalMillis; }
-        public String publicBaseUrl() { return publicBaseUrl; }
-        public int codeLength() { return codeLength; }
-        public boolean allowPrivateTargets() { return allowPrivateTargets; }
     }
 
-    public static final class ShortUrlEntry {
-        private final String code;
-        private final String target;
-        private final long createdAt;
-        private final long expiresAt;
-
-        public ShortUrlEntry(String code, String target, long createdAt, long expiresAt) {
-            this.code = code;
-            this.target = target;
-            this.createdAt = createdAt;
-            this.expiresAt = expiresAt;
-        }
-
-        public String getCode() {
-            return code;
-        }
-
-        public String getTarget() {
-            return target;
-        }
-
-        public long getCreatedAt() {
-            return createdAt;
-        }
-
-        public long getExpiresAt() {
-            return expiresAt;
-        }
+    public record ShortUrlEntry(String code, String target, long createdAt, long expiresAt) {
+        public String getCode() { return code; }
+        public String getTarget() { return target; }
+        public long getCreatedAt() { return createdAt; }
+        public long getExpiresAt() { return expiresAt; }
     }
 
     private static final long DEFAULT_TTL_MILLIS = 7L * 24L * 60L * 60L * 1000L;
     private static final long DEFAULT_CLEANUP_INTERVAL_MILLIS = 10L * 60L * 1000L;
+    private static final String DEFAULT_PUBLIC_BASE_URL = "https://s.norule.me";
     private static final char[] RANDOM_CODE_ALPHABET = "23456789abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ".toCharArray();
     private static final int DEFAULT_RANDOM_CODE_LENGTH = 7;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final ShortUrlDomainService domainService = new ShortUrlDomainService();
     private final ShortUrlRepository repository;
-    private volatile Options options;
+    private final AtomicReference<Options> options = new AtomicReference<>();
     private volatile long lastCleanupAt = 0L;
 
     public ShortUrlService(ShortUrlRepository repository) {
@@ -84,7 +49,7 @@ public final class ShortUrlService {
                 true,
                 DEFAULT_TTL_MILLIS,
                 DEFAULT_CLEANUP_INTERVAL_MILLIS,
-                "https://s.norule.me",
+                DEFAULT_PUBLIC_BASE_URL,
                 DEFAULT_RANDOM_CODE_LENGTH,
                 false
         ));
@@ -95,24 +60,24 @@ public final class ShortUrlService {
             throw new IllegalArgumentException("repository cannot be null");
         }
         this.repository = repository;
-        this.options = options == null
+        this.options.set(options == null
                 ? new Options(
                 true,
                 DEFAULT_TTL_MILLIS,
                 DEFAULT_CLEANUP_INTERVAL_MILLIS,
-                "https://s.norule.me",
+                DEFAULT_PUBLIC_BASE_URL,
                 DEFAULT_RANDOM_CODE_LENGTH,
                 false
         )
-                : options;
+                : options);
     }
 
     public ShortUrlEntry create(String rawTarget) {
-        return create(rawTarget, options.ttlMillis());
+        return create(rawTarget, options.get().ttlMillis());
     }
 
     public ShortUrlEntry create(String rawTarget, String customSlug) {
-        return create(rawTarget, customSlug, options.ttlMillis());
+        return create(rawTarget, customSlug, options.get().ttlMillis());
     }
 
     public ShortUrlEntry create(String rawTarget, long ttlMillis) {
@@ -124,7 +89,8 @@ public final class ShortUrlService {
         if (!domainService.isValidTarget(target)) {
             return null;
         }
-        if (!options.allowPrivateTargets() && domainService.isPrivateOrLocalTarget(target)) {
+        Options currentOptions = options.get();
+        if (!currentOptions.allowPrivateTargets() && domainService.isPrivateOrLocalTarget(target)) {
             return null;
         }
         if (isSelfDomainTarget(target)) {
@@ -134,9 +100,9 @@ public final class ShortUrlService {
         long now = System.currentTimeMillis();
         maybeCleanup(now);
 
-        long safeTtl = ttlMillis <= 0L ? options.ttlMillis() : ttlMillis;
+        long safeTtl = ttlMillis <= 0L ? currentOptions.ttlMillis() : ttlMillis;
         String requestedSlug = domainService.normalizeSlug(customSlug);
-        if (requestedSlug.isBlank() && options.dedupeEnabled()) {
+        if (requestedSlug.isBlank() && currentOptions.dedupeEnabled()) {
             ShortUrlEntry existing = repository.findActiveByTarget(target, now);
             if (existing != null && !domainService.isExpired(existing.getExpiresAt(), now)) {
                 return existing;
@@ -200,14 +166,14 @@ public final class ShortUrlService {
         if (code == null || code.isBlank()) {
             return "";
         }
-        return options.publicBaseUrl() + "/" + code.trim();
+        return options.get().publicBaseUrl() + "/" + code.trim();
     }
 
     public void updateOptions(Options options) {
         if (options == null) {
             return;
         }
-        this.options = options;
+        this.options.set(options);
     }
 
     public void cleanupExpired() {
@@ -217,11 +183,11 @@ public final class ShortUrlService {
     }
 
     private void maybeCleanup(long now) {
-        if (now - lastCleanupAt < options.cleanupIntervalMillis()) {
+        if (now - lastCleanupAt < options.get().cleanupIntervalMillis()) {
             return;
         }
         synchronized (this) {
-            if (now - lastCleanupAt < options.cleanupIntervalMillis()) {
+            if (now - lastCleanupAt < options.get().cleanupIntervalMillis()) {
                 return;
             }
             repository.cleanupExpired(now);
@@ -250,7 +216,7 @@ public final class ShortUrlService {
     private String resolveCodeForCreate(String customSlug, long nowMillis) {
         String slug = domainService.normalizeSlug(customSlug);
         if (slug.isBlank()) {
-            return nextAvailableCode(options.codeLength());
+            return nextAvailableCode(options.get().codeLength());
         }
         if (!domainService.isValidSlug(slug) || domainService.isReservedCode(slug)) {
             return null;
@@ -269,7 +235,7 @@ public final class ShortUrlService {
     private boolean isSelfDomainTarget(String target) {
         try {
             URI targetUri = URI.create(target);
-            URI baseUri = URI.create(options.publicBaseUrl());
+            URI baseUri = URI.create(options.get().publicBaseUrl());
             String targetHost = targetUri.getHost();
             String baseHost = baseUri.getHost();
             if (targetHost == null || targetHost.isBlank() || baseHost == null || baseHost.isBlank()) {

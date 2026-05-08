@@ -9,6 +9,7 @@ target/
 # Runtime data
 /guild-configs/
 /lang/
+/data/
 /guild-moderation/
 /guild-music/
 /guild-tickets/
@@ -34,6 +35,7 @@ Thumbs.db
 
 # ignore
 index.md
+AGENTS.md
 
 # Local stats database
 /stats/*.db

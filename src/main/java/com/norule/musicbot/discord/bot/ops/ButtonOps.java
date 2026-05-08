@@ -1,8 +1,8 @@
 package com.norule.musicbot.discord.bot.ops;
 
-import com.norule.musicbot.discord.bot.app.HistoryCommandHandler;
+import com.norule.musicbot.discord.bot.gateway.command.music.HistoryCommandHandler;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
-import com.norule.musicbot.discord.bot.app.PlaylistCommandHandler;
+import com.norule.musicbot.discord.bot.gateway.command.music.PlaylistCommandHandler;
 import com.norule.musicbot.discord.bot.ops.stats.StatsOps;
 import com.norule.musicbot.discord.bot.ops.ticket.TicketOps;
 import com.norule.musicbot.discord.bot.ops.wordchain.WordChainOps;

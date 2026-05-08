@@ -1,7 +1,7 @@
 package com.norule.musicbot.discord.bot.ops.stats;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
-import com.norule.musicbot.discord.bot.app.stats.MessageStatsEventService;
+import com.norule.musicbot.discord.bot.service.stats.MessageStatsEventService;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
