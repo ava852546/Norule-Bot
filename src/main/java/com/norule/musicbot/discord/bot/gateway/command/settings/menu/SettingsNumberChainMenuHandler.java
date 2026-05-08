@@ -3,6 +3,7 @@ package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.command.CommandOptions;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
+import com.norule.musicbot.discord.bot.gateway.command.settings.view.SettingsUiText;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.selections.EntitySelectMenu;
@@ -35,10 +36,12 @@ public final class SettingsNumberChainMenuHandler {
     private static final String KEY_DELETE_ONLY_REQUESTER = "delete.only_requester";
 
     private final MusicCommandService owner;
+    private final SettingsUiText uiText;
     private final ConcurrentHashMap<String, MenuRequest> numberChainMenuRequests = new ConcurrentHashMap<>();
 
     public SettingsNumberChainMenuHandler(MusicCommandService owner) {
         this.owner = owner;
+        this.uiText = new SettingsUiText(owner);
     }
 
     public void cleanupExpiredRequests(Instant now) {
@@ -166,7 +169,7 @@ public final class SettingsNumberChainMenuHandler {
                                         Map.of(OPTION_VALUE, owner.boolText(lang, enabled)))),
                         SelectOption.of(owner.i18nService().t(lang, "settings.info_key_number_chain_channel"), "set-channel")
                                 .withDescription(owner.i18nService().t(lang, "settings.music_menu_current",
-                                        Map.of(OPTION_VALUE, owner.limitText(owner.formatTextChannel(guild, channelId), 60)))),
+                                        Map.of(OPTION_VALUE, uiText.limitText(uiText.formatTextChannel(guild, channelId, lang), 60)))),
                         SelectOption.of(owner.i18nService().t(lang, "settings.info_key_number_chain_next"), OPTION_RESET)
                                 .withDescription(owner.i18nService().t(lang, "settings.music_menu_current",
                                         Map.of(OPTION_VALUE, String.valueOf(next))))
@@ -177,17 +180,17 @@ public final class SettingsNumberChainMenuHandler {
     private EmbedBuilder numberChainMenuEmbed(Guild guild, String lang, String changedText) {
         long guildId = guild.getIdLong();
         String body = String.join("\n\n",
-                owner.quotedSettingLine(lang, "settings.info_key_number_chain_enabled", "settings.status_label",
+                uiText.quotedSettingLine(lang, "settings.info_key_number_chain_enabled", "settings.status_label",
                         owner.boolText(lang, owner.moderationService().isNumberChainEnabled(guildId))),
-                owner.quotedSettingLine(lang, "settings.info_key_number_chain_channel", "settings.value_label",
-                        owner.formatTextChannel(guild, owner.moderationService().getNumberChainChannelId(guildId))),
-                owner.quotedSettingLine(lang, "settings.info_key_number_chain_next", "settings.value_label",
+                uiText.quotedSettingLine(lang, "settings.info_key_number_chain_channel", "settings.value_label",
+                        uiText.formatTextChannel(guild, owner.moderationService().getNumberChainChannelId(guildId), lang)),
+                uiText.quotedSettingLine(lang, "settings.info_key_number_chain_next", "settings.value_label",
                         String.valueOf(owner.moderationService().getNumberChainNext(guildId))),
-                "🏆 " + owner.numberChainHighestLabel(lang) + "\n> "
+                "🏆 " + uiText.numberChainHighestLabel(lang) + "\n> "
                         + owner.i18nService().t(lang, "settings.value_label") + ": "
                         + owner.moderationService().getNumberChainHighestNumber(guildId),
-                "👥 " + owner.numberChainTopContributorsLabel(lang) + "\n> "
-                        + owner.formatNumberChainTopContributors(guild, lang)
+                "👥 " + uiText.numberChainTopContributorsLabel(lang) + "\n> "
+                        + uiText.formatNumberChainTopContributors(guild, lang)
         );
         EmbedBuilder eb = new EmbedBuilder()
                 .setColor(new Color(46, 204, 113))

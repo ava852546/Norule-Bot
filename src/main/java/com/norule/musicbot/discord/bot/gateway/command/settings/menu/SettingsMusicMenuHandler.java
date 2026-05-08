@@ -3,6 +3,7 @@ package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.command.CommandOptions;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
+import com.norule.musicbot.discord.bot.gateway.command.settings.view.SettingsUiText;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
@@ -14,7 +15,6 @@ import net.dv8tion.jda.api.components.textinput.TextInput;
 import net.dv8tion.jda.api.components.textinput.TextInputStyle;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.ChannelType;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildChannel;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
@@ -58,10 +58,12 @@ public final class SettingsMusicMenuHandler {
     private static final String LBL_VALUE  = "settings.value_label";
 
     private final MusicCommandService owner;
+    private final SettingsUiText uiText;
     private final Map<String, MusicMenuRequest> musicMenuRequests = new ConcurrentHashMap<>();
 
     public SettingsMusicMenuHandler(MusicCommandService owner) {
         this.owner = owner;
+        this.uiText = new SettingsUiText(owner);
     }
 
     public void cleanupExpiredRequests(Instant now) {
@@ -301,10 +303,10 @@ public final class SettingsMusicMenuHandler {
                                         Map.of(OPTION_VALUE, owner.boolText(lang, music.isAutoplayEnabled())))),
                         SelectOption.of(owner.i18nService().t(lang, K_COMMAND_CHANNEL), A_COMMAND_CHANNEL)
                                 .withDescription(owner.i18nService().t(lang, MSG_MENU_CURRENT,
-                                        Map.of(OPTION_VALUE, safe(formatTextChannel(guild, music.getCommandChannelId(), lang), 60)))),
+                                        Map.of(OPTION_VALUE, uiText.limitText(uiText.formatTextChannel(guild, music.getCommandChannelId(), lang), 60)))),
                         SelectOption.of(owner.i18nService().t(lang, K_PRIVATE_ROOM_CHANNEL), A_PRIVATE_ROOM_CHANNEL)
                                 .withDescription(owner.i18nService().t(lang, MSG_MENU_CURRENT,
-                                        Map.of(OPTION_VALUE, safe(formatVoiceChannel(guild, room.getTriggerVoiceChannelId(), lang), 60))))
+                                        Map.of(OPTION_VALUE, uiText.limitText(formatVoiceChannel(guild, room.getTriggerVoiceChannelId(), lang), 60))))
                 )
                 .build();
     }
@@ -314,15 +316,15 @@ public final class SettingsMusicMenuHandler {
         var music = owner.settingsService().getMusic(guildId);
         var room = owner.settingsService().getPrivateRoom(guildId);
         String body = String.join("\n\n",
-                quotedSettingLine(lang, K_AUTO_LEAVE_ENABLED, LBL_STATUS,
+                uiText.quotedSettingLine(lang, K_AUTO_LEAVE_ENABLED, LBL_STATUS,
                         owner.boolText(lang, music.isAutoLeaveEnabled())),
-                quotedSettingLine(lang, K_AUTO_LEAVE_MINUTES, LBL_VALUE,
+                uiText.quotedSettingLine(lang, K_AUTO_LEAVE_MINUTES, LBL_VALUE,
                         String.valueOf(music.getAutoLeaveMinutes())),
-                quotedSettingLine(lang, K_AUTOPLAY_ENABLED, LBL_STATUS,
+                uiText.quotedSettingLine(lang, K_AUTOPLAY_ENABLED, LBL_STATUS,
                         owner.boolText(lang, music.isAutoplayEnabled())),
-                quotedSettingLine(lang, K_COMMAND_CHANNEL, LBL_VALUE,
-                        formatTextChannel(guild, music.getCommandChannelId(), lang)),
-                quotedSettingLine(lang, K_PRIVATE_ROOM_CHANNEL, LBL_VALUE,
+                uiText.quotedSettingLine(lang, K_COMMAND_CHANNEL, LBL_VALUE,
+                        uiText.formatTextChannel(guild, music.getCommandChannelId(), lang)),
+                uiText.quotedSettingLine(lang, K_PRIVATE_ROOM_CHANNEL, LBL_VALUE,
                         formatVoiceChannel(guild, room.getTriggerVoiceChannelId(), lang))
         );
         EmbedBuilder eb = new EmbedBuilder()
@@ -342,29 +344,6 @@ public final class SettingsMusicMenuHandler {
             case A_PRIVATE_ROOM_CHANNEL -> K_PRIVATE_ROOM_CHANNEL;
             default -> null;
         };
-    }
-
-    private String quotedSettingLine(String lang, String key, String labelKey, String value) {
-        return keyIcon(key) + " " + owner.i18nService().t(lang, key)
-                + "\n> " + owner.i18nService().t(lang, labelKey) + ": " + value;
-    }
-
-    private String keyIcon(String key) {
-        return switch (key) {
-            case K_AUTO_LEAVE_ENABLED, K_AUTO_LEAVE_MINUTES -> "⏱️";
-            case K_AUTOPLAY_ENABLED -> "🔁";
-            case K_COMMAND_CHANNEL -> "🎶";
-            case K_PRIVATE_ROOM_CHANNEL -> "🎤";
-            default -> "▫️";
-        };
-    }
-
-    private String formatTextChannel(Guild guild, Long id, String lang) {
-        if (id == null) {
-            return owner.i18nService().t(lang, "settings.info_channels_none");
-        }
-        TextChannel channel = guild.getTextChannelById(id);
-        return channel == null ? "#" + id : channel.getAsMention() + " (" + id + ")";
     }
 
     private String formatVoiceChannel(Guild guild, Long id, String lang) {

@@ -26,9 +26,11 @@ public final class SettingsInfoView {
     private static final String ROUTE_MUSIC = CommandNames.CMD_MUSIC;
 
     private final MusicCommandService owner;
+    private final SettingsUiText uiText;
 
     public SettingsInfoView(MusicCommandService owner) {
         this.owner = owner;
+        this.uiText = new SettingsUiText(owner);
     }
 
     public EmbedBuilder settingsInfoEmbed(Guild guild, String lang, String section) {
@@ -98,8 +100,8 @@ public final class SettingsInfoView {
                 line(lang, "settings.info_key_number_chain_enabled", compare(moduleSwitchTextCode(lang, numberChainEnabled))),
                 line(lang, "settings.info_key_number_chain_channel", compare(formatTextChannelInfo(guild, numberChainChannelId))),
                 line(lang, "settings.info_key_number_chain_next", compare(String.valueOf(numberChainNext))),
-                lineLabel("\uD83C\uDFC6", owner.numberChainHighestLabel(lang), String.valueOf(numberChainHighest)),
-                lineLabel("\uD83D\uDC65", owner.numberChainTopContributorsLabel(lang), owner.formatNumberChainTopContributors(guild, lang))
+                lineLabel("\uD83C\uDFC6", uiText.numberChainHighestLabel(lang), String.valueOf(numberChainHighest)),
+                lineLabel("\uD83D\uDC65", uiText.numberChainTopContributorsLabel(lang), uiText.formatNumberChainTopContributors(guild, lang))
         );
         String moduleInfo = joinLines(
                 "**" + owner.i18nService().t(lang, "settings.module_section_core") + "**",
@@ -189,7 +191,7 @@ public final class SettingsInfoView {
     }
 
     private String moduleLine(String lang, String key, boolean value) {
-        return keyIcon(key) + " " + owner.i18nService().t(lang, key) + ": " + moduleSwitchTextCode(lang, value);
+        return uiText.keyIcon(key) + " " + owner.i18nService().t(lang, key) + ": " + moduleSwitchTextCode(lang, value);
     }
 
     private String moduleSwitchTextCode(String lang, boolean enabled) {
@@ -272,59 +274,12 @@ public final class SettingsInfoView {
     }
 
     private String line(String lang, String key, String value) {
-        String icon = keyIcon(key);
+        String icon = uiText.keyIcon(key);
         return icon + " " + owner.i18nService().t(lang, key) + ": " + value;
     }
 
     private String lineLabel(String icon, String label, String value) {
         return icon + " " + label + ": " + value;
-    }
-
-    private String keyIcon(String key) {
-        return switch (key) {
-            case "settings.info_language" -> "\uD83C\uDF10";
-            case "settings.info_key_enabled", "settings.key_messageLogs_enabled",
-                 "settings.key_notifications_enabled", "settings.key_privateRoom_enabled" -> "\u2699\uFE0F";
-            case "settings.info_key_member_join_enabled", "settings.key_notifications_memberJoinEnabled",
-                 "settings.info_key_member_join_template", "settings.info_key_member_join_color",
-                 "settings.info_key_member_join_channel" -> "\uD83D\uDC4B";
-            case "settings.key_welcome_enabled" -> "\uD83C\uDF89";
-            case "settings.info_key_member_leave_enabled", "settings.key_notifications_memberLeaveEnabled",
-                 "settings.info_key_member_leave_template", "settings.info_key_member_leave_color",
-                 "settings.info_key_member_leave_channel" -> "\uD83D\uDEAA";
-            case "settings.info_key_member_channel", "settings.key_notifications_memberChannelId",
-                 "settings.info_key_member_channel_mode" -> "\uD83D\uDC65";
-            case "settings.info_key_voice_log_enabled", "settings.key_notifications_voiceLogEnabled",
-                 "settings.info_key_voice_channel", "settings.key_notifications_voiceChannelId",
-                 "settings.info_key_voice_join_template", "settings.info_key_voice_leave_template",
-                 "settings.info_key_voice_move_template" -> "\uD83D\uDD0A";
-            case "settings.info_key_log_channel", "settings.key_messageLogs_channelId",
-                 "settings.info_key_message_log_channel", "settings.key_messageLogs_messageLogChannelId" -> "\uD83D\uDCCC";
-            case "settings.info_key_log_command_channel", "settings.key_messageLogs_commandUsageChannelId",
-                 "settings.info_key_log_command_usage" -> "\uD83E\uDDED";
-            case "settings.info_key_log_channel_events_channel", "settings.key_messageLogs_channelLifecycleChannelId",
-                 "settings.info_key_log_channel_lifecycle" -> "\uD83C\uDFD7\uFE0F";
-            case "settings.info_key_log_role_channel", "settings.key_messageLogs_roleLogChannelId",
-                 "settings.info_key_log_role" -> "\uD83C\uDFF7\uFE0F";
-            case "settings.info_key_log_moderation_channel", "settings.key_messageLogs_moderationLogChannelId",
-                 "settings.info_key_log_moderation" -> "\uD83D\uDEE1\uFE0F";
-            case "settings.key_music_autoLeaveEnabled", "settings.key_music_autoLeaveMinutes",
-                 "settings.info_key_auto_leave_enabled", "settings.info_key_auto_leave_minutes" -> "\u23F1\uFE0F";
-            case "settings.key_music_autoplayEnabled", "settings.info_key_autoplay_enabled" -> "\uD83D\uDD01";
-            case "settings.key_numberChain_enabled" -> "\u0031\u20E3";
-            case "settings.key_ticket_enabled" -> "\uD83C\uDFAB";
-            case "settings.key_ticket_maxOpenPerUser" -> "\uD83D\uDD22";
-            case "settings.key_ticket_blacklistUserIds" -> "\uD83D\uDEAB";
-            case "settings.info_key_number_chain_enabled",
-                 "settings.info_key_number_chain_channel",
-                 "settings.info_key_number_chain_next" -> "\u0031\u20E3";
-            case "settings.info_key_default_repeat_mode" -> "\uD83D\uDD02";
-            case "settings.key_music_commandChannelId", "settings.info_key_music_command_channel" -> "\uD83C\uDFB6";
-            case "settings.key_privateRoom_triggerVoiceChannelId", "settings.info_key_trigger_channel" -> "\uD83C\uDFA4";
-            case "settings.info_key_category_auto", "settings.info_key_category" -> "\uD83D\uDCC2";
-            case "settings.key_privateRoom_userLimit", "settings.info_key_user_limit" -> "\uD83D\uDC64";
-            default -> "\u25AB\uFE0F";
-        };
     }
 
     private String ignoredRolesInfoLabel(String lang) {

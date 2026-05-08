@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.command.settings.view.SettingsUiText;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
@@ -45,10 +46,12 @@ public final class SettingsModuleMenuHandler {
     private static final String A_MODERATION_LOG = "moderation-log";
 
     private final MusicCommandService owner;
+    private final SettingsUiText uiText;
     private final Map<String, ModuleMenuRequest> moduleMenuRequests = new ConcurrentHashMap<>();
 
     public SettingsModuleMenuHandler(MusicCommandService owner) {
         this.owner = owner;
+        this.uiText = new SettingsUiText(owner);
     }
 
     public void cleanupExpiredRequests(Instant now) {
@@ -186,7 +189,7 @@ public final class SettingsModuleMenuHandler {
     }
 
     private String moduleLine(String lang, String key, boolean value) {
-        return keyIcon(key) + " " + owner.i18nService().t(lang, key) + ": " + moduleSwitchTextCode(lang, value);
+        return uiText.keyIcon(key) + " " + owner.i18nService().t(lang, key) + ": " + moduleSwitchTextCode(lang, value);
     }
 
     private ToggleResult toggleModuleValue(long guildId, String action) {
@@ -299,26 +302,6 @@ public final class SettingsModuleMenuHandler {
                 || A_CHANNEL_EVENTS_LOG.equals(action)
                 || A_ROLE_EVENTS_LOG.equals(action)
                 || A_MODERATION_LOG.equals(action);
-    }
-
-    private String keyIcon(String key) {
-        return switch (key) {
-            case "settings.info_key_enabled", K_MESSAGE_LOGS_ENABLED,
-                 K_NOTIFICATIONS_ENABLED, K_PRIVATE_ROOM_ENABLED -> "⚙️";
-            case K_MEMBER_JOIN_ENABLED -> "👋";
-            case K_WELCOME_ENABLED -> "🎉";
-            case K_MEMBER_LEAVE_ENABLED -> "🚪";
-            case K_VOICE_LOG_ENABLED -> "🔊";
-            case K_LOG_COMMAND_USAGE -> "🧭";
-            case K_LOG_CHANNEL_LIFECYCLE -> "🏗️";
-            case K_LOG_ROLE -> "🏷️";
-            case K_LOG_MODERATION -> "🛡️";
-            case K_MUSIC_AUTO_LEAVE -> "⏱️";
-            case K_MUSIC_AUTOPLAY -> "🔁";
-            case K_NUMBER_CHAIN_ENABLED -> "1⃣";
-            case K_TICKET_ENABLED -> "🎫";
-            default -> "▫️";
-        };
     }
 
     private String registerMenuRequest(long requestUserId, long guildId) {

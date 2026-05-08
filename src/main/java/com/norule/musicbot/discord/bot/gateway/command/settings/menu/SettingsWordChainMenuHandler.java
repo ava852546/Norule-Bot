@@ -3,6 +3,7 @@ package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.command.CommandOptions;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
+import com.norule.musicbot.discord.bot.gateway.command.settings.view.SettingsUiText;
 import com.norule.musicbot.domain.wordchain.WordChainStatusSnapshot;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
@@ -35,10 +36,12 @@ public final class SettingsWordChainMenuHandler {
     private static final String KEY_DELETE_ONLY_REQUESTER = "delete.only_requester";
 
     private final MusicCommandService owner;
+    private final SettingsUiText uiText;
     private final ConcurrentHashMap<String, MenuRequest> wordChainMenuRequests = new ConcurrentHashMap<>();
 
     public SettingsWordChainMenuHandler(MusicCommandService owner) {
         this.owner = owner;
+        this.uiText = new SettingsUiText(owner);
     }
 
     public void cleanupExpiredRequests(Instant now) {
@@ -228,7 +231,7 @@ public final class SettingsWordChainMenuHandler {
                                         Map.of(OPTION_VALUE, owner.boolText(lang, status.enabled())))),
                         SelectOption.of(owner.i18nService().t(lang, "settings.info_key_word_chain_channel"), "set-channel")
                                 .withDescription(owner.i18nService().t(lang, "settings.music_menu_current",
-                                        Map.of(OPTION_VALUE, owner.limitText(owner.formatTextChannel(guild, status.channelId()), 60)))),
+                                        Map.of(OPTION_VALUE, uiText.limitText(uiText.formatTextChannel(guild, status.channelId(), lang), 60)))),
                         SelectOption.of(owner.i18nService().t(lang, "settings.info_key_word_chain_next"), OPTION_RESET)
                                 .withDescription(owner.i18nService().t(lang, "settings.music_menu_current",
                                         Map.of(OPTION_VALUE, wordChainNextLetter(status))))
@@ -238,15 +241,15 @@ public final class SettingsWordChainMenuHandler {
 
     private EmbedBuilder wordChainMenuEmbed(Guild guild, String lang, WordChainStatusSnapshot status, String changedText) {
         String body = String.join("\n\n",
-                owner.quotedSettingLine(lang, "settings.info_key_word_chain_enabled", "settings.status_label",
+                uiText.quotedSettingLine(lang, "settings.info_key_word_chain_enabled", "settings.status_label",
                         owner.boolText(lang, status.enabled())),
-                owner.quotedSettingLine(lang, "settings.info_key_word_chain_channel", "settings.value_label",
-                        owner.formatTextChannel(guild, status.channelId())),
-                owner.quotedSettingLine(lang, "settings.info_key_word_chain_last_word", "settings.value_label",
+                uiText.quotedSettingLine(lang, "settings.info_key_word_chain_channel", "settings.value_label",
+                        uiText.formatTextChannel(guild, status.channelId(), lang)),
+                uiText.quotedSettingLine(lang, "settings.info_key_word_chain_last_word", "settings.value_label",
                         status.lastWord() == null || status.lastWord().isBlank() ? "-" : status.lastWord()),
-                owner.quotedSettingLine(lang, "settings.info_key_word_chain_next", "settings.value_label",
+                uiText.quotedSettingLine(lang, "settings.info_key_word_chain_next", "settings.value_label",
                         wordChainNextLetter(status)),
-                owner.quotedSettingLine(lang, "settings.info_key_word_chain_chain_count", "settings.value_label",
+                uiText.quotedSettingLine(lang, "settings.info_key_word_chain_chain_count", "settings.value_label",
                         String.valueOf(status.chainCount()))
         );
         EmbedBuilder eb = new EmbedBuilder()

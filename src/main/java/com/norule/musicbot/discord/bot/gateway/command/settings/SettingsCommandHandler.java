@@ -7,6 +7,7 @@ import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsMus
 import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsResetMenuHandler;
 import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsTemplateMenuHandler;
 import com.norule.musicbot.discord.bot.gateway.command.settings.view.SettingsInfoView;
+import com.norule.musicbot.discord.bot.gateway.command.settings.view.SettingsUiText;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
@@ -56,6 +57,7 @@ public final class SettingsCommandHandler {
     private final SettingsLogsMenuHandler settingsLogsMenuHandler;
     private final SettingsMusicMenuHandler settingsMusicMenuHandler;
     private final SettingsResetMenuHandler settingsResetMenuHandler;
+    private final SettingsUiText uiText;
 
     public SettingsCommandHandler(MusicCommandService owner) {
         this.owner = owner;
@@ -66,6 +68,7 @@ public final class SettingsCommandHandler {
         this.settingsLogsMenuHandler = new SettingsLogsMenuHandler(owner);
         this.settingsMusicMenuHandler = new SettingsMusicMenuHandler(owner);
         this.settingsResetMenuHandler = new SettingsResetMenuHandler(owner);
+        this.uiText = new SettingsUiText(owner);
     }
 
     public void cleanupExpiredRequests(Instant now) {
@@ -613,8 +616,8 @@ public final class SettingsCommandHandler {
                 .addField(owner.i18nService().t(lang, "settings.info_key_number_chain_enabled"), status, true)
                 .addField(owner.i18nService().t(lang, "settings.info_key_number_chain_channel"), channelText, true)
                 .addField(owner.i18nService().t(lang, "settings.info_key_number_chain_next"), "`" + next + "`", true)
-                .addField(owner.numberChainHighestLabel(lang), "`" + highest + "`", true)
-                .addField(owner.numberChainTopContributorsLabel(lang), owner.formatNumberChainTopContributors(event.getGuild(), lang), false)
+                .addField(uiText.numberChainHighestLabel(lang), "`" + highest + "`", true)
+                .addField(uiText.numberChainTopContributorsLabel(lang), uiText.formatNumberChainTopContributors(event.getGuild(), lang), false)
                 .setTimestamp(Instant.now());
     }
 
@@ -1004,6 +1007,5 @@ public final class SettingsCommandHandler {
         }
     }
 }
-
 
 
