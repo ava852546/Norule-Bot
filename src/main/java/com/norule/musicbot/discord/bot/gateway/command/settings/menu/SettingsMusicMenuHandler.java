@@ -357,13 +357,6 @@ public final class SettingsMusicMenuHandler {
         return channel == null ? "#" + id : "<#" + id + "> (" + id + ")";
     }
 
-    private static String safe(String s, int max) {
-        if (s == null || s.isBlank()) {
-            return "-";
-        }
-        return s.length() <= max ? s : s.substring(0, max - 1);
-    }
-
     private String registerMenuRequest(long requestUserId, long guildId) {
         String token = UUID.randomUUID().toString().replace("-", "");
         musicMenuRequests.put(token, new MusicMenuRequest(requestUserId, guildId, Instant.now().plusSeconds(120)));

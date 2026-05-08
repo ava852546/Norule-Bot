@@ -33,7 +33,6 @@ import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsWor
 import com.norule.musicbot.discord.bot.gateway.command.shorturl.UrlCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.welcome.WelcomeCommandHandler;
 import com.norule.musicbot.discord.bot.service.stats.MessageStatsEventService;
-import com.norule.musicbot.domain.wordchain.WordChainStatusSnapshot;
 import com.norule.musicbot.domain.music.*;
 import com.norule.musicbot.i18n.*;
 import com.norule.musicbot.gateway.minecraft.McSrvStatGateway;
@@ -49,11 +48,9 @@ import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.IMentionable;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildChannel;
-import net.dv8tion.jda.api.entities.channel.ChannelType;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
@@ -67,10 +64,8 @@ import net.dv8tion.jda.api.events.guild.GuildJoinEvent;
 import net.dv8tion.jda.api.events.session.ReadyEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.build.CommandData;
-import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.components.selections.SelectOption;
-import net.dv8tion.jda.api.components.selections.EntitySelectMenu;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
 
 import java.awt.Color;
@@ -166,7 +161,6 @@ public class MusicCommandService extends ListenerAdapter {
     public static final String PANEL_REFRESH = ComponentIds.PANEL_REFRESH;
     public static final String PANEL_SHUFFLE = ComponentIds.PANEL_SHUFFLE;
     private static final String KEY_UNKNOWN_COMMAND = "general.unknown_command";
-    private static final String KEY_DELETE_ONLY_REQUESTER = "delete.only_requester";
     private static final String CMD_VOLUME = CommandNames.CMD_VOLUME;
     private static final String CMD_HISTORY = CommandNames.CMD_HISTORY;
     private static final String CMD_PLAYLIST = CommandNames.CMD_PLAYLIST;
@@ -174,7 +168,6 @@ public class MusicCommandService extends ListenerAdapter {
     private static final String CMD_REPEAT = CommandNames.CMD_REPEAT;
     private static final String CMD_MUSIC = CommandNames.CMD_MUSIC;
     private static final String OPTION_CHANNEL = CommandOptions.CHANNEL;
-    private static final String OPTION_VALUE = CommandOptions.VALUE;
     private static final String OPTION_RESET = CommandOptions.RESET;
     private static final String ROUTE_LANGUAGE = "language";
     private static final String ROUTE_NUMBER_CHAIN = CommandNames.CMD_NUMBER_CHAIN;
