@@ -3,9 +3,7 @@ package com.norule.musicbot.bootstrap;
 public class Main {
     public static void main(String[] args) {
         try {
-            if (RuntimeDependencyBootstrap.ensureDependenciesAndRelaunchIfNeeded(args)) {
-                return;
-            }
+            RuntimeDependencyBootstrap.ensureDependenciesAndRelaunchIfNeeded(args);
             new RuntimeBootstrap().run();
         } catch (IllegalStateException ex) {
             System.out.println("[NoRule] " + ex.getMessage());

@@ -6,7 +6,6 @@ import java.io.UncheckedIOException;
 import java.lang.management.ManagementFactory;
 import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,6 +13,7 @@ import java.nio.file.StandardCopyOption;
 import java.security.CodeSource;
 import java.security.ProtectionDomain;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +22,7 @@ final class RuntimeDependencyBootstrap {
     static final String RELAUNCHED_PROPERTY = "norule.bootstrap.relaunched";
     static final String DEPENDENCY_INDEX_RESOURCE = "/bootstrap/runtime-dependencies.txt";
     private static final String ENABLE_NATIVE_ACCESS_ARG = "--enable-native-access=ALL-UNNAMED";
+    private static final System.Logger LOGGER = System.getLogger(RuntimeDependencyBootstrap.class.getName());
 
     private static final List<String> REMOTE_REPOSITORIES = List.of(
             "https://repo.maven.apache.org/maven2",
@@ -35,20 +36,21 @@ final class RuntimeDependencyBootstrap {
     private RuntimeDependencyBootstrap() {
     }
 
-    static boolean ensureDependenciesAndRelaunchIfNeeded(String[] args) {
+    // S3516: changed from boolean to void — return true was dead code after System.exit()
+    static void ensureDependenciesAndRelaunchIfNeeded(String[] args) {
         if (Boolean.getBoolean(RELAUNCHED_PROPERTY)) {
-            return false;
+            return;
         }
 
         Path launcherPath = findLauncherPath();
         if (launcherPath == null || !Files.isRegularFile(launcherPath)) {
-            return false;
+            return;
         }
 
         List<DependencyArtifact> artifacts = loadRuntimeDependencies();
         if (artifacts.isEmpty()) {
-            System.out.println("[NoRule] Runtime dependency index is empty, skip lib bootstrap.");
-            return false;
+            LOGGER.log(System.Logger.Level.INFO, "[NoRule] Runtime dependency index is empty, skip lib bootstrap.");
+            return;
         }
 
         Path workingDir = Path.of(".").toAbsolutePath().normalize();
@@ -58,7 +60,6 @@ final class RuntimeDependencyBootstrap {
             downloadMissingArtifacts(libDir, artifacts);
             int exitCode = relaunchWithLibClasspath(launcherPath, libDir, args);
             System.exit(exitCode);
-            return true;
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to bootstrap runtime dependencies in ./lib", e);
         } catch (InterruptedException e) {
@@ -70,18 +71,11 @@ final class RuntimeDependencyBootstrap {
     static List<DependencyArtifact> parseDependencyLines(List<String> lines) {
         Map<String, DependencyArtifact> unique = new LinkedHashMap<>();
         for (String line : lines) {
-            if (line == null) {
-                continue;
+            // S135: extracted parseDependencyLine helper to eliminate multiple continues
+            DependencyArtifact artifact = parseDependencyLine(line);
+            if (artifact != null) {
+                unique.putIfAbsent(buildJarFileName(artifact), artifact);
             }
-            String trimmed = stripAnsi(line).trim();
-            if (trimmed.isBlank() || !trimmed.contains(":")) {
-                continue;
-            }
-            DependencyArtifact artifact = parseLine(trimmed);
-            if (artifact == null) {
-                continue;
-            }
-            unique.putIfAbsent(buildJarFileName(artifact), artifact);
         }
         return new ArrayList<>(unique.values());
     }
@@ -91,6 +85,18 @@ final class RuntimeDependencyBootstrap {
             return artifact.artifactId() + "-" + artifact.version() + ".jar";
         }
         return artifact.artifactId() + "-" + artifact.version() + "-" + artifact.classifier() + ".jar";
+    }
+
+    // S135: helper extracted from parseDependencyLines to replace the 3-continue loop
+    private static DependencyArtifact parseDependencyLine(String line) {
+        if (line == null) {
+            return null;
+        }
+        String trimmed = stripAnsi(line).trim();
+        if (trimmed.isBlank() || !trimmed.contains(":")) {
+            return null;
+        }
+        return parseLine(trimmed);
     }
 
     private static List<DependencyArtifact> loadRuntimeDependencies() {
@@ -142,10 +148,10 @@ final class RuntimeDependencyBootstrap {
             }
             downloadArtifact(artifact, target);
             downloaded++;
-            System.out.println("[NoRule] Downloaded dependency: " + fileName);
+            LOGGER.log(System.Logger.Level.INFO, "[NoRule] Downloaded dependency: " + fileName);
         }
         if (downloaded > 0) {
-            System.out.println("[NoRule] Runtime dependencies downloaded to: " + libDir.toAbsolutePath());
+            LOGGER.log(System.Logger.Level.INFO, "[NoRule] Runtime dependencies downloaded to: " + libDir.toAbsolutePath());
         }
     }
 
@@ -172,7 +178,8 @@ final class RuntimeDependencyBootstrap {
     }
 
     private static boolean downloadFrom(String url, Path target) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        // S1874: replaced deprecated new URL(String) with URI.create(...).toURL()
+        HttpURLConnection connection = (HttpURLConnection) URI.create(url).toURL().openConnection();
         connection.setInstanceFollowRedirects(true);
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
@@ -205,9 +212,8 @@ final class RuntimeDependencyBootstrap {
         command.add("-cp");
         command.add(launcherJar.toAbsolutePath() + java.io.File.pathSeparator + libDir.toAbsolutePath() + java.io.File.separator + "*");
         command.add(Main.class.getName());
-        for (String arg : appArgs) {
-            command.add(arg);
-        }
+        // S3012: replaced manual for-loop copy with Collections.addAll
+        Collections.addAll(command, appArgs);
 
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.inheritIO();
