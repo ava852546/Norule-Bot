@@ -1,6 +1,13 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsLogsMenuHandler;
+import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsModuleMenuHandler;
+import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsMusicMenuHandler;
+import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsResetMenuHandler;
+import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsTemplateMenuHandler;
+import com.norule.musicbot.discord.bot.gateway.command.settings.view.SettingsInfoView;
+import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.components.selections.EntitySelectMenu;
@@ -42,14 +49,33 @@ public final class SettingsCommandHandler {
 
     private final MusicCommandService owner;
     private final Map<String, LogSettingsRequest> logSettingsRequests = new ConcurrentHashMap<>();
+    private final SettingsOptionValidator settingsOptionValidator;
+    private final SettingsInfoView settingsInfoView;
+    private final SettingsTemplateMenuHandler settingsTemplateMenuHandler;
+    private final SettingsModuleMenuHandler settingsModuleMenuHandler;
+    private final SettingsLogsMenuHandler settingsLogsMenuHandler;
+    private final SettingsMusicMenuHandler settingsMusicMenuHandler;
+    private final SettingsResetMenuHandler settingsResetMenuHandler;
 
     public SettingsCommandHandler(MusicCommandService owner) {
         this.owner = owner;
+        this.settingsOptionValidator = new SettingsOptionValidator(owner);
+        this.settingsInfoView = new SettingsInfoView(owner);
+        this.settingsTemplateMenuHandler = new SettingsTemplateMenuHandler(owner);
+        this.settingsModuleMenuHandler = new SettingsModuleMenuHandler(owner);
+        this.settingsLogsMenuHandler = new SettingsLogsMenuHandler(owner);
+        this.settingsMusicMenuHandler = new SettingsMusicMenuHandler(owner);
+        this.settingsResetMenuHandler = new SettingsResetMenuHandler(owner);
     }
 
     public void cleanupExpiredRequests(Instant now) {
         Instant cutoff = now == null ? Instant.now() : now;
         logSettingsRequests.entrySet().removeIf(entry -> entry.getValue() == null || cutoff.isAfter(entry.getValue().expiresAt));
+        settingsTemplateMenuHandler.cleanupExpiredRequests(cutoff);
+        settingsModuleMenuHandler.cleanupExpiredRequests(cutoff);
+        settingsLogsMenuHandler.cleanupExpiredRequests(cutoff);
+        settingsMusicMenuHandler.cleanupExpiredRequests(cutoff);
+        settingsResetMenuHandler.cleanupExpiredRequests(cutoff);
     }
 
     public void handleSettings(SlashCommandInteractionEvent event, String lang) {
@@ -77,17 +103,17 @@ public final class SettingsCommandHandler {
         sub = owner.canonicalSettingsSubcommand(sub);
         String group = event.getSubcommandGroup();
         String route = group == null ? sub : group + ":" + sub;
-        String validationError = owner.validateSettingsActionOptions(event, route, lang);
+        String validationError = settingsOptionValidator.validate(event, route, lang);
         if (validationError != null) {
             event.reply(validationError).setEphemeral(true).queue();
             return;
         }
         switch (route) {
-            case "info" -> event.replyEmbeds(owner.settingsInfoEmbed(event.getGuild(), lang, "notifications").build())
+            case "info" -> event.replyEmbeds(settingsInfoView.settingsInfoEmbed(event.getGuild(), lang, "notifications").build())
                     .addComponents(
-                            ActionRow.of(owner.settingsInfoMenu(lang, "notifications")),
-                            ActionRow.of(owner.settingsInfoButtons(lang, "notifications", 0)),
-                            ActionRow.of(owner.settingsInfoButtons(lang, "notifications", 1))
+                            ActionRow.of(settingsInfoView.settingsInfoMenu(lang, "notifications")),
+                            ActionRow.of(settingsInfoView.settingsInfoButtons(lang, "notifications", 0)),
+                            ActionRow.of(settingsInfoView.settingsInfoButtons(lang, "notifications", 1))
                     )
                     .setEphemeral(true)
                     .queue();
@@ -103,12 +129,12 @@ public final class SettingsCommandHandler {
                         .queue();
             }
             case "language" -> owner.openLanguageMenu(event, lang);
-            case "template" -> owner.openTemplateMenu(event, lang);
-            case "module" -> owner.openModuleMenu(event, lang);
-            case "reset" -> owner.openSettingsResetMenu(event, lang);
-            case "logs" -> owner.openLogsMenu(event, lang);
+            case "template" -> settingsTemplateMenuHandler.openTemplateMenu(event, lang);
+            case "module" -> settingsModuleMenuHandler.openModuleMenu(event, lang);
+            case "reset" -> settingsResetMenuHandler.openSettingsResetMenu(event, lang);
+            case "logs" -> settingsLogsMenuHandler.openLogsMenu(event, lang);
             case "log-settings" -> openLogSettingsMenu(event, lang);
-            case "music" -> owner.openMusicMenu(event, lang);
+            case "music" -> settingsMusicMenuHandler.openMusicMenu(event, lang);
             case "number-chain" -> owner.openNumberChainMenu(event, lang);
             case "wordchain" -> owner.openWordChainMenu(event, lang);
             default -> event.reply(owner.i18nService().t(lang, "general.unknown_command")).setEphemeral(true).queue();
@@ -604,11 +630,11 @@ public final class SettingsCommandHandler {
         if (SETTINGS_ACTION_SELECT_ID.equals(componentId)) {
             String action = event.getValues().isEmpty() ? "" : owner.canonicalSettingsSubcommand(event.getValues().get(0));
             switch (action) {
-                case "info" -> event.editMessageEmbeds(owner.settingsInfoEmbed(event.getGuild(), lang, "notifications").build())
+                case "info" -> event.editMessageEmbeds(settingsInfoView.settingsInfoEmbed(event.getGuild(), lang, "notifications").build())
                         .setComponents(
-                                ActionRow.of(owner.settingsInfoMenu(lang, "notifications")),
-                                ActionRow.of(owner.settingsInfoButtons(lang, "notifications", 0)),
-                                ActionRow.of(owner.settingsInfoButtons(lang, "notifications", 1))
+                                ActionRow.of(settingsInfoView.settingsInfoMenu(lang, "notifications")),
+                                ActionRow.of(settingsInfoView.settingsInfoButtons(lang, "notifications", 0)),
+                                ActionRow.of(settingsInfoView.settingsInfoButtons(lang, "notifications", 1))
                         )
                         .queue();
                 case "reload" -> {
@@ -624,11 +650,11 @@ public final class SettingsCommandHandler {
                             .queue();
                 }
                 case "language" -> owner.openLanguageMenu(event, lang);
-                case "template" -> owner.openTemplateMenu(event, lang);
-                case "module" -> owner.openModuleMenu(event, lang);
-                case "reset" -> owner.openSettingsResetMenu(event, lang);
-                case "logs" -> owner.openLogsMenu(event, lang);
-                case "music" -> owner.openMusicMenu(event, lang);
+                case "template" -> settingsTemplateMenuHandler.openTemplateMenu(event, lang);
+                case "module" -> settingsModuleMenuHandler.openModuleMenu(event, lang);
+                case "reset" -> settingsResetMenuHandler.openSettingsResetMenu(event, lang);
+                case "logs" -> settingsLogsMenuHandler.openLogsMenu(event, lang);
+                case "music" -> settingsMusicMenuHandler.openMusicMenu(event, lang);
                 case "number-chain" -> owner.openNumberChainMenu(event, lang);
                 case "wordchain" -> owner.openWordChainMenu(event, lang);
                 case "log-settings" -> openLogSettingsMenu(event, lang);
@@ -636,55 +662,55 @@ public final class SettingsCommandHandler {
             }
             return true;
         }
-        if (MusicCommandService.SETTINGS_INFO_SELECT_ID.equals(componentId)) {
+        if (ComponentIds.SETTINGS_INFO_SELECT_ID.equals(componentId)) {
             String section = event.getValues().isEmpty() ? "notifications" : event.getValues().get(0);
-            event.editMessageEmbeds(owner.settingsInfoEmbed(event.getGuild(), lang, section).build())
+            event.editMessageEmbeds(settingsInfoView.settingsInfoEmbed(event.getGuild(), lang, section).build())
                     .setComponents(
-                            ActionRow.of(owner.settingsInfoMenu(lang, section)),
-                            ActionRow.of(owner.settingsInfoButtons(lang, section, 0)),
-                            ActionRow.of(owner.settingsInfoButtons(lang, section, 1))
+                            ActionRow.of(settingsInfoView.settingsInfoMenu(lang, section)),
+                            ActionRow.of(settingsInfoView.settingsInfoButtons(lang, section, 0)),
+                            ActionRow.of(settingsInfoView.settingsInfoButtons(lang, section, 1))
                     )
                     .queue();
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_TEMPLATE_SELECT_PREFIX)) {
-            owner.handleTemplateMenuSelect(event, lang);
+        if (componentId.startsWith(ComponentIds.SETTINGS_TEMPLATE_SELECT_PREFIX)) {
+            settingsTemplateMenuHandler.handleTemplateMenuSelect(event, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_MODULE_SELECT_PREFIX)) {
-            owner.handleModuleMenuSelect(event, lang);
+        if (componentId.startsWith(ComponentIds.SETTINGS_MODULE_SELECT_PREFIX)) {
+            settingsModuleMenuHandler.handleModuleMenuSelect(event, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_LOGS_SELECT_PREFIX)) {
-            owner.handleLogsMenuSelect(event, lang);
+        if (componentId.startsWith(ComponentIds.SETTINGS_LOGS_SELECT_PREFIX)) {
+            settingsLogsMenuHandler.handleLogsMenuSelect(event, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_LOGS_MEMBER_MODE_PREFIX)) {
-            owner.handleLogsMemberModeSelect(event, lang);
+        if (componentId.startsWith(ComponentIds.SETTINGS_LOGS_MEMBER_MODE_PREFIX)) {
+            settingsLogsMenuHandler.handleLogsMemberModeSelect(event, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_LOGS_MEMBER_SPLIT_PREFIX)) {
-            owner.handleLogsMemberSplitSelect(event, lang);
+        if (componentId.startsWith(ComponentIds.SETTINGS_LOGS_MEMBER_SPLIT_PREFIX)) {
+            settingsLogsMenuHandler.handleLogsMemberSplitSelect(event, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_MUSIC_SELECT_PREFIX)) {
-            owner.handleMusicMenuSelect(event, lang);
+        if (componentId.startsWith(ComponentIds.SETTINGS_MUSIC_SELECT_PREFIX)) {
+            settingsMusicMenuHandler.handleMusicMenuSelect(event, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_LANGUAGE_SELECT_PREFIX)) {
+        if (componentId.startsWith(ComponentIds.SETTINGS_LANGUAGE_SELECT_PREFIX)) {
             owner.handleLanguageMenuSelect(event, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_NUMBER_CHAIN_SELECT_PREFIX)) {
+        if (componentId.startsWith(ComponentIds.SETTINGS_NUMBER_CHAIN_SELECT_PREFIX)) {
             owner.handleNumberChainMenuSelect(event, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_WORD_CHAIN_SELECT_PREFIX)) {
+        if (componentId.startsWith(ComponentIds.SETTINGS_WORD_CHAIN_SELECT_PREFIX)) {
             owner.handleWordChainMenuSelect(event, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_RESET_SELECT_PREFIX)) {
-            owner.handleSettingsResetSelect(event, lang);
+        if (componentId.startsWith(ComponentIds.SETTINGS_RESET_SELECT_PREFIX)) {
+            settingsResetMenuHandler.handleSettingsResetSelect(event, lang);
             return true;
         }
         if (componentId.startsWith(LOG_SETTINGS_SELECT_PREFIX)) {
@@ -794,8 +820,8 @@ public final class SettingsCommandHandler {
     }
 
     public boolean handleModalInteraction(ModalInteractionEvent event, String lang) {
-        if (event.getModalId().startsWith(MusicCommandService.SETTINGS_MUSIC_MODAL_PREFIX)) {
-            owner.handleMusicMenuModal(event, lang);
+        if (event.getModalId().startsWith(ComponentIds.SETTINGS_MUSIC_MODAL_PREFIX)) {
+            settingsMusicMenuHandler.handleMusicMenuModal(event, lang);
             return true;
         }
         if (event.getModalId().startsWith(LOG_SETTINGS_PREFIX_MODAL_PREFIX)) {
@@ -828,64 +854,23 @@ public final class SettingsCommandHandler {
             handleRemovedPrefixModal(event, token, lang);
             return true;
         }
-        if (!event.getModalId().startsWith(MusicCommandService.TEMPLATE_MODAL_PREFIX)) {
-            return false;
-        }
-        if (!owner.has(event.getMember(), Permission.MANAGE_SERVER)) {
-            event.reply(owner.i18nService().t(lang, "general.missing_permissions",
-                            Map.of("permissions", Permission.MANAGE_SERVER.getName())))
-                    .setEphemeral(true)
-                    .queue();
-            return true;
-        }
-
-        String templateType = event.getModalId().substring(MusicCommandService.TEMPLATE_MODAL_PREFIX.length());
-        String template = event.getValue("template") == null ? "" : event.getValue("template").getAsString();
-        Integer color = null;
-        if ("member-join".equals(templateType) || "member-leave".equals(templateType)) {
-            String colorRaw = event.getValue("color") == null ? "" : event.getValue("color").getAsString();
-            if (colorRaw != null && !colorRaw.isBlank()) {
-                color = owner.parseHexColor(colorRaw);
-                if (color == null) {
-                    event.reply(owner.i18nService().t(lang, "settings.template_color_invalid"))
-                            .setEphemeral(true)
-                            .queue();
-                    return true;
-                }
-            }
-        }
-
-        String displayKey = owner.applyTemplate(event.getGuild().getIdLong(), templateType, template, color, lang);
-        if (displayKey == null) {
-            event.reply(owner.i18nService().t(lang, "general.unknown_command")).setEphemeral(true).queue();
-            return true;
-        }
-
-        int previewColor = owner.resolveTemplateColor(event.getGuild().getIdLong(), templateType);
-        String preview = owner.renderTemplatePreview(template, event.getGuild().getName());
-        EmbedBuilder previewEmbed = new EmbedBuilder()
-                .setTitle(owner.i18nService().t(lang, "settings.template_preview_title"))
-                .setDescription(preview)
-                .setColor(previewColor)
-                .addField(owner.i18nService().t(lang, "settings.template_updated"), displayKey, false);
-        event.replyEmbeds(previewEmbed.build()).setEphemeral(true).queue();
-        return true;
+        return settingsTemplateMenuHandler.handleTemplateModal(event, lang);
     }
 
     public boolean handleButtonInteraction(ButtonInteractionEvent event, String lang) {
         String id = event.getComponentId();
-        if (id.startsWith(MusicCommandService.SETTINGS_RESET_CONFIRM_PREFIX)
-                || id.startsWith(MusicCommandService.SETTINGS_RESET_CANCEL_PREFIX)) {
-            owner.handleSettingsResetConfirmButtons(event, lang);
+        if (id.startsWith(ComponentIds.SETTINGS_RESET_CONFIRM_PREFIX)
+                || id.startsWith(ComponentIds.SETTINGS_RESET_CANCEL_PREFIX)) {
+            settingsResetMenuHandler.handleSettingsResetConfirmButtons(event, lang);
             return true;
         }
-        if (id.startsWith(MusicCommandService.SETTINGS_INFO_BUTTON_PREFIX)) {
-            String section = id.substring(MusicCommandService.SETTINGS_INFO_BUTTON_PREFIX.length());
-            event.editMessageEmbeds(owner.settingsInfoEmbed(event.getGuild(), lang, section).build())
+        if (id.startsWith(ComponentIds.SETTINGS_INFO_BUTTON_PREFIX)) {
+            String section = id.substring(ComponentIds.SETTINGS_INFO_BUTTON_PREFIX.length());
+            event.editMessageEmbeds(settingsInfoView.settingsInfoEmbed(event.getGuild(), lang, section).build())
                     .setComponents(
-                            ActionRow.of(owner.settingsInfoMenu(lang, section)),
-                            ActionRow.of(owner.settingsInfoButtons(lang, section, 0)),
-                            ActionRow.of(owner.settingsInfoButtons(lang, section, 1))
+                            ActionRow.of(settingsInfoView.settingsInfoMenu(lang, section)),
+                            ActionRow.of(settingsInfoView.settingsInfoButtons(lang, section, 0)),
+                            ActionRow.of(settingsInfoView.settingsInfoButtons(lang, section, 1))
                     )
                     .queue();
             return true;
@@ -985,19 +970,19 @@ public final class SettingsCommandHandler {
             handleRemovedChannelSelect(event, token, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_LOGS_CHANNEL_PREFIX)) {
-            owner.handleLogsChannelSelect(event, lang);
+        if (componentId.startsWith(ComponentIds.SETTINGS_LOGS_CHANNEL_PREFIX)) {
+            settingsLogsMenuHandler.handleLogsChannelSelect(event, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_MUSIC_CHANNEL_PREFIX)) {
-            owner.handleMusicChannelSelect(event, lang);
+        if (componentId.startsWith(ComponentIds.SETTINGS_MUSIC_CHANNEL_PREFIX)) {
+            settingsMusicMenuHandler.handleMusicChannelSelect(event, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_NUMBER_CHAIN_CHANNEL_PREFIX)) {
+        if (componentId.startsWith(ComponentIds.SETTINGS_NUMBER_CHAIN_CHANNEL_PREFIX)) {
             owner.handleNumberChainChannelSelect(event, lang);
             return true;
         }
-        if (componentId.startsWith(MusicCommandService.SETTINGS_WORD_CHAIN_CHANNEL_PREFIX)) {
+        if (componentId.startsWith(ComponentIds.SETTINGS_WORD_CHAIN_CHANNEL_PREFIX)) {
             owner.handleWordChainChannelSelect(event, lang);
             return true;
         }

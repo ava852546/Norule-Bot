@@ -21,7 +21,7 @@ public final class MusicPanelController {
 
     public void recreatePanelForChannel(Guild guild, TextChannel channel, String lang) {
         long guildId = guild.getIdLong();
-        MusicCommandService.PanelRef old = owner.panelRefs().remove(guildId);
+        MusicPanelStateStore.PanelRef old = owner.panelRefs().remove(guildId);
         if (old != null) {
             TextChannel oldChannel = guild.getTextChannelById(old.channelId);
             if (oldChannel != null) {
@@ -39,7 +39,7 @@ public final class MusicPanelController {
         if (guild == null) {
             return;
         }
-        MusicCommandService.PanelRef active = owner.panelRefs().get(guild.getIdLong());
+        MusicPanelStateStore.PanelRef active = owner.panelRefs().get(guild.getIdLong());
         if (active == null) {
             return;
         }
@@ -85,7 +85,7 @@ public final class MusicPanelController {
             return true;
         }
 
-        MusicCommandService.PanelRef active = owner.panelRefs().get(guild.getIdLong());
+        MusicPanelStateStore.PanelRef active = owner.panelRefs().get(guild.getIdLong());
         if (active == null || active.channelId != channel.getIdLong() || active.messageId != event.getMessageIdLong()) {
             event.reply(owner.i18nService().t(lang, "music.panel_stale")).setEphemeral(true)
                     .queue(success -> recreatePanelForChannel(guild, channel, lang), error -> recreatePanelForChannel(guild, channel, lang));
