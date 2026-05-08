@@ -23,6 +23,7 @@ import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRefreshService;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRenderer;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelStateStore;
 import com.norule.musicbot.discord.bot.gateway.command.moderation.DeleteMessagesCommandHandler;
+import com.norule.musicbot.discord.bot.gateway.command.moderation.WarningCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.privateroom.PrivateRoomSettingsCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.settings.SettingsCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.shorturl.UrlCommandHandler;
@@ -64,13 +65,9 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.build.CommandData;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
-import net.dv8tion.jda.api.components.label.Label;
 import net.dv8tion.jda.api.components.selections.SelectOption;
 import net.dv8tion.jda.api.components.selections.EntitySelectMenu;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
-import net.dv8tion.jda.api.components.textinput.TextInput;
-import net.dv8tion.jda.api.components.textinput.TextInputStyle;
-import net.dv8tion.jda.api.modals.Modal;
 
 import java.awt.Color;
 import java.time.Duration;
@@ -79,7 +76,6 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -159,7 +155,6 @@ public class MusicCommandService extends ListenerAdapter {
     public static final String SETTINGS_NUMBER_CHAIN_CHANNEL_PREFIX = ComponentIds.SETTINGS_NUMBER_CHAIN_CHANNEL_PREFIX;
     public static final String SETTINGS_WORD_CHAIN_SELECT_PREFIX = ComponentIds.SETTINGS_WORD_CHAIN_SELECT_PREFIX;
     public static final String SETTINGS_WORD_CHAIN_CHANNEL_PREFIX = ComponentIds.SETTINGS_WORD_CHAIN_CHANNEL_PREFIX;
-    public static final String WARNING_REASON_MODAL_PREFIX = ComponentIds.WARNING_REASON_MODAL_PREFIX;
     public static final String TEMPLATE_MODAL_PREFIX = ComponentIds.TEMPLATE_MODAL_PREFIX;
     public static final String WELCOME_MODAL_ID = ComponentIds.WELCOME_MODAL_ID;
     public static final String PANEL_PLAY_PAUSE = ComponentIds.PANEL_PLAY_PAUSE;
@@ -202,7 +197,6 @@ public class MusicCommandService extends ListenerAdapter {
     private final AtomicReference<I18nService> i18n = new AtomicReference<>();
 
     private final MusicPanelStateStore panelStateStore = new MusicPanelStateStore();
-    private final Map<String, WarningActionRequest> warningActionRequests = new ConcurrentHashMap<>();
     private final Map<String, Long> commandCooldowns = new ConcurrentHashMap<>();
     private final Map<String, Long> panelButtonCooldowns = new ConcurrentHashMap<>();
     private final Map<String, MenuRequest> languageMenuRequests = new ConcurrentHashMap<>();
@@ -214,6 +208,7 @@ public class MusicCommandService extends ListenerAdapter {
     private final DiscordCommandCatalog discordCommandCatalog;
     private final DeleteMessagesCommandHandler deleteMessagesCommandHandler;
     private final PrivateRoomSettingsCommandHandler privateRoomSettingsCommandHandler;
+    private final WarningCommandHandler warningCommandHandler;
     private final SettingsCommandHandler settingsCommandHandler;
     private final HelpCommandHandler helpCommandHandler;
     private final PingCommandHandler pingCommandHandler;
@@ -283,6 +278,7 @@ public class MusicCommandService extends ListenerAdapter {
         this.musicPlaybackText = new MusicPlaybackText(this::i18nService);
         this.deleteMessagesCommandHandler = new DeleteMessagesCommandHandler(this);
         this.privateRoomSettingsCommandHandler = new PrivateRoomSettingsCommandHandler(this);
+        this.warningCommandHandler = new WarningCommandHandler(this);
         this.playlistCommandHandler = new PlaylistCommandHandler(this, this.musicPanelController);
         this.playbackCommandHandler = new MusicPlaybackCommandHandler(this, this.musicPanelController, this.musicPlaybackText);
         this.honeypotCommandHandler = new HoneypotCommandHandler(this);
@@ -317,7 +313,7 @@ public class MusicCommandService extends ListenerAdapter {
         Instant now = Instant.now();
         long nowMillis = System.currentTimeMillis();
         deleteMessagesCommandHandler.cleanupExpiredRequests(now);
-        warningActionRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        warningCommandHandler.cleanupExpiredRequests(now);
         privateRoomSettingsCommandHandler.cleanupExpiredRequests(now);
         languageMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
         numberChainMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
@@ -413,6 +409,9 @@ public class MusicCommandService extends ListenerAdapter {
     }
     public PrivateRoomSettingsCommandHandler privateRoomSettingsCommandHandler() {
         return privateRoomSettingsCommandHandler;
+    }
+    public WarningCommandHandler warningCommandHandler() {
+        return warningCommandHandler;
     }
     public SettingsCommandHandler settingsCommandHandler() {
         return settingsCommandHandler;
@@ -765,136 +764,6 @@ public class MusicCommandService extends ListenerAdapter {
         return discordCommandCatalog.buildCommands();
     }
 
-
-    public void handleWarningsSlash(SlashCommandInteractionEvent event, String lang) {
-        if (!has(event.getMember(), Permission.MODERATE_MEMBERS)) {
-            event.reply(i18nService().t(lang, "general.missing_permissions",
-                            Map.of("permissions", Permission.MODERATE_MEMBERS.getName())))
-                    .setEphemeral(true)
-                    .queue();
-            return;
-        }
-
-        String sub = event.getSubcommandName();
-        if ((sub == null || sub.isBlank()) && event.getOption(ROUTE_ACTION) != null) {
-            sub = event.getOption(ROUTE_ACTION).getAsString();
-        }
-        if (sub == null) {
-            event.reply(i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
-            return;
-        }
-        User target = event.getOption("user") == null ? event.getUser() : event.getOption("user").getAsUser();
-        int amount = event.getOption("amount") == null ? 1 : Math.max(1, (int) event.getOption("amount").getAsLong());
-        long guildId = event.getGuild().getIdLong();
-
-        switch (sub) {
-            case "add" -> {
-                openWarningReasonModal(event, sub, target, amount, lang);
-            }
-            case "remove" -> {
-                openWarningReasonModal(event, sub, target, amount, lang);
-            }
-            case "view" -> {
-                int count = moderationService.getWarnings(guildId, target.getIdLong());
-                event.replyEmbeds(warningsResultEmbed(i18nService().t(lang, "warnings.result_view",
-                                Map.of("user", target.getAsMention(), "count", String.valueOf(count)))).build())
-                        .queue();
-            }
-            case "clear" -> {
-                openWarningReasonModal(event, sub, target, amount, lang);
-            }
-            default -> event.reply(i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
-        }
-    }
-
-    private void openWarningReasonModal(SlashCommandInteractionEvent event, String action, User target, int amount, String lang) {
-        String token = UUID.randomUUID().toString().replace("-", "");
-        warningActionRequests.put(token, new WarningActionRequest(
-                event.getUser().getIdLong(),
-                event.getGuild().getIdLong(),
-                action,
-                target.getIdLong(),
-                amount,
-                Instant.now().plusSeconds(180)
-        ));
-        TextInput reasonInput = TextInput.create("reason", TextInputStyle.PARAGRAPH)
-                .setRequired(true)
-                .setPlaceholder(i18nService().t(lang, "warnings.reason_placeholder"))
-                .setMaxLength(500)
-                .build();
-        Modal modal = Modal.create(WARNING_REASON_MODAL_PREFIX + token, i18nService().t(lang, "warnings.reason_modal_title"))
-                .addComponents(Label.of(i18nService().t(lang, "warnings.reason_modal_label"), reasonInput))
-                .build();
-        event.replyModal(modal).queue();
-    }
-    public void handleWarningReasonModal(ModalInteractionEvent event, String lang) {
-        String token = event.getModalId().substring(WARNING_REASON_MODAL_PREFIX.length());
-        WarningActionRequest request = warningActionRequests.remove(token);
-        if (request == null || Instant.now().isAfter(request.expiresAt)) {
-            event.reply(i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
-            return;
-        }
-        if (event.getGuild().getIdLong() != request.guildId || event.getUser().getIdLong() != request.requestUserId) {
-            event.reply(i18nService().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
-            return;
-        }
-        String reason = Objects.requireNonNull(event.getValue("reason")).getAsString().trim();
-        if (reason.isBlank()) {
-            event.replyEmbeds(warningsResultEmbed(i18nService().t(lang, "warnings.reason_required")).build())
-                    .setEphemeral(true)
-                    .queue();
-            return;
-        }
-        JDA currentJda = jda.get();
-        User target = currentJda == null ? null : currentJda.getUserById(request.targetUserId);
-        String userText = target == null ? "<@" + request.targetUserId + ">" : target.getAsMention();
-        String result;
-        switch (request.action) {
-            case "add" -> {
-                int count = moderationService.addWarnings(
-                        request.guildId,
-                        request.targetUserId,
-                        request.amount,
-                        event.getUser().getIdLong(),
-                        reason
-                );
-                result = i18nService().t(lang, "warnings.result_add",
-                        Map.of("user", userText, "count", String.valueOf(count)));
-            }
-            case "remove" -> {
-                int count = moderationService.removeWarnings(
-                        request.guildId,
-                        request.targetUserId,
-                        request.amount,
-                        event.getUser().getIdLong(),
-                        reason
-                );
-                result = i18nService().t(lang, "warnings.result_remove",
-                        Map.of("user", userText, "count", String.valueOf(count)));
-            }
-            case "clear" -> {
-                moderationService.clearWarnings(
-                        request.guildId,
-                        request.targetUserId,
-                        event.getUser().getIdLong(),
-                        reason
-                );
-                result = i18nService().t(lang, "warnings.result_clear", Map.of("user", userText));
-            }
-            default -> {
-                event.reply(i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
-                return;
-            }
-        }
-        result = result + "\n" + i18nService().t(lang, "warnings.reason_line", Map.of("reason", reason));
-        event.replyEmbeds(warningsResultEmbed(result).build()).queue();
-    }
-
-    private EmbedBuilder warningsResultEmbed(String content) {
-        return new EmbedBuilder()
-                .setColor(new Color(241, 196, 15))
-                .setDescription(content);
-    }
     public void handleAntiDuplicateSlash(SlashCommandInteractionEvent event, String lang) {
         if (!has(event.getMember(), Permission.MANAGE_SERVER)) {
             event.reply(i18nService().t(lang, "general.missing_permissions",
@@ -2006,25 +1875,6 @@ public class MusicCommandService extends ListenerAdapter {
     @FunctionalInterface
     public interface TextSink {
         void send(String text);
-    }
-
-
-    private static class WarningActionRequest {
-        private final long requestUserId;
-        private final long guildId;
-        private final String action;
-        private final long targetUserId;
-        private final int amount;
-        private final Instant expiresAt;
-
-        private WarningActionRequest(long requestUserId, long guildId, String action, long targetUserId, int amount, Instant expiresAt) {
-            this.requestUserId = requestUserId;
-            this.guildId = guildId;
-            this.action = action;
-            this.targetUserId = targetUserId;
-            this.amount = amount;
-            this.expiresAt = expiresAt;
-        }
     }
 
     private static class MenuRequest {

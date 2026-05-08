@@ -17,7 +17,7 @@ public final class ModerationOps {
                 yield true;
             }
             case "warnings" -> {
-                owner.handleWarningsSlash(event, lang);
+                owner.warningCommandHandler().handleWarningsSlash(event, lang);
                 yield true;
             }
             case "anti-duplicate" -> {

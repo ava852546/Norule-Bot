@@ -1,13 +1,13 @@
 # NoRule Bot
 
-NoRule Bot 是以 Java 17 + JDA 製作的 Discord 多功能社群機器人，整合音樂播放、歌單管理、伺服器設定、管理工具、客服單、私人包廂、日誌、Web UI、短網址服務與 Minecraft 伺服器狀態查詢。
+NoRule Bot 是以 Java 21 LTS + JDA 製作的 Discord 多功能社群機器人，整合音樂播放、歌單管理、伺服器設定、管理工具、客服單、私人包廂、日誌、Web UI、短網址服務與 Minecraft 伺服器狀態查詢。
 
 本專案採用單一 Java 後端為核心，Web UI 前端可使用 Vite 開發與打包，正式部署時仍可由 Java Web Server 提供 API、OAuth、Session 與靜態資源。
 
 ## 目前版本
 
 - 專案版本：`1.6`
-- Java：`17+`
+- Java：`21 LTS`
 - Discord 函式庫：`JDA 6.3.1`
 - 音樂核心：`Lavaplayer 2.2.6`、`youtube-source 1.18.0`、`lavasrc 4.8.1`
 - Web 前端：`Vite`

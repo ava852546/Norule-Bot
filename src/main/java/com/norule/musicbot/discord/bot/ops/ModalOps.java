@@ -30,8 +30,8 @@ public final class ModalOps {
         if (owner.settingsCommandHandler().handleModalInteraction(event, lang)) {
             return;
         }
-        if (modalId.startsWith(MusicCommandService.WARNING_REASON_MODAL_PREFIX)) {
-            owner.handleWarningReasonModal(event, lang);
+        if (modalId.startsWith(ComponentIds.WARNING_REASON_MODAL_PREFIX)) {
+            owner.warningCommandHandler().handleWarningReasonModal(event, lang);
             return;
         }
         if (MusicCommandService.WELCOME_MODAL_ID.equals(modalId)) {
