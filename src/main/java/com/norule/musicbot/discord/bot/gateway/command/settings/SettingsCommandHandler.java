@@ -77,6 +77,8 @@ public final class SettingsCommandHandler {
         settingsMusicMenuHandler.cleanupExpiredRequests(cutoff);
         settingsResetMenuHandler.cleanupExpiredRequests(cutoff);
         owner.languageMenuHandler().cleanupExpiredRequests(cutoff);
+        owner.numberChainMenuHandler().cleanupExpiredRequests(cutoff);
+        owner.wordChainMenuHandler().cleanupExpiredRequests(cutoff);
     }
 
     public void handleSettings(SlashCommandInteractionEvent event, String lang) {
@@ -136,8 +138,8 @@ public final class SettingsCommandHandler {
             case "logs" -> settingsLogsMenuHandler.openLogsMenu(event, lang);
             case "log-settings" -> openLogSettingsMenu(event, lang);
             case "music" -> settingsMusicMenuHandler.openMusicMenu(event, lang);
-            case "number-chain" -> owner.openNumberChainMenu(event, lang);
-            case "wordchain" -> owner.openWordChainMenu(event, lang);
+            case "number-chain" -> owner.numberChainMenuHandler().openNumberChainMenu(event, lang);
+            case "wordchain" -> owner.wordChainMenuHandler().openWordChainMenu(event, lang);
             default -> event.reply(owner.i18nService().t(lang, "general.unknown_command")).setEphemeral(true).queue();
         }
     }
@@ -656,8 +658,8 @@ public final class SettingsCommandHandler {
                 case "reset" -> settingsResetMenuHandler.openSettingsResetMenu(event, lang);
                 case "logs" -> settingsLogsMenuHandler.openLogsMenu(event, lang);
                 case "music" -> settingsMusicMenuHandler.openMusicMenu(event, lang);
-                case "number-chain" -> owner.openNumberChainMenu(event, lang);
-                case "wordchain" -> owner.openWordChainMenu(event, lang);
+                case "number-chain" -> owner.numberChainMenuHandler().openNumberChainMenu(event, lang);
+                case "wordchain" -> owner.wordChainMenuHandler().openWordChainMenu(event, lang);
                 case "log-settings" -> openLogSettingsMenu(event, lang);
                 default -> event.reply(owner.i18nService().t(lang, "general.unknown_command")).setEphemeral(true).queue();
             }
@@ -703,11 +705,11 @@ public final class SettingsCommandHandler {
             return true;
         }
         if (componentId.startsWith(ComponentIds.SETTINGS_NUMBER_CHAIN_SELECT_PREFIX)) {
-            owner.handleNumberChainMenuSelect(event, lang);
+            owner.numberChainMenuHandler().handleNumberChainMenuSelect(event, lang);
             return true;
         }
         if (componentId.startsWith(ComponentIds.SETTINGS_WORD_CHAIN_SELECT_PREFIX)) {
-            owner.handleWordChainMenuSelect(event, lang);
+            owner.wordChainMenuHandler().handleWordChainMenuSelect(event, lang);
             return true;
         }
         if (componentId.startsWith(ComponentIds.SETTINGS_RESET_SELECT_PREFIX)) {
@@ -980,11 +982,11 @@ public final class SettingsCommandHandler {
             return true;
         }
         if (componentId.startsWith(ComponentIds.SETTINGS_NUMBER_CHAIN_CHANNEL_PREFIX)) {
-            owner.handleNumberChainChannelSelect(event, lang);
+            owner.numberChainMenuHandler().handleNumberChainChannelSelect(event, lang);
             return true;
         }
         if (componentId.startsWith(ComponentIds.SETTINGS_WORD_CHAIN_CHANNEL_PREFIX)) {
-            owner.handleWordChainChannelSelect(event, lang);
+            owner.wordChainMenuHandler().handleWordChainChannelSelect(event, lang);
             return true;
         }
         return false;
