@@ -13,7 +13,7 @@ public final class ModerationOps {
     public boolean handleSlash(String commandName, SlashCommandInteractionEvent event, String lang) {
         return switch (commandName) {
             case "delete-messages" -> {
-                owner.handleDeleteSlash(event, lang);
+                owner.deleteMessagesCommandHandler().handleDeleteSlash(event, lang);
                 yield true;
             }
             case "warnings" -> {

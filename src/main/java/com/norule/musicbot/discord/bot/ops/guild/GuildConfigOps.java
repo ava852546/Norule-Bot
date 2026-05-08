@@ -21,7 +21,7 @@ public final class GuildConfigOps {
                 yield true;
             }
             case "private-room-settings" -> {
-                owner.handlePrivateRoomSettingsCommand(event, lang);
+                owner.privateRoomSettingsCommandHandler().handlePrivateRoomSettingsCommand(event, lang);
                 yield true;
             }
             case "welcome" -> {

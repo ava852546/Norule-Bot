@@ -3,6 +3,7 @@ package com.norule.musicbot.discord.bot.ops;
 import com.norule.musicbot.discord.bot.gateway.command.music.HistoryCommandHandler;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.command.music.PlaylistCommandHandler;
+import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import com.norule.musicbot.discord.bot.ops.stats.StatsOps;
 import com.norule.musicbot.discord.bot.ops.ticket.TicketOps;
 import com.norule.musicbot.discord.bot.ops.wordchain.WordChainOps;
@@ -35,8 +36,8 @@ public final class ButtonOps {
         if (statsOps.handleButton(event)) {
             return;
         }
-        if (id.startsWith(MusicCommandService.DELETE_CONFIRM_PREFIX) || id.startsWith(MusicCommandService.DELETE_CANCEL_PREFIX)) {
-            owner.handleDeleteButtons(event, lang);
+        if (id.startsWith(ComponentIds.DELETE_CONFIRM_PREFIX) || id.startsWith(ComponentIds.DELETE_CANCEL_PREFIX)) {
+            owner.deleteMessagesCommandHandler().handleDeleteButtons(event, lang);
             return;
         }
         if (id.startsWith(PlaylistCommandHandler.LIST_BUTTON_PREFIX)) {

@@ -2,6 +2,7 @@ package com.norule.musicbot.discord.bot.ops;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackCommandHandler;
+import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import com.norule.musicbot.discord.bot.ops.stats.StatsOps;
 import com.norule.musicbot.discord.bot.ops.ticket.TicketOps;
 import net.dv8tion.jda.api.events.interaction.component.EntitySelectInteractionEvent;
@@ -36,13 +37,12 @@ public final class SelectOps {
         if (owner.settingsCommandHandler().handleStringSelectInteraction(event, lang)) {
             return;
         }
-        if (componentId.startsWith(MusicCommandService.ROOM_SETTINGS_MENU_PREFIX)) {
-            owner.handleRoomSettingsSelect(event, lang);
+        if (componentId.startsWith(ComponentIds.ROOM_SETTINGS_MENU_PREFIX)) {
+            owner.privateRoomSettingsCommandHandler().handleRoomSettingsSelect(event, lang);
             return;
         }
         if (componentId.startsWith(MusicPlaybackCommandHandler.PLAY_PICK_PREFIX)) {
             owner.playbackCommandHandler().handlePlayPick(event, lang);
-            return;
         }
     }
 
@@ -59,9 +59,8 @@ public final class SelectOps {
         if (owner.settingsCommandHandler().handleEntitySelectInteraction(event, lang)) {
             return;
         }
-        if (componentId.startsWith(MusicCommandService.ROOM_TRANSFER_SELECT_PREFIX)) {
-            owner.handleRoomTransferSelect(event, lang);
-            return;
+        if (componentId.startsWith(ComponentIds.ROOM_TRANSFER_SELECT_PREFIX)) {
+            owner.privateRoomSettingsCommandHandler().handleRoomTransferSelect(event, lang);
         }
     }
 }

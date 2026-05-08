@@ -1,7 +1,5 @@
 package com.norule.musicbot.discord.bot.app;
 
-import com.norule.musicbot.discord.bot.gateway.listener.PrivateRoomListener;
-
 import com.norule.musicbot.config.*;
 import com.norule.musicbot.config.domain.MinecraftStatusConfig;
 import com.norule.musicbot.config.domain.GuildDomainConfigAdapter;
@@ -24,6 +22,8 @@ import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRefreshService;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRenderer;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelStateStore;
+import com.norule.musicbot.discord.bot.gateway.command.moderation.DeleteMessagesCommandHandler;
+import com.norule.musicbot.discord.bot.gateway.command.privateroom.PrivateRoomSettingsCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.settings.SettingsCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.shorturl.UrlCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.welcome.WelcomeCommandHandler;
@@ -46,13 +46,10 @@ import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.IMentionable;
 import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.entities.Message;
-import net.dv8tion.jda.api.entities.MessageHistory;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildChannel;
 import net.dv8tion.jda.api.entities.channel.ChannelType;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
-import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.CommandAutoCompleteInteractionEvent;
@@ -64,15 +61,7 @@ import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.events.guild.GuildJoinEvent;
 import net.dv8tion.jda.api.events.session.ReadyEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
-import net.dv8tion.jda.api.interactions.DiscordLocale;
-import net.dv8tion.jda.api.interactions.commands.DefaultMemberPermissions;
-import net.dv8tion.jda.api.interactions.commands.Command;
-import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.CommandData;
-import net.dv8tion.jda.api.interactions.commands.build.Commands;
-import net.dv8tion.jda.api.interactions.commands.build.OptionData;
-import net.dv8tion.jda.api.interactions.commands.build.SlashCommandData;
-import net.dv8tion.jda.api.interactions.commands.build.SubcommandData;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.components.label.Label;
@@ -89,15 +78,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -161,8 +147,6 @@ public class MusicCommandService extends ListenerAdapter {
     static final String SUB_PLAYLIST_VIEW_ZH = "\u67e5\u770b";
     static final String SUB_PLAYLIST_REMOVE_TRACK_ZH = "\u522a\u9664\u6b4c\u66f2";
     static final String SUB_PLAYLIST_ADD_ZH = "\u65b0\u589e\u6b4c\u66f2";
-    private static final String PLAYLIST_SCOPE_MINE = "mine";
-    private static final String PLAYLIST_SCOPE_ALL = "all";
     public static final String OPTION_QUERY_ZH = "query";
     public static final String OPTION_VOLUME_VALUE_ZH = "\u97f3\u91cf";
     public static final String OPTION_SPEED_VALUE_ZH = "\u500d\u901f";
@@ -175,12 +159,6 @@ public class MusicCommandService extends ListenerAdapter {
     public static final String SETTINGS_NUMBER_CHAIN_CHANNEL_PREFIX = ComponentIds.SETTINGS_NUMBER_CHAIN_CHANNEL_PREFIX;
     public static final String SETTINGS_WORD_CHAIN_SELECT_PREFIX = ComponentIds.SETTINGS_WORD_CHAIN_SELECT_PREFIX;
     public static final String SETTINGS_WORD_CHAIN_CHANNEL_PREFIX = ComponentIds.SETTINGS_WORD_CHAIN_CHANNEL_PREFIX;
-    public static final String ROOM_SETTINGS_MENU_PREFIX = ComponentIds.ROOM_SETTINGS_MENU_PREFIX;
-    public static final String ROOM_LIMIT_MODAL_PREFIX = ComponentIds.ROOM_LIMIT_MODAL_PREFIX;
-    public static final String ROOM_RENAME_MODAL_PREFIX = ComponentIds.ROOM_RENAME_MODAL_PREFIX;
-    public static final String ROOM_TRANSFER_SELECT_PREFIX = ComponentIds.ROOM_TRANSFER_SELECT_PREFIX;
-    public static final String DELETE_CONFIRM_PREFIX = ComponentIds.DELETE_CONFIRM_PREFIX;
-    public static final String DELETE_CANCEL_PREFIX = ComponentIds.DELETE_CANCEL_PREFIX;
     public static final String WARNING_REASON_MODAL_PREFIX = ComponentIds.WARNING_REASON_MODAL_PREFIX;
     public static final String TEMPLATE_MODAL_PREFIX = ComponentIds.TEMPLATE_MODAL_PREFIX;
     public static final String WELCOME_MODAL_ID = ComponentIds.WELCOME_MODAL_ID;
@@ -205,8 +183,6 @@ public class MusicCommandService extends ListenerAdapter {
     private static final String OPTION_CHANNEL = CommandOptions.CHANNEL;
     private static final String OPTION_VALUE = CommandOptions.VALUE;
     private static final String OPTION_RESET = CommandOptions.RESET;
-    private static final String OPTION_LOG_SETTING = CommandOptions.LOG_SETTING;
-    private static final String OPTION_PREFIX = CommandOptions.PREFIX;
     private static final String ROUTE_LANGUAGE = "language";
     private static final String ROUTE_NUMBER_CHAIN = CommandNames.CMD_NUMBER_CHAIN;
     private static final String ROUTE_WORD_CHAIN = CommandNames.CMD_WORD_CHAIN;
@@ -215,14 +191,8 @@ public class MusicCommandService extends ListenerAdapter {
     private static final String ROUTE_RELOAD = "reload";
     private static final String ROUTE_TEMPLATE = "template";
     private static final String ROUTE_MODULE = "module";
-    private static final String ROUTE_MUSIC = CMD_MUSIC;
-    private static final String ROUTE_INFO = "info";
-    private static final String ROUTE_RESET = OPTION_RESET;
     private static final String VALUE_MEMBER_JOIN = "member-join";
     private static final String VALUE_MEMBER_LEAVE = "member-leave";
-    private static final String VALUE_VOICE_JOIN = "voice-join";
-    private static final String VALUE_VOICE_LEAVE = "voice-leave";
-    private static final String VALUE_VOICE_MOVE = "voice-move";
 
     private final MusicPlayerService musicService;
     private final ModerationService moderationService;
@@ -232,11 +202,9 @@ public class MusicCommandService extends ListenerAdapter {
     private final AtomicReference<I18nService> i18n = new AtomicReference<>();
 
     private final MusicPanelStateStore panelStateStore = new MusicPanelStateStore();
-    private final Map<String, DeleteRequest> deleteRequests = new ConcurrentHashMap<>();
     private final Map<String, WarningActionRequest> warningActionRequests = new ConcurrentHashMap<>();
     private final Map<String, Long> commandCooldowns = new ConcurrentHashMap<>();
     private final Map<String, Long> panelButtonCooldowns = new ConcurrentHashMap<>();
-    private final Map<String, RoomSettingsRequest> roomSettingRequests = new ConcurrentHashMap<>();
     private final Map<String, MenuRequest> languageMenuRequests = new ConcurrentHashMap<>();
     private final Map<String, MenuRequest> numberChainMenuRequests = new ConcurrentHashMap<>();
     private final Map<String, MenuRequest> wordChainMenuRequests = new ConcurrentHashMap<>();
@@ -244,6 +212,8 @@ public class MusicCommandService extends ListenerAdapter {
     private final AtomicReference<JDA> jda = new AtomicReference<>();
     private final CommandRegistrar commandRegistrar;
     private final DiscordCommandCatalog discordCommandCatalog;
+    private final DeleteMessagesCommandHandler deleteMessagesCommandHandler;
+    private final PrivateRoomSettingsCommandHandler privateRoomSettingsCommandHandler;
     private final SettingsCommandHandler settingsCommandHandler;
     private final HelpCommandHandler helpCommandHandler;
     private final PingCommandHandler pingCommandHandler;
@@ -270,7 +240,6 @@ public class MusicCommandService extends ListenerAdapter {
     private final AtomicBoolean botReadyForSlashCommands = new AtomicBoolean(false);
     private static final long PANEL_PERIODIC_REFRESH_MS = 10_000L;
     private static final long PANEL_MIN_EDIT_INTERVAL_MS = 3500L;
-    private static final Duration DELETE_REQUEST_TTL = Duration.ofMinutes(5);
 
     @SuppressWarnings("java:S107")
     public MusicCommandService(MusicPlayerService musicService,
@@ -312,6 +281,8 @@ public class MusicCommandService extends ListenerAdapter {
         );
         this.musicPanelController = new MusicPanelController(this, this::refreshPanel);
         this.musicPlaybackText = new MusicPlaybackText(this::i18nService);
+        this.deleteMessagesCommandHandler = new DeleteMessagesCommandHandler(this);
+        this.privateRoomSettingsCommandHandler = new PrivateRoomSettingsCommandHandler(this);
         this.playlistCommandHandler = new PlaylistCommandHandler(this, this.musicPanelController);
         this.playbackCommandHandler = new MusicPlaybackCommandHandler(this, this.musicPanelController, this.musicPlaybackText);
         this.honeypotCommandHandler = new HoneypotCommandHandler(this);
@@ -345,9 +316,9 @@ public class MusicCommandService extends ListenerAdapter {
     private void cleanupTransientState() {
         Instant now = Instant.now();
         long nowMillis = System.currentTimeMillis();
-        deleteRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        deleteMessagesCommandHandler.cleanupExpiredRequests(now);
         warningActionRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
-        roomSettingRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        privateRoomSettingsCommandHandler.cleanupExpiredRequests(now);
         languageMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
         numberChainMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
         wordChainMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
@@ -436,6 +407,12 @@ public class MusicCommandService extends ListenerAdapter {
     }
     public Map<Long, MusicPanelStateStore.PanelRef> panelRefs() {
         return panelStateStore.panelRefs();
+    }
+    public DeleteMessagesCommandHandler deleteMessagesCommandHandler() {
+        return deleteMessagesCommandHandler;
+    }
+    public PrivateRoomSettingsCommandHandler privateRoomSettingsCommandHandler() {
+        return privateRoomSettingsCommandHandler;
     }
     public SettingsCommandHandler settingsCommandHandler() {
         return settingsCommandHandler;
@@ -620,157 +597,6 @@ public class MusicCommandService extends ListenerAdapter {
         return keyIcon(key) + " " + i18nService().t(lang, key) + "\n> " + i18nService().t(lang, labelKey) + ": " + value;
     }
 
-    public void handleDeleteSlash(SlashCommandInteractionEvent event, String lang) {
-        if (!has(event.getMember(), Permission.MESSAGE_MANAGE)) {
-            event.reply(i18nService().t(lang, "general.missing_permissions", Map.of("permissions", Permission.MESSAGE_MANAGE.getName()))).setEphemeral(true).queue();
-            return;
-        }
-
-        var timeOption = event.getOption("time");
-        var amountOption = event.getOption("amount");
-        boolean explicitTime = timeOption != null;
-        boolean explicitAmount = amountOption != null;
-        Duration lookback;
-        if (explicitTime) {
-            String timeInput = Objects.requireNonNull(timeOption.getAsString()).trim();
-            lookback = parseDeleteLookback(timeInput);
-        } else if (explicitAmount) {
-            lookback = Duration.ofDays(14);
-        } else {
-            lookback = Duration.ofHours(24);
-        }
-        if (lookback == null) {
-            event.reply(i18nService().t(lang, "delete.time_range")).setEphemeral(true).queue();
-            return;
-        }
-
-        Integer amount = amountOption == null ? null : (int) amountOption.getAsLong();
-        if (amount != null && (amount < 1 || amount > 99)) {
-            event.reply(i18nService().t(lang, "delete.amount_range")).setEphemeral(true).queue();
-            return;
-        }
-
-        String sub = event.getSubcommandName();
-        if (sub == null && event.getOption("type") != null) {
-            sub = Objects.requireNonNull(event.getOption("type")).getAsString();
-        }
-        if (sub == null || sub.isBlank()) {
-            event.reply(i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
-            return;
-        }
-        sub = canonicalDeleteSubcommand(sub);
-        TextChannel channel = null;
-        Long targetUserId = null;
-        String scope;
-        String extraNotice = "";
-        if (OPTION_CHANNEL.equals(sub)) {
-            var channelOption = event.getOption(OPTION_CHANNEL);
-            if (channelOption == null) {
-                if (event.getChannelType() != ChannelType.TEXT) {
-                    event.reply(i18nService().t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
-                    return;
-                }
-                channel = event.getChannel().asTextChannel();
-                extraNotice = i18nService().t(lang, "delete.default_channel_notice", Map.of(OPTION_CHANNEL, channel.getAsMention()));
-            } else {
-                if (channelOption.getAsChannel().getType() != ChannelType.TEXT) {
-                    event.reply(i18nService().t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
-                    return;
-                }
-                channel = channelOption.getAsChannel().asTextChannel();
-            }
-            if (event.getOption("user") != null) {
-                targetUserId = Objects.requireNonNull(event.getOption("user")).getAsUser().getIdLong();
-            }
-            scope = channel.getAsMention()
-                    + (targetUserId == null ? "" : " \u00b7 " + Objects.requireNonNull(event.getOption("user")).getAsUser().getAsMention());
-        } else {
-            if (event.getOption("user") == null) {
-                event.reply(i18nService().t(lang, "general.invalid_user")).setEphemeral(true).queue();
-                return;
-            }
-            var channelOption = event.getOption(OPTION_CHANNEL);
-            if (channelOption != null) {
-                if (channelOption.getAsChannel().getType() != ChannelType.TEXT) {
-                    event.reply(i18nService().t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
-                    return;
-                }
-                channel = channelOption.getAsChannel().asTextChannel();
-            }
-            targetUserId = Objects.requireNonNull(event.getOption("user")).getAsUser().getIdLong();
-            scope = Objects.requireNonNull(event.getOption("user")).getAsUser().getAsMention()
-                    + (channel == null ? " \u00b7 \u5168\u90e8\u6587\u5b57\u983b\u9053" : " \u00b7 " + channel.getAsMention());
-        }
-
-        String token = UUID.randomUUID().toString().replace("-", "");
-        deleteRequests.put(token, new DeleteRequest(
-                event.getUser().getIdLong(),
-                channel == null ? null : channel.getIdLong(),
-                targetUserId,
-                lookback,
-                amount,
-                Instant.now().plus(DELETE_REQUEST_TTL)
-        ));
-
-                event.replyEmbeds(new EmbedBuilder()
-                        .setTitle(i18nService().t(lang, "delete.confirm_title"))
-                        .setDescription(i18nService().t(lang, "delete.confirm_body", Map.of("count", deleteAmountText(lang, amount), "scope", scope))
-                                + (explicitTime ? "\n" + deleteTimeNotice(lang, lookback) : "")
-                                + (!explicitTime && !explicitAmount ? "\n" + deleteDefaultTimeNotice(lang, "24h") : "")
-                                + (extraNotice.isBlank() ? "" : "\n" + extraNotice))
-                        .addField("Info", i18nService().t(lang, "delete.confirm_warning"), false)
-                        .setColor(new Color(241, 196, 15))
-                        .build())
-                .addComponents(ActionRow.of(
-                        Button.danger(DELETE_CONFIRM_PREFIX + token, i18nService().t(lang, "delete.confirm_button")),
-                        Button.secondary(DELETE_CANCEL_PREFIX + token, i18nService().t(lang, "delete.cancel_button"))
-                ))
-                .setEphemeral(true)
-                .queue();
-    }
-    public void handleDeleteButtons(ButtonInteractionEvent event, String lang) {
-        String id = event.getComponentId();
-        String token = id.substring(id.lastIndexOf(':') + 1);
-        DeleteRequest req = deleteRequests.get(token);
-        if (req == null || Instant.now().isAfter(req.expiresAt)) {
-            deleteRequests.remove(token);
-            event.reply(i18nService().t(lang, "delete.cancelled")).setEphemeral(true).queue();
-            return;
-        }
-        if (event.getUser().getIdLong() != req.requestUserId) {
-            event.reply(i18nService().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
-            return;
-        }
-        if (id.startsWith(DELETE_CANCEL_PREFIX)) {
-            deleteRequests.remove(token);
-            event.editMessage(i18nService().t(lang, "delete.cancelled")).setComponents(List.of()).queue();
-            return;
-        }
-        Guild guild = event.getGuild();
-        event.deferEdit().queue(
-                success -> {
-                    event.getHook().editOriginal(i18nService().t(lang, "delete.processing"))
-                            .setComponents(List.of())
-                            .queue();
-                    scheduler.execute(() -> {
-                        try {
-                            int deleted = performDeleteRequest(guild, req);
-                            deleteRequests.remove(token);
-                            if (deleted <= 0) {
-                                event.getHook().editOriginal(i18nService().t(lang, "delete.no_target")).queue();
-                            } else {
-                                event.getHook().editOriginal(i18nService().t(lang, "delete.processed", Map.of("count", String.valueOf(deleted)))).queue();
-                            }
-                        } catch (Exception ex) {
-                            deleteRequests.remove(token);
-                            event.getHook().editOriginal(i18nService().t(lang, "delete.failed")).queue();
-                        }
-                    });
-                },
-                failure -> event.reply(i18nService().t(lang, "delete.failed")).setEphemeral(true).queue()
-        );
-    }
-
     public void setRepeat(Guild guild, String input) {
         musicService.setRepeatMode(guild, normalizeRepeat(input));
     }
@@ -824,20 +650,6 @@ public class MusicCommandService extends ListenerAdapter {
         }
         eb.addField(i18nService().t(lang, "help.tip_title"), i18nService().t(lang, "help.tip_body"), false);
         return eb;
-    }
-
-    private OptionData buildWelcomeActionOption(boolean zh) {
-        OptionData option = new OptionData(OptionType.STRING, ROUTE_ACTION,
-                zh ? "\u6b61\u8fce\u8a0a\u606f\u64cd\u4f5c" : "Welcome message action", false);
-        option.addChoices(
-                new Command.Choice(zh ? SUB_GENERIC_ENABLE_ZH : "enable", "enable"),
-                new Command.Choice(zh ? SUB_GENERIC_STATUS_ZH : "status", "status")
-        );
-        if (zh) {
-            option.setNameLocalization(DiscordLocale.CHINESE_TAIWAN, "\u9078\u9805");
-            option.setNameLocalization(DiscordLocale.CHINESE_CHINA, "\u9009\u9879");
-        }
-        return option;
     }
 
     public String previewWelcomeText(String text, Guild guild, User user) {
@@ -910,331 +722,6 @@ public class MusicCommandService extends ListenerAdapter {
         return Button.secondary(HELP_BUTTON_PREFIX + category, label);
     }
 
-    public void handlePrivateRoomSettingsCommand(SlashCommandInteractionEvent event, String lang) {
-        Member member = event.getMember();
-        if (member == null || member.getVoiceState() == null || member.getVoiceState().getChannel() == null) {
-            event.reply(i18nService().t(lang, "room_settings.must_join_private_room")).setEphemeral(true).queue();
-            return;
-        }
-        AudioChannel current = member.getVoiceState().getChannel();
-        if (!(current instanceof VoiceChannel voiceChannel)
-                || !isUserOwnedPrivateRoom(event.getGuild(), voiceChannel, member.getIdLong())) {
-            event.reply(i18nService().t(lang, "room_settings.must_join_private_room")).setEphemeral(true).queue();
-            return;
-        }
-
-        String token = UUID.randomUUID().toString().replace("-", "");
-        roomSettingRequests.put(token, new RoomSettingsRequest(
-                event.getUser().getIdLong(),
-                event.getGuild().getIdLong(),
-                voiceChannel.getIdLong(),
-                Instant.now().plusSeconds(120)
-        ));
-        event.replyEmbeds(privateRoomSettingsEmbed(voiceChannel, lang).build())
-                .addComponents(ActionRow.of(privateRoomSettingsMenu(token, lang)))
-                .setEphemeral(true)
-                .queue();
-    }
-
-    private StringSelectMenu privateRoomSettingsMenu(String token, String lang) {
-        return StringSelectMenu.create(ROOM_SETTINGS_MENU_PREFIX + token)
-                .setPlaceholder(i18nService().t(lang, "room_settings.select_placeholder"))
-                .addOptions(
-                        SelectOption.of(i18nService().t(lang, "room_settings.option_lock"), "lock"),
-                        SelectOption.of(i18nService().t(lang, "room_settings.option_limit"), "limit"),
-                        SelectOption.of(i18nService().t(lang, "room_settings.option_rename"), "rename"),
-                        SelectOption.of(i18nService().t(lang, "room_settings.option_transfer"), "transfer")
-                )
-                .build();
-    }
-
-    private EmbedBuilder privateRoomSettingsEmbed(VoiceChannel room, String lang) {
-        boolean locked = isRoomLocked(room);
-        Long ownerId = PrivateRoomListener.getRoomOwnerId(room.getGuild().getIdLong(), room.getIdLong());
-        Member owner = ownerId == null ? null : room.getGuild().getMemberById(ownerId);
-        String ownerText = owner == null ? i18nService().t(lang, "room_settings.owner_unknown") : owner.getAsMention();
-        return new EmbedBuilder()
-                .setColor(new Color(155, 89, 182))
-                .setTitle(i18nService().t(lang, "room_settings.title"))
-                .setDescription(i18nService().t(lang, "room_settings.desc"))
-                .addField(i18nService().t(lang, "room_settings.field_channel"), room.getAsMention(), true)
-                .addField(i18nService().t(lang, "room_settings.field_name"), room.getName(), true)
-                .addField(i18nService().t(lang, "room_settings.field_limit"), room.getUserLimit() <= 0 ? i18nService().t(lang, "room_settings.unlimited") : String.valueOf(room.getUserLimit()), true)
-                .addField(i18nService().t(lang, "room_settings.field_lock"), locked ? i18nService().t(lang, "settings.info_bool_on") : i18nService().t(lang, "settings.info_bool_off"), true)
-                .addField(i18nService().t(lang, "room_settings.field_owner"), ownerText, true);
-    }
-    public void handleRoomSettingsSelect(StringSelectInteractionEvent event, String lang) {
-        String token = event.getComponentId().substring(ROOM_SETTINGS_MENU_PREFIX.length());
-        RoomSettingsRequest request = roomSettingRequests.get(token);
-        if (request == null || Instant.now().isAfter(request.expiresAt)) {
-            roomSettingRequests.remove(token);
-            event.reply(i18nService().t(lang, "room_settings.expired")).setEphemeral(true).queue();
-            return;
-        }
-        if (event.getUser().getIdLong() != request.requestUserId) {
-            event.reply(i18nService().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
-            return;
-        }
-
-        VoiceChannel room = event.getGuild().getVoiceChannelById(request.roomChannelId);
-        if (room == null || !isUserOwnedPrivateRoom(event.getGuild(), room, request.requestUserId)) {
-            roomSettingRequests.remove(token);
-            event.reply(i18nService().t(lang, "room_settings.room_not_found")).setEphemeral(true).queue();
-            return;
-        }
-
-        String action = event.getValues().isEmpty() ? "" : event.getValues().get(0);
-        switch (action) {
-            case "lock" -> {
-                String missing = formatMissingPermissions(event.getGuild().getSelfMember(), room,
-                        Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS);
-                if (!"-".equals(missing)) {
-                    event.reply(i18nService().t(lang, "general.missing_permissions", Map.of("permissions", missing)))
-                            .setEphemeral(true)
-                            .queue();
-                    return;
-                }
-                boolean currentlyLocked = isRoomLocked(room);
-                var overrideAction = room.upsertPermissionOverride(event.getGuild().getPublicRole());
-                if (currentlyLocked) {
-                    overrideAction.clear(Permission.VOICE_CONNECT, Permission.VIEW_CHANNEL);
-                    overrideAction.grant(Permission.VOICE_CONNECT, Permission.VIEW_CHANNEL);
-                } else {
-                    overrideAction.deny(Permission.VOICE_CONNECT, Permission.VIEW_CHANNEL);
-                }
-                overrideAction
-                        .queue(success -> event.editMessageEmbeds(privateRoomSettingsEmbed(room, lang).build())
-                                        .setComponents(ActionRow.of(privateRoomSettingsMenu(token, lang)))
-                                        .queue(),
-                                error -> event.reply(i18nService().t(lang, "room_settings.action_failed")).setEphemeral(true).queue());
-            }
-            case "limit" -> openRoomLimitModal(event, token, room, lang);
-            case "rename" -> openRoomRenameModal(event, token, room, lang);
-            case "transfer" -> openRoomTransferMenu(event, token, room, lang);
-            default -> event.reply(i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
-        }
-    }
-
-    private void openRoomTransferMenu(StringSelectInteractionEvent event, String token, VoiceChannel room, String lang) {
-        EntitySelectMenu memberMenu = EntitySelectMenu.create(ROOM_TRANSFER_SELECT_PREFIX + token, EntitySelectMenu.SelectTarget.USER)
-                .setPlaceholder(i18nService().t(lang, "room_settings.transfer_placeholder"))
-                .setRequiredRange(1, 1)
-                .build();
-        event.editMessageEmbeds(new EmbedBuilder()
-                        .setColor(new Color(241, 196, 15))
-                        .setTitle(i18nService().t(lang, "room_settings.transfer_title"))
-                        .setDescription(i18nService().t(lang, "room_settings.transfer_desc", Map.of(OPTION_CHANNEL, room.getAsMention())))
-                        .build())
-                .setComponents(ActionRow.of(memberMenu))
-                .queue();
-    }
-
-    private void openRoomLimitModal(StringSelectInteractionEvent event, String token, VoiceChannel room, String lang) {
-        TextInput input = TextInput.create("limit", TextInputStyle.SHORT)
-                .setPlaceholder(i18nService().t(lang, "room_settings.limit_placeholder"))
-                .setRequired(false)
-                .setMaxLength(2)
-                .build();
-        Modal modal = Modal.create(ROOM_LIMIT_MODAL_PREFIX + token, i18nService().t(lang, "room_settings.limit_title"))
-                .addComponents(Label.of(i18nService().t(lang, "room_settings.limit_label"), input))
-                .build();
-        event.replyModal(modal).queue();
-    }
-
-    private void openRoomRenameModal(StringSelectInteractionEvent event, String token, VoiceChannel room, String lang) {
-        TextInput input = TextInput.create("name", TextInputStyle.SHORT)
-                .setPlaceholder(i18nService().t(lang, "room_settings.rename_placeholder", Map.of("name", room.getName())))
-                .setRequired(true)
-                .setMinLength(1)
-                .setMaxLength(10)
-                .build();
-        Modal modal = Modal.create(ROOM_RENAME_MODAL_PREFIX + token, i18nService().t(lang, "room_settings.rename_title"))
-                .addComponents(Label.of(i18nService().t(lang, "room_settings.rename_label"), input))
-                .build();
-        event.replyModal(modal).queue();
-    }
-    public void handleRoomSettingsModal(ModalInteractionEvent event) {
-        String lang = lang(event.getGuild().getIdLong());
-        String modalId = event.getModalId();
-        boolean isLimit = modalId.startsWith(ROOM_LIMIT_MODAL_PREFIX);
-        String token = modalId.substring((isLimit ? ROOM_LIMIT_MODAL_PREFIX : ROOM_RENAME_MODAL_PREFIX).length());
-        RoomSettingsRequest request = roomSettingRequests.get(token);
-        if (request == null || Instant.now().isAfter(request.expiresAt)) {
-            roomSettingRequests.remove(token);
-            event.reply(i18nService().t(lang, "room_settings.expired")).setEphemeral(true).queue();
-            return;
-        }
-        if (event.getUser().getIdLong() != request.requestUserId) {
-            event.reply(i18nService().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
-            return;
-        }
-
-        VoiceChannel room = event.getGuild().getVoiceChannelById(request.roomChannelId);
-        if (room == null || !isUserOwnedPrivateRoom(event.getGuild(), room, request.requestUserId)) {
-            roomSettingRequests.remove(token);
-            event.reply(i18nService().t(lang, "room_settings.room_not_found")).setEphemeral(true).queue();
-            return;
-        }
-
-        String missing = formatMissingPermissions(event.getGuild().getSelfMember(), room, Permission.MANAGE_CHANNEL);
-        if (!"-".equals(missing)) {
-            event.reply(i18nService().t(lang, "general.missing_permissions", Map.of("permissions", missing)))
-                    .setEphemeral(true)
-                    .queue();
-            return;
-        }
-
-        if (isLimit) {
-            String raw = event.getValue("limit") == null ? "" : event.getValue("limit").getAsString().trim();
-            int limit;
-            if (raw.isBlank()) {
-                limit = 0;
-            } else {
-                try {
-                    limit = Integer.parseInt(raw);
-                } catch (NumberFormatException e) {
-                    event.reply(i18nService().t(lang, "room_settings.limit_invalid")).setEphemeral(true).queue();
-                    return;
-                }
-                if (limit < 1 || limit > 99) {
-                    event.reply(i18nService().t(lang, "room_settings.limit_invalid")).setEphemeral(true).queue();
-                    return;
-                }
-            }
-            room.getManager().setUserLimit(limit).queue(
-                    success -> {
-                        roomSettingRequests.put(token, new RoomSettingsRequest(
-                                request.requestUserId,
-                                request.guildId,
-                                request.roomChannelId,
-                                Instant.now().plusSeconds(120)
-                        ));
-                        event.replyEmbeds(privateRoomSettingsEmbed(room, lang).build())
-                                .addComponents(ActionRow.of(privateRoomSettingsMenu(token, lang)))
-                                .setEphemeral(true)
-                                .queue();
-                    },
-                    error -> event.reply(i18nService().t(lang, "room_settings.action_failed")).setEphemeral(true).queue()
-            );
-            return;
-        }
-
-        String name = event.getValue("name") == null ? "" : event.getValue("name").getAsString().trim();
-        if (name.isBlank() || name.length() > 10) {
-            event.reply(i18nService().t(lang, "room_settings.rename_invalid")).setEphemeral(true).queue();
-            return;
-        }
-        room.getManager().setName(name).queue(
-                success -> {
-                    roomSettingRequests.put(token, new RoomSettingsRequest(
-                            request.requestUserId,
-                            request.guildId,
-                            request.roomChannelId,
-                            Instant.now().plusSeconds(120)
-                    ));
-                    event.replyEmbeds(privateRoomSettingsEmbed(room, lang).build())
-                            .addComponents(ActionRow.of(privateRoomSettingsMenu(token, lang)))
-                            .setEphemeral(true)
-                            .queue();
-                },
-                error -> event.reply(i18nService().t(lang, "room_settings.action_failed")).setEphemeral(true).queue()
-        );
-    }
-    public void handleRoomTransferSelect(EntitySelectInteractionEvent event, String lang) {
-        String token = event.getComponentId().substring(ROOM_TRANSFER_SELECT_PREFIX.length());
-        RoomSettingsRequest request = roomSettingRequests.get(token);
-        if (request == null || Instant.now().isAfter(request.expiresAt)) {
-            roomSettingRequests.remove(token);
-            event.reply(i18nService().t(lang, "room_settings.expired")).setEphemeral(true).queue();
-            return;
-        }
-        if (event.getUser().getIdLong() != request.requestUserId) {
-            event.reply(i18nService().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
-            return;
-        }
-
-        VoiceChannel room = event.getGuild().getVoiceChannelById(request.roomChannelId);
-        if (room == null || !isUserOwnedPrivateRoom(event.getGuild(), room, request.requestUserId)) {
-            roomSettingRequests.remove(token);
-            event.reply(i18nService().t(lang, "room_settings.room_not_found")).setEphemeral(true).queue();
-            return;
-        }
-
-        String missing = formatMissingPermissions(event.getGuild().getSelfMember(), room,
-                Permission.MANAGE_CHANNEL, Permission.MANAGE_PERMISSIONS);
-        if (!"-".equals(missing)) {
-            event.reply(i18nService().t(lang, "general.missing_permissions", Map.of("permissions", missing)))
-                    .setEphemeral(true)
-                    .queue();
-            return;
-        }
-
-        List<Member> members = event.getMentions().getMembers();
-        Member target = members.isEmpty() ? null : members.get(0);
-        if (target == null
-                || target.getUser().isBot()
-                || target.getIdLong() == request.requestUserId
-                || target.getVoiceState() == null
-                || target.getVoiceState().getChannel() == null
-                || target.getVoiceState().getChannel().getIdLong() != room.getIdLong()) {
-            event.reply(i18nService().t(lang, "room_settings.transfer_invalid")).setEphemeral(true).queue();
-            return;
-        }
-
-        long oldOwnerId = request.requestUserId;
-        room.upsertPermissionOverride(target)
-                .grant(Permission.getPermissions(PrivateRoomListener.getRoomOwnerPermissionRaw()))
-                .queue(success -> removeOldRoomOwnerOverride(room, oldOwnerId, () -> {
-                            PrivateRoomListener.setRoomOwner(event.getGuild().getIdLong(), room.getIdLong(), target.getIdLong());
-                            roomSettingRequests.remove(token);
-                            event.editMessageEmbeds(new EmbedBuilder()
-                                            .setColor(new Color(46, 204, 113))
-                                            .setTitle(i18nService().t(lang, "room_settings.title"))
-                                            .setDescription(i18nService().t(lang, "room_settings.transfer_success", Map.of("user", target.getAsMention())))
-                                            .build())
-                                    .setComponents(List.of())
-                                    .queue();
-                        },
-                        () -> event.reply(i18nService().t(lang, "room_settings.action_failed")).setEphemeral(true).queue()),
-                        error -> event.reply(i18nService().t(lang, "room_settings.action_failed")).setEphemeral(true).queue());
-    }
-
-    private void removeOldRoomOwnerOverride(VoiceChannel room, long oldOwnerId, Runnable onSuccess, Runnable onError) {
-        var oldOverride = room.getMemberPermissionOverrides().stream()
-                .filter(override -> override.getIdLong() == oldOwnerId)
-                .findFirst()
-                .orElse(null);
-        if (oldOverride == null) {
-            onSuccess.run();
-            return;
-        }
-        oldOverride.delete().queue(success -> onSuccess.run(), error -> onError.run());
-    }
-
-    private boolean isRoomLocked(VoiceChannel room) {
-        var override = room.getPermissionOverride(room.getGuild().getPublicRole());
-        return override != null && (override.getDenied().contains(Permission.VOICE_CONNECT)
-                || override.getDenied().contains(Permission.VIEW_CHANNEL));
-    }
-
-    private boolean isUserOwnedPrivateRoom(Guild guild, VoiceChannel room, long userId) {
-        if (PrivateRoomListener.isManagedPrivateRoom(guild.getIdLong(), room.getIdLong())
-                && PrivateRoomListener.isRoomOwner(guild.getIdLong(), room.getIdLong(), userId)) {
-            return true;
-        }
-        var override = room.getMemberPermissionOverrides().stream()
-                .filter(o -> o.getIdLong() == userId)
-                .findFirst()
-                .orElse(null);
-        if (override == null) {
-            return false;
-        }
-        var allowed = override.getAllowed();
-        return allowed.contains(Permission.MANAGE_CHANNEL)
-                && allowed.contains(Permission.VOICE_MOVE_OTHERS)
-                && allowed.contains(Permission.VOICE_MUTE_OTHERS);
-    }
-
     public void createPanelMessageWithFeedback(Guild guild, TextChannel channel, String lang, Runnable onSuccess, java.util.function.Consumer<String> onError) {
         musicPanelRefreshService.createPanelMessageWithFeedback(guild, channel, lang, onSuccess, onError);
     }
@@ -1274,301 +761,10 @@ public class MusicCommandService extends ListenerAdapter {
         return musicService.setVolume(guild, target);
     }
 
-    private String deleteAmountText(String lang, Integer amount) {
-        if (amount != null) {
-            return String.valueOf(amount);
-        }
-        if ("zh-CN".equalsIgnoreCase(lang)) {
-            return "\u6240\u6709\u7b26\u5408\u6761\u4ef6\u7684\u6d88\u606f";
-        }
-        if (lang != null && lang.toLowerCase(Locale.ROOT).startsWith("zh")) {
-            return "\u6240\u6709\u7b26\u5408\u689d\u4ef6\u7684\u8a0a\u606f";
-        }
-        return "all matching messages";
-    }
-
-    private List<Message> findMessagesForDeletion(TextChannel channel, Long targetUserId, Integer amount, int maxPages, Duration lookback) {
-        List<Message> matched = new ArrayList<>();
-        Instant cutoff = Instant.now().minus(lookback);
-        MessageHistory history = channel.getHistory();
-        List<Message> page = history.retrievePast(100).complete();
-        for (int i = 0; i < maxPages && !page.isEmpty() && (amount == null || matched.size() < amount); i++) {
-            for (Message message : page) {
-                if (targetUserId == null && message.getAuthor().isBot()) {
-                    continue;
-                }
-                Instant createdAt = message.getTimeCreated().toInstant();
-                if (createdAt.isBefore(cutoff)) {
-                    continue;
-                }
-                if (targetUserId != null && message.getAuthor().getIdLong() != targetUserId) {
-                    continue;
-                }
-                matched.add(message);
-                if (amount != null && matched.size() >= amount) {
-                    break;
-                }
-            }
-            if (amount != null && matched.size() >= amount) {
-                break;
-            }
-            String before = page.get(page.size() - 1).getId();
-            page = MessageHistory.getHistoryBefore(channel, before).limit(100).complete().getRetrievedHistory();
-        }
-        return matched;
-    }
-
-    private int performDeleteRequest(Guild guild, DeleteRequest req) {
-        Duration lookback = req.lookback;
-        if (req.channelId != null) {
-            TextChannel channel = guild.getTextChannelById(req.channelId);
-            if (channel == null || !canManageMessages(channel)) {
-                return 0;
-            }
-            List<Message> targets = findMessagesForDeletion(channel, req.targetUserId, req.amount, 25, lookback);
-            return performDelete(channel, targets);
-        }
-        int total = 0;
-        for (TextChannel channel : guild.getTextChannels()) {
-            if (!canManageMessages(channel)) {
-                continue;
-            }
-            Integer remaining = req.amount == null ? null : req.amount - total;
-            if (remaining != null && remaining <= 0) {
-                break;
-            }
-            List<Message> targets = findMessagesForDeletion(channel, req.targetUserId, remaining, 25, lookback);
-            total += performDelete(channel, targets);
-        }
-        return total;
-    }
-
-    private Duration parseDeleteLookback(String input) {
-        if (input == null) {
-            return null;
-        }
-        String normalized = input.trim().toLowerCase(Locale.ROOT);
-        if (normalized.isBlank()) {
-            return null;
-        }
-        long totalSeconds = 0L;
-        long currentValue = 0L;
-        boolean foundUnit = false;
-        for (int i = 0; i < normalized.length(); i++) {
-            char ch = normalized.charAt(i);
-            if (Character.isDigit(ch)) {
-                currentValue = currentValue * 10L + (ch - '0');
-                continue;
-            }
-            if (currentValue <= 0L) {
-                return null;
-            }
-            long unitSeconds;
-            switch (ch) {
-                case 'd' -> unitSeconds = 86400L;
-                case 'h' -> unitSeconds = 3600L;
-                case 'm' -> unitSeconds = 60L;
-                case 's' -> unitSeconds = 1L;
-                default -> {
-                    return null;
-                }
-            }
-            try {
-                totalSeconds = Math.addExact(totalSeconds, Math.multiplyExact(currentValue, unitSeconds));
-            } catch (ArithmeticException ex) {
-                return null;
-            }
-            currentValue = 0L;
-            foundUnit = true;
-        }
-        if (!foundUnit || currentValue != 0L || totalSeconds <= 0L) {
-            return null;
-        }
-        Duration lookback = Duration.ofSeconds(totalSeconds);
-        return lookback.compareTo(Duration.ofDays(14)) <= 0 ? lookback : null;
-    }
-
-    private String formatDeleteLookback(Duration lookback) {
-        long totalSeconds = lookback.getSeconds();
-        long days = totalSeconds / 86400L;
-        totalSeconds %= 86400L;
-        long hours = totalSeconds / 3600L;
-        totalSeconds %= 3600L;
-        long minutes = totalSeconds / 60L;
-        long seconds = totalSeconds % 60L;
-        StringBuilder sb = new StringBuilder();
-        if (days > 0L) {
-            sb.append(days).append('d');
-        }
-        if (hours > 0L) {
-            sb.append(hours).append('h');
-        }
-        if (minutes > 0L) {
-            sb.append(minutes).append('m');
-        }
-        if (seconds > 0L || sb.length() == 0) {
-            sb.append(seconds).append('s');
-        }
-        return sb.toString();
-    }
-
-    private String deleteTimeNotice(String lang, Duration lookback) {
-        String formatted = formatDeleteLookback(lookback);
-        String translated = i18nService().t(lang, "delete.time_notice", Map.of("time", formatted));
-        if (!"delete.time_notice".equals(translated)) {
-            return translated;
-        }
-        if ("zh-CN".equalsIgnoreCase(lang)) {
-            return "\u641c\u7d22\u8303\u56f4\uff1a\u6700\u8fd1 " + formatted + "\u3002";
-        }
-        if ("zh-TW".equalsIgnoreCase(lang)) {
-            return "\u641c\u5c0b\u7bc4\u570d\uff1a\u6700\u8fd1 " + formatted + "\u3002";
-        }
-        return "Search range: last " + formatted + ".";
-    }
-
-    private String deleteDefaultTimeNotice(String lang, String formatted) {
-        String translated = i18nService().t(lang, "delete.default_time_notice", Map.of("time", formatted));
-        if (!"delete.default_time_notice".equals(translated)) {
-            return translated;
-        }
-        if ("zh-CN".equalsIgnoreCase(lang)) {
-            return "\u672a\u63d0\u4f9b\u65f6\u95f4\uff0c\u4f7f\u7528\u9ed8\u8ba4\u8303\u56f4\uff1a\u6700\u8fd1 " + formatted + "\u3002";
-        }
-        if ("zh-TW".equalsIgnoreCase(lang)) {
-            return "\u672a\u63d0\u4f9b\u6642\u9593\uff0c\u4f7f\u7528\u9810\u8a2d\u7bc4\u570d\uff1a\u6700\u8fd1 " + formatted + "\u3002";
-        }
-        return "Time not provided. Using default range: last " + formatted + ".";
-    }
-
-    private boolean canManageMessages(TextChannel channel) {
-        Member self = channel.getGuild().getSelfMember();
-        return self.hasAccess(channel)
-                && self.hasPermission(channel, Permission.MESSAGE_HISTORY, Permission.MESSAGE_MANAGE);
-    }
-
-    private int performDelete(TextChannel channel, List<Message> messages) {
-        if (messages.isEmpty()) {
-            return 0;
-        }
-        if (messages.size() == 1) {
-            channel.deleteMessageById(messages.get(0).getId()).complete();
-            return 1;
-        }
-        int total = 0;
-        List<Message> buffer = new ArrayList<>();
-        for (Message message : messages) {
-            buffer.add(message);
-            if (buffer.size() == 100) {
-                channel.deleteMessages(buffer).complete();
-                total += buffer.size();
-                buffer = new ArrayList<>();
-            }
-        }
-        if (!buffer.isEmpty()) {
-            if (buffer.size() == 1) {
-                channel.deleteMessageById(buffer.get(0).getId()).complete();
-            } else {
-                channel.deleteMessages(buffer).complete();
-            }
-            total += buffer.size();
-        }
-        return total;
-    }
     public List<CommandData> buildCommands() {
         return discordCommandCatalog.buildCommands();
     }
 
-
-
-
-    private OptionData buildNumberChainActionOption(boolean zh) {
-        OptionData option = new OptionData(OptionType.STRING, ROUTE_ACTION,
-                zh ? "\u6578\u5b57\u63a5\u9f8d\u8a2d\u5b9a" : "Number chain settings", false)
-                .addChoices(
-                        new Command.Choice(zh ? SUB_GENERIC_ENABLE_ZH : "enable", "enable"),
-                        new Command.Choice(zh ? SUB_GENERIC_DISABLE_ZH : "disable", "disable"),
-                        new Command.Choice(zh ? SUB_GENERIC_STATUS_ZH : "status", "status")
-                );
-        if (zh) {
-            option.setNameLocalization(DiscordLocale.CHINESE_TAIWAN, "\u9078\u9805");
-            option.setNameLocalization(DiscordLocale.CHINESE_CHINA, "\u9009\u9879");
-        }
-        return option;
-    }
-
-
-
-
-
-
-
-
-
-    private static OptionData localizedOptionName(OptionData option, String zhTwName, String zhCnName) {
-        return option
-                .setNameLocalization(DiscordLocale.CHINESE_TAIWAN, zhTwName)
-                .setNameLocalization(DiscordLocale.CHINESE_CHINA, zhCnName);
-    }
-
-    private static SubcommandData localizedSubcommandName(SubcommandData subcommand, String zhTwName, String zhCnName) {
-        return subcommand
-                .setNameLocalization(DiscordLocale.CHINESE_TAIWAN, zhTwName)
-                .setNameLocalization(DiscordLocale.CHINESE_CHINA, zhCnName);
-    }
-
-    private OptionData buildSettingsActionOption(boolean zh) {
-        OptionData option = new OptionData(OptionType.STRING, ROUTE_ACTION,
-                zh ? "\u4f3a\u670d\u5668\u8a2d\u5b9a" : "Guild settings", false)
-                .addChoices(
-                        new Command.Choice(zh ? SUB_SETTINGS_INFO_ZH : "info", "info"),
-                        new Command.Choice(zh ? SUB_SETTINGS_RELOAD_ZH : ROUTE_RELOAD, ROUTE_RELOAD),
-                        new Command.Choice(zh ? SUB_SETTINGS_RESET_ZH : OPTION_RESET, OPTION_RESET),
-                        new Command.Choice(zh ? SUB_SETTINGS_TEMPLATE_ZH : ROUTE_TEMPLATE, ROUTE_TEMPLATE),
-                        new Command.Choice(zh ? SUB_SETTINGS_MODULE_ZH : ROUTE_MODULE, ROUTE_MODULE),
-                        new Command.Choice(zh ? SUB_SETTINGS_LOGS_ZH : "logs", "logs"),
-                        new Command.Choice(zh ? SUB_SETTINGS_LOG_SETTINGS_ZH : ROUTE_LOG_SETTINGS, ROUTE_LOG_SETTINGS),
-                        new Command.Choice(zh ? SUB_SETTINGS_MUSIC_ZH : CMD_MUSIC, CMD_MUSIC),
-                        new Command.Choice(zh ? SUB_SETTINGS_NUMBER_CHAIN_ZH : ROUTE_NUMBER_CHAIN, ROUTE_NUMBER_CHAIN),
-                        new Command.Choice(zh ? SUB_SETTINGS_WORD_CHAIN_ZH : ROUTE_WORD_CHAIN, ROUTE_WORD_CHAIN),
-                        new Command.Choice(zh ? SUB_SETTINGS_LANGUAGE_ZH : ROUTE_LANGUAGE, ROUTE_LANGUAGE)
-                );
-        if (zh) {
-            option.setNameLocalization(DiscordLocale.CHINESE_TAIWAN, "\u9078\u9805");
-            option.setNameLocalization(DiscordLocale.CHINESE_CHINA, "\u9009\u9879");
-        }
-        return option;
-    }
-
-    private OptionData buildWarningsActionOption(boolean zh) {
-        OptionData option = new OptionData(OptionType.STRING, ROUTE_ACTION,
-                zh ? "\u8b66\u544a\u7ba1\u7406" : "Manage warning counts", true)
-                .addChoices(
-                        new Command.Choice(zh ? "\u589e\u52a0" : "add", "add"),
-                        new Command.Choice(zh ? "\u6e1b\u5c11" : "remove", "remove"),
-                        new Command.Choice(zh ? "\u67e5\u770b" : "view", "view"),
-                        new Command.Choice(zh ? "\u6e05\u9664" : "clear", "clear")
-                );
-        if (zh) {
-            option.setNameLocalization(DiscordLocale.CHINESE_TAIWAN, "\u9078\u9805");
-            option.setNameLocalization(DiscordLocale.CHINESE_CHINA, "\u9009\u9879");
-        }
-        return option;
-    }
-
-    private OptionData buildAntiDuplicateActionOption(boolean zh) {
-        OptionData option = new OptionData(OptionType.STRING, ROUTE_ACTION,
-                zh ? "\u9632\u91cd\u8907\u8a0a\u606f\u5075\u6e2c\u8a2d\u5b9a" : "Duplicate message detection settings", true)
-                .addChoices(
-                        new Command.Choice(zh ? SUB_GENERIC_ENABLE_ZH : "enable", "enable"),
-                        new Command.Choice(zh ? SUB_GENERIC_STATUS_ZH : "status", "status")
-                );
-        if (zh) {
-            option.setNameLocalization(DiscordLocale.CHINESE_TAIWAN, "\u9078\u9805");
-            option.setNameLocalization(DiscordLocale.CHINESE_CHINA, "\u9009\u9879");
-        }
-        return option;
-    }
 
     public void handleWarningsSlash(SlashCommandInteractionEvent event, String lang) {
         if (!has(event.getMember(), Permission.MODERATE_MEMBERS)) {
@@ -2411,23 +1607,6 @@ public class MusicCommandService extends ListenerAdapter {
         return userChannel != null && botChannel != null && userChannel.getIdLong() == botChannel.getIdLong();
     }
 
-    private String formatMissingPermissions(Member member, AudioChannel channel, Permission... permissions) {
-        EnumSet<Permission> missing = EnumSet.noneOf(Permission.class);
-        for (Permission permission : permissions) {
-            if (!member.hasPermission(channel, permission)) {
-                missing.add(permission);
-            }
-        }
-        if (missing.isEmpty()) {
-            return "-";
-        }
-        List<String> names = new ArrayList<>();
-        for (Permission permission : missing) {
-            names.add(permission.getName());
-        }
-        return String.join(", ", names);
-    }
-
     private String formatMissingPermissions(Member member, GuildChannel channel, Permission... permissions) {
         EnumSet<Permission> missing = EnumSet.noneOf(Permission.class);
         for (Permission permission : permissions) {
@@ -2694,9 +1873,6 @@ public class MusicCommandService extends ListenerAdapter {
         return value;
     }
 
-    private String formatColor(int color) {
-        return String.format("#%06X", color & 0xFFFFFF);
-    }
     public Integer parseHexColor(String raw) {
         if (raw == null) {
             return null;
@@ -2795,15 +1971,6 @@ public class MusicCommandService extends ListenerAdapter {
         return display + " (" + normalized + ")";
     }
 
-    private String ignoredRolesInfoLabel(String lang) {
-        if ("zh-CN".equalsIgnoreCase(lang)) {
-            return "\u5ffd\u7565\u7684\u8eab\u5206\u7ec4";
-        }
-        if (lang != null && lang.toLowerCase().startsWith("zh")) {
-            return "\u5ffd\u7565\u7684\u8eab\u5206\u7d44";
-        }
-        return "Ignored Roles";
-    }
     public String numberChainHighestLabel(String lang) {
         if ("zh-CN".equalsIgnoreCase(lang)) {
             return "\u6700\u9ad8\u7eaa\u5f55";
@@ -2841,23 +2008,6 @@ public class MusicCommandService extends ListenerAdapter {
         void send(String text);
     }
 
-    private static class DeleteRequest {
-        private final long requestUserId;
-        private final Long channelId;
-        private final Long targetUserId;
-        private final Duration lookback;
-        private final Integer amount;
-        private final Instant expiresAt;
-
-        private DeleteRequest(long requestUserId, Long channelId, Long targetUserId, Duration lookback, Integer amount, Instant expiresAt) {
-            this.requestUserId = requestUserId;
-            this.channelId = channelId;
-            this.targetUserId = targetUserId;
-            this.lookback = lookback;
-            this.amount = amount;
-            this.expiresAt = expiresAt;
-        }
-    }
 
     private static class WarningActionRequest {
         private final long requestUserId;
@@ -2888,19 +2038,4 @@ public class MusicCommandService extends ListenerAdapter {
             this.expiresAt = expiresAt;
         }
     }
-
-    private static class RoomSettingsRequest {
-        private final long requestUserId;
-        private final long guildId;
-        private final long roomChannelId;
-        private final Instant expiresAt;
-
-        private RoomSettingsRequest(long requestUserId, long guildId, long roomChannelId, Instant expiresAt) {
-            this.requestUserId = requestUserId;
-            this.guildId = guildId;
-            this.roomChannelId = roomChannelId;
-            this.expiresAt = expiresAt;
-        }
-    }
 }
-
