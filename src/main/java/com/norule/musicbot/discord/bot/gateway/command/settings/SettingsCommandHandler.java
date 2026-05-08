@@ -76,6 +76,7 @@ public final class SettingsCommandHandler {
         settingsLogsMenuHandler.cleanupExpiredRequests(cutoff);
         settingsMusicMenuHandler.cleanupExpiredRequests(cutoff);
         settingsResetMenuHandler.cleanupExpiredRequests(cutoff);
+        owner.languageMenuHandler().cleanupExpiredRequests(cutoff);
     }
 
     public void handleSettings(SlashCommandInteractionEvent event, String lang) {
@@ -128,7 +129,7 @@ public final class SettingsCommandHandler {
                         .setEphemeral(true)
                         .queue();
             }
-            case "language" -> owner.openLanguageMenu(event, lang);
+            case "language" -> owner.languageMenuHandler().openLanguageMenu(event, lang);
             case "template" -> settingsTemplateMenuHandler.openTemplateMenu(event, lang);
             case "module" -> settingsModuleMenuHandler.openModuleMenu(event, lang);
             case "reset" -> settingsResetMenuHandler.openSettingsResetMenu(event, lang);
@@ -649,7 +650,7 @@ public final class SettingsCommandHandler {
                             .setComponents(ActionRow.of(settingsActionMenu(lang)))
                             .queue();
                 }
-                case "language" -> owner.openLanguageMenu(event, lang);
+                case "language" -> owner.languageMenuHandler().openLanguageMenu(event, lang);
                 case "template" -> settingsTemplateMenuHandler.openTemplateMenu(event, lang);
                 case "module" -> settingsModuleMenuHandler.openModuleMenu(event, lang);
                 case "reset" -> settingsResetMenuHandler.openSettingsResetMenu(event, lang);
@@ -698,7 +699,7 @@ public final class SettingsCommandHandler {
             return true;
         }
         if (componentId.startsWith(ComponentIds.SETTINGS_LANGUAGE_SELECT_PREFIX)) {
-            owner.handleLanguageMenuSelect(event, lang);
+            owner.languageMenuHandler().handleLanguageMenuSelect(event, lang);
             return true;
         }
         if (componentId.startsWith(ComponentIds.SETTINGS_NUMBER_CHAIN_SELECT_PREFIX)) {

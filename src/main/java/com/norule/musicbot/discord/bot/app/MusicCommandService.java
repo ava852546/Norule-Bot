@@ -27,6 +27,7 @@ import com.norule.musicbot.discord.bot.gateway.command.moderation.DeleteMessages
 import com.norule.musicbot.discord.bot.gateway.command.moderation.WarningCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.privateroom.PrivateRoomSettingsCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.settings.SettingsCommandHandler;
+import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsLanguageMenuHandler;
 import com.norule.musicbot.discord.bot.gateway.command.shorturl.UrlCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.welcome.WelcomeCommandHandler;
 import com.norule.musicbot.discord.bot.service.stats.MessageStatsEventService;
@@ -151,7 +152,6 @@ public class MusicCommandService extends ListenerAdapter {
     static final String SUB_DELETE_USER_ZH = "\u4f7f\u7528\u8005";
     public static final String HELP_SELECT_ID = ComponentIds.HELP_SELECT_ID;
     public static final String HELP_BUTTON_PREFIX = ComponentIds.HELP_BUTTON_PREFIX;
-    public static final String SETTINGS_LANGUAGE_SELECT_PREFIX = ComponentIds.SETTINGS_LANGUAGE_SELECT_PREFIX;
     public static final String SETTINGS_NUMBER_CHAIN_SELECT_PREFIX = ComponentIds.SETTINGS_NUMBER_CHAIN_SELECT_PREFIX;
     public static final String SETTINGS_NUMBER_CHAIN_CHANNEL_PREFIX = ComponentIds.SETTINGS_NUMBER_CHAIN_CHANNEL_PREFIX;
     public static final String SETTINGS_WORD_CHAIN_SELECT_PREFIX = ComponentIds.SETTINGS_WORD_CHAIN_SELECT_PREFIX;
@@ -200,7 +200,6 @@ public class MusicCommandService extends ListenerAdapter {
     private final MusicPanelStateStore panelStateStore = new MusicPanelStateStore();
     private final Map<String, Long> commandCooldowns = new ConcurrentHashMap<>();
     private final Map<String, Long> panelButtonCooldowns = new ConcurrentHashMap<>();
-    private final Map<String, MenuRequest> languageMenuRequests = new ConcurrentHashMap<>();
     private final Map<String, MenuRequest> numberChainMenuRequests = new ConcurrentHashMap<>();
     private final Map<String, MenuRequest> wordChainMenuRequests = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
@@ -210,6 +209,7 @@ public class MusicCommandService extends ListenerAdapter {
     private final DeleteMessagesCommandHandler deleteMessagesCommandHandler;
     private final PrivateRoomSettingsCommandHandler privateRoomSettingsCommandHandler;
     private final AntiDuplicateCommandHandler antiDuplicateCommandHandler;
+    private final SettingsLanguageMenuHandler languageMenuHandler;
     private final WarningCommandHandler warningCommandHandler;
     private final SettingsCommandHandler settingsCommandHandler;
     private final HelpCommandHandler helpCommandHandler;
@@ -281,6 +281,7 @@ public class MusicCommandService extends ListenerAdapter {
         this.deleteMessagesCommandHandler = new DeleteMessagesCommandHandler(this);
         this.privateRoomSettingsCommandHandler = new PrivateRoomSettingsCommandHandler(this);
         this.antiDuplicateCommandHandler = new AntiDuplicateCommandHandler(this);
+        this.languageMenuHandler = new SettingsLanguageMenuHandler(this);
         this.warningCommandHandler = new WarningCommandHandler(this);
         this.playlistCommandHandler = new PlaylistCommandHandler(this, this.musicPanelController);
         this.playbackCommandHandler = new MusicPlaybackCommandHandler(this, this.musicPanelController, this.musicPlaybackText);
@@ -318,7 +319,7 @@ public class MusicCommandService extends ListenerAdapter {
         deleteMessagesCommandHandler.cleanupExpiredRequests(now);
         warningCommandHandler.cleanupExpiredRequests(now);
         privateRoomSettingsCommandHandler.cleanupExpiredRequests(now);
-        languageMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
+        languageMenuHandler.cleanupExpiredRequests(now);
         numberChainMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
         wordChainMenuRequests.entrySet().removeIf(entry -> entry.getValue() == null || now.isAfter(entry.getValue().expiresAt));
         commandCooldowns.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= nowMillis);
@@ -415,6 +416,9 @@ public class MusicCommandService extends ListenerAdapter {
     }
     public AntiDuplicateCommandHandler antiDuplicateCommandHandler() {
         return antiDuplicateCommandHandler;
+    }
+    public SettingsLanguageMenuHandler languageMenuHandler() {
+        return languageMenuHandler;
     }
     public WarningCommandHandler warningCommandHandler() {
         return warningCommandHandler;
@@ -768,29 +772,6 @@ public class MusicCommandService extends ListenerAdapter {
 
     public List<CommandData> buildCommands() {
         return discordCommandCatalog.buildCommands();
-    }
-
-    public void openLanguageMenu(SlashCommandInteractionEvent event, String lang) {
-        String token = registerMenuRequest(languageMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
-        event.replyEmbeds(new EmbedBuilder()
-                        .setColor(new Color(52, 152, 219))
-                        .setTitle(i18nService().t(lang, "settings.language_menu_title"))
-                        .setDescription(i18nService().t(lang, "settings.language_menu_desc"))
-                        .build())
-                .addComponents(ActionRow.of(settingsLanguageMenu(token, event.getGuild().getIdLong(), lang)))
-                .setEphemeral(true)
-                .queue();
-    }
-
-    public void openLanguageMenu(StringSelectInteractionEvent event, String lang) {
-        String token = registerMenuRequest(languageMenuRequests, event.getUser().getIdLong(), event.getGuild().getIdLong());
-        event.editMessageEmbeds(new EmbedBuilder()
-                        .setColor(new Color(52, 152, 219))
-                        .setTitle(i18nService().t(lang, "settings.language_menu_title"))
-                        .setDescription(i18nService().t(lang, "settings.language_menu_desc"))
-                        .build())
-                .setComponents(ActionRow.of(settingsLanguageMenu(token, event.getGuild().getIdLong(), lang)))
-                .queue();
     }
 
     public void openNumberChainMenu(SlashCommandInteractionEvent event, String lang) {
@@ -1154,61 +1135,6 @@ public class MusicCommandService extends ListenerAdapter {
         }
         return String.valueOf(status.nextRequiredStartLetter());
     }
-
-    private StringSelectMenu settingsLanguageMenu(String token, long guildId, String lang) {
-        String current = settingsService.getLanguage(guildId);
-        StringSelectMenu.Builder builder = StringSelectMenu.create(SETTINGS_LANGUAGE_SELECT_PREFIX + token)
-                .setPlaceholder(i18nService().t(lang, "settings.language_menu_placeholder"));
-        int count = 0;
-        for (Map.Entry<String, String> entry : i18nService().getAvailableLanguages().entrySet()) {
-            if (count >= 25) {
-                break;
-            }
-            String code = entry.getKey();
-            String name = entry.getValue() == null || entry.getValue().isBlank() ? code : entry.getValue();
-            builder.addOptions(
-                    SelectOption.of(code + " - " + name, code).withDefault(code.equalsIgnoreCase(current))
-            );
-            count++;
-        }
-        return builder.build();
-    }
-
-    public void handleLanguageMenuSelect(StringSelectInteractionEvent event, String lang) {
-        String token = event.getComponentId().substring(SETTINGS_LANGUAGE_SELECT_PREFIX.length());
-        MenuRequest request = languageMenuRequests.get(token);
-        if (request == null || Instant.now().isAfter(request.expiresAt)) {
-            languageMenuRequests.remove(token);
-            event.reply(i18nService().t(lang, "settings.language_menu_expired")).setEphemeral(true).queue();
-            return;
-        }
-        if (event.getGuild().getIdLong() != request.guildId) {
-            event.reply(i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
-            return;
-        }
-        if (event.getUser().getIdLong() != request.requestUserId) {
-            event.reply(i18nService().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
-            return;
-        }
-        String code = event.getValues().isEmpty() ? "" : event.getValues().get(0);
-        if (!i18nService().hasLanguage(code)) {
-            event.reply(i18nService().t(lang, "settings.language_invalid", Map.of(ROUTE_LANGUAGE, code))).setEphemeral(true).queue();
-            return;
-        }
-        String normalized = i18nService().normalizeLanguage(code);
-        settingsService.updateSettings(event.getGuild().getIdLong(), s -> s.withLanguage(normalized));
-        String languageDisplay = languageDisplayText(normalized);
-        event.editMessageEmbeds(new EmbedBuilder()
-                        .setColor(new Color(46, 204, 113))
-                        .setTitle(i18nService().t(normalized, "settings.language_menu_title"))
-                        .setDescription(i18nService().t(normalized, "settings.language_updated", Map.of(ROUTE_LANGUAGE, languageDisplay)))
-                        .build())
-                .setComponents(ActionRow.of(settingsLanguageMenu(token, event.getGuild().getIdLong(), normalized)))
-                .queue();
-    }
-
-
-
 
     public String canonicalSlashName(String name) {
         return switch (name) {
@@ -1788,15 +1714,6 @@ public class MusicCommandService extends ListenerAdapter {
             case "settings.key_privateRoom_userLimit", "settings.info_key_user_limit" -> "\uD83D\uDC64";
             default -> "\u25AB\uFE0F";
         };
-    }
-
-    private String languageDisplayText(String languageCode) {
-        String normalized = i18nService().normalizeLanguage(languageCode);
-        String display = i18nService().getAvailableLanguages().get(normalized);
-        if (display == null || display.isBlank()) {
-            return normalized;
-        }
-        return display + " (" + normalized + ")";
     }
 
     public String numberChainHighestLabel(String lang) {
