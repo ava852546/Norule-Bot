@@ -63,7 +63,6 @@ import net.dv8tion.jda.api.events.session.ReadyEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.build.CommandData;
 import net.dv8tion.jda.api.components.buttons.Button;
-import net.dv8tion.jda.api.components.selections.SelectOption;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
 
 import java.awt.Color;
@@ -197,6 +196,7 @@ public class MusicCommandService extends ListenerAdapter {
     private final ShortUrlService shortUrlService;
     private final GuildDomainConfigAdapter ticketConfigAdapter;
     private final PlaybackFailureNotifier playbackFailureNotifier;
+    private final HelpViewRenderer helpViewRenderer;
     private final AtomicBoolean botReadyForSlashCommands = new AtomicBoolean(false);
     private static final long PANEL_PERIODIC_REFRESH_MS = 10_000L;
 
@@ -228,6 +228,7 @@ public class MusicCommandService extends ListenerAdapter {
         this.playbackFailureNotifier = new PlaybackFailureNotifier(
                 this, musicService, musicPanelRuntime.panelStateStore(), this.musicPlaybackText);
         this.musicService.setPlaybackFailureListener(playbackFailureNotifier::reportPlaybackFailure);
+        this.helpViewRenderer = new HelpViewRenderer(this);
         MinecraftStatusOps minecraftStatusOps = new MinecraftStatusOps(
                 new com.norule.musicbot.service.minecraft.MinecraftStatusService(
                         new McSrvStatGateway(),
@@ -461,28 +462,7 @@ public class MusicCommandService extends ListenerAdapter {
     }
 
     public EmbedBuilder helpEmbed(Guild guild, String lang, String category) {
-        EmbedBuilder eb = new EmbedBuilder();
-        eb.setColor(new Color(52, 152, 219));
-        eb.setTitle("NoRule Help Center");
-        String botDesc = runtimeConfig.get().getBotDescription();
-        String intro = i18nService().t(lang, "help.intro");
-        if (botDesc != null && !botDesc.isBlank()) {
-            eb.setDescription(botDesc + "\n\n" + intro);
-        } else {
-            eb.setDescription(intro);
-        }
-        eb.setFooter(guild.getName(), guild.getIconUrl());
-        switch (category) {
-            case CMD_MUSIC -> eb.addField(i18nService().t(lang, "help.category_music"), i18nService().t(lang, "help.content_music"), false);
-            case "settings" -> eb.addField(i18nService().t(lang, "help.category_settings"), i18nService().t(lang, "help.content_settings"), false);
-            case "moderation" -> eb.addField(i18nService().t(lang, "help.category_moderation"), i18nService().t(lang, "help.content_moderation"), false);
-            case "private-room" -> eb.addField(i18nService().t(lang, "help.category_private_room"), i18nService().t(lang, "help.content_private_room"), false);
-            case "ticket" -> eb.addField(i18nService().t(lang, "help.category_ticket"), i18nService().t(lang, "help.content_ticket"), false);
-            case "game" -> eb.addField(i18nService().t(lang, "help.category_game"), i18nService().t(lang, "help.content_game"), false);
-            default -> eb.addField(i18nService().t(lang, "help.category_general"), i18nService().t(lang, "help.content_general"), false);
-        }
-        eb.addField(i18nService().t(lang, "help.tip_title"), i18nService().t(lang, "help.tip_body"), false);
-        return eb;
+        return helpViewRenderer.helpEmbed(guild, lang, category);
     }
 
     public String previewWelcomeText(String text, Guild guild, User user) {
@@ -517,42 +497,15 @@ public class MusicCommandService extends ListenerAdapter {
     }
 
     public StringSelectMenu helpMenu(String lang) {
-        return StringSelectMenu.create(HELP_SELECT_ID)
-                .setPlaceholder(i18nService().t(lang, "help.select_placeholder"))
-                .addOptions(
-                        SelectOption.of(i18nService().t(lang, "help.category_general"), "general"),
-                        SelectOption.of(i18nService().t(lang, "help.category_music"), CMD_MUSIC),
-                        SelectOption.of(i18nService().t(lang, "help.category_settings"), "settings"),
-                        SelectOption.of(i18nService().t(lang, "help.category_moderation"), "moderation"),
-                        SelectOption.of(i18nService().t(lang, "help.category_private_room"), "private-room"),
-                        SelectOption.of(i18nService().t(lang, "help.category_ticket"), "ticket"),
-                        SelectOption.of(i18nService().t(lang, "help.category_game"), "game")
-                )
-                .build();
+        return helpViewRenderer.helpMenu(lang);
     }
 
     public List<Button> helpButtonsPrimary(String lang, String selectedCategory) {
-        List<Button> buttons = new ArrayList<>();
-        buttons.add(categoryButton(lang, "general", selectedCategory, i18nService().t(lang, "help.category_general")));
-        buttons.add(categoryButton(lang, CMD_MUSIC, selectedCategory, i18nService().t(lang, "help.category_music")));
-        buttons.add(categoryButton(lang, "settings", selectedCategory, i18nService().t(lang, "help.category_settings")));
-        buttons.add(categoryButton(lang, "moderation", selectedCategory, i18nService().t(lang, "help.category_moderation")));
-        buttons.add(categoryButton(lang, "private-room", selectedCategory, i18nService().t(lang, "help.category_private_room")));
-        return buttons;
+        return helpViewRenderer.helpButtonsPrimary(lang, selectedCategory);
     }
 
     public List<Button> helpButtonsSecondary(String lang, String selectedCategory) {
-        return List.of(
-                categoryButton(lang, "game", selectedCategory, i18nService().t(lang, "help.category_game")),
-                categoryButton(lang, "ticket", selectedCategory, i18nService().t(lang, "help.category_ticket"))
-        );
-    }
-
-    private Button categoryButton(String lang, String category, String selectedCategory, String label) {
-        if (category.equals(selectedCategory)) {
-            return Button.success(HELP_BUTTON_PREFIX + category, label).asDisabled();
-        }
-        return Button.secondary(HELP_BUTTON_PREFIX + category, label);
+        return helpViewRenderer.helpButtonsSecondary(lang, selectedCategory);
     }
 
     public void createPanelMessageWithFeedback(Guild guild, TextChannel channel, String lang, Runnable onSuccess, java.util.function.Consumer<String> onError) {
