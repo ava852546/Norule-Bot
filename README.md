@@ -205,6 +205,25 @@ web/
 └─ vite.config.js
 ```
 
+## 架構設計
+
+NoRule Bot 採用分層式 Discord gateway 架構，各層職責明確分離：
+
+- **`MusicCommandService`** 作為 JDA Listener / gateway composition root，只負責接收 JDA 事件並轉發給各子系統，不包含指令邏輯本體。
+- **Discord 指令 handler**（slash、button、select、modal）統一放在 `discord.bot.gateway.command.*`，依功能分為 music、settings、moderation、privateroom 等子套件。
+- **Settings menu handler** 放在 `discord.bot.gateway.command.settings.menu`，各 menu 互相獨立。
+- **音樂控制面板**（panel runtime、renderer、state store、refresh service）放在 `discord.bot.gateway.panel`。
+- **指令名稱、Component ID、Route mapping** 集中管理：
+  - 指令與選項名稱 → `CommandNames` / `CommandOptions`
+  - Component ID → `ComponentIds`
+  - Slash 指令結構 → `DiscordCommandCatalog`
+  - ZH↔EN 名稱對應與 route 解析 → `DiscordCommandRouteMapper`
+- **Service / Domain 層不依賴 JDA event**，保持純業務邏輯與可測試性。
+
+詳細開發規範與新功能新增規則請參考 [AGENTS.md](AGENTS.md)。
+
+---
+
 ## 部署教學
 
 ### 需求
