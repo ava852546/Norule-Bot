@@ -7,6 +7,8 @@ import com.norule.musicbot.config.domain.RuntimeConfigSnapshot;
 import com.norule.musicbot.discord.bot.gateway.InteractionRouter;
 import com.norule.musicbot.discord.bot.gateway.command.CommandNames;
 import com.norule.musicbot.discord.bot.gateway.command.CommandOptions;
+import com.norule.musicbot.discord.bot.gateway.command.game.NumberChainCommandHandler;
+import com.norule.musicbot.discord.bot.gateway.command.game.WordChainCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.honeypot.HoneypotCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.music.HistoryCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackCommandHandler;
@@ -48,7 +50,6 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
@@ -67,7 +68,6 @@ import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
 
 import java.awt.Color;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -227,6 +227,12 @@ public class MusicCommandService extends ListenerAdapter {
     }
     public SettingsNumberChainMenuHandler numberChainMenuHandler() {
         return commandHandlers.numberChainMenuHandler();
+    }
+    public NumberChainCommandHandler numberChainCommandHandler() {
+        return commandHandlers.numberChainCommandHandler();
+    }
+    public WordChainCommandHandler wordChainCommandHandler() {
+        return commandHandlers.wordChainCommandHandler();
     }
     public SettingsWordChainMenuHandler wordChainMenuHandler() {
         return commandHandlers.wordChainMenuHandler();
@@ -400,24 +406,6 @@ public class MusicCommandService extends ListenerAdapter {
         return helpViewRenderer.helpEmbed(guild, lang, category);
     }
 
-    public String previewWelcomeText(String text, Guild guild, User user) {
-        if (text == null || text.isBlank()) {
-            return "";
-        }
-        return text
-                .replace("{user}", user.getAsMention())
-                .replace("{\u7528\u6236}", user.getAsMention())
-                .replace("{username}", user.getName())
-                .replace("{\u7528\u6236\u540d\u7a31}", user.getName())
-                .replace("{guild}", guild.getName())
-                .replace("{\u4f3a\u670d\u5668}", guild.getName())
-                .replace("{\u516c\u6703}", guild.getName())
-                .replace("{id}", user.getId())
-                .replace("{tag}", user.getAsTag())
-                .replace("{isBot}", String.valueOf(user.isBot()))
-                .replace("{createdAt}", "<t:" + user.getTimeCreated().toInstant().getEpochSecond() + ":F>")
-                .replace("{accountAgeDays}", String.valueOf(Math.max(0L, Duration.between(user.getTimeCreated().toInstant(), Instant.now()).toDays())));
-    }
     public StringSelectMenu helpMenu(String lang) {
         return helpViewRenderer.helpMenu(lang);
     }

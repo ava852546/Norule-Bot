@@ -30,7 +30,6 @@ public final class DiscordCommandCatalog {
     private static final String SUB_SETTINGS_NUMBER_CHAIN_ZH = "\u63a5\u9f8d\u904a\u6232";
     private static final String SUB_SETTINGS_WORD_CHAIN_ZH = "\u82f1\u6587\u63a5\u9f8d";
     private static final String SUB_GENERIC_ENABLE_ZH = "\u555f\u7528";
-    private static final String SUB_GENERIC_DISABLE_ZH = "\u95dc\u9589";
     private static final String SUB_GENERIC_STATUS_ZH = "\u72c0\u614b";
     private static final String SUB_MUSIC_STATS_ZH = "\u7d71\u8a08";
     private static final String SUB_PLAYLIST_VIEW_ZH = "\u67e5\u770b";
@@ -195,91 +194,13 @@ public final class DiscordCommandCatalog {
 
     private SlashCommandData buildNumberChainCommand(String commandName) {
         boolean zh = CommandNames.CMD_NUMBER_CHAIN_ZH.equals(commandName);
-        OptionData channel = new OptionData(OptionType.CHANNEL, CommandOptions.CHANNEL,
-                zh ? "\u6578\u5b57\u63a5\u9f8d\u6587\u5b57\u983b\u9053" : "Number chain text channel", false)
-                .setChannelTypes(ChannelType.TEXT);
-        OptionData reset = new OptionData(OptionType.BOOLEAN, CommandOptions.RESET,
-                zh ? "\u5c07\u9032\u5ea6\u91cd\u8a2d\u56de 1" : "Reset progress back to 1", false);
         return Commands.slash(commandName, zh ? "\u6578\u5b57\u63a5\u9f8d\u8a2d\u5b9a" : "Number chain settings")
-                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
-                .addOptions(buildNumberChainActionOption(zh), channel, reset);
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED);
     }
 
     private SlashCommandData buildWordChainCommand(String commandName, boolean zh) {
-        OptionData setChannelOption = localizedOptionName(
-                new OptionData(OptionType.CHANNEL, CommandOptions.CHANNEL,
-                        zh ? "\u55ae\u5b57\u63a5\u9f8d\u983b\u9053" : "Word chain text channel", true)
-                        .setChannelTypes(ChannelType.TEXT),
-                "\u983b\u9053",
-                "\u9891\u9053"
-        );
-        OptionData statsUserOption = localizedOptionName(
-                new OptionData(OptionType.USER, "user", zh ? "\u76ee\u6a19\u4f7f\u7528\u8005" : "Target user", false),
-                "\u4f7f\u7528\u8005",
-                "\u7528\u6237"
-        );
-        OptionData leaderboardLimitOption = localizedOptionName(
-                new OptionData(OptionType.INTEGER, "limit", zh ? "\u540d\u6b21\u6578\u91cf(1-20)" : "Ranking size (1-20)", false),
-                "\u540d\u6b21",
-                "\u540d\u6b21"
-        );
-
-        SubcommandData setChannel = localizedSubcommandName(
-                new SubcommandData("set-channel", zh ? "\u8a2d\u5b9a\u63a5\u9f8d\u983b\u9053" : "Set word chain channel")
-                        .addOptions(setChannelOption),
-                "\u8a2d\u5b9a\u983b\u9053",
-                "\u8bbe\u7f6e\u9891\u9053"
-        );
-        SubcommandData disable = localizedSubcommandName(
-                new SubcommandData("disable", zh ? "\u95dc\u9589\u55ae\u5b57\u63a5\u9f8d" : "Disable word chain"),
-                "\u95dc\u9589",
-                "\u5173\u95ed"
-        );
-        SubcommandData reset = localizedSubcommandName(
-                new SubcommandData(CommandOptions.RESET, zh ? "\u91cd\u7f6e\u7576\u524d\u9032\u5ea6" : "Reset current word chain progress"),
-                "\u91cd\u7f6e",
-                "\u91cd\u7f6e"
-        );
-        SubcommandData status = localizedSubcommandName(
-                new SubcommandData("status", zh ? "\u986f\u793a\u63a5\u9f8d\u72c0\u614b" : "Show current word chain status"),
-                "\u72c0\u614b",
-                "\u72b6\u6001"
-        );
-        SubcommandData rules = localizedSubcommandName(
-                new SubcommandData("rules", zh ? "\u986f\u793a\u898f\u5247" : "Show word chain rules"),
-                "\u898f\u5247",
-                "\u89c4\u5219"
-        );
-        SubcommandData stats = localizedSubcommandName(
-                new SubcommandData("stats", zh ? "\u986f\u793a\u7d71\u8a08" : "Show stats")
-                        .addOptions(statsUserOption),
-                "\u7d71\u8a08",
-                "\u7edf\u8ba1"
-        );
-        SubcommandData leaderboard = localizedSubcommandName(
-                new SubcommandData("leaderboard", zh ? "\u986f\u793a\u6392\u884c\u699c" : "Show leaderboard")
-                        .addOptions(leaderboardLimitOption),
-                "\u6392\u884c\u699c",
-                "\u6392\u884c\u699c"
-        );
         return Commands.slash(commandName, zh ? "\u82f1\u6587\u55ae\u5b57\u63a5\u9f8d" : "English word chain")
-                .setDefaultPermissions(DefaultMemberPermissions.ENABLED)
-                .addSubcommands(setChannel, disable, reset, status, rules, stats, leaderboard);
-    }
-
-    private OptionData buildNumberChainActionOption(boolean zh) {
-        OptionData option = new OptionData(OptionType.STRING, CommandOptions.ACTION,
-                zh ? "\u6578\u5b57\u63a5\u9f8d\u8a2d\u5b9a" : "Number chain settings", false)
-                .addChoices(
-                        new Command.Choice(zh ? SUB_GENERIC_ENABLE_ZH : "enable", "enable"),
-                        new Command.Choice(zh ? SUB_GENERIC_DISABLE_ZH : "disable", "disable"),
-                        new Command.Choice(zh ? SUB_GENERIC_STATUS_ZH : "status", "status")
-                );
-        if (zh) {
-            option.setNameLocalization(DiscordLocale.CHINESE_TAIWAN, "\u9078\u9805");
-            option.setNameLocalization(DiscordLocale.CHINESE_CHINA, "\u9009\u9879");
-        }
-        return option;
+                .setDefaultPermissions(DefaultMemberPermissions.ENABLED);
     }
 
     private OptionData buildWelcomeActionOption(boolean zh) {

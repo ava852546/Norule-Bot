@@ -1,7 +1,9 @@
 package com.norule.musicbot.discord.bot.gateway.command.welcome;
 
 
-import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.config.GuildSettingsService;
+import com.norule.musicbot.discord.bot.gateway.command.settings.view.BoolTextHelper;
+import com.norule.musicbot.i18n.I18nService;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Member;
@@ -20,42 +22,53 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 public final class WelcomeCommandHandler {
-    private final MusicCommandService owner;
-    public WelcomeCommandHandler(MusicCommandService owner) {
-        this.owner = owner;
+    private static final String WELCOME_MODAL_ID = "welcome-modal";
+    private static final String OPTION_WELCOME_CHANNEL_ZH = "頻道";
+
+    private final GuildSettingsService settingsService;
+    private final Supplier<I18nService> i18n;
+    private final BoolTextHelper boolTextHelper;
+    private final WelcomeTextPreviewer textPreviewer;
+
+    public WelcomeCommandHandler(GuildSettingsService settingsService, Supplier<I18nService> i18n, BoolTextHelper boolTextHelper, WelcomeTextPreviewer textPreviewer) {
+        this.settingsService = settingsService;
+        this.i18n = i18n;
+        this.boolTextHelper = boolTextHelper;
+        this.textPreviewer = textPreviewer;
     }
     public void handleWelcomeSlash(SlashCommandInteractionEvent event, String lang) {
-        if (!owner.has(event.getMember(), Permission.MANAGE_SERVER)) {
-            event.reply(owner.i18nService().t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
+        if (event.getMember() == null || !event.getMember().hasPermission(Permission.MANAGE_SERVER)) {
+            event.reply(i18n.get().t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
                     .setEphemeral(true)
                     .queue();
             return;
         }
         String action = event.getOption("action") == null ? null : event.getOption("action").getAsString();
         if (action != null && !action.isBlank()) {
-            var current = owner.settingsService().getWelcome(event.getGuild().getIdLong());
+            var current = settingsService.getWelcome(event.getGuild().getIdLong());
             switch (action) {
                 case "enable" -> {
                     boolean enabled = !current.isEnabled();
-                    owner.settingsService().updateSettings(event.getGuild().getIdLong(), s -> s.withWelcome(
+                    settingsService.updateSettings(event.getGuild().getIdLong(), s -> s.withWelcome(
                             s.getWelcome().withEnabled(enabled)
                     ));
-                    event.reply(owner.i18nService().t(lang, "welcome.result_set_enabled", Map.of("status", owner.boolText(lang, enabled))))
+                    event.reply(i18n.get().t(lang, "welcome.result_set_enabled", Map.of("status", boolTextHelper.boolText(lang, enabled))))
                             .setEphemeral(true)
                             .queue();
                     return;
                 }
                 case "status" -> {
                     String channelText = current.getChannelId() == null
-                            ? owner.i18nService().t(lang, "settings.info_channels_none")
+                            ? i18n.get().t(lang, "settings.info_channels_none")
                             : "<#" + current.getChannelId() + ">";
                     String titleText = (current.getTitle() == null || current.getTitle().isBlank())
-                            ? owner.i18nService().t(lang, "welcome.default_title")
+                            ? i18n.get().t(lang, "welcome.default_title")
                             : safe(current.getTitle(), 80);
-                    event.reply(owner.i18nService().t(lang, "welcome.result_status", Map.of(
-                                    "status", owner.boolText(lang, current.isEnabled()),
+                    event.reply(i18n.get().t(lang, "welcome.result_status", Map.of(
+                                    "status", boolTextHelper.boolText(lang, current.isEnabled()),
                                     "channel", channelText,
                                     "title", titleText
                             )))
@@ -64,45 +77,45 @@ public final class WelcomeCommandHandler {
                     return;
                 }
                 default -> {
-                    event.reply(owner.i18nService().t(lang, "general.unknown_command")).setEphemeral(true).queue();
+                    event.reply(i18n.get().t(lang, "general.unknown_command")).setEphemeral(true).queue();
                     return;
                 }
             }
         }
         var channelOption = event.getOption("channel");
         if (channelOption == null) {
-            channelOption = event.getOption(MusicCommandService.OPTION_WELCOME_CHANNEL_ZH);
+            channelOption = event.getOption(OPTION_WELCOME_CHANNEL_ZH);
         }
         if (channelOption != null) {
             if (channelOption.getAsChannel().getType() != ChannelType.TEXT) {
-                event.reply(owner.i18nService().t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
+                event.reply(i18n.get().t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
                 return;
             }
             TextChannel textChannel = channelOption.getAsChannel().asTextChannel();
             String missing = formatMissingPermissions(event.getGuild().getSelfMember(), textChannel,
                     Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND, Permission.MESSAGE_EMBED_LINKS);
             if (!"-".equals(missing)) {
-                event.reply(owner.i18nService().t(lang, "general.missing_permissions", Map.of("permissions", missing)))
+                event.reply(i18n.get().t(lang, "general.missing_permissions", Map.of("permissions", missing)))
                         .setEphemeral(true)
                         .queue();
                 return;
             }
-            owner.settingsService().updateSettings(event.getGuild().getIdLong(), s -> s.withWelcome(
+            settingsService.updateSettings(event.getGuild().getIdLong(), s -> s.withWelcome(
                     s.getWelcome()
                             .withChannelId(textChannel.getIdLong())
                             .withEnabled(true)
             ));
-            event.reply(owner.i18nService().t(lang, "welcome.channel_saved", Map.of("channel", textChannel.getAsMention())))
+            event.reply(i18n.get().t(lang, "welcome.channel_saved", Map.of("channel", textChannel.getAsMention())))
                     .setEphemeral(true)
                     .queue();
             return;
         }
-        var welcome = owner.settingsService().getWelcome(event.getGuild().getIdLong());
+        var welcome = settingsService.getWelcome(event.getGuild().getIdLong());
         event.replyModal(buildWelcomeModal(welcome.getTitle(), welcome.getMessage(), lang)).queue();
     }
     public void handleWelcomeModal(ModalInteractionEvent event, String lang) {
-        if (!owner.has(event.getMember(), Permission.MANAGE_SERVER)) {
-            event.reply(owner.i18nService().t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
+        if (event.getMember() == null || !event.getMember().hasPermission(Permission.MANAGE_SERVER)) {
+            event.reply(i18n.get().t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName())))
                     .setEphemeral(true)
                     .queue();
             return;
@@ -110,10 +123,10 @@ public final class WelcomeCommandHandler {
         String title = event.getValue("title") == null ? "" : event.getValue("title").getAsString().trim();
         String message = event.getValue("message") == null ? "" : event.getValue("message").getAsString().trim();
         if (message.isBlank()) {
-            event.reply(owner.i18nService().t(lang, "welcome.modal_message_required")).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, "welcome.modal_message_required")).setEphemeral(true).queue();
             return;
         }
-        owner.settingsService().updateSettings(event.getGuild().getIdLong(), s -> s.withWelcome(
+        settingsService.updateSettings(event.getGuild().getIdLong(), s -> s.withWelcome(
                 s.getWelcome()
                         .withEnabled(true)
                         .withTitle(title)
@@ -121,14 +134,14 @@ public final class WelcomeCommandHandler {
         ));
 
         String previewTitle = title.isBlank()
-                ? owner.i18nService().t(lang, "welcome.default_title")
-                : owner.previewWelcomeText(title, event.getGuild(), event.getUser());
-        String previewBody = owner.previewWelcomeText(message, event.getGuild(), event.getUser());
+                ? i18n.get().t(lang, "welcome.default_title")
+                : textPreviewer.previewText(title, event.getGuild(), event.getUser());
+        String previewBody = textPreviewer.previewText(message, event.getGuild(), event.getUser());
         EmbedBuilder preview = new EmbedBuilder()
                 .setColor(new Color(0x2ECC71))
                 .setTitle(previewTitle)
                 .setDescription(previewBody)
-                .addField(owner.i18nService().t(lang, "welcome.saved_title"), owner.i18nService().t(lang, "welcome.saved_desc"), false)
+                .addField(i18n.get().t(lang, "welcome.saved_title"), i18n.get().t(lang, "welcome.saved_desc"), false)
                 .setThumbnail(event.getUser().getEffectiveAvatarUrl());
         event.replyEmbeds(preview.build()).setEphemeral(true).queue();
     }
@@ -136,10 +149,10 @@ public final class WelcomeCommandHandler {
     private Modal buildWelcomeModal(String currentTitle, String currentMessage, String lang) {
         String defaultTitle = currentTitle;
         if (defaultTitle == null || defaultTitle.isBlank()) {
-            defaultTitle = owner.i18nService().t(lang, "welcome.default_title");
+            defaultTitle = i18n.get().t(lang, "welcome.default_title");
         }
         TextInput.Builder titleInput = TextInput.create("title", TextInputStyle.SHORT)
-                .setPlaceholder(owner.i18nService().t(lang, "welcome.modal_title_placeholder"))
+                .setPlaceholder(i18n.get().t(lang, "welcome.modal_title_placeholder"))
                 .setRequired(false)
                 .setMaxLength(100);
         if (!defaultTitle.isBlank()) {
@@ -148,17 +161,17 @@ public final class WelcomeCommandHandler {
 
         String defaultBody = currentMessage;
         TextInput.Builder bodyInput = TextInput.create("message", TextInputStyle.PARAGRAPH)
-                .setPlaceholder(owner.i18nService().t(lang, "welcome.modal_message_placeholder"))
+                .setPlaceholder(i18n.get().t(lang, "welcome.modal_message_placeholder"))
                 .setRequired(true)
                 .setMaxLength(1000);
         if (defaultBody != null && !defaultBody.isBlank()) {
             bodyInput.setValue(defaultBody.length() > 1000 ? defaultBody.substring(0, 1000) : defaultBody);
         }
 
-        return Modal.create(MusicCommandService.WELCOME_MODAL_ID, owner.i18nService().t(lang, "welcome.modal_form_title"))
+        return Modal.create(WELCOME_MODAL_ID, i18n.get().t(lang, "welcome.modal_form_title"))
                 .addComponents(
-                        Label.of(owner.i18nService().t(lang, "welcome.modal_title_label"), titleInput.build()),
-                        Label.of(owner.i18nService().t(lang, "welcome.modal_message_label"), bodyInput.build())
+                        Label.of(i18n.get().t(lang, "welcome.modal_title_label"), titleInput.build()),
+                        Label.of(i18n.get().t(lang, "welcome.modal_message_label"), bodyInput.build())
                 )
                 .build();
     }

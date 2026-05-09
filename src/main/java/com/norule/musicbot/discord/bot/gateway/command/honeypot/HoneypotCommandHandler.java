@@ -1,7 +1,8 @@
 package com.norule.musicbot.discord.bot.gateway.command.honeypot;
 
-import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.HoneypotService;
 import com.norule.musicbot.discord.bot.gateway.listener.HoneypotListener;
+import com.norule.musicbot.i18n.I18nService;
 
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
@@ -11,19 +12,24 @@ import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEve
 import java.awt.Color;
 import java.time.Instant;
 import java.util.EnumSet;
+import java.util.function.Supplier;
 
 public final class HoneypotCommandHandler {
-    private final MusicCommandService owner;
-    public HoneypotCommandHandler(MusicCommandService owner) {
-        this.owner = owner;
+    private final HoneypotService honeypotService;
+    private final Supplier<I18nService> i18n;
+
+    public HoneypotCommandHandler(HoneypotService honeypotService, Supplier<I18nService> i18n) {
+        this.honeypotService = honeypotService;
+        this.i18n = i18n;
     }
+
     public void handleCreateSlash(SlashCommandInteractionEvent event, String lang) {
         Guild guild = event.getGuild();
         if (guild == null) {
             event.reply("Guild only.").setEphemeral(true).queue();
             return;
         }
-        if (!owner.has(event.getMember(), Permission.MANAGE_SERVER)) {
+        if (event.getMember() == null || !event.getMember().hasPermission(Permission.MANAGE_SERVER)) {
             event.reply("\u4f60\u9700\u8981\u300c\u7ba1\u7406\u4f3a\u670d\u5668\u300d\u6b0a\u9650\u624d\u80fd\u5efa\u7acb\u5bc6\u7f50\u983b\u9053\u3002")
                     .setEphemeral(true)
                     .queue();
@@ -42,7 +48,7 @@ public final class HoneypotCommandHandler {
         event.deferReply(true).queue(hook -> guild.createTextChannel(HoneypotListener.CHANNEL_NAME)
                 .setTopic(HoneypotListener.CHANNEL_TOPIC)
                 .queue(channel -> {
-                    owner.honeypotService().setChannel(guild.getIdLong(), channel.getIdLong());
+                    honeypotService.setChannel(guild.getIdLong(), channel.getIdLong());
                     channel.sendMessageEmbeds(HoneypotListener.warningEmbed().build()).queue(ignored -> {
                     }, error -> {
                     });

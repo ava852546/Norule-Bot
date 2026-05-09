@@ -17,7 +17,16 @@ public final class GuildConfigOps {
                 yield true;
             }
             case "number-chain", "\u6578\u5b57\u63a5\u9f8d" -> {
-                owner.numberChainMenuHandler().openNumberChainMenu(event, lang);
+                owner.numberChainCommandHandler().handleNumberChainSlash(event, lang);
+                yield true;
+            }
+            case "wordchain", "\u82f1\u6587\u63a5\u9f8d" -> {
+                var wch = owner.wordChainCommandHandler();
+                if (wch != null) {
+                    wch.handleWordChainSlash(event, lang);
+                } else {
+                    event.reply(owner.i18nService().t(lang, "general.unknown_command")).setEphemeral(true).queue();
+                }
                 yield true;
             }
             case "private-room-settings" -> {

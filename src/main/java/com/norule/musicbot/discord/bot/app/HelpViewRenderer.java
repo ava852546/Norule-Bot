@@ -23,7 +23,7 @@ class HelpViewRenderer {
     EmbedBuilder helpEmbed(Guild guild, String lang, String category) {
         EmbedBuilder eb = new EmbedBuilder();
         eb.setColor(new Color(52, 152, 219));
-        eb.setTitle("NoRule Help Center");
+        eb.setTitle(service.i18nService().t(lang, "help.title"));
         String botDesc = service.runtimeConfigSnapshot().getBotDescription();
         String intro = service.i18nService().t(lang, "help.intro");
         if (botDesc != null && !botDesc.isBlank()) {
