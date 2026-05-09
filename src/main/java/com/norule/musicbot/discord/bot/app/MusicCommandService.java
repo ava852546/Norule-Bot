@@ -19,8 +19,6 @@ import com.norule.musicbot.discord.bot.gateway.command.minecraft.MinecraftStatus
 import com.norule.musicbot.discord.bot.gateway.command.registry.DiscordCommandCatalog;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
-import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRefreshService;
-import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRenderer;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelStateStore;
 import com.norule.musicbot.discord.bot.gateway.command.moderation.AntiDuplicateCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.moderation.DeleteMessagesCommandHandler;
@@ -187,7 +185,7 @@ public class MusicCommandService extends ListenerAdapter {
     private final GuildSettingsService settingsService;
     private final AtomicReference<I18nService> i18n = new AtomicReference<>();
 
-    private final MusicPanelStateStore panelStateStore = new MusicPanelStateStore();
+    private final MusicPanelRuntime musicPanelRuntime;
     private final CommandCooldownService commandCooldownService;
     private final TransientStateCleanupService transientStateCleanupService;
     private final PrefixCommandRouter prefixCommandRouter;
@@ -197,15 +195,12 @@ public class MusicCommandService extends ListenerAdapter {
     private final DiscordCommandCatalog discordCommandCatalog;
     private final CommandHandlerRegistry commandHandlers;
     private final MusicPlaybackText musicPlaybackText;
-    private final MusicPanelController musicPanelController;
     private final InteractionRouter interactionRouter;
     private final WordChainOps wordChainOps;
     private final TicketOps ticketOps;
     private final MessageStatsEventService statsEventService;
     private final ShortUrlService shortUrlService;
     private final GuildDomainConfigAdapter ticketConfigAdapter;
-    private final MusicPanelRenderer musicPanelRenderer;
-    private final MusicPanelRefreshService musicPanelRefreshService;
     private final Map<Long, Long> playbackFailureLastAt = new ConcurrentHashMap<>();
     private final Map<Long, String> playbackFailureLastSig = new ConcurrentHashMap<>();
     private final AtomicBoolean botReadyForSlashCommands = new AtomicBoolean(false);
@@ -236,16 +231,7 @@ public class MusicCommandService extends ListenerAdapter {
         this.musicService.setPlaybackFailureListener(this::reportPlaybackFailure);
         this.discordCommandCatalog = new DiscordCommandCatalog();
         this.commandRegistrar = new CommandRegistrar(this);
-        this.musicPanelRenderer = new MusicPanelRenderer(this);
-        this.musicPanelRefreshService = new MusicPanelRefreshService(
-                this,
-                this.panelStateStore,
-                this.musicPanelRenderer,
-                this.scheduler,
-                PANEL_PERIODIC_REFRESH_MS,
-                PANEL_MIN_EDIT_INTERVAL_MS
-        );
-        this.musicPanelController = new MusicPanelController(this, this::refreshPanel);
+        this.musicPanelRuntime = new MusicPanelRuntime(this, this.scheduler, PANEL_PERIODIC_REFRESH_MS, PANEL_MIN_EDIT_INTERVAL_MS);
         this.musicPlaybackText = new MusicPlaybackText(this::i18nService);
         MinecraftStatusOps minecraftStatusOps = new MinecraftStatusOps(
                 new com.norule.musicbot.service.minecraft.MinecraftStatusService(
@@ -253,7 +239,7 @@ public class MusicCommandService extends ListenerAdapter {
                         () -> new MinecraftStatusConfig(this.runtimeConfig.get().getMinecraftStatus())
                 )
         );
-        this.commandHandlers = new CommandHandlerRegistry(this, this.musicPanelController, this.musicPlaybackText, minecraftStatusOps);
+        this.commandHandlers = new CommandHandlerRegistry(this, musicPanelRuntime.musicPanelController(), this.musicPlaybackText, minecraftStatusOps);
         this.statsEventService = statsEventService;
         this.wordChainOps = wordChainOps;
         this.ticketConfigAdapter = new GuildDomainConfigAdapter(settingsService, runtimeConfig.getDefaultMusic());
@@ -290,7 +276,7 @@ public class MusicCommandService extends ListenerAdapter {
         }
         Long channelId = musicService.getLastCommandChannelId(guildId);
         if (channelId == null) {
-            MusicPanelStateStore.PanelRef ref = panelStateStore.getPanelRef(guildId);
+            MusicPanelStateStore.PanelRef ref = musicPanelRuntime.panelStateStore().getPanelRef(guildId);
             if (ref != null) {
                 channelId = ref.channelId;
             }
@@ -342,7 +328,7 @@ public class MusicCommandService extends ListenerAdapter {
         return jda.get();
     }
     public Map<Long, MusicPanelStateStore.PanelRef> panelRefs() {
-        return panelStateStore.panelRefs();
+        return musicPanelRuntime.panelRefs();
     }
     public DeleteMessagesCommandHandler deleteMessagesCommandHandler() {
         return commandHandlers.deleteMessagesCommandHandler();
@@ -390,7 +376,7 @@ public class MusicCommandService extends ListenerAdapter {
         return scheduler;
     }
     public MusicPanelController musicPanelController() {
-        return musicPanelController;
+        return musicPanelRuntime.musicPanelController();
     }
     public HoneypotCommandHandler honeypotCommandHandler() {
         return commandHandlers.honeypotCommandHandler();
@@ -620,23 +606,23 @@ public class MusicCommandService extends ListenerAdapter {
     }
 
     public void createPanelMessageWithFeedback(Guild guild, TextChannel channel, String lang, Runnable onSuccess, java.util.function.Consumer<String> onError) {
-        musicPanelRefreshService.createPanelMessageWithFeedback(guild, channel, lang, onSuccess, onError);
+        musicPanelRuntime.musicPanelRefreshService().createPanelMessageWithFeedback(guild, channel, lang, onSuccess, onError);
     }
 
     public void refreshPanel(long guildId) {
-        musicPanelRefreshService.refreshPanel(guildId);
+        musicPanelRuntime.musicPanelRefreshService().refreshPanel(guildId);
     }
 
     private void refreshPanelPeriodic(long guildId) {
-        musicPanelRefreshService.refreshPanelPeriodic(guildId);
+        musicPanelRuntime.musicPanelRefreshService().refreshPanelPeriodic(guildId);
     }
 
     public void refreshPanelMessage(Guild guild, TextChannel channel, long messageId, boolean force) {
-        musicPanelRefreshService.refreshPanelMessage(guild, channel, messageId, force);
+        musicPanelRuntime.musicPanelRefreshService().refreshPanelMessage(guild, channel, messageId, force);
     }
 
     public void refreshPanelMessage(Guild guild, TextChannel channel, long messageId, boolean force, boolean immediate) {
-        musicPanelRefreshService.refreshPanelMessage(guild, channel, messageId, force, immediate);
+        musicPanelRuntime.musicPanelRefreshService().refreshPanelMessage(guild, channel, messageId, force, immediate);
     }
 
     boolean isPanelButton(String componentId) {
@@ -883,7 +869,7 @@ public class MusicCommandService extends ListenerAdapter {
 
     private void refreshAllPanelsSafely() {
         try {
-            List<Long> guildIds = panelStateStore.snapshotGuildIds();
+            List<Long> guildIds = musicPanelRuntime.panelStateStore().snapshotGuildIds();
             for (Long guildId : guildIds) {
                 refreshPanelPeriodic(guildId);
             }
