@@ -188,32 +188,16 @@ public class MusicCommandService extends ListenerAdapter {
     private final AtomicReference<I18nService> i18n = new AtomicReference<>();
 
     private final MusicPanelStateStore panelStateStore = new MusicPanelStateStore();
-    private final Map<String, Long> commandCooldowns = new ConcurrentHashMap<>();
-    private final Map<String, Long> panelButtonCooldowns = new ConcurrentHashMap<>();
+    private final CommandCooldownService commandCooldownService;
+    private final TransientStateCleanupService transientStateCleanupService;
+    private final PrefixCommandRouter prefixCommandRouter;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private final AtomicReference<JDA> jda = new AtomicReference<>();
     private final CommandRegistrar commandRegistrar;
     private final DiscordCommandCatalog discordCommandCatalog;
-    private final DeleteMessagesCommandHandler deleteMessagesCommandHandler;
-    private final PrivateRoomSettingsCommandHandler privateRoomSettingsCommandHandler;
-    private final AntiDuplicateCommandHandler antiDuplicateCommandHandler;
-    private final SettingsLanguageMenuHandler languageMenuHandler;
-    private final SettingsNumberChainMenuHandler numberChainMenuHandler;
-    private final SettingsWordChainMenuHandler wordChainMenuHandler;
-    private final WarningCommandHandler warningCommandHandler;
-    private final SettingsCommandHandler settingsCommandHandler;
-    private final HelpCommandHandler helpCommandHandler;
-    private final PingCommandHandler pingCommandHandler;
-    private final WelcomeCommandHandler welcomeCommandHandler;
-    private final HistoryCommandHandler historyCommandHandler;
-    private final PlaylistCommandHandler playlistCommandHandler;
-    private final MusicPlaybackCommandHandler playbackCommandHandler;
+    private final CommandHandlerRegistry commandHandlers;
     private final MusicPlaybackText musicPlaybackText;
     private final MusicPanelController musicPanelController;
-    private final HoneypotCommandHandler honeypotCommandHandler;
-    private final InfoCommandHandler infoCommandHandler;
-    private final UrlCommandHandler urlCommandHandler;
-    private final MinecraftStatusCommandHandler minecraftStatusCommandHandler;
     private final InteractionRouter interactionRouter;
     private final WordChainOps wordChainOps;
     private final TicketOps ticketOps;
@@ -252,11 +236,6 @@ public class MusicCommandService extends ListenerAdapter {
         this.musicService.setPlaybackFailureListener(this::reportPlaybackFailure);
         this.discordCommandCatalog = new DiscordCommandCatalog();
         this.commandRegistrar = new CommandRegistrar(this);
-        this.settingsCommandHandler = new SettingsCommandHandler(this);
-        this.helpCommandHandler = new HelpCommandHandler(this);
-        this.pingCommandHandler = new PingCommandHandler(this);
-        this.welcomeCommandHandler = new WelcomeCommandHandler(this);
-        this.historyCommandHandler = new HistoryCommandHandler(this);
         this.musicPanelRenderer = new MusicPanelRenderer(this);
         this.musicPanelRefreshService = new MusicPanelRefreshService(
                 this,
@@ -268,58 +247,23 @@ public class MusicCommandService extends ListenerAdapter {
         );
         this.musicPanelController = new MusicPanelController(this, this::refreshPanel);
         this.musicPlaybackText = new MusicPlaybackText(this::i18nService);
-        this.deleteMessagesCommandHandler = new DeleteMessagesCommandHandler(this);
-        this.privateRoomSettingsCommandHandler = new PrivateRoomSettingsCommandHandler(this);
-        this.antiDuplicateCommandHandler = new AntiDuplicateCommandHandler(this);
-        this.languageMenuHandler = new SettingsLanguageMenuHandler(this);
-        this.numberChainMenuHandler = new SettingsNumberChainMenuHandler(this);
-        this.wordChainMenuHandler = new SettingsWordChainMenuHandler(this);
-        this.warningCommandHandler = new WarningCommandHandler(this);
-        this.playlistCommandHandler = new PlaylistCommandHandler(this, this.musicPanelController);
-        this.playbackCommandHandler = new MusicPlaybackCommandHandler(this, this.musicPanelController, this.musicPlaybackText);
-        this.honeypotCommandHandler = new HoneypotCommandHandler(this);
-        this.infoCommandHandler = new InfoCommandHandler(this);
-        this.urlCommandHandler = new UrlCommandHandler(this);
         MinecraftStatusOps minecraftStatusOps = new MinecraftStatusOps(
                 new com.norule.musicbot.service.minecraft.MinecraftStatusService(
                         new McSrvStatGateway(),
                         () -> new MinecraftStatusConfig(this.runtimeConfig.get().getMinecraftStatus())
                 )
         );
-        this.minecraftStatusCommandHandler = new MinecraftStatusCommandHandler(this, minecraftStatusOps);
+        this.commandHandlers = new CommandHandlerRegistry(this, this.musicPanelController, this.musicPlaybackText, minecraftStatusOps);
         this.statsEventService = statsEventService;
         this.wordChainOps = wordChainOps;
         this.ticketConfigAdapter = new GuildDomainConfigAdapter(settingsService, runtimeConfig.getDefaultMusic());
         this.ticketOps = new TicketOps(new com.norule.musicbot.discord.bot.ops.ticket.TicketService(ticketConfigAdapter, ticketService, i18nService()));
         this.interactionRouter = new InteractionRouter(this, wordChainOps);
+        this.commandCooldownService = new CommandCooldownService(() -> this.runtimeConfig.get());
+        this.transientStateCleanupService = new TransientStateCleanupService(this, this.commandCooldownService);
+        this.prefixCommandRouter = new PrefixCommandRouter(this, this.commandCooldownService);
         this.scheduler.scheduleAtFixedRate(this::refreshAllPanelsSafely, 5, PANEL_PERIODIC_REFRESH_MS / 1000L, TimeUnit.SECONDS);
-        this.scheduler.scheduleAtFixedRate(this::cleanupTransientStateSafely, 1, 1, TimeUnit.MINUTES);
-    }
-
-    private void cleanupTransientStateSafely() {
-        try {
-            cleanupTransientState();
-        } catch (RuntimeException ignored) {
-            // Keep scheduled cleanup alive even if a transient repository state throws.
-            LOGGER.debug("cleanupTransientState failed", ignored);
-        }
-    }
-
-    private void cleanupTransientState() {
-        Instant now = Instant.now();
-        long nowMillis = System.currentTimeMillis();
-        deleteMessagesCommandHandler.cleanupExpiredRequests(now);
-        warningCommandHandler.cleanupExpiredRequests(now);
-        privateRoomSettingsCommandHandler.cleanupExpiredRequests(now);
-        languageMenuHandler.cleanupExpiredRequests(now);
-        numberChainMenuHandler.cleanupExpiredRequests(now);
-        wordChainMenuHandler.cleanupExpiredRequests(now);
-        commandCooldowns.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= nowMillis);
-        panelButtonCooldowns.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= nowMillis);
-        playbackCommandHandler.cleanupExpiredRequests(now);
-        playlistCommandHandler.cleanupExpiredRequests(now);
-        settingsCommandHandler.cleanupExpiredRequests(now);
-        musicService.cleanupTransientCaches(nowMillis);
+        this.scheduler.scheduleAtFixedRate(this.transientStateCleanupService::runSafely, 1, 1, TimeUnit.MINUTES);
     }
 
     private void reportPlaybackFailure(long guildId, MusicPlayerService.PlaybackFailure failure) {
@@ -401,46 +345,46 @@ public class MusicCommandService extends ListenerAdapter {
         return panelStateStore.panelRefs();
     }
     public DeleteMessagesCommandHandler deleteMessagesCommandHandler() {
-        return deleteMessagesCommandHandler;
+        return commandHandlers.deleteMessagesCommandHandler();
     }
     public PrivateRoomSettingsCommandHandler privateRoomSettingsCommandHandler() {
-        return privateRoomSettingsCommandHandler;
+        return commandHandlers.privateRoomSettingsCommandHandler();
     }
     public AntiDuplicateCommandHandler antiDuplicateCommandHandler() {
-        return antiDuplicateCommandHandler;
+        return commandHandlers.antiDuplicateCommandHandler();
     }
     public SettingsLanguageMenuHandler languageMenuHandler() {
-        return languageMenuHandler;
+        return commandHandlers.languageMenuHandler();
     }
     public SettingsNumberChainMenuHandler numberChainMenuHandler() {
-        return numberChainMenuHandler;
+        return commandHandlers.numberChainMenuHandler();
     }
     public SettingsWordChainMenuHandler wordChainMenuHandler() {
-        return wordChainMenuHandler;
+        return commandHandlers.wordChainMenuHandler();
     }
     public WarningCommandHandler warningCommandHandler() {
-        return warningCommandHandler;
+        return commandHandlers.warningCommandHandler();
     }
     public SettingsCommandHandler settingsCommandHandler() {
-        return settingsCommandHandler;
+        return commandHandlers.settingsCommandHandler();
     }
     public HelpCommandHandler helpCommandHandler() {
-        return helpCommandHandler;
+        return commandHandlers.helpCommandHandler();
     }
     public PingCommandHandler pingCommandHandler() {
-        return pingCommandHandler;
+        return commandHandlers.pingCommandHandler();
     }
     public WelcomeCommandHandler welcomeCommandHandler() {
-        return welcomeCommandHandler;
+        return commandHandlers.welcomeCommandHandler();
     }
     public HistoryCommandHandler historyCommandHandler() {
-        return historyCommandHandler;
+        return commandHandlers.historyCommandHandler();
     }
     public PlaylistCommandHandler playlistCommandHandler() {
-        return playlistCommandHandler;
+        return commandHandlers.playlistCommandHandler();
     }
     public MusicPlaybackCommandHandler playbackCommandHandler() {
-        return playbackCommandHandler;
+        return commandHandlers.playbackCommandHandler();
     }
     public ScheduledExecutorService scheduler() {
         return scheduler;
@@ -449,17 +393,17 @@ public class MusicCommandService extends ListenerAdapter {
         return musicPanelController;
     }
     public HoneypotCommandHandler honeypotCommandHandler() {
-        return honeypotCommandHandler;
+        return commandHandlers.honeypotCommandHandler();
     }
 
     public InfoCommandHandler infoCommandHandler() {
-        return infoCommandHandler;
+        return commandHandlers.infoCommandHandler();
     }
     public UrlCommandHandler urlCommandHandler() {
-        return urlCommandHandler;
+        return commandHandlers.urlCommandHandler();
     }
     public MinecraftStatusCommandHandler minecraftStatusCommandHandler() {
-        return minecraftStatusCommandHandler;
+        return commandHandlers.minecraftStatusCommandHandler();
     }
     public ShortUrlService shortUrlService() {
         return shortUrlService;
@@ -493,51 +437,8 @@ public class MusicCommandService extends ListenerAdapter {
 
     @Override
     public void onMessageReceived(MessageReceivedEvent event) {
-                ticketOps.onMessage(event);
-        String raw = event.getMessage().getContentRaw();
-        if (!event.isFromGuild()) {
-            return;
-        }
-        Guild guild = event.getGuild();
-        if (honeypotService.isHoneypotChannel(guild.getIdLong(), event.getChannel().getIdLong())) {
-            return;
-        }
-        RuntimeConfigSnapshot snapshot = runtimeConfig.get();
-        if (!raw.startsWith(snapshot.getPrefix())) {
-            return;
-        }
-        String[] split = raw.substring(snapshot.getPrefix().length()).trim().split("\\s+", 2);
-        String cmd = split.length > 0 ? split[0].toLowerCase() : "";
-        String arg = split.length > 1 ? split[1].trim() : "";
-        String lang = lang(guild.getIdLong());
-
-        if (isKnownPrefixCommand(cmd)) {
-            long remaining = acquireCooldown(event.getAuthor().getIdLong());
-            if (remaining > 0) {
-                event.getChannel().sendMessage(i18nService().t(lang, "general.command_cooldown",
-                        Map.of("seconds", String.valueOf(toCooldownSeconds(remaining)))))
-                        .queue();
-                return;
-            }
-        }
-
-        if (isPrefixMusicCommand(cmd) && !isMusicCommandChannelAllowed(guild, event.getChannel().getIdLong())) {
-            event.getChannel().sendMessage(i18nService().t(lang, "music.command_channel_restricted")).queue();
-            return;
-        }
-
-        switch (cmd) {
-            case "help" -> helpCommandHandler.handleTextHelp(event.getChannel().asTextChannel(), guild, lang);
-            case CMD_VOLUME -> playbackCommandHandler.handleTextCommand(event, guild, cmd, arg, lang);
-            case CMD_HISTORY -> event.getChannel().sendMessageEmbeds(historyCommandHandler.historyEmbed(guild, lang).build()).queue();
-            case CMD_PLAYLIST -> playlistCommandHandler.handlePlaylistPrefix(event, guild, arg, lang);
-            case "join", "play", "skip", "stop", CMD_LEAVE, CMD_REPEAT -> playbackCommandHandler.handleTextCommand(event, guild, cmd, arg, lang);
-            case CMD_MUSIC -> event.getChannel().sendMessageEmbeds(musicStatsEmbed(guild, lang).build()).queue();
-            default -> event.getChannel().sendMessage(i18nService().t(lang, KEY_UNKNOWN_COMMAND)).queue();
-        }
-        if (isKnownPrefixCommand(cmd)) {
-            logCommandUsage(guild, event.getMember(), snapshot.getPrefix() + cmd + (arg.isBlank() ? "" : " " + arg), event.getChannel().getIdLong());
-        }
+        ticketOps.onMessage(event);
+        prefixCommandRouter.route(event);
     }
 
     @Override
@@ -844,32 +745,6 @@ public class MusicCommandService extends ListenerAdapter {
         return settingsService.getLanguage(guildId);
     }
 
-    private boolean isPrefixMusicCommand(String cmd) {
-        return "join".equals(cmd)
-                || "play".equals(cmd)
-                || "skip".equals(cmd)
-                || "stop".equals(cmd)
-                || CMD_LEAVE.equals(cmd)
-                || CMD_REPEAT.equals(cmd)
-                || CMD_VOLUME.equals(cmd)
-                || CMD_HISTORY.equals(cmd)
-                || CMD_MUSIC.equals(cmd)
-                || CMD_PLAYLIST.equals(cmd);
-    }
-
-    private boolean isKnownPrefixCommand(String cmd) {
-        return "help".equals(cmd)
-                || CMD_VOLUME.equals(cmd)
-                || CMD_HISTORY.equals(cmd)
-                || CMD_MUSIC.equals(cmd)
-                || CMD_PLAYLIST.equals(cmd)
-                || "join".equals(cmd)
-                || "play".equals(cmd)
-                || "skip".equals(cmd)
-                || "stop".equals(cmd)
-                || CMD_LEAVE.equals(cmd)
-                || CMD_REPEAT.equals(cmd);
-    }
     public boolean isSlashMusicCommand(String name) {
         name = canonicalSlashName(name);
         return "join".equals(name)
@@ -1045,36 +920,15 @@ public class MusicCommandService extends ListenerAdapter {
         );
     }
     public long acquireCooldown(long userId) {
-        int cooldownSeconds = Math.max(0, runtimeConfig.get().getCommandCooldownSeconds());
-        if (cooldownSeconds <= 0) {
-            return 0;
-        }
-        long now = System.currentTimeMillis();
-        String key = String.valueOf(userId);
-        Long nextAllowed = commandCooldowns.get(key);
-        if (nextAllowed != null && nextAllowed > now) {
-            return nextAllowed - now;
-        }
-        commandCooldowns.put(key, now + cooldownSeconds * 1000L);
-        return 0;
+        return commandCooldownService.acquireCooldown(userId);
     }
 
     public long acquirePanelButtonCooldown(long userId) {
-        int cooldownSeconds = Math.max(0, runtimeConfig.get().getCommandCooldownSeconds());
-        if (cooldownSeconds <= 0) {
-            return 0;
-        }
-        long now = System.currentTimeMillis();
-        String key = String.valueOf(userId);
-        Long nextAllowed = panelButtonCooldowns.get(key);
-        if (nextAllowed != null && nextAllowed > now) {
-            return nextAllowed - now;
-        }
-        panelButtonCooldowns.put(key, now + cooldownSeconds * 1000L);
-        return 0;
+        return commandCooldownService.acquirePanelButtonCooldown(userId);
     }
+
     public long toCooldownSeconds(long remainingMillis) {
-        return Math.max(1L, (remainingMillis + 999L) / 1000L);
+        return commandCooldownService.toCooldownSeconds(remainingMillis);
     }
 
     private String formatDuration(long millis) {
@@ -1091,7 +945,7 @@ public class MusicCommandService extends ListenerAdapter {
         return String.format("%02d:%02d", minutes, seconds);
     }
 
-    private EmbedBuilder musicStatsEmbed(Guild guild, String lang) {
+    EmbedBuilder musicStatsEmbed(Guild guild, String lang) {
         MusicDataService.MusicStatsSnapshot stats = musicService.getStats(guild.getIdLong());
         String topSong = stats.topSongLabel() == null || stats.topSongLabel().isBlank()
                 ? musicText(lang, "stats_none")
