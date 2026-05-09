@@ -58,7 +58,7 @@ class PrefixCommandRouter {
             case CommandNames.CMD_HISTORY -> event.getChannel().sendMessageEmbeds(service.historyCommandHandler().historyEmbed(guild, lang).build()).queue();
             case CommandNames.CMD_PLAYLIST -> service.playlistCommandHandler().handlePlaylistPrefix(event, guild, arg, lang);
             case "join", "play", "skip", "stop", CommandNames.CMD_LEAVE, CommandNames.CMD_REPEAT -> service.playbackCommandHandler().handleTextCommand(event, guild, cmd, arg, lang);
-            case CommandNames.CMD_MUSIC -> event.getChannel().sendMessageEmbeds(service.musicStatsEmbed(guild, lang).build()).queue();
+            case CommandNames.CMD_MUSIC -> event.getChannel().sendMessageEmbeds(service.musicStatsCommandHandler().musicStatsEmbed(guild, lang).build()).queue();
             default -> event.getChannel().sendMessage(service.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).queue();
         }
         if (isKnownPrefixCommand(cmd)) {

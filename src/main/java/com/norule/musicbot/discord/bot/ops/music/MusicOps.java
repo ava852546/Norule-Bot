@@ -49,7 +49,7 @@ public final class MusicOps {
                 yield true;
             }
             case "music" -> {
-                owner.handleMusicSlash(event, lang);
+                owner.musicStatsCommandHandler().handleMusicSlash(event, lang);
                 yield true;
             }
             case "history" -> {

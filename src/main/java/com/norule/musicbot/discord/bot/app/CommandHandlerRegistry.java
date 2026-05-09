@@ -11,6 +11,7 @@ import com.norule.musicbot.discord.bot.gateway.command.moderation.WarningCommand
 import com.norule.musicbot.discord.bot.gateway.command.music.HistoryCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackText;
+import com.norule.musicbot.discord.bot.gateway.command.music.MusicStatsCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.music.PlaylistCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.privateroom.PrivateRoomSettingsCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.settings.SettingsCommandHandler;
@@ -41,6 +42,7 @@ class CommandHandlerRegistry {
     private final InfoCommandHandler infoCommandHandler;
     private final UrlCommandHandler urlCommandHandler;
     private final MinecraftStatusCommandHandler minecraftStatusCommandHandler;
+    private final MusicStatsCommandHandler musicStatsCommandHandler;
 
     CommandHandlerRegistry(MusicCommandService service,
                            MusicPanelController musicPanelController,
@@ -64,6 +66,7 @@ class CommandHandlerRegistry {
         this.playlistCommandHandler = new PlaylistCommandHandler(service, musicPanelController);
         this.playbackCommandHandler = new MusicPlaybackCommandHandler(service, musicPanelController, musicPlaybackText);
         this.minecraftStatusCommandHandler = new MinecraftStatusCommandHandler(service, minecraftStatusOps);
+        this.musicStatsCommandHandler = new MusicStatsCommandHandler(service);
     }
 
     SettingsCommandHandler settingsCommandHandler() { return settingsCommandHandler; }
@@ -84,4 +87,5 @@ class CommandHandlerRegistry {
     InfoCommandHandler infoCommandHandler() { return infoCommandHandler; }
     UrlCommandHandler urlCommandHandler() { return urlCommandHandler; }
     MinecraftStatusCommandHandler minecraftStatusCommandHandler() { return minecraftStatusCommandHandler; }
+    MusicStatsCommandHandler musicStatsCommandHandler() { return musicStatsCommandHandler; }
 }

@@ -16,6 +16,7 @@ import com.norule.musicbot.discord.bot.gateway.command.meta.HelpCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.meta.InfoCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.meta.PingCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.minecraft.MinecraftStatusCommandHandler;
+import com.norule.musicbot.discord.bot.gateway.command.music.MusicStatsCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.registry.DiscordCommandCatalog;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
@@ -120,9 +121,6 @@ public class MusicCommandService extends ListenerAdapter {
     static final String SUB_SETTINGS_LANGUAGE_ZH = "\u8a9e\u8a00\u8a2d\u7f6e";
     static final String SUB_SETTINGS_NUMBER_CHAIN_ZH = "\u63a5\u9f8d\u904a\u6232";
     static final String SUB_SETTINGS_WORD_CHAIN_ZH = "\u82f1\u6587\u63a5\u9f8d";
-    static final String SUB_GENERIC_ENABLE_ZH = "\u555f\u7528";
-    static final String SUB_GENERIC_DISABLE_ZH = "\u95dc\u9589";
-    static final String SUB_GENERIC_STATUS_ZH = "\u72c0\u614b";
     static final String SUB_MUSIC_STATS_ZH = "\u7d71\u8a08";
     static final String SUB_PLAYLIST_SAVE_ZH = "\u5132\u5b58";
     static final String SUB_PLAYLIST_LOAD_ZH = "\u8f09\u5165";
@@ -140,7 +138,6 @@ public class MusicCommandService extends ListenerAdapter {
     static final String SUB_DELETE_USER_ZH = "\u4f7f\u7528\u8005";
     public static final String HELP_SELECT_ID = ComponentIds.HELP_SELECT_ID;
     public static final String HELP_BUTTON_PREFIX = ComponentIds.HELP_BUTTON_PREFIX;
-    public static final String TEMPLATE_MODAL_PREFIX = ComponentIds.TEMPLATE_MODAL_PREFIX;
     public static final String WELCOME_MODAL_ID = ComponentIds.WELCOME_MODAL_ID;
     public static final String PANEL_PLAY_PAUSE = ComponentIds.PANEL_PLAY_PAUSE;
     public static final String PANEL_SKIP = ComponentIds.PANEL_SKIP;
@@ -152,7 +149,6 @@ public class MusicCommandService extends ListenerAdapter {
     public static final String PANEL_VOLUME_UP = ComponentIds.PANEL_VOLUME_UP;
     public static final String PANEL_REFRESH = ComponentIds.PANEL_REFRESH;
     public static final String PANEL_SHUFFLE = ComponentIds.PANEL_SHUFFLE;
-    private static final String KEY_UNKNOWN_COMMAND = "general.unknown_command";
     private static final String CMD_VOLUME = CommandNames.CMD_VOLUME;
     private static final String CMD_HISTORY = CommandNames.CMD_HISTORY;
     private static final String CMD_PLAYLIST = CommandNames.CMD_PLAYLIST;
@@ -342,6 +338,9 @@ public class MusicCommandService extends ListenerAdapter {
     public MinecraftStatusCommandHandler minecraftStatusCommandHandler() {
         return commandHandlers.minecraftStatusCommandHandler();
     }
+    public MusicStatsCommandHandler musicStatsCommandHandler() {
+        return commandHandlers.musicStatsCommandHandler();
+    }
     public ShortUrlService shortUrlService() {
         return shortUrlService;
     }
@@ -483,19 +482,6 @@ public class MusicCommandService extends ListenerAdapter {
                 .replace("{createdAt}", "<t:" + user.getTimeCreated().toInstant().getEpochSecond() + ":F>")
                 .replace("{accountAgeDays}", String.valueOf(Math.max(0L, Duration.between(user.getTimeCreated().toInstant(), Instant.now()).toDays())));
     }
-    public void handleMusicSlash(SlashCommandInteractionEvent event, String lang) {
-        String sub = canonicalMusicSubcommand(event.getSubcommandName());
-        if (sub == null || sub.isBlank()) {
-            event.replyEmbeds(musicStatsEmbed(event.getGuild(), lang).build()).queue();
-            return;
-        }
-        if ("stats".equals(sub)) {
-            event.replyEmbeds(musicStatsEmbed(event.getGuild(), lang).build()).queue();
-            return;
-        }
-        event.reply(i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
-    }
-
     public StringSelectMenu helpMenu(String lang) {
         return helpViewRenderer.helpMenu(lang);
     }
@@ -610,7 +596,7 @@ public class MusicCommandService extends ListenerAdapter {
         };
     }
 
-    private String canonicalMusicSubcommand(String sub) {
+    public String canonicalMusicSubcommand(String sub) {
         return switch (sub) {
             case SUB_MUSIC_STATS_ZH -> "stats";
             default -> sub;
@@ -820,39 +806,6 @@ public class MusicCommandService extends ListenerAdapter {
         return commandCooldownService.toCooldownSeconds(remainingMillis);
     }
 
-    private String formatDuration(long millis) {
-        if (millis <= 0) {
-            return "00:00";
-        }
-        long totalSeconds = millis / 1000;
-        long hours = totalSeconds / 3600;
-        long minutes = (totalSeconds % 3600) / 60;
-        long seconds = totalSeconds % 60;
-        if (hours > 0) {
-            return String.format("%d:%02d:%02d", hours, minutes, seconds);
-        }
-        return String.format("%02d:%02d", minutes, seconds);
-    }
-
-    EmbedBuilder musicStatsEmbed(Guild guild, String lang) {
-        MusicDataService.MusicStatsSnapshot stats = musicService.getStats(guild.getIdLong());
-        String topSong = stats.topSongLabel() == null || stats.topSongLabel().isBlank()
-                ? musicText(lang, "stats_none")
-                : safe(stats.topSongLabel(), 100) + " (`" + stats.topSongCount() + "`)";
-        String topRequester = stats.topRequesterId() == null
-                ? musicText(lang, "stats_none")
-                : "<@" + stats.topRequesterId() + "> (`" + stats.topRequesterCount() + "`)";
-        return new EmbedBuilder()
-                .setColor(new Color(155, 89, 182))
-                .setTitle("\uD83D\uDCCA " + musicText(lang, "stats_title"))
-                .setDescription(musicText(lang, "stats_desc"))
-                .addField("\uD83C\uDFB5 " + musicText(lang, "stats_top_song"), topSong, false)
-                .addField("\uD83D\uDC64 " + musicText(lang, "stats_top_user"), topRequester, false)
-                .addField("\u23F1\uFE0F " + musicText(lang, "stats_today_time"), formatDuration(stats.todayPlaybackMillis()), true)
-                .addField("\uD83D\uDDD2\uFE0F " + musicText(lang, "stats_history_count"), String.valueOf(stats.historyCount()), true)
-                .setTimestamp(Instant.now());
-    }
-
     String safe(String s, int max) {
         if (s == null || s.isBlank()) {
             return "-";
@@ -1026,14 +979,6 @@ public class MusicCommandService extends ListenerAdapter {
 
     public String boolText(String lang, boolean value) {
         return value ? i18nService().t(lang, "settings.info_bool_on") : i18nService().t(lang, "settings.info_bool_off");
-    }
-
-    public String formatTextChannel(Guild guild, Long id) {
-        if (id == null) {
-            return i18nService().t(lang(guild.getIdLong()), "settings.info_channels_none");
-        }
-        TextChannel channel = guild.getTextChannelById(id);
-        return channel == null ? "#" + id : channel.getAsMention() + " (" + id + ")";
     }
 
     @FunctionalInterface
