@@ -73,17 +73,12 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class MusicCommandService extends ListenerAdapter {
-    private static final Logger LOGGER = LoggerFactory.getLogger(MusicCommandService.class);
     static final String CMD_HELP_ZH = CommandNames.CMD_HELP_ZH;
     static final String CMD_JOIN_ZH = CommandNames.CMD_JOIN_ZH;
     static final String CMD_PLAY_ZH = CommandNames.CMD_PLAY_ZH;
@@ -201,11 +196,9 @@ public class MusicCommandService extends ListenerAdapter {
     private final MessageStatsEventService statsEventService;
     private final ShortUrlService shortUrlService;
     private final GuildDomainConfigAdapter ticketConfigAdapter;
-    private final Map<Long, Long> playbackFailureLastAt = new ConcurrentHashMap<>();
-    private final Map<Long, String> playbackFailureLastSig = new ConcurrentHashMap<>();
+    private final PlaybackFailureNotifier playbackFailureNotifier;
     private final AtomicBoolean botReadyForSlashCommands = new AtomicBoolean(false);
     private static final long PANEL_PERIODIC_REFRESH_MS = 10_000L;
-    private static final long PANEL_MIN_EDIT_INTERVAL_MS = 3500L;
 
     @SuppressWarnings("java:S107")
     public MusicCommandService(MusicPlayerService musicService,
@@ -228,11 +221,13 @@ public class MusicCommandService extends ListenerAdapter {
         this.settingsService = settingsService;
         this.i18n.set(I18nService.load(runtimeConfig.getLanguageDir(), runtimeConfig.getDefaultLanguage()));
         this.musicService.setAutoplayEnabledChecker(guildId -> settingsService.getMusic(guildId).isAutoplayEnabled());
-        this.musicService.setPlaybackFailureListener(this::reportPlaybackFailure);
         this.discordCommandCatalog = new DiscordCommandCatalog();
         this.commandRegistrar = new CommandRegistrar(this);
-        this.musicPanelRuntime = new MusicPanelRuntime(this, this.scheduler, PANEL_PERIODIC_REFRESH_MS, PANEL_MIN_EDIT_INTERVAL_MS);
+        this.musicPanelRuntime = new MusicPanelRuntime(this, this.scheduler, PANEL_PERIODIC_REFRESH_MS);
         this.musicPlaybackText = new MusicPlaybackText(this::i18nService);
+        this.playbackFailureNotifier = new PlaybackFailureNotifier(
+                this, musicService, musicPanelRuntime.panelStateStore(), this.musicPlaybackText);
+        this.musicService.setPlaybackFailureListener(playbackFailureNotifier::reportPlaybackFailure);
         MinecraftStatusOps minecraftStatusOps = new MinecraftStatusOps(
                 new com.norule.musicbot.service.minecraft.MinecraftStatusService(
                         new McSrvStatGateway(),
@@ -250,51 +245,6 @@ public class MusicCommandService extends ListenerAdapter {
         this.prefixCommandRouter = new PrefixCommandRouter(this, this.commandCooldownService);
         this.scheduler.scheduleAtFixedRate(this::refreshAllPanelsSafely, 5, PANEL_PERIODIC_REFRESH_MS / 1000L, TimeUnit.SECONDS);
         this.scheduler.scheduleAtFixedRate(this.transientStateCleanupService::runSafely, 1, 1, TimeUnit.MINUTES);
-    }
-
-    private void reportPlaybackFailure(long guildId, MusicPlayerService.PlaybackFailure failure) {
-        if (failure == null || failure.rawError() == null || failure.rawError().isBlank()) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-        String sig = (failure.title() == null ? "-" : failure.title()) + "|" + failure.rawError().trim();
-        Long lastAt = playbackFailureLastAt.get(guildId);
-        String lastSig = playbackFailureLastSig.get(guildId);
-        if (lastAt != null && now - lastAt < 8000L && sig.equals(lastSig)) {
-            return;
-        }
-        playbackFailureLastAt.put(guildId, now);
-        playbackFailureLastSig.put(guildId, sig);
-
-        JDA currentJda = jda.get();
-        if (currentJda == null) {
-            return;
-        }
-        Guild guild = currentJda.getGuildById(guildId);
-        if (guild == null) {
-            return;
-        }
-        Long channelId = musicService.getLastCommandChannelId(guildId);
-        if (channelId == null) {
-            MusicPanelStateStore.PanelRef ref = musicPanelRuntime.panelStateStore().getPanelRef(guildId);
-            if (ref != null) {
-                channelId = ref.channelId;
-            }
-        }
-        if (channelId == null) {
-            return;
-        }
-        TextChannel channel = guild.getTextChannelById(channelId);
-        if (channel == null || !channel.canTalk()) {
-            return;
-        }
-        String lang = lang(guildId);
-        String mapped = musicPlaybackText.mapMusicLoadError(lang, failure.rawError());
-        channel.sendMessage(i18nService().t(lang, "music.playback_failed", Map.of(
-                        "title", safe(failure.title(), 80),
-                        "error", safe(mapped, 180)
-                )))
-                .queue(null, error -> LOGGER.debug("Failed to send playback failure message", error));
     }
 
     public void reloadRuntimeConfig(RuntimeConfigSnapshot newConfig) {
@@ -950,7 +900,7 @@ public class MusicCommandService extends ListenerAdapter {
                 .setTimestamp(Instant.now());
     }
 
-    private String safe(String s, int max) {
+    String safe(String s, int max) {
         if (s == null || s.isBlank()) {
             return "-";
         }
