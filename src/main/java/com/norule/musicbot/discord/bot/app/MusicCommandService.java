@@ -17,6 +17,7 @@ import com.norule.musicbot.discord.bot.gateway.command.meta.InfoCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.meta.PingCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.minecraft.MinecraftStatusCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicStatsCommandHandler;
+import com.norule.musicbot.discord.bot.gateway.command.routing.DiscordCommandRouteMapper;
 import com.norule.musicbot.discord.bot.gateway.command.registry.DiscordCommandCatalog;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
@@ -79,63 +80,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 public class MusicCommandService extends ListenerAdapter {
-    static final String CMD_HELP_ZH = CommandNames.CMD_HELP_ZH;
-    static final String CMD_JOIN_ZH = CommandNames.CMD_JOIN_ZH;
-    static final String CMD_PLAY_ZH = CommandNames.CMD_PLAY_ZH;
-    static final String CMD_SKIP_ZH = CommandNames.CMD_SKIP_ZH;
-    static final String CMD_STOP_ZH = CommandNames.CMD_STOP_ZH;
-    static final String CMD_LEAVE_ZH = CommandNames.CMD_LEAVE_ZH;
-    static final String CMD_MUSIC_PANEL_ZH = CommandNames.CMD_MUSIC_PANEL_ZH;
-    static final String CMD_REPEAT_ZH = CommandNames.CMD_REPEAT_ZH;
-    static final String CMD_PING_ZH = CommandNames.CMD_PING_ZH;
-    static final String CMD_WELCOME_ZH = CommandNames.CMD_WELCOME_ZH;
     public static final String OPTION_WELCOME_CHANNEL_ZH = "\u983b\u9053";
-    static final String CMD_VOLUME_ZH = CommandNames.CMD_VOLUME_ZH;
-    static final String CMD_HISTORY_ZH = CommandNames.CMD_HISTORY_ZH;
-    static final String CMD_MUSIC_ZH = CommandNames.CMD_MUSIC_ZH;
-    static final String CMD_PLAYLIST_ZH = CommandNames.CMD_PLAYLIST_ZH;
-    static final String CMD_SETTINGS_ZH = CommandNames.CMD_SETTINGS_ZH;
-    static final String CMD_DELETE_ZH = CommandNames.CMD_DELETE_ZH;
-    static final String CMD_ROOM_SETTINGS_ZH = CommandNames.CMD_ROOM_SETTINGS_ZH;
-    static final String CMD_WARNINGS_ZH = CommandNames.CMD_WARNINGS_ZH;
-    static final String CMD_ANTI_DUPLICATE_ZH = CommandNames.CMD_ANTI_DUPLICATE_ZH;
-    static final String CMD_HONEYPOT_ZH = CommandNames.CMD_HONEYPOT_ZH;
-    static final String CMD_NUMBER_CHAIN_ZH = CommandNames.CMD_NUMBER_CHAIN_ZH;
-    static final String CMD_WORD_CHAIN_ZH = CommandNames.CMD_WORD_CHAIN_ZH;
-    static final String CMD_TICKET_ZH = CommandNames.CMD_TICKET_ZH;
-    static final String CMD_USER_INFO_ZH = CommandNames.CMD_USER_INFO_ZH;
-    static final String CMD_ROLE_INFO_ZH = CommandNames.CMD_ROLE_INFO_ZH;
-    static final String CMD_SERVER_INFO_ZH = CommandNames.CMD_SERVER_INFO_ZH;
-    static final String CMD_STATS_ZH = CommandNames.CMD_STATS_ZH;
-    static final String CMD_LEADERBOARD_ZH = CommandNames.CMD_LEADERBOARD_ZH;
-    static final String CMD_SHORT_URL_ZH = CommandNames.CMD_SHORT_URL_ZH;
-    static final String CMD_MINECRAFT_STATUS_ZH = CommandNames.CMD_MINECRAFT_STATUS_ZH;
-    static final String SUB_SETTINGS_INFO_ZH = "\u8a73\u7d30\u8cc7\u8a0a";
-    static final String SUB_SETTINGS_RELOAD_ZH = "\u91cd\u8f09\u8a2d\u5b9a";
-    static final String SUB_SETTINGS_RESET_ZH = "\u6062\u5fa9\u9810\u8a2d";
-    static final String SUB_SETTINGS_TEMPLATE_ZH = "\u6a21\u677f\u7de8\u8f2f";
-    static final String SUB_SETTINGS_MODULE_ZH = "\u6a21\u7d44\u958b\u95dc";
-    static final String SUB_SETTINGS_LOGS_ZH = "\u65e5\u8a8c\u983b\u9053";
-    static final String SUB_SETTINGS_LOG_SETTINGS_ZH = "\u65e5\u8a8c\u5ffd\u7565";
-    static final String SUB_SETTINGS_MUSIC_ZH = "\u97f3\u6a02\u8a2d\u5b9a";
-    static final String SUB_SETTINGS_LANGUAGE_ZH = "\u8a9e\u8a00\u8a2d\u7f6e";
-    static final String SUB_SETTINGS_NUMBER_CHAIN_ZH = "\u63a5\u9f8d\u904a\u6232";
-    static final String SUB_SETTINGS_WORD_CHAIN_ZH = "\u82f1\u6587\u63a5\u9f8d";
-    static final String SUB_MUSIC_STATS_ZH = "\u7d71\u8a08";
-    static final String SUB_PLAYLIST_SAVE_ZH = "\u5132\u5b58";
-    static final String SUB_PLAYLIST_LOAD_ZH = "\u8f09\u5165";
-    static final String SUB_PLAYLIST_DELETE_ZH = "\u522a\u9664";
-    static final String SUB_PLAYLIST_LIST_ZH = "\u5217\u8868";
-    static final String SUB_PLAYLIST_EXPORT_ZH = "\u532f\u51fa";
-    static final String SUB_PLAYLIST_IMPORT_ZH = "\u532f\u5165";
-    static final String SUB_PLAYLIST_VIEW_ZH = "\u67e5\u770b";
-    static final String SUB_PLAYLIST_REMOVE_TRACK_ZH = "\u522a\u9664\u6b4c\u66f2";
-    static final String SUB_PLAYLIST_ADD_ZH = "\u65b0\u589e\u6b4c\u66f2";
     public static final String OPTION_QUERY_ZH = "query";
     public static final String OPTION_VOLUME_VALUE_ZH = "\u97f3\u91cf";
     public static final String OPTION_SPEED_VALUE_ZH = "\u500d\u901f";
-    static final String SUB_DELETE_CHANNEL_ZH = "\u983b\u9053";
-    static final String SUB_DELETE_USER_ZH = "\u4f7f\u7528\u8005";
     public static final String HELP_SELECT_ID = ComponentIds.HELP_SELECT_ID;
     public static final String HELP_BUTTON_PREFIX = ComponentIds.HELP_BUTTON_PREFIX;
     public static final String WELCOME_MODAL_ID = ComponentIds.WELCOME_MODAL_ID;
@@ -150,21 +98,10 @@ public class MusicCommandService extends ListenerAdapter {
     public static final String PANEL_REFRESH = ComponentIds.PANEL_REFRESH;
     public static final String PANEL_SHUFFLE = ComponentIds.PANEL_SHUFFLE;
     private static final String CMD_VOLUME = CommandNames.CMD_VOLUME;
-    private static final String CMD_HISTORY = CommandNames.CMD_HISTORY;
     private static final String CMD_PLAYLIST = CommandNames.CMD_PLAYLIST;
     private static final String CMD_LEAVE = CommandNames.CMD_LEAVE;
     private static final String CMD_REPEAT = CommandNames.CMD_REPEAT;
-    private static final String CMD_MUSIC = CommandNames.CMD_MUSIC;
     private static final String OPTION_CHANNEL = CommandOptions.CHANNEL;
-    private static final String OPTION_RESET = CommandOptions.RESET;
-    private static final String ROUTE_LANGUAGE = "language";
-    private static final String ROUTE_NUMBER_CHAIN = CommandNames.CMD_NUMBER_CHAIN;
-    private static final String ROUTE_WORD_CHAIN = CommandNames.CMD_WORD_CHAIN;
-    private static final String ROUTE_LOG_SETTINGS = "log-settings";
-    private static final String ROUTE_ACTION = CommandOptions.ACTION;
-    private static final String ROUTE_RELOAD = "reload";
-    private static final String ROUTE_TEMPLATE = "template";
-    private static final String ROUTE_MODULE = "module";
     private static final String VALUE_MEMBER_JOIN = "member-join";
     private static final String VALUE_MEMBER_LEAVE = "member-leave";
 
@@ -193,6 +130,7 @@ public class MusicCommandService extends ListenerAdapter {
     private final GuildDomainConfigAdapter ticketConfigAdapter;
     private final PlaybackFailureNotifier playbackFailureNotifier;
     private final HelpViewRenderer helpViewRenderer;
+    private final DiscordCommandRouteMapper commandRouteMapper = new DiscordCommandRouteMapper();
     private final AtomicBoolean botReadyForSlashCommands = new AtomicBoolean(false);
     private static final long PANEL_PERIODIC_REFRESH_MS = 10_000L;
 
@@ -537,134 +475,26 @@ public class MusicCommandService extends ListenerAdapter {
         return discordCommandCatalog.buildCommands();
     }
     public String canonicalSlashName(String name) {
-        return switch (name) {
-            case CMD_HELP_ZH -> "help";
-            case CMD_PING_ZH -> "ping";
-            case CMD_WELCOME_ZH -> "welcome";
-            case CMD_VOLUME_ZH -> CMD_VOLUME;
-            case CMD_HISTORY_ZH -> CMD_HISTORY;
-            case CMD_MUSIC_ZH -> CMD_MUSIC;
-            case CMD_PLAYLIST_ZH -> CMD_PLAYLIST;
-            case CMD_JOIN_ZH -> "join";
-            case CMD_PLAY_ZH -> "play";
-            case CMD_SKIP_ZH -> "skip";
-            case CMD_STOP_ZH -> "stop";
-            case CMD_LEAVE_ZH -> CMD_LEAVE;
-            case CMD_MUSIC_PANEL_ZH -> "music-panel";
-            case CMD_REPEAT_ZH -> CMD_REPEAT;
-            case CMD_SETTINGS_ZH -> "settings";
-            case CMD_DELETE_ZH -> "delete-messages";
-            case CMD_ROOM_SETTINGS_ZH -> "private-room-settings";
-            case CMD_WARNINGS_ZH -> "warnings";
-            case CMD_ANTI_DUPLICATE_ZH -> "anti-duplicate";
-            case CMD_HONEYPOT_ZH -> "honeypot-channel";
-            case CMD_NUMBER_CHAIN_ZH -> ROUTE_NUMBER_CHAIN;
-            case CMD_WORD_CHAIN_ZH -> ROUTE_WORD_CHAIN;
-            case CMD_TICKET_ZH -> "ticket";
-            case CMD_USER_INFO_ZH -> "user-info";
-            case CMD_ROLE_INFO_ZH -> "role-info";
-            case CMD_SERVER_INFO_ZH -> "server-info";
-            case CMD_STATS_ZH -> "stats";
-            case CMD_LEADERBOARD_ZH -> "top";
-            case CMD_SHORT_URL_ZH -> "url";
-            case CMD_MINECRAFT_STATUS_ZH -> "mcstatus";
-            default -> name;
-        };
+        return commandRouteMapper.canonicalSlashName(name);
     }
     public String canonicalSettingsSubcommand(String sub) {
-        return switch (sub) {
-            case SUB_SETTINGS_INFO_ZH -> "info";
-            case SUB_SETTINGS_RELOAD_ZH -> ROUTE_RELOAD;
-            case SUB_SETTINGS_RESET_ZH -> OPTION_RESET;
-            case SUB_SETTINGS_TEMPLATE_ZH -> ROUTE_TEMPLATE;
-            case SUB_SETTINGS_MODULE_ZH -> ROUTE_MODULE;
-            case SUB_SETTINGS_LOGS_ZH -> "logs";
-            case SUB_SETTINGS_LOG_SETTINGS_ZH -> ROUTE_LOG_SETTINGS;
-            case SUB_SETTINGS_MUSIC_ZH -> CMD_MUSIC;
-            case SUB_SETTINGS_LANGUAGE_ZH -> ROUTE_LANGUAGE;
-            case SUB_SETTINGS_NUMBER_CHAIN_ZH -> ROUTE_NUMBER_CHAIN;
-            case SUB_SETTINGS_WORD_CHAIN_ZH -> ROUTE_WORD_CHAIN;
-            default -> sub;
-        };
+        return commandRouteMapper.canonicalSettingsSubcommand(sub);
     }
-
-    private String canonicalDeleteSubcommand(String sub) {
-        return switch (sub) {
-            case SUB_DELETE_CHANNEL_ZH -> OPTION_CHANNEL;
-            case SUB_DELETE_USER_ZH -> "user";
-            default -> sub;
-        };
-    }
-
     public String canonicalMusicSubcommand(String sub) {
-        return switch (sub) {
-            case SUB_MUSIC_STATS_ZH -> "stats";
-            default -> sub;
-        };
+        return commandRouteMapper.canonicalMusicSubcommand(sub);
     }
     public String canonicalPlaylistSubcommand(String sub) {
-        return switch (sub) {
-            case SUB_PLAYLIST_SAVE_ZH -> "save";
-            case SUB_PLAYLIST_LOAD_ZH -> "load";
-            case SUB_PLAYLIST_ADD_ZH -> "add";
-            case SUB_PLAYLIST_DELETE_ZH -> "delete";
-            case SUB_PLAYLIST_LIST_ZH -> "list";
-            case SUB_PLAYLIST_VIEW_ZH -> "view";
-            case SUB_PLAYLIST_REMOVE_TRACK_ZH -> "remove-track";
-            case SUB_PLAYLIST_EXPORT_ZH -> "export";
-            case SUB_PLAYLIST_IMPORT_ZH -> "import";
-            default -> sub;
-        };
+        return commandRouteMapper.canonicalPlaylistSubcommand(sub);
     }
     public String lang(long guildId) {
         return settingsService.getLanguage(guildId);
     }
 
     public boolean isSlashMusicCommand(String name) {
-        name = canonicalSlashName(name);
-        return "join".equals(name)
-                || "play".equals(name)
-                || "skip".equals(name)
-                || "stop".equals(name)
-                || CMD_LEAVE.equals(name)
-                || CMD_REPEAT.equals(name)
-                || CMD_VOLUME.equals(name)
-                || CMD_HISTORY.equals(name)
-                || CMD_MUSIC.equals(name)
-                || CMD_PLAYLIST.equals(name)
-                || "music-panel".equals(name);
+        return commandRouteMapper.isSlashMusicCommand(name);
     }
     public boolean isKnownSlashCommand(String name) {
-        name = canonicalSlashName(name);
-        return "help".equals(name)
-                || "ping".equals(name)
-                || "welcome".equals(name)
-                || CMD_VOLUME.equals(name)
-                || CMD_HISTORY.equals(name)
-                || CMD_MUSIC.equals(name)
-                || CMD_PLAYLIST.equals(name)
-                || "join".equals(name)
-                || "play".equals(name)
-                || "skip".equals(name)
-                || "stop".equals(name)
-                || CMD_LEAVE.equals(name)
-                || "music-panel".equals(name)
-                || CMD_REPEAT.equals(name)
-                || "settings".equals(name)
-                || "delete-messages".equals(name)
-                || "private-room-settings".equals(name)
-                || "warnings".equals(name)
-                || "anti-duplicate".equals(name)
-                || "honeypot-channel".equals(name)
-                || ROUTE_NUMBER_CHAIN.equals(name)
-                || ROUTE_WORD_CHAIN.equals(name)
-                || "user-info".equals(name)
-                || "role-info".equals(name)
-                || "server-info".equals(name)
-                || "url".equals(name)
-                || "mcstatus".equals(name)
-                || "stats".equals(name)
-                || "top".equals(name);
+        return commandRouteMapper.isKnownSlashCommand(name);
     }
     public boolean isMusicCommandChannelAllowed(Guild guild, long channelId) {
         Long configured = settingsService.getMusic(guild.getIdLong()).getCommandChannelId();
@@ -674,32 +504,7 @@ public class MusicCommandService extends ListenerAdapter {
         return member != null && member.hasPermission(permission);
     }
     public String buildSlashRoute(SlashCommandInteractionEvent event) {
-        String command = canonicalSlashName(event.getName());
-        String group = event.getSubcommandGroup();
-        String sub = event.getSubcommandName();
-        if ("settings".equals(command) && sub != null) {
-            sub = canonicalSettingsSubcommand(sub);
-        } else if ("settings".equals(command) && event.getOption(ROUTE_ACTION) != null) {
-            sub = canonicalSettingsSubcommand(event.getOption(ROUTE_ACTION).getAsString());
-        } else if (CMD_MUSIC.equals(command) && sub != null) {
-            sub = canonicalMusicSubcommand(sub);
-        } else if (CMD_PLAYLIST.equals(command) && sub != null) {
-            sub = canonicalPlaylistSubcommand(sub);
-        }
-        if (("warnings".equals(command) || "anti-duplicate".equals(command) || "ticket".equals(command))
-                && sub == null && event.getOption(ROUTE_ACTION) != null) {
-            sub = event.getOption(ROUTE_ACTION).getAsString();
-        }
-        if ("delete-messages".equals(command) && sub != null) {
-            sub = canonicalDeleteSubcommand(sub);
-        }
-        if (group != null && sub != null) {
-            return command + " " + group + " " + sub;
-        }
-        if (sub != null) {
-            return command + " " + sub;
-        }
-        return command;
+        return commandRouteMapper.buildSlashRoute(event);
     }
     public void logCommandUsage(Guild guild, Member member, String commandText, long channelId) {
         var logs = settingsService.getMessageLogs(guild.getIdLong());
