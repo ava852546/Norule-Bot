@@ -1,11 +1,12 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings;
 
-import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.command.CommandNames;
 import com.norule.musicbot.discord.bot.gateway.command.CommandOptions;
+import com.norule.musicbot.i18n.I18nService;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 
 import java.util.Map;
+import java.util.function.Supplier;
 
 public final class SettingsOptionValidator {
     private static final String ROUTE_ACTION = CommandOptions.ACTION;
@@ -24,10 +25,10 @@ public final class SettingsOptionValidator {
     private static final String ROUTE_WORD_CHAIN = CommandNames.CMD_WORD_CHAIN;
     private static final String ROUTE_LOG_SETTINGS = "log-settings";
 
-    private final MusicCommandService owner;
+    private final Supplier<I18nService> i18n;
 
-    public SettingsOptionValidator(MusicCommandService owner) {
-        this.owner = owner;
+    public SettingsOptionValidator(Supplier<I18nService> i18n) {
+        this.i18n = i18n;
     }
 
     public String validate(SlashCommandInteractionEvent event, String route, String lang) {
@@ -106,7 +107,7 @@ public final class SettingsOptionValidator {
     }
 
     private String settingsActionOptionError(String lang, String route, String option) {
-        return owner.i18nService().t(lang, "settings.option_not_allowed",
+        return i18n.get().t(lang, "settings.option_not_allowed",
                 Map.of(
                         ROUTE_ACTION, settingsActionLabel(lang, route),
                         "option", settingsOptionLabel(lang, route, option)
@@ -115,32 +116,32 @@ public final class SettingsOptionValidator {
 
     private String settingsActionLabel(String lang, String route) {
         return switch (route) {
-            case ROUTE_INFO -> owner.i18nService().t(lang, "settings.info");
-            case ROUTE_RELOAD -> owner.i18nService().t(lang, "settings.reload");
-            case OPTION_RESET -> owner.i18nService().t(lang, "settings.reset");
-            case ROUTE_TEMPLATE -> owner.i18nService().t(lang, "settings.template");
-            case ROUTE_MODULE -> owner.i18nService().t(lang, "settings.module");
-            case "logs" -> owner.i18nService().t(lang, "settings.logs");
-            case ROUTE_LOG_SETTINGS -> owner.i18nService().t(lang, "settings.log_settings.title");
-            case ROUTE_MUSIC -> owner.i18nService().t(lang, "settings.music");
-            case ROUTE_LANGUAGE -> owner.i18nService().t(lang, "settings.info_language");
-            case ROUTE_NUMBER_CHAIN -> owner.i18nService().t(lang, "settings.info_number_chain");
-            case ROUTE_WORD_CHAIN -> owner.i18nService().t(lang, "settings.info_word_chain");
+            case ROUTE_INFO -> i18n.get().t(lang, "settings.info");
+            case ROUTE_RELOAD -> i18n.get().t(lang, "settings.reload");
+            case OPTION_RESET -> i18n.get().t(lang, "settings.reset");
+            case ROUTE_TEMPLATE -> i18n.get().t(lang, "settings.template");
+            case ROUTE_MODULE -> i18n.get().t(lang, "settings.module");
+            case "logs" -> i18n.get().t(lang, "settings.logs");
+            case ROUTE_LOG_SETTINGS -> i18n.get().t(lang, "settings.log_settings.title");
+            case ROUTE_MUSIC -> i18n.get().t(lang, "settings.music");
+            case ROUTE_LANGUAGE -> i18n.get().t(lang, "settings.info_language");
+            case ROUTE_NUMBER_CHAIN -> i18n.get().t(lang, "settings.info_number_chain");
+            case ROUTE_WORD_CHAIN -> i18n.get().t(lang, "settings.info_word_chain");
             default -> route;
         };
     }
 
     private String settingsOptionLabel(String lang, String route, String option) {
         return switch (option) {
-            case "code" -> owner.i18nService().t(lang, "settings.language_code_label");
+            case "code" -> i18n.get().t(lang, "settings.language_code_label");
             case OPTION_CHANNEL -> ROUTE_LOG_SETTINGS.equals(route)
-                    ? owner.i18nService().t(lang, "settings.log_settings.channel")
-                    : owner.i18nService().t(lang, "number_chain.channel");
-            case OPTION_VALUE -> owner.i18nService().t(lang, "number_chain.value");
-            case OPTION_RESET -> owner.i18nService().t(lang, "number_chain.reset");
-            case OPTION_LOG_SETTING -> owner.i18nService().t(lang, "settings.log_settings.target");
-            case "user" -> owner.i18nService().t(lang, "settings.log_settings.user");
-            case OPTION_PREFIX -> owner.i18nService().t(lang, "settings.log_settings.prefix");
+                    ? i18n.get().t(lang, "settings.log_settings.channel")
+                    : i18n.get().t(lang, "number_chain.channel");
+            case OPTION_VALUE -> i18n.get().t(lang, "number_chain.value");
+            case OPTION_RESET -> i18n.get().t(lang, "number_chain.reset");
+            case OPTION_LOG_SETTING -> i18n.get().t(lang, "settings.log_settings.target");
+            case "user" -> i18n.get().t(lang, "settings.log_settings.user");
+            case OPTION_PREFIX -> i18n.get().t(lang, "settings.log_settings.prefix");
             default -> option;
         };
     }

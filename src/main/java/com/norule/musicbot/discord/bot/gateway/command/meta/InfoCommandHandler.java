@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.meta;
 
-import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.config.GuildSettingsService;
+import com.norule.musicbot.i18n.I18nService;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
@@ -18,19 +19,22 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 public final class InfoCommandHandler {
-    private final MusicCommandService owner;
+    private final Supplier<I18nService> i18n;
+    private final GuildSettingsService settingsService;
 
-    public InfoCommandHandler(MusicCommandService owner) {
-        this.owner = owner;
+    public InfoCommandHandler(Supplier<I18nService> i18n, GuildSettingsService settingsService) {
+        this.i18n = i18n;
+        this.settingsService = settingsService;
     }
 
     public void handleUserInfo(SlashCommandInteractionEvent event, String lang) {
         Member target = resolveTargetMember(event);
         if (target == null) {
-            event.reply(owner.i18nService().t(lang, "general.invalid_user")).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, "general.invalid_user")).setEphemeral(true).queue();
             return;
         }
 
@@ -62,7 +66,7 @@ public final class InfoCommandHandler {
     public void handleServerInfo(SlashCommandInteractionEvent event, String lang) {
         Guild guild = event.getGuild();
         if (guild == null) {
-            event.reply(owner.i18nService().t(lang, "general.only_guild")).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, "general.only_guild")).setEphemeral(true).queue();
             return;
         }
         event.deferReply().queue(hook -> guild.findMembers(member -> true)
@@ -216,7 +220,7 @@ public final class InfoCommandHandler {
     }
 
     private String text(long guildId, String key) {
-        return text(owner.lang(guildId), key);
+        return text(settingsService.getLanguage(guildId), key);
     }
 
     private String text(String lang, String key) {
@@ -224,7 +228,7 @@ public final class InfoCommandHandler {
     }
 
     private String text(long guildId, String key, Map<String, String> placeholders) {
-        return text(owner.lang(guildId), key, placeholders);
+        return text(settingsService.getLanguage(guildId), key, placeholders);
     }
 
     private String text(String lang, String key, Map<String, String> placeholders) {

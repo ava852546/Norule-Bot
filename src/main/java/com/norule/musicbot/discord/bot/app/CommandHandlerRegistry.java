@@ -50,19 +50,19 @@ class CommandHandlerRegistry {
                            MinecraftStatusOps minecraftStatusOps) {
         this.settingsCommandHandler = new SettingsCommandHandler(service);
         this.helpCommandHandler = new HelpCommandHandler(service);
-        this.pingCommandHandler = new PingCommandHandler(service);
+        this.pingCommandHandler = new PingCommandHandler(service::i18nService);
         this.welcomeCommandHandler = new WelcomeCommandHandler(service);
         this.historyCommandHandler = new HistoryCommandHandler(service);
         this.deleteMessagesCommandHandler = new DeleteMessagesCommandHandler(service);
         this.privateRoomSettingsCommandHandler = new PrivateRoomSettingsCommandHandler(service);
         this.antiDuplicateCommandHandler = new AntiDuplicateCommandHandler(service);
-        this.languageMenuHandler = new SettingsLanguageMenuHandler(service);
+        this.languageMenuHandler = new SettingsLanguageMenuHandler(service::i18nService, service.settingsService());
         this.numberChainMenuHandler = new SettingsNumberChainMenuHandler(service);
         this.wordChainMenuHandler = new SettingsWordChainMenuHandler(service);
         this.warningCommandHandler = new WarningCommandHandler(service);
         this.honeypotCommandHandler = new HoneypotCommandHandler(service);
-        this.infoCommandHandler = new InfoCommandHandler(service);
-        this.urlCommandHandler = new UrlCommandHandler(service);
+        this.infoCommandHandler = new InfoCommandHandler(service::i18nService, service.settingsService());
+        this.urlCommandHandler = new UrlCommandHandler(service.shortUrlService());
         this.playlistCommandHandler = new PlaylistCommandHandler(service, musicPanelController);
         this.playbackCommandHandler = new MusicPlaybackCommandHandler(service, musicPanelController, musicPlaybackText);
         this.minecraftStatusCommandHandler = new MinecraftStatusCommandHandler(service, minecraftStatusOps);

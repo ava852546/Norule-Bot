@@ -1,16 +1,18 @@
 package com.norule.musicbot.discord.bot.gateway.command.meta;
 
-import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.i18n.I18nService;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 
 import java.awt.Color;
 import java.time.Instant;
+import java.util.function.Supplier;
 
 public final class PingCommandHandler {
-    private final MusicCommandService owner;
-    public PingCommandHandler(MusicCommandService owner) {
-        this.owner = owner;
+    private final Supplier<I18nService> i18n;
+
+    public PingCommandHandler(Supplier<I18nService> i18n) {
+        this.i18n = i18n;
     }
     public void handlePingSlash(SlashCommandInteractionEvent event, String lang) {
         long start = System.currentTimeMillis();
@@ -30,7 +32,7 @@ public final class PingCommandHandler {
 
     private String pingText(String lang, String key) {
         String fullKey = "ping." + key;
-        String value = owner.i18nService().t(lang, fullKey);
+        String value = i18n.get().t(lang, fullKey);
         return isMissingTranslation(value, fullKey) ? pingUx(lang, key) : value;
     }
 

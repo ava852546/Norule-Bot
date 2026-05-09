@@ -1,7 +1,8 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 
-import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.config.GuildSettingsService;
 import com.norule.musicbot.discord.bot.gateway.command.CommandNames;
+import com.norule.musicbot.i18n.I18nService;
 import com.norule.musicbot.discord.bot.gateway.command.CommandOptions;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 public final class SettingsLogsMenuHandler {
     private static final String SETTINGS_LOGS_SELECT_PREFIX       = ComponentIds.SETTINGS_LOGS_SELECT_PREFIX;
@@ -41,11 +43,13 @@ public final class SettingsLogsMenuHandler {
     private static final String CMD_LEAVE      = CommandNames.CMD_LEAVE;
     private static final String ROUTE_MODULE   = "module";
 
-    private final MusicCommandService owner;
+    private final Supplier<I18nService> i18n;
+    private final GuildSettingsService settingsService;
     private final Map<String, MenuRequest> logsMenuRequests = new ConcurrentHashMap<>();
 
-    public SettingsLogsMenuHandler(MusicCommandService owner) {
-        this.owner = owner;
+    public SettingsLogsMenuHandler(Supplier<I18nService> i18n, GuildSettingsService settingsService) {
+        this.i18n = i18n;
+        this.settingsService = settingsService;
     }
 
     public void cleanupExpiredRequests(Instant now) {
@@ -57,8 +61,8 @@ public final class SettingsLogsMenuHandler {
         String token = registerMenuRequest(event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.replyEmbeds(new EmbedBuilder()
                         .setColor(new Color(241, 196, 15))
-                        .setTitle(owner.i18nService().t(lang, "settings.logs_menu_title"))
-                        .setDescription(owner.i18nService().t(lang, "settings.logs_menu_desc"))
+                        .setTitle(i18n.get().t(lang, "settings.logs_menu_title"))
+                        .setDescription(i18n.get().t(lang, "settings.logs_menu_desc"))
                         .build())
                 .addComponents(ActionRow.of(settingsLogsMenu(token, event.getGuild(), lang)))
                 .setEphemeral(true)
@@ -69,8 +73,8 @@ public final class SettingsLogsMenuHandler {
         String token = registerMenuRequest(event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.editMessageEmbeds(new EmbedBuilder()
                         .setColor(new Color(241, 196, 15))
-                        .setTitle(owner.i18nService().t(lang, "settings.logs_menu_title"))
-                        .setDescription(owner.i18nService().t(lang, "settings.logs_menu_desc"))
+                        .setTitle(i18n.get().t(lang, "settings.logs_menu_title"))
+                        .setDescription(i18n.get().t(lang, "settings.logs_menu_desc"))
                         .build())
                 .setComponents(ActionRow.of(settingsLogsMenu(token, event.getGuild(), lang)))
                 .queue();
@@ -79,23 +83,23 @@ public final class SettingsLogsMenuHandler {
     private StringSelectMenu settingsLogsMenu(String token, Guild guild, String lang) {
         long guildId = guild.getIdLong();
         return StringSelectMenu.create(SETTINGS_LOGS_SELECT_PREFIX + token)
-                .setPlaceholder(owner.i18nService().t(lang, "settings.logs_menu_placeholder"))
+                .setPlaceholder(i18n.get().t(lang, "settings.logs_menu_placeholder"))
                 .addOptions(
-                        SelectOption.of(owner.i18nService().t(lang, "settings.info_key_log_channel"), "default-channel")
+                        SelectOption.of(i18n.get().t(lang, "settings.info_key_log_channel"), "default-channel")
                                 .withDescription(logsModuleStatusText(lang, guildId, "default-channel")),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.key_messageLogs_messageLogChannelId"), "messages-channel")
+                        SelectOption.of(i18n.get().t(lang, "settings.key_messageLogs_messageLogChannelId"), "messages-channel")
                                 .withDescription(logsModuleStatusText(lang, guildId, "messages-channel")),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.key_notifications_memberChannelId"), "member-channel")
+                        SelectOption.of(i18n.get().t(lang, "settings.key_notifications_memberChannelId"), "member-channel")
                                 .withDescription(logsModuleStatusText(lang, guildId, "member-channel")),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.key_notifications_voiceChannelId"), "voice-channel")
+                        SelectOption.of(i18n.get().t(lang, "settings.key_notifications_voiceChannelId"), "voice-channel")
                                 .withDescription(logsModuleStatusText(lang, guildId, "voice-channel")),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.key_messageLogs_commandUsageChannelId"), "command-usage-channel")
+                        SelectOption.of(i18n.get().t(lang, "settings.key_messageLogs_commandUsageChannelId"), "command-usage-channel")
                                 .withDescription(logsModuleStatusText(lang, guildId, "command-usage-channel")),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.key_messageLogs_channelLifecycleChannelId"), "channel-events-channel")
+                        SelectOption.of(i18n.get().t(lang, "settings.key_messageLogs_channelLifecycleChannelId"), "channel-events-channel")
                                 .withDescription(logsModuleStatusText(lang, guildId, "channel-events-channel")),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.key_messageLogs_roleLogChannelId"), "role-events-channel")
+                        SelectOption.of(i18n.get().t(lang, "settings.key_messageLogs_roleLogChannelId"), "role-events-channel")
                                 .withDescription(logsModuleStatusText(lang, guildId, "role-events-channel")),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.key_messageLogs_moderationLogChannelId"), "moderation-channel")
+                        SelectOption.of(i18n.get().t(lang, "settings.key_messageLogs_moderationLogChannelId"), "moderation-channel")
                                 .withDescription(logsModuleStatusText(lang, guildId, "moderation-channel"))
                 )
                 .build();
@@ -106,25 +110,25 @@ public final class SettingsLogsMenuHandler {
         MenuRequest request = logsMenuRequests.get(token);
         if (request == null || Instant.now().isAfter(request.expiresAt)) {
             logsMenuRequests.remove(token);
-            event.reply(owner.i18nService().t(lang, "settings.logs_menu_expired")).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, "settings.logs_menu_expired")).setEphemeral(true).queue();
             return;
         }
         if (event.getGuild().getIdLong() != request.guildId) {
-            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
             return;
         }
         if (event.getUser().getIdLong() != request.requestUserId) {
-            event.reply(owner.i18nService().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
             return;
         }
         String target = event.getValues().isEmpty() ? "" : event.getValues().get(0);
         if (target.isBlank()) {
-            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
             return;
         }
 
         if ("member-channel".equals(target)) {
-            var notifications = owner.settingsService().getNotifications(event.getGuild().getIdLong());
+            var notifications = settingsService.getNotifications(event.getGuild().getIdLong());
             boolean split = notifications.getMemberJoinChannelId() != null || notifications.getMemberLeaveChannelId() != null;
             if (!split) {
                 openSharedMemberChannelPicker(event, token, lang);
@@ -132,8 +136,8 @@ public final class SettingsLogsMenuHandler {
             }
             event.editMessageEmbeds(new EmbedBuilder()
                             .setColor(new Color(241, 196, 15))
-                            .setTitle(owner.i18nService().t(lang, "settings.logs_member_mode_title"))
-                            .setDescription(owner.i18nService().t(lang, "settings.logs_member_mode_desc"))
+                            .setTitle(i18n.get().t(lang, "settings.logs_member_mode_title"))
+                            .setDescription(i18n.get().t(lang, "settings.logs_member_mode_desc"))
                             .build())
                     .setComponents(ActionRow.of(settingsMemberChannelModeMenu(token, lang)))
                     .queue();
@@ -143,15 +147,15 @@ public final class SettingsLogsMenuHandler {
         String channelComponentId = SETTINGS_LOGS_CHANNEL_PREFIX + token + ":" + target;
         EntitySelectMenu channelMenu = EntitySelectMenu.create(channelComponentId, EntitySelectMenu.SelectTarget.CHANNEL)
                 .setChannelTypes(ChannelType.TEXT)
-                .setPlaceholder(owner.i18nService().t(lang, "settings.logs_menu_channel_placeholder"))
+                .setPlaceholder(i18n.get().t(lang, "settings.logs_menu_channel_placeholder"))
                 .setRequiredRange(1, 1)
                 .build();
         String key = logsTargetKey(target);
-        String keyText = key == null ? target : owner.i18nService().t(lang, key);
+        String keyText = key == null ? target : i18n.get().t(lang, key);
         event.editMessageEmbeds(new EmbedBuilder()
                         .setColor(new Color(241, 196, 15))
-                        .setTitle(owner.i18nService().t(lang, "settings.logs_menu_pick_channel_title"))
-                        .setDescription(owner.i18nService().t(lang, "settings.logs_menu_pick_channel_desc", Map.of("target", keyText)))
+                        .setTitle(i18n.get().t(lang, "settings.logs_menu_pick_channel_title"))
+                        .setDescription(i18n.get().t(lang, "settings.logs_menu_pick_channel_desc", Map.of("target", keyText)))
                         .build())
                 .setComponents(ActionRow.of(channelMenu))
                 .queue();
@@ -159,25 +163,25 @@ public final class SettingsLogsMenuHandler {
 
     private StringSelectMenu settingsMemberChannelModeMenu(String token, String lang) {
         return StringSelectMenu.create(SETTINGS_LOGS_MEMBER_MODE_PREFIX + token)
-                .setPlaceholder(owner.i18nService().t(lang, "settings.logs_member_mode_placeholder"))
+                .setPlaceholder(i18n.get().t(lang, "settings.logs_member_mode_placeholder"))
                 .addOptions(
-                        SelectOption.of(owner.i18nService().t(lang, "settings.logs_member_mode_shared"), "member-channel-shared"),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.logs_member_mode_split"), "member-channel-split")
+                        SelectOption.of(i18n.get().t(lang, "settings.logs_member_mode_shared"), "member-channel-shared"),
+                        SelectOption.of(i18n.get().t(lang, "settings.logs_member_mode_split"), "member-channel-split")
                 )
                 .build();
     }
 
     private StringSelectMenu settingsMemberSplitMenu(String token, Guild guild, String lang) {
-        var n = owner.settingsService().getNotifications(guild.getIdLong());
+        var n = settingsService.getNotifications(guild.getIdLong());
         String joinValue  = safe(formatTextChannel(guild, n.getMemberJoinChannelId(), lang), 80);
         String leaveValue = safe(formatTextChannel(guild, n.getMemberLeaveChannelId(), lang), 80);
         return StringSelectMenu.create(SETTINGS_LOGS_MEMBER_SPLIT_PREFIX + token)
-                .setPlaceholder(owner.i18nService().t(lang, "settings.logs_member_split_placeholder"))
+                .setPlaceholder(i18n.get().t(lang, "settings.logs_member_split_placeholder"))
                 .addOptions(
-                        SelectOption.of(owner.i18nService().t(lang, "settings.logs_member_split_join"), "member-join-channel")
-                                .withDescription(owner.i18nService().t(lang, "settings.music_menu_current", Map.of(OPTION_VALUE, joinValue))),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.logs_member_split_leave"), "member-leave-channel")
-                                .withDescription(owner.i18nService().t(lang, "settings.music_menu_current", Map.of(OPTION_VALUE, leaveValue)))
+                        SelectOption.of(i18n.get().t(lang, "settings.logs_member_split_join"), "member-join-channel")
+                                .withDescription(i18n.get().t(lang, "settings.music_menu_current", Map.of(OPTION_VALUE, joinValue))),
+                        SelectOption.of(i18n.get().t(lang, "settings.logs_member_split_leave"), "member-leave-channel")
+                                .withDescription(i18n.get().t(lang, "settings.music_menu_current", Map.of(OPTION_VALUE, leaveValue)))
                 )
                 .build();
     }
@@ -187,15 +191,15 @@ public final class SettingsLogsMenuHandler {
         MenuRequest request = logsMenuRequests.get(token);
         if (request == null || Instant.now().isAfter(request.expiresAt)) {
             logsMenuRequests.remove(token);
-            event.reply(owner.i18nService().t(lang, "settings.logs_menu_expired")).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, "settings.logs_menu_expired")).setEphemeral(true).queue();
             return;
         }
         if (event.getGuild().getIdLong() != request.guildId) {
-            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
             return;
         }
         if (event.getUser().getIdLong() != request.requestUserId) {
-            event.reply(owner.i18nService().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
             return;
         }
         String mode = event.getValues().isEmpty() ? "" : event.getValues().get(0);
@@ -206,28 +210,28 @@ public final class SettingsLogsMenuHandler {
         if ("member-channel-split".equals(mode)) {
             event.editMessageEmbeds(new EmbedBuilder()
                             .setColor(new Color(241, 196, 15))
-                            .setTitle(owner.i18nService().t(lang, "settings.logs_member_split_title"))
-                            .setDescription(owner.i18nService().t(lang, "settings.logs_member_split_desc"))
+                            .setTitle(i18n.get().t(lang, "settings.logs_member_split_title"))
+                            .setDescription(i18n.get().t(lang, "settings.logs_member_split_desc"))
                             .build())
                     .setComponents(ActionRow.of(settingsMemberSplitMenu(token, event.getGuild(), lang)))
                     .queue();
             return;
         }
-        event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+        event.reply(i18n.get().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
     }
 
     private void openSharedMemberChannelPicker(StringSelectInteractionEvent event, String token, String lang) {
         String channelComponentId = SETTINGS_LOGS_CHANNEL_PREFIX + token + ":member-channel-shared";
         EntitySelectMenu channelMenu = EntitySelectMenu.create(channelComponentId, EntitySelectMenu.SelectTarget.CHANNEL)
                 .setChannelTypes(ChannelType.TEXT)
-                .setPlaceholder(owner.i18nService().t(lang, "settings.logs_menu_channel_placeholder"))
+                .setPlaceholder(i18n.get().t(lang, "settings.logs_menu_channel_placeholder"))
                 .setRequiredRange(1, 1)
                 .build();
         event.editMessageEmbeds(new EmbedBuilder()
                         .setColor(new Color(241, 196, 15))
-                        .setTitle(owner.i18nService().t(lang, "settings.logs_menu_pick_channel_title"))
-                        .setDescription(owner.i18nService().t(lang, "settings.logs_menu_pick_channel_desc",
-                                Map.of("target", owner.i18nService().t(lang, "settings.logs_member_mode_shared"))))
+                        .setTitle(i18n.get().t(lang, "settings.logs_menu_pick_channel_title"))
+                        .setDescription(i18n.get().t(lang, "settings.logs_menu_pick_channel_desc",
+                                Map.of("target", i18n.get().t(lang, "settings.logs_member_mode_shared"))))
                         .build())
                 .setComponents(ActionRow.of(channelMenu))
                 .queue();
@@ -238,35 +242,35 @@ public final class SettingsLogsMenuHandler {
         MenuRequest request = logsMenuRequests.get(token);
         if (request == null || Instant.now().isAfter(request.expiresAt)) {
             logsMenuRequests.remove(token);
-            event.reply(owner.i18nService().t(lang, "settings.logs_menu_expired")).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, "settings.logs_menu_expired")).setEphemeral(true).queue();
             return;
         }
         if (event.getGuild().getIdLong() != request.guildId) {
-            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
             return;
         }
         if (event.getUser().getIdLong() != request.requestUserId) {
-            event.reply(owner.i18nService().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
             return;
         }
         String target = event.getValues().isEmpty() ? "" : event.getValues().get(0);
         if (!"member-join-channel".equals(target) && !"member-leave-channel".equals(target)) {
-            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
             return;
         }
         String channelComponentId = SETTINGS_LOGS_CHANNEL_PREFIX + token + ":" + target;
         EntitySelectMenu channelMenu = EntitySelectMenu.create(channelComponentId, EntitySelectMenu.SelectTarget.CHANNEL)
                 .setChannelTypes(ChannelType.TEXT)
-                .setPlaceholder(owner.i18nService().t(lang, "settings.logs_menu_channel_placeholder"))
+                .setPlaceholder(i18n.get().t(lang, "settings.logs_menu_channel_placeholder"))
                 .setRequiredRange(1, 1)
                 .build();
         String targetText = "member-join-channel".equals(target)
-                ? owner.i18nService().t(lang, "settings.logs_member_split_join")
-                : owner.i18nService().t(lang, "settings.logs_member_split_leave");
+                ? i18n.get().t(lang, "settings.logs_member_split_join")
+                : i18n.get().t(lang, "settings.logs_member_split_leave");
         event.editMessageEmbeds(new EmbedBuilder()
                         .setColor(new Color(241, 196, 15))
-                        .setTitle(owner.i18nService().t(lang, "settings.logs_menu_pick_channel_title"))
-                        .setDescription(owner.i18nService().t(lang, "settings.logs_menu_pick_channel_desc", Map.of("target", targetText)))
+                        .setTitle(i18n.get().t(lang, "settings.logs_menu_pick_channel_title"))
+                        .setDescription(i18n.get().t(lang, "settings.logs_menu_pick_channel_desc", Map.of("target", targetText)))
                         .build())
                 .setComponents(ActionRow.of(channelMenu))
                 .queue();
@@ -276,7 +280,7 @@ public final class SettingsLogsMenuHandler {
         String suffix = event.getComponentId().substring(SETTINGS_LOGS_CHANNEL_PREFIX.length());
         int idx = suffix.indexOf(':');
         if (idx <= 0 || idx >= suffix.length() - 1) {
-            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
             return;
         }
         String token  = suffix.substring(0, idx);
@@ -285,32 +289,32 @@ public final class SettingsLogsMenuHandler {
         MenuRequest request = logsMenuRequests.get(token);
         if (request == null || Instant.now().isAfter(request.expiresAt)) {
             logsMenuRequests.remove(token);
-            event.reply(owner.i18nService().t(lang, "settings.logs_menu_expired")).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, "settings.logs_menu_expired")).setEphemeral(true).queue();
             return;
         }
         if (event.getGuild().getIdLong() != request.guildId) {
-            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
             return;
         }
         if (event.getUser().getIdLong() != request.requestUserId) {
-            event.reply(owner.i18nService().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
             return;
         }
 
         List<TextChannel> channels = event.getMentions().getChannels(TextChannel.class);
         if (channels.isEmpty()) {
-            event.reply(owner.i18nService().t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
             return;
         }
         GuildChannel selected = channels.get(0);
         if (!(selected instanceof TextChannel textChannel)) {
-            event.reply(owner.i18nService().t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
             return;
         }
         String missing = formatMissingPermissions(event.getGuild().getSelfMember(), textChannel,
                 Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND, Permission.MESSAGE_EMBED_LINKS);
         if (!"-".equals(missing)) {
-            event.reply(owner.i18nService().t(lang, "general.missing_permissions", Map.of("permissions", missing)))
+            event.reply(i18n.get().t(lang, "general.missing_permissions", Map.of("permissions", missing)))
                     .setEphemeral(true)
                     .queue();
             return;
@@ -319,47 +323,47 @@ public final class SettingsLogsMenuHandler {
         long guildId = event.getGuild().getIdLong();
         switch (target) {
             case "default-channel" ->
-                    owner.settingsService().updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withChannelId(textChannel.getIdLong())));
+                    settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withChannelId(textChannel.getIdLong())));
             case "messages-channel" ->
-                    owner.settingsService().updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withMessageLogChannelId(textChannel.getIdLong())));
+                    settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withMessageLogChannelId(textChannel.getIdLong())));
             case "member-channel-shared" ->
-                    owner.settingsService().updateSettings(guildId, s -> s.withNotifications(s.getNotifications()
+                    settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications()
                             .withMemberChannelId(textChannel.getIdLong())
                             .withMemberJoinChannelId(null)
                             .withMemberLeaveChannelId(null)));
             case "member-join-channel" ->
-                    owner.settingsService().updateSettings(guildId, s -> s.withNotifications(s.getNotifications()
+                    settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications()
                             .withMemberChannelId(null)
                             .withMemberJoinChannelId(textChannel.getIdLong())));
             case "member-leave-channel" ->
-                    owner.settingsService().updateSettings(guildId, s -> s.withNotifications(s.getNotifications()
+                    settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications()
                             .withMemberChannelId(null)
                             .withMemberLeaveChannelId(textChannel.getIdLong())));
             case "voice-channel" ->
-                    owner.settingsService().updateSettings(guildId, s -> s.withNotifications(s.getNotifications().withVoiceChannelId(textChannel.getIdLong())));
+                    settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications().withVoiceChannelId(textChannel.getIdLong())));
             case "command-usage-channel" ->
-                    owner.settingsService().updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withCommandUsageChannelId(textChannel.getIdLong())));
+                    settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withCommandUsageChannelId(textChannel.getIdLong())));
             case "channel-events-channel" ->
-                    owner.settingsService().updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withChannelLifecycleChannelId(textChannel.getIdLong())));
+                    settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withChannelLifecycleChannelId(textChannel.getIdLong())));
             case "role-events-channel" ->
-                    owner.settingsService().updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withRoleLogChannelId(textChannel.getIdLong())));
+                    settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withRoleLogChannelId(textChannel.getIdLong())));
             case "moderation-channel" ->
-                    owner.settingsService().updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withModerationLogChannelId(textChannel.getIdLong())));
+                    settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withModerationLogChannelId(textChannel.getIdLong())));
             default -> {
-                event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+                event.reply(i18n.get().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
                 return;
             }
         }
 
         String key     = logsTargetKey(target);
-        String keyText = key == null ? target : owner.i18nService().t(lang, key);
-        String savedText = owner.i18nService().t(lang, "general.settings_saved",
+        String keyText = key == null ? target : i18n.get().t(lang, key);
+        String savedText = i18n.get().t(lang, "general.settings_saved",
                 Map.of("key", keyText, OPTION_VALUE, textChannel.getAsMention()));
 
         if ("member-join-channel".equals(target) || "member-leave-channel".equals(target)) {
             event.editMessageEmbeds(new EmbedBuilder()
                             .setColor(new Color(46, 204, 113))
-                            .setTitle(owner.i18nService().t(lang, "settings.logs_member_split_title"))
+                            .setTitle(i18n.get().t(lang, "settings.logs_member_split_title"))
                             .setDescription(savedText)
                             .build())
                     .setComponents(ActionRow.of(settingsMemberSplitMenu(token, event.getGuild(), lang)))
@@ -369,7 +373,7 @@ public final class SettingsLogsMenuHandler {
         if ("member-channel-shared".equals(target)) {
             event.editMessageEmbeds(new EmbedBuilder()
                             .setColor(new Color(46, 204, 113))
-                            .setTitle(owner.i18nService().t(lang, "settings.logs_member_mode_title"))
+                            .setTitle(i18n.get().t(lang, "settings.logs_member_mode_title"))
                             .setDescription(savedText)
                             .build())
                     .setComponents(ActionRow.of(settingsMemberChannelModeMenu(token, lang)))
@@ -378,7 +382,7 @@ public final class SettingsLogsMenuHandler {
         }
         event.editMessageEmbeds(new EmbedBuilder()
                         .setColor(new Color(46, 204, 113))
-                        .setTitle(owner.i18nService().t(lang, "settings.logs_menu_title"))
+                        .setTitle(i18n.get().t(lang, "settings.logs_menu_title"))
                         .setDescription(savedText)
                         .build())
                 .setComponents(ActionRow.of(settingsLogsMenu(token, event.getGuild(), lang)))
@@ -403,72 +407,72 @@ public final class SettingsLogsMenuHandler {
     }
 
     private String logsModuleStatusText(String lang, long guildId, String target) {
-        var s    = owner.settingsService().getSettings(guildId);
+        var s    = settingsService.getSettings(guildId);
         var logs = s.getMessageLogs();
         var n    = s.getNotifications();
         String module = switch (target) {
-            case "default-channel"        -> owner.i18nService().t(lang, "settings.logs_menu_module_default");
-            case "messages-channel"       -> owner.i18nService().t(lang, "settings.logs_menu_module_state",
+            case "default-channel"        -> i18n.get().t(lang, "settings.logs_menu_module_default");
+            case "messages-channel"       -> i18n.get().t(lang, "settings.logs_menu_module_state",
                     Map.of("state", boolText(lang, logs.isEnabled())));
-            case "member-channel"         -> owner.i18nService().t(lang, "settings.logs_menu_module_member_state",
+            case "member-channel"         -> i18n.get().t(lang, "settings.logs_menu_module_member_state",
                     Map.of("join", boolText(lang, n.isMemberJoinEnabled()), CMD_LEAVE, boolText(lang, n.isMemberLeaveEnabled())));
-            case "voice-channel"          -> owner.i18nService().t(lang, "settings.logs_menu_module_state",
+            case "voice-channel"          -> i18n.get().t(lang, "settings.logs_menu_module_state",
                     Map.of("state", boolText(lang, n.isVoiceLogEnabled())));
-            case "command-usage-channel"  -> owner.i18nService().t(lang, "settings.logs_menu_module_state",
+            case "command-usage-channel"  -> i18n.get().t(lang, "settings.logs_menu_module_state",
                     Map.of("state", boolText(lang, logs.isCommandUsageLogEnabled())));
-            case "channel-events-channel" -> owner.i18nService().t(lang, "settings.logs_menu_module_state",
+            case "channel-events-channel" -> i18n.get().t(lang, "settings.logs_menu_module_state",
                     Map.of("state", boolText(lang, logs.isChannelLifecycleLogEnabled())));
-            case "role-events-channel"    -> owner.i18nService().t(lang, "settings.logs_menu_module_state",
+            case "role-events-channel"    -> i18n.get().t(lang, "settings.logs_menu_module_state",
                     Map.of("state", boolText(lang, logs.isRoleLogEnabled())));
-            case "moderation-channel"     -> owner.i18nService().t(lang, "settings.logs_menu_module_state",
+            case "moderation-channel"     -> i18n.get().t(lang, "settings.logs_menu_module_state",
                     Map.of("state", boolText(lang, logs.isModerationLogEnabled())));
-            default -> owner.i18nService().t(lang, "settings.logs_menu_module_none");
+            default -> i18n.get().t(lang, "settings.logs_menu_module_none");
         };
 
         String channel = switch (target) {
-            case "default-channel"        -> owner.i18nService().t(lang, "settings.logs_menu_channel_state",
+            case "default-channel"        -> i18n.get().t(lang, "settings.logs_menu_channel_state",
                     Map.of("state", setStateText(lang, logs.getChannelId() != null)));
-            case "messages-channel"       -> owner.i18nService().t(lang, "settings.logs_menu_channel_state",
+            case "messages-channel"       -> i18n.get().t(lang, "settings.logs_menu_channel_state",
                     Map.of("state", setStateText(lang, logs.getMessageLogChannelId() != null)));
             case "member-channel" -> {
                 boolean split = n.getMemberJoinChannelId() != null || n.getMemberLeaveChannelId() != null;
                 if (split) {
-                    yield owner.i18nService().t(lang, "settings.logs_menu_channel_member_split",
+                    yield i18n.get().t(lang, "settings.logs_menu_channel_member_split",
                             Map.of("join",    setStateText(lang, n.getMemberJoinChannelId() != null),
                                    CMD_LEAVE, setStateText(lang, n.getMemberLeaveChannelId() != null)));
                 }
-                yield owner.i18nService().t(lang, "settings.logs_menu_channel_state",
+                yield i18n.get().t(lang, "settings.logs_menu_channel_state",
                         Map.of("state", setStateText(lang, n.getMemberChannelId() != null)));
             }
-            case "voice-channel"          -> owner.i18nService().t(lang, "settings.logs_menu_channel_state",
+            case "voice-channel"          -> i18n.get().t(lang, "settings.logs_menu_channel_state",
                     Map.of("state", setStateText(lang, n.getVoiceChannelId() != null)));
-            case "command-usage-channel"  -> owner.i18nService().t(lang, "settings.logs_menu_channel_state",
+            case "command-usage-channel"  -> i18n.get().t(lang, "settings.logs_menu_channel_state",
                     Map.of("state", setStateText(lang, logs.getCommandUsageChannelId() != null)));
-            case "channel-events-channel" -> owner.i18nService().t(lang, "settings.logs_menu_channel_state",
+            case "channel-events-channel" -> i18n.get().t(lang, "settings.logs_menu_channel_state",
                     Map.of("state", setStateText(lang, logs.getChannelLifecycleChannelId() != null)));
-            case "role-events-channel"    -> owner.i18nService().t(lang, "settings.logs_menu_channel_state",
+            case "role-events-channel"    -> i18n.get().t(lang, "settings.logs_menu_channel_state",
                     Map.of("state", setStateText(lang, logs.getRoleLogChannelId() != null)));
-            case "moderation-channel"     -> owner.i18nService().t(lang, "settings.logs_menu_channel_state",
+            case "moderation-channel"     -> i18n.get().t(lang, "settings.logs_menu_channel_state",
                     Map.of("state", setStateText(lang, logs.getModerationLogChannelId() != null)));
-            default -> owner.i18nService().t(lang, "settings.logs_menu_channel_state",
+            default -> i18n.get().t(lang, "settings.logs_menu_channel_state",
                     Map.of("state", setStateText(lang, false)));
         };
 
-        return owner.i18nService().t(lang, "settings.logs_menu_status_format",
+        return i18n.get().t(lang, "settings.logs_menu_status_format",
                 Map.of(ROUTE_MODULE, module, OPTION_CHANNEL, channel));
     }
 
     private String setStateText(String lang, boolean set) {
-        return owner.i18nService().t(lang, set ? "settings.logs_menu_channel_set" : "settings.logs_menu_channel_unset");
+        return i18n.get().t(lang, set ? "settings.logs_menu_channel_set" : "settings.logs_menu_channel_unset");
     }
 
     private String boolText(String lang, boolean value) {
-        return owner.i18nService().t(lang, value ? "settings.info_bool_on" : "settings.info_bool_off");
+        return i18n.get().t(lang, value ? "settings.info_bool_on" : "settings.info_bool_off");
     }
 
     private String formatTextChannel(Guild guild, Long id, String lang) {
         if (id == null) {
-            return owner.i18nService().t(lang, "settings.info_channels_none");
+            return i18n.get().t(lang, "settings.info_channels_none");
         }
         TextChannel channel = guild.getTextChannelById(id);
         return channel == null ? "#" + id : channel.getAsMention() + " (" + id + ")";

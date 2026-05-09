@@ -1,7 +1,8 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 
-import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.config.GuildSettingsService;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
+import com.norule.musicbot.i18n.I18nService;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.selections.SelectOption;
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 public final class SettingsLanguageMenuHandler {
     private static final String SETTINGS_LANGUAGE_SELECT_PREFIX = ComponentIds.SETTINGS_LANGUAGE_SELECT_PREFIX;
@@ -21,11 +23,13 @@ public final class SettingsLanguageMenuHandler {
     private static final String KEY_UNKNOWN_COMMAND       = "general.unknown_command";
     private static final String KEY_DELETE_ONLY_REQUESTER = "delete.only_requester";
 
-    private final MusicCommandService owner;
+    private final Supplier<I18nService> i18n;
+    private final GuildSettingsService settingsService;
     private final ConcurrentHashMap<String, MenuRequest> languageMenuRequests = new ConcurrentHashMap<>();
 
-    public SettingsLanguageMenuHandler(MusicCommandService owner) {
-        this.owner = owner;
+    public SettingsLanguageMenuHandler(Supplier<I18nService> i18n, GuildSettingsService settingsService) {
+        this.i18n = i18n;
+        this.settingsService = settingsService;
     }
 
     public void cleanupExpiredRequests(Instant now) {
@@ -37,8 +41,8 @@ public final class SettingsLanguageMenuHandler {
         String token = registerMenuRequest(event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.replyEmbeds(new EmbedBuilder()
                         .setColor(new Color(52, 152, 219))
-                        .setTitle(owner.i18nService().t(lang, "settings.language_menu_title"))
-                        .setDescription(owner.i18nService().t(lang, "settings.language_menu_desc"))
+                        .setTitle(i18n.get().t(lang, "settings.language_menu_title"))
+                        .setDescription(i18n.get().t(lang, "settings.language_menu_desc"))
                         .build())
                 .addComponents(ActionRow.of(settingsLanguageMenu(token, event.getGuild().getIdLong(), lang)))
                 .setEphemeral(true)
@@ -49,8 +53,8 @@ public final class SettingsLanguageMenuHandler {
         String token = registerMenuRequest(event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.editMessageEmbeds(new EmbedBuilder()
                         .setColor(new Color(52, 152, 219))
-                        .setTitle(owner.i18nService().t(lang, "settings.language_menu_title"))
-                        .setDescription(owner.i18nService().t(lang, "settings.language_menu_desc"))
+                        .setTitle(i18n.get().t(lang, "settings.language_menu_title"))
+                        .setDescription(i18n.get().t(lang, "settings.language_menu_desc"))
                         .build())
                 .setComponents(ActionRow.of(settingsLanguageMenu(token, event.getGuild().getIdLong(), lang)))
                 .queue();
@@ -61,32 +65,32 @@ public final class SettingsLanguageMenuHandler {
         MenuRequest request = languageMenuRequests.get(token);
         if (request == null || Instant.now().isAfter(request.expiresAt)) {
             languageMenuRequests.remove(token);
-            event.reply(owner.i18nService().t(lang, "settings.language_menu_expired"))
+            event.reply(i18n.get().t(lang, "settings.language_menu_expired"))
                     .setEphemeral(true).queue();
             return;
         }
         if (event.getGuild().getIdLong() != request.guildId) {
-            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
             return;
         }
         if (event.getUser().getIdLong() != request.requestUserId) {
-            event.reply(owner.i18nService().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
+            event.reply(i18n.get().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
             return;
         }
         String code = event.getValues().isEmpty() ? "" : event.getValues().get(0);
-        if (!owner.i18nService().hasLanguage(code)) {
-            event.reply(owner.i18nService().t(lang, "settings.language_invalid",
+        if (!i18n.get().hasLanguage(code)) {
+            event.reply(i18n.get().t(lang, "settings.language_invalid",
                             Map.of(ROUTE_LANGUAGE, code)))
                     .setEphemeral(true).queue();
             return;
         }
-        String normalized = owner.i18nService().normalizeLanguage(code);
-        owner.settingsService().updateSettings(event.getGuild().getIdLong(), s -> s.withLanguage(normalized));
+        String normalized = i18n.get().normalizeLanguage(code);
+        settingsService.updateSettings(event.getGuild().getIdLong(), s -> s.withLanguage(normalized));
         String languageDisplay = languageDisplayText(normalized);
         event.editMessageEmbeds(new EmbedBuilder()
                         .setColor(new Color(46, 204, 113))
-                        .setTitle(owner.i18nService().t(normalized, "settings.language_menu_title"))
-                        .setDescription(owner.i18nService().t(normalized, "settings.language_updated",
+                        .setTitle(i18n.get().t(normalized, "settings.language_menu_title"))
+                        .setDescription(i18n.get().t(normalized, "settings.language_updated",
                                 Map.of(ROUTE_LANGUAGE, languageDisplay)))
                         .build())
                 .setComponents(ActionRow.of(settingsLanguageMenu(token, event.getGuild().getIdLong(), normalized)))
@@ -94,11 +98,11 @@ public final class SettingsLanguageMenuHandler {
     }
 
     private StringSelectMenu settingsLanguageMenu(String token, long guildId, String lang) {
-        String current = owner.settingsService().getLanguage(guildId);
+        String current = settingsService.getLanguage(guildId);
         StringSelectMenu.Builder builder = StringSelectMenu.create(SETTINGS_LANGUAGE_SELECT_PREFIX + token)
-                .setPlaceholder(owner.i18nService().t(lang, "settings.language_menu_placeholder"));
+                .setPlaceholder(i18n.get().t(lang, "settings.language_menu_placeholder"));
         int count = 0;
-        for (Map.Entry<String, String> entry : owner.i18nService().getAvailableLanguages().entrySet()) {
+        for (Map.Entry<String, String> entry : i18n.get().getAvailableLanguages().entrySet()) {
             if (count >= 25) {
                 break;
             }
@@ -112,8 +116,8 @@ public final class SettingsLanguageMenuHandler {
     }
 
     private String languageDisplayText(String languageCode) {
-        String normalized = owner.i18nService().normalizeLanguage(languageCode);
-        String display = owner.i18nService().getAvailableLanguages().get(normalized);
+        String normalized = i18n.get().normalizeLanguage(languageCode);
+        String display = i18n.get().getAvailableLanguages().get(normalized);
         if (display == null || display.isBlank()) {
             return normalized;
         }

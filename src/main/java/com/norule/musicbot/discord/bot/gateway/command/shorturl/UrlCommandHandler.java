@@ -1,7 +1,6 @@
 package com.norule.musicbot.discord.bot.gateway.command.shorturl;
 
 import com.norule.musicbot.ShortUrlService;
-import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 
@@ -9,10 +8,10 @@ import java.awt.Color;
 import java.time.Instant;
 
 public final class UrlCommandHandler {
-    private final MusicCommandService owner;
+    private final ShortUrlService shortUrlService;
 
-    public UrlCommandHandler(MusicCommandService owner) {
-        this.owner = owner;
+    public UrlCommandHandler(ShortUrlService shortUrlService) {
+        this.shortUrlService = shortUrlService;
     }
 
     public void handleUrlSlash(SlashCommandInteractionEvent event, String lang) {
@@ -28,7 +27,7 @@ public final class UrlCommandHandler {
             return;
         }
 
-        ShortUrlService.ShortUrlEntry entry = owner.shortUrlService().create(target, slug);
+        ShortUrlService.ShortUrlEntry entry = shortUrlService.create(target, slug);
         if (entry == null) {
             event.replyEmbeds(errorEmbed(
                             lang,
@@ -41,7 +40,7 @@ public final class UrlCommandHandler {
             return;
         }
 
-        String shortUrl = owner.shortUrlService().toPublicUrl(entry.getCode());
+        String shortUrl = shortUrlService.toPublicUrl(entry.getCode());
         EmbedBuilder embed = new EmbedBuilder()
                 .setColor(new Color(46, 204, 113))
                 .setTitle(text(lang, "短網址建立成功", "Short URL Created"))
