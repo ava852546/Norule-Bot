@@ -17,7 +17,6 @@ import com.norule.musicbot.discord.bot.gateway.command.meta.InfoCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.meta.PingCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.minecraft.MinecraftStatusCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicStatsCommandHandler;
-import com.norule.musicbot.discord.bot.gateway.command.routing.DiscordCommandRouteMapper;
 import com.norule.musicbot.discord.bot.gateway.command.registry.DiscordCommandCatalog;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
@@ -130,7 +129,6 @@ public class MusicCommandService extends ListenerAdapter {
     private final GuildDomainConfigAdapter ticketConfigAdapter;
     private final PlaybackFailureNotifier playbackFailureNotifier;
     private final HelpViewRenderer helpViewRenderer;
-    private final DiscordCommandRouteMapper commandRouteMapper = new DiscordCommandRouteMapper();
     private final AtomicBoolean botReadyForSlashCommands = new AtomicBoolean(false);
     private static final long PANEL_PERIODIC_REFRESH_MS = 10_000L;
 
@@ -474,37 +472,16 @@ public class MusicCommandService extends ListenerAdapter {
     public List<CommandData> buildCommands() {
         return discordCommandCatalog.buildCommands();
     }
-    public String canonicalSlashName(String name) {
-        return commandRouteMapper.canonicalSlashName(name);
-    }
-    public String canonicalSettingsSubcommand(String sub) {
-        return commandRouteMapper.canonicalSettingsSubcommand(sub);
-    }
-    public String canonicalMusicSubcommand(String sub) {
-        return commandRouteMapper.canonicalMusicSubcommand(sub);
-    }
-    public String canonicalPlaylistSubcommand(String sub) {
-        return commandRouteMapper.canonicalPlaylistSubcommand(sub);
-    }
     public String lang(long guildId) {
         return settingsService.getLanguage(guildId);
     }
 
-    public boolean isSlashMusicCommand(String name) {
-        return commandRouteMapper.isSlashMusicCommand(name);
-    }
-    public boolean isKnownSlashCommand(String name) {
-        return commandRouteMapper.isKnownSlashCommand(name);
-    }
     public boolean isMusicCommandChannelAllowed(Guild guild, long channelId) {
         Long configured = settingsService.getMusic(guild.getIdLong()).getCommandChannelId();
         return configured == null || configured == channelId;
     }
     public boolean has(Member member, Permission permission) {
         return member != null && member.hasPermission(permission);
-    }
-    public String buildSlashRoute(SlashCommandInteractionEvent event) {
-        return commandRouteMapper.buildSlashRoute(event);
     }
     public void logCommandUsage(Guild guild, Member member, String commandText, long channelId) {
         var logs = settingsService.getMessageLogs(guild.getIdLong());

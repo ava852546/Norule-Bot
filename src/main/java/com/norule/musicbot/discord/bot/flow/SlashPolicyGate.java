@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.flow;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.command.routing.DiscordCommandRouteMapper;
 import com.norule.musicbot.discord.gateway.FlowContext;
 import com.norule.musicbot.discord.gateway.FlowStep;
 import com.norule.musicbot.discord.gateway.Intent;
@@ -10,6 +11,7 @@ import java.util.Map;
 
 public final class SlashPolicyGate implements FlowStep<SlashCommandInteractionEvent> {
     private final MusicCommandService owner;
+    private final DiscordCommandRouteMapper routeMapper = new DiscordCommandRouteMapper();
 
     public SlashPolicyGate(MusicCommandService owner) {
         this.owner = owner;
@@ -19,7 +21,7 @@ public final class SlashPolicyGate implements FlowStep<SlashCommandInteractionEv
     public boolean apply(SlashCommandInteractionEvent event, FlowContext context) {
         String lang = context.get("lang", String.class);
         Intent intent = context.get("intent", Intent.class);
-        String commandName = intent == null ? owner.canonicalSlashName(event.getName()) : intent.key();
+        String commandName = intent == null ? routeMapper.canonicalSlashName(event.getName()) : intent.key();
 
         if (!owner.isBotReadyForSlashCommands()) {
             event.reply(owner.i18nService().t(lang, "general.bot_starting_up"))
@@ -37,7 +39,7 @@ public final class SlashPolicyGate implements FlowStep<SlashCommandInteractionEv
             return false;
         }
 
-        if (owner.isSlashMusicCommand(commandName)
+        if (routeMapper.isSlashMusicCommand(commandName)
                 && !owner.isMusicCommandChannelAllowed(event.getGuild(), event.getChannel().getIdLong())) {
             event.reply(owner.i18nService().t(lang, "music.command_channel_restricted"))
                     .setEphemeral(true)

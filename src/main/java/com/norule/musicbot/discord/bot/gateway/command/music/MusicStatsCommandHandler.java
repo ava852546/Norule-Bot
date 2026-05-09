@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.music;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.command.routing.DiscordCommandRouteMapper;
 import com.norule.musicbot.domain.music.MusicDataService;
 
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -14,13 +15,14 @@ public class MusicStatsCommandHandler {
     private static final String KEY_UNKNOWN_COMMAND = "general.unknown_command";
 
     private final MusicCommandService owner;
+    private final DiscordCommandRouteMapper routeMapper = new DiscordCommandRouteMapper();
 
     public MusicStatsCommandHandler(MusicCommandService owner) {
         this.owner = owner;
     }
 
     public void handleMusicSlash(SlashCommandInteractionEvent event, String lang) {
-        String sub = owner.canonicalMusicSubcommand(event.getSubcommandName());
+        String sub = routeMapper.canonicalMusicSubcommand(event.getSubcommandName());
         if (sub == null || sub.isBlank()) {
             event.replyEmbeds(musicStatsEmbed(event.getGuild(), lang).build()).queue();
             return;

@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.ops;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.command.routing.DiscordCommandRouteMapper;
 import com.norule.musicbot.discord.bot.ops.guild.GuildConfigOps;
 import com.norule.musicbot.discord.bot.ops.meta.MetaOps;
 import com.norule.musicbot.discord.bot.ops.moderation.ModerationOps;
@@ -12,6 +13,7 @@ import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEve
 
 public final class SlashOps {
     private final MusicCommandService owner;
+    private final DiscordCommandRouteMapper routeMapper = new DiscordCommandRouteMapper();
     private final MusicOps musicOps;
     private final GuildConfigOps guildConfigOps;
     private final ModerationOps moderationOps;
@@ -35,9 +37,9 @@ public final class SlashOps {
             return;
         }
         String lang = owner.lang(event.getGuild().getIdLong());
-        String commandName = owner.canonicalSlashName(event.getName());
-        if (owner.isKnownSlashCommand(commandName)) {
-            owner.logCommandUsage(event.getGuild(), event.getMember(), "/" + owner.buildSlashRoute(event), event.getChannel().getIdLong());
+        String commandName = routeMapper.canonicalSlashName(event.getName());
+        if (routeMapper.isKnownSlashCommand(commandName)) {
+            owner.logCommandUsage(event.getGuild(), event.getMember(), "/" + routeMapper.buildSlashRoute(event), event.getChannel().getIdLong());
         }
 
         if (musicOps.handleSlash(commandName, event, lang)) {

@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.flow;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.command.routing.DiscordCommandRouteMapper;
 import com.norule.musicbot.discord.gateway.FlowContext;
 import com.norule.musicbot.discord.gateway.FlowStep;
 import com.norule.musicbot.discord.gateway.Intent;
@@ -12,6 +13,7 @@ import java.util.List;
 public final class SlashFlow {
     private final MusicCommandService owner;
     private final Signals signals;
+    private final DiscordCommandRouteMapper routeMapper = new DiscordCommandRouteMapper();
     private final List<FlowStep<SlashCommandInteractionEvent>> steps;
 
     public SlashFlow(MusicCommandService owner, Signals signals) {
@@ -41,7 +43,7 @@ public final class SlashFlow {
     }
 
     private boolean intentResolver(SlashCommandInteractionEvent event, FlowContext context) {
-        context.put("intent", new Intent(owner.canonicalSlashName(event.getName())));
+        context.put("intent", new Intent(routeMapper.canonicalSlashName(event.getName())));
         return true;
     }
 

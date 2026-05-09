@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.music;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.command.routing.DiscordCommandRouteMapper;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
 import com.norule.musicbot.domain.music.MusicDataService;
 
@@ -38,6 +39,7 @@ public final class PlaylistCommandHandler {
     private static final int LIST_PAGE_SIZE = 10;
 
     private final MusicCommandService owner;
+    private final DiscordCommandRouteMapper routeMapper = new DiscordCommandRouteMapper();
     private final MusicPanelController panelController;
     private final Map<String, PlaylistViewRequest> playlistViewRequests = new ConcurrentHashMap<>();
     private final Map<String, PlaylistTrackRemoveRequest> playlistTrackRemoveRequests = new ConcurrentHashMap<>();
@@ -53,7 +55,7 @@ public final class PlaylistCommandHandler {
     }
 
     public void handlePlaylistSlash(SlashCommandInteractionEvent event, String lang) {
-        String sub = owner.canonicalPlaylistSubcommand(event.getSubcommandName());
+        String sub = routeMapper.canonicalPlaylistSubcommand(event.getSubcommandName());
         if (sub == null || sub.isBlank()) {
             replyPlaylistListOverview(event, lang);
             return;
@@ -628,7 +630,7 @@ public final class PlaylistCommandHandler {
         }
     }
     public void handlePlaylistAutocomplete(CommandAutoCompleteInteractionEvent event) {
-        String sub = owner.canonicalPlaylistSubcommand(event.getSubcommandName());
+        String sub = routeMapper.canonicalPlaylistSubcommand(event.getSubcommandName());
         if ("import".equals(sub)) {
             event.replyChoices(List.of()).queue();
             return;

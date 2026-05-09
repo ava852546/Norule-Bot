@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.command.routing.DiscordCommandRouteMapper;
 import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsLogsMenuHandler;
 import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsModuleMenuHandler;
 import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsMusicMenuHandler;
@@ -49,6 +50,7 @@ public final class SettingsCommandHandler {
     private static final String LOG_SETTINGS_REMOVE_PREFIX_MODAL_PREFIX = "settings:log-settings:remove-prefix:";
 
     private final MusicCommandService owner;
+    private final DiscordCommandRouteMapper routeMapper = new DiscordCommandRouteMapper();
     private final Map<String, LogSettingsRequest> logSettingsRequests = new ConcurrentHashMap<>();
     private final SettingsOptionValidator settingsOptionValidator;
     private final SettingsInfoView settingsInfoView;
@@ -106,7 +108,7 @@ public final class SettingsCommandHandler {
                     .queue();
             return;
         }
-        sub = owner.canonicalSettingsSubcommand(sub);
+        sub = routeMapper.canonicalSettingsSubcommand(sub);
         String group = event.getSubcommandGroup();
         String route = group == null ? sub : group + ":" + sub;
         String validationError = settingsOptionValidator.validate(event, route, lang);
@@ -634,7 +636,7 @@ public final class SettingsCommandHandler {
     public boolean handleStringSelectInteraction(StringSelectInteractionEvent event, String lang) {
         String componentId = event.getComponentId();
         if (SETTINGS_ACTION_SELECT_ID.equals(componentId)) {
-            String action = event.getValues().isEmpty() ? "" : owner.canonicalSettingsSubcommand(event.getValues().get(0));
+            String action = event.getValues().isEmpty() ? "" : routeMapper.canonicalSettingsSubcommand(event.getValues().get(0));
             switch (action) {
                 case "info" -> event.editMessageEmbeds(settingsInfoView.settingsInfoEmbed(event.getGuild(), lang, "notifications").build())
                         .setComponents(
