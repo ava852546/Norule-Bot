@@ -1,23 +1,26 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.view;
 
-import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.ModerationService;
+import com.norule.musicbot.i18n.I18nService;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 public final class SettingsUiText {
-    private final MusicCommandService owner;
+    private final Supplier<I18nService> i18n;
+    private final ModerationService moderationService;
 
-    public SettingsUiText(MusicCommandService owner) {
-        this.owner = owner;
+    public SettingsUiText(Supplier<I18nService> i18n, ModerationService moderationService) {
+        this.i18n = i18n;
+        this.moderationService = moderationService;
     }
 
     public String quotedSettingLine(String lang, String key, String labelKey, String value) {
-        return keyIcon(key) + " " + owner.i18nService().t(lang, key)
-                + "\n> " + owner.i18nService().t(lang, labelKey) + ": " + value;
+        return keyIcon(key) + " " + i18n.get().t(lang, key)
+                + "\n> " + i18n.get().t(lang, labelKey) + ": " + value;
     }
 
     public String limitText(String value, int max) {
@@ -29,7 +32,7 @@ public final class SettingsUiText {
 
     public String formatTextChannel(Guild guild, Long id, String lang) {
         if (id == null) {
-            return owner.i18nService().t(lang, "settings.info_channels_none");
+            return i18n.get().t(lang, "settings.info_channels_none");
         }
         TextChannel channel = guild.getTextChannelById(id);
         return channel == null ? "#" + id : channel.getAsMention() + " (" + id + ")";
@@ -104,9 +107,9 @@ public final class SettingsUiText {
 
     public String formatNumberChainTopContributors(Guild guild, String lang) {
         List<ModerationService.NumberChainContributor> contributors =
-                owner.moderationService().getTopNumberChainContributors(guild.getIdLong(), 5);
+                moderationService.getTopNumberChainContributors(guild.getIdLong(), 5);
         if (contributors.isEmpty()) {
-            return owner.i18nService().t(lang, "settings.info_channels_none");
+            return i18n.get().t(lang, "settings.info_channels_none");
         }
         List<String> lines = new ArrayList<>();
         for (int i = 0; i < contributors.size(); i++) {

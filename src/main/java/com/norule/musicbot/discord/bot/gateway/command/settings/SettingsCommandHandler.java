@@ -64,13 +64,13 @@ public final class SettingsCommandHandler {
     public SettingsCommandHandler(MusicCommandService owner) {
         this.owner = owner;
         this.settingsOptionValidator = new SettingsOptionValidator(owner::i18nService);
-        this.settingsInfoView = new SettingsInfoView(owner);
+        this.settingsInfoView = new SettingsInfoView(owner::i18nService, owner.settingsService(), owner.moderationService());
         this.settingsTemplateMenuHandler = new SettingsTemplateMenuHandler(owner);
         this.settingsModuleMenuHandler = new SettingsModuleMenuHandler(owner);
         this.settingsLogsMenuHandler = new SettingsLogsMenuHandler(owner::i18nService, owner.settingsService());
         this.settingsMusicMenuHandler = new SettingsMusicMenuHandler(owner);
         this.settingsResetMenuHandler = new SettingsResetMenuHandler(owner);
-        this.uiText = new SettingsUiText(owner);
+        this.uiText = new SettingsUiText(owner::i18nService, owner.moderationService());
     }
 
     public void cleanupExpiredRequests(Instant now) {

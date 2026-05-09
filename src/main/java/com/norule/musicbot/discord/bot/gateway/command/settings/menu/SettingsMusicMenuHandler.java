@@ -63,7 +63,7 @@ public final class SettingsMusicMenuHandler {
 
     public SettingsMusicMenuHandler(MusicCommandService owner) {
         this.owner = owner;
-        this.uiText = new SettingsUiText(owner);
+        this.uiText = new SettingsUiText(owner::i18nService, owner.moderationService());
     }
 
     public void cleanupExpiredRequests(Instant now) {

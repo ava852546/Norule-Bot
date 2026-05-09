@@ -12,6 +12,7 @@ import com.norule.musicbot.discord.bot.gateway.command.music.HistoryCommandHandl
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackText;
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicStatsCommandHandler;
+import com.norule.musicbot.discord.bot.gateway.command.music.MusicTextResolver;
 import com.norule.musicbot.discord.bot.gateway.command.music.PlaylistCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.privateroom.PrivateRoomSettingsCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.settings.SettingsCommandHandler;
@@ -57,16 +58,17 @@ class CommandHandlerRegistry {
         this.privateRoomSettingsCommandHandler = new PrivateRoomSettingsCommandHandler(service);
         this.antiDuplicateCommandHandler = new AntiDuplicateCommandHandler(service);
         this.languageMenuHandler = new SettingsLanguageMenuHandler(service::i18nService, service.settingsService());
-        this.numberChainMenuHandler = new SettingsNumberChainMenuHandler(service);
-        this.wordChainMenuHandler = new SettingsWordChainMenuHandler(service);
+        this.numberChainMenuHandler = new SettingsNumberChainMenuHandler(service::i18nService, service.moderationService());
+        this.wordChainMenuHandler = new SettingsWordChainMenuHandler(service::i18nService, service.wordChainOps(), service.moderationService());
         this.warningCommandHandler = new WarningCommandHandler(service);
         this.honeypotCommandHandler = new HoneypotCommandHandler(service);
         this.infoCommandHandler = new InfoCommandHandler(service::i18nService, service.settingsService());
         this.urlCommandHandler = new UrlCommandHandler(service.shortUrlService());
         this.playlistCommandHandler = new PlaylistCommandHandler(service, musicPanelController);
         this.playbackCommandHandler = new MusicPlaybackCommandHandler(service, musicPanelController, musicPlaybackText);
-        this.minecraftStatusCommandHandler = new MinecraftStatusCommandHandler(service, minecraftStatusOps);
-        this.musicStatsCommandHandler = new MusicStatsCommandHandler(service);
+        this.minecraftStatusCommandHandler = new MinecraftStatusCommandHandler(minecraftStatusOps);
+        MusicTextResolver musicTextResolver = new MusicTextResolver(service::i18nService);
+        this.musicStatsCommandHandler = new MusicStatsCommandHandler(musicTextResolver, service::i18nService, service.musicService());
     }
 
     SettingsCommandHandler settingsCommandHandler() { return settingsCommandHandler; }

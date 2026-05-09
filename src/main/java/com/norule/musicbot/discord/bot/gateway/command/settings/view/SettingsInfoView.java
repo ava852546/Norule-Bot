@@ -1,8 +1,9 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.view;
 
+import com.norule.musicbot.ModerationService;
 import com.norule.musicbot.config.GuildSettingsService;
-import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.command.CommandNames;
+import com.norule.musicbot.i18n.I18nService;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.components.buttons.Button;
@@ -17,6 +18,7 @@ import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import java.awt.Color;
 import java.time.Instant;
 import java.util.List;
+import java.util.function.Supplier;
 
 public final class SettingsInfoView {
     private static final String SETTINGS_INFO_SELECT_ID = ComponentIds.SETTINGS_INFO_SELECT_ID;
@@ -25,26 +27,34 @@ public final class SettingsInfoView {
     private static final String ROUTE_MODULE = "module";
     private static final String ROUTE_MUSIC = CommandNames.CMD_MUSIC;
 
-    private final MusicCommandService owner;
+    private final Supplier<I18nService> i18n;
+    private final GuildSettingsService settingsService;
+    private final ModerationService moderationService;
     private final SettingsUiText uiText;
 
-    public SettingsInfoView(MusicCommandService owner) {
-        this.owner = owner;
-        this.uiText = new SettingsUiText(owner);
+    public SettingsInfoView(Supplier<I18nService> i18n, GuildSettingsService settingsService, ModerationService moderationService) {
+        this.i18n = i18n;
+        this.settingsService = settingsService;
+        this.moderationService = moderationService;
+        this.uiText = new SettingsUiText(i18n, moderationService);
+    }
+
+    private String boolText(String lang, boolean value) {
+        return value ? i18n.get().t(lang, "settings.info_bool_on") : i18n.get().t(lang, "settings.info_bool_off");
     }
 
     public EmbedBuilder settingsInfoEmbed(Guild guild, String lang, String section) {
         long guildId = guild.getIdLong();
         String currentSection = section == null || section.isBlank() ? "notifications" : section;
-        GuildSettingsService.GuildSettings settings = owner.settingsService().getSettings(guildId);
+        GuildSettingsService.GuildSettings settings = settingsService.getSettings(guildId);
         var n = settings.getNotifications();
         var logs = settings.getMessageLogs();
         var music = settings.getMusic();
         var room = settings.getPrivateRoom();
-        boolean numberChainEnabled = owner.moderationService().isNumberChainEnabled(guildId);
-        Long numberChainChannelId = owner.moderationService().getNumberChainChannelId(guildId);
-        long numberChainNext = owner.moderationService().getNumberChainNext(guildId);
-        long numberChainHighest = owner.moderationService().getNumberChainHighestNumber(guildId);
+        boolean numberChainEnabled = moderationService.isNumberChainEnabled(guildId);
+        Long numberChainChannelId = moderationService.getNumberChainChannelId(guildId);
+        long numberChainNext = moderationService.getNumberChainNext(guildId);
+        long numberChainHighest = moderationService.getNumberChainHighestNumber(guildId);
 
         String notifications = joinLines(
                 line(lang, "settings.info_key_enabled", compare(moduleSwitchTextCode(lang, n.isEnabled()))),
@@ -86,7 +96,7 @@ public final class SettingsInfoView {
         String musicInfo = joinLines(
                 line(lang, "settings.info_key_auto_leave_enabled", compare(moduleSwitchTextCode(lang, music.isAutoLeaveEnabled()))),
                 line(lang, "settings.info_key_auto_leave_minutes", compare(String.valueOf(music.getAutoLeaveMinutes()))),
-                line(lang, "settings.info_key_autoplay_enabled", compare(moduleSwitchTextCode(lang, owner.isAutoplayEnabledForSettings(guildId)))),
+                line(lang, "settings.info_key_autoplay_enabled", compare(moduleSwitchTextCode(lang, settingsService.getMusic(guildId).isAutoplayEnabled()))),
                 line(lang, "settings.info_key_default_repeat_mode", compare(music.getDefaultRepeatMode().name())),
                 line(lang, "settings.info_key_music_command_channel", compare(formatTextChannelInfo(guild, music.getCommandChannelId())))
         );
@@ -104,26 +114,26 @@ public final class SettingsInfoView {
                 lineLabel("\uD83D\uDC65", uiText.numberChainTopContributorsLabel(lang), uiText.formatNumberChainTopContributors(guild, lang))
         );
         String moduleInfo = joinLines(
-                "**" + owner.i18nService().t(lang, "settings.module_section_core") + "**",
+                "**" + i18n.get().t(lang, "settings.module_section_core") + "**",
                 moduleLine(lang, "settings.key_notifications_enabled", n.isEnabled()),
                 moduleLine(lang, "settings.key_messageLogs_enabled", logs.isEnabled()),
                 moduleLine(lang, "settings.key_welcome_enabled", settings.getWelcome().isEnabled()),
                 "",
-                "**" + owner.i18nService().t(lang, "settings.module_section_notifications") + "**",
+                "**" + i18n.get().t(lang, "settings.module_section_notifications") + "**",
                 moduleLine(lang, "settings.key_notifications_memberJoinEnabled", n.isMemberJoinEnabled()),
                 moduleLine(lang, "settings.key_notifications_memberLeaveEnabled", n.isMemberLeaveEnabled()),
                 moduleLine(lang, "settings.key_notifications_voiceLogEnabled", n.isVoiceLogEnabled()),
                 "",
-                "**" + owner.i18nService().t(lang, "settings.module_section_logs") + "**",
+                "**" + i18n.get().t(lang, "settings.module_section_logs") + "**",
                 moduleLine(lang, "settings.info_key_log_command_usage", logs.isCommandUsageLogEnabled()),
                 moduleLine(lang, "settings.info_key_log_channel_lifecycle", logs.isChannelLifecycleLogEnabled()),
                 moduleLine(lang, "settings.info_key_log_role", logs.isRoleLogEnabled()),
                 moduleLine(lang, "settings.info_key_log_moderation", logs.isModerationLogEnabled()),
                 "",
-                "**" + owner.i18nService().t(lang, "settings.module_section_music_others") + "**",
+                "**" + i18n.get().t(lang, "settings.module_section_music_others") + "**",
                 moduleLine(lang, "settings.key_music_autoLeaveEnabled", music.isAutoLeaveEnabled()),
                 moduleLine(lang, "settings.key_music_autoplayEnabled", music.isAutoplayEnabled()),
-                moduleLine(lang, "settings.key_numberChain_enabled", owner.moderationService().isNumberChainEnabled(guildId)),
+                moduleLine(lang, "settings.key_numberChain_enabled", moderationService.isNumberChainEnabled(guildId)),
                 moduleLine(lang, "settings.key_ticket_enabled", settings.getTicket().isEnabled()),
                 line(lang, "settings.key_ticket_maxOpenPerUser", String.valueOf(settings.getTicket().getMaxOpenPerUser())),
                 line(lang, "settings.key_ticket_blacklistUserIds", String.valueOf(settings.getTicket().getBlacklistedUserIds().size())),
@@ -132,8 +142,8 @@ public final class SettingsInfoView {
 
         EmbedBuilder eb = new EmbedBuilder()
                 .setColor(new Color(26, 188, 156))
-                .setTitle("\u2699\uFE0F " + owner.i18nService().t(lang, "settings.info_title"))
-                .setDescription(owner.i18nService().t(lang, "settings.info_desc") + "\n`" + guild.getName() + "`")
+                .setTitle("\u2699\uFE0F " + i18n.get().t(lang, "settings.info_title"))
+                .setDescription(i18n.get().t(lang, "settings.info_desc") + "\n`" + guild.getName() + "`")
                 .setTimestamp(Instant.now());
 
         switch (currentSection) {
@@ -152,15 +162,15 @@ public final class SettingsInfoView {
     public StringSelectMenu settingsInfoMenu(String lang, String selected) {
         String current = selected == null || selected.isBlank() ? "notifications" : selected;
         return StringSelectMenu.create(SETTINGS_INFO_SELECT_ID)
-                .setPlaceholder(owner.i18nService().t(lang, "settings.info_select_placeholder"))
+                .setPlaceholder(i18n.get().t(lang, "settings.info_select_placeholder"))
                 .addOptions(
-                        SelectOption.of(owner.i18nService().t(lang, "settings.info_notifications"), "notifications").withDefault("notifications".equals(current)),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.info_notification_templates"), "templates").withDefault("templates".equals(current)),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.info_message_logs"), "logs").withDefault("logs".equals(current)),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.info_music"), ROUTE_MUSIC).withDefault(ROUTE_MUSIC.equals(current)),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.info_private_room"), "private-room").withDefault("private-room".equals(current)),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.info_number_chain"), ROUTE_NUMBER_CHAIN).withDefault(ROUTE_NUMBER_CHAIN.equals(current)),
-                        SelectOption.of(owner.i18nService().t(lang, "settings.info_module"), ROUTE_MODULE).withDefault(ROUTE_MODULE.equals(current))
+                        SelectOption.of(i18n.get().t(lang, "settings.info_notifications"), "notifications").withDefault("notifications".equals(current)),
+                        SelectOption.of(i18n.get().t(lang, "settings.info_notification_templates"), "templates").withDefault("templates".equals(current)),
+                        SelectOption.of(i18n.get().t(lang, "settings.info_message_logs"), "logs").withDefault("logs".equals(current)),
+                        SelectOption.of(i18n.get().t(lang, "settings.info_music"), ROUTE_MUSIC).withDefault(ROUTE_MUSIC.equals(current)),
+                        SelectOption.of(i18n.get().t(lang, "settings.info_private_room"), "private-room").withDefault("private-room".equals(current)),
+                        SelectOption.of(i18n.get().t(lang, "settings.info_number_chain"), ROUTE_NUMBER_CHAIN).withDefault(ROUTE_NUMBER_CHAIN.equals(current)),
+                        SelectOption.of(i18n.get().t(lang, "settings.info_module"), ROUTE_MODULE).withDefault(ROUTE_MODULE.equals(current))
                 )
                 .build();
     }
@@ -183,7 +193,7 @@ public final class SettingsInfoView {
 
     private Button infoSectionButton(String lang, String value, String current, String labelKey) {
         String id = SETTINGS_INFO_BUTTON_PREFIX + value;
-        String label = owner.i18nService().t(lang, labelKey);
+        String label = i18n.get().t(lang, labelKey);
         if (value.equals(current)) {
             return Button.primary(id, safe(label, 80)).asDisabled();
         }
@@ -191,7 +201,7 @@ public final class SettingsInfoView {
     }
 
     private String moduleLine(String lang, String key, boolean value) {
-        return uiText.keyIcon(key) + " " + owner.i18nService().t(lang, key) + ": " + moduleSwitchTextCode(lang, value);
+        return uiText.keyIcon(key) + " " + i18n.get().t(lang, key) + ": " + moduleSwitchTextCode(lang, value);
     }
 
     private String moduleSwitchTextCode(String lang, boolean enabled) {
@@ -204,7 +214,7 @@ public final class SettingsInfoView {
     }
 
     private String moduleSwitchState(String lang, boolean enabled) {
-        return owner.boolText(lang, enabled)
+        return boolText(lang, enabled)
                 .replace("\u2705", "")
                 .replace("\u274C", "")
                 .replace("\u2714\uFE0F", "")
@@ -218,7 +228,7 @@ public final class SettingsInfoView {
 
     private String formatTextChannelInfo(Guild guild, Long id) {
         if (id == null) {
-            return owner.i18nService().t(owner.lang(guild.getIdLong()), "settings.info_channels_none");
+            return i18n.get().t(settingsService.getLanguage(guild.getIdLong()), "settings.info_channels_none");
         }
         TextChannel channel = guild.getTextChannelById(id);
         return channel == null ? "#" + id : channel.getAsMention();
@@ -226,7 +236,7 @@ public final class SettingsInfoView {
 
     private String formatVoiceChannelInfo(Guild guild, Long id) {
         if (id == null) {
-            return owner.i18nService().t(owner.lang(guild.getIdLong()), "settings.info_channels_none");
+            return i18n.get().t(settingsService.getLanguage(guild.getIdLong()), "settings.info_channels_none");
         }
         AudioChannel channel = guild.getVoiceChannelById(id);
         if (channel == null) {
@@ -237,13 +247,13 @@ public final class SettingsInfoView {
 
     private String formatMemberChannelMode(String lang, Long memberJoinChannelId, Long memberLeaveChannelId) {
         boolean split = memberJoinChannelId != null || memberLeaveChannelId != null;
-        return split ? owner.i18nService().t(lang, "settings.member_channel_mode_split")
-                : owner.i18nService().t(lang, "settings.member_channel_mode_same");
+        return split ? i18n.get().t(lang, "settings.member_channel_mode_split")
+                : i18n.get().t(lang, "settings.member_channel_mode_same");
     }
 
     private String resolveTriggerCategoryWithSource(Guild guild, Long triggerVoiceChannelId) {
         if (triggerVoiceChannelId == null) {
-            return owner.i18nService().t(owner.lang(guild.getIdLong()), "settings.info_channels_none");
+            return i18n.get().t(settingsService.getLanguage(guild.getIdLong()), "settings.info_channels_none");
         }
         AudioChannel trigger = guild.getVoiceChannelById(triggerVoiceChannelId);
         if (trigger == null) {
@@ -256,14 +266,14 @@ public final class SettingsInfoView {
         Category parent = categorizable.getParentCategory();
         if (parent == null) {
             return "<#" + triggerVoiceChannelId + "> -> "
-                    + owner.i18nService().t(owner.lang(guild.getIdLong()), "settings.info_channels_none");
+                    + i18n.get().t(settingsService.getLanguage(guild.getIdLong()), "settings.info_channels_none");
         }
         return "<#" + triggerVoiceChannelId + "> -> " + parent.getName() + " (" + parent.getId() + ")";
     }
 
     private String templateCompareMarkdown(String lang, String titleKey, String effective) {
         String effectiveText = trimTemplate(effective);
-        return "**" + owner.i18nService().t(lang, titleKey) + "**\n`" + effectiveText + "`";
+        return "**" + i18n.get().t(lang, titleKey) + "**\n`" + effectiveText + "`";
     }
 
     private String trimTemplate(String value) {
@@ -275,7 +285,7 @@ public final class SettingsInfoView {
 
     private String line(String lang, String key, String value) {
         String icon = uiText.keyIcon(key);
-        return icon + " " + owner.i18nService().t(lang, key) + ": " + value;
+        return icon + " " + i18n.get().t(lang, key) + ": " + value;
     }
 
     private String lineLabel(String icon, String label, String value) {
@@ -318,7 +328,7 @@ public final class SettingsInfoView {
 
     private String formatCompactList(String lang, List<String> values) {
         if (values == null || values.isEmpty()) {
-            return owner.i18nService().t(lang, "settings.info_channels_none");
+            return i18n.get().t(lang, "settings.info_channels_none");
         }
         int limit = Math.min(5, values.size());
         String result = String.join(", ", values.subList(0, limit));
@@ -329,7 +339,7 @@ public final class SettingsInfoView {
     }
 
     private String infoSectionTitle(String lang, String key) {
-        return sectionIcon(key) + " " + owner.i18nService().t(lang, key);
+        return sectionIcon(key) + " " + i18n.get().t(lang, key);
     }
 
     private String sectionIcon(String key) {
