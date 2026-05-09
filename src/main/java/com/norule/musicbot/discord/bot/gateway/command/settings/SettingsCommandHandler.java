@@ -87,66 +87,22 @@ public final class SettingsCommandHandler {
     }
 
     public void handleSettings(SlashCommandInteractionEvent event, String lang) {
+        // Verify the user has the required permission to manage the server
         if (!owner.has(event.getMember(), Permission.MANAGE_SERVER)) {
-            event.reply(owner.i18nService().t(lang, "general.missing_permissions", Map.of("permissions", Permission.MANAGE_SERVER.getName()))).setEphemeral(true).queue();
+            event.reply(owner.i18nService().t(lang, "general.missing_permissions",
+                    Map.of("permissions", Permission.MANAGE_SERVER.getName()))).setEphemeral(true).queue();
             return;
         }
 
-        long guildId = event.getGuild().getIdLong();
-        String sub = event.getSubcommandName();
-        if ((sub == null || sub.isBlank()) && event.getOption("action") != null) {
-            sub = event.getOption("action").getAsString();
-        }
-        if (sub == null || sub.isBlank()) {
-            event.replyEmbeds(new EmbedBuilder()
-                            .setColor(new Color(52, 152, 219))
-                            .setTitle(owner.i18nService().t(lang, "settings.action"))
-                            .setDescription(owner.i18nService().t(lang, "settings.info_desc"))
-                            .build())
-                    .addComponents(ActionRow.of(settingsActionMenu(lang)))
-                    .setEphemeral(true)
-                    .queue();
-            return;
-        }
-        sub = routeMapper.canonicalSettingsSubcommand(sub);
-        String group = event.getSubcommandGroup();
-        String route = group == null ? sub : group + ":" + sub;
-        String validationError = settingsOptionValidator.validate(event, route, lang);
-        if (validationError != null) {
-            event.reply(validationError).setEphemeral(true).queue();
-            return;
-        }
-        switch (route) {
-            case "info" -> event.replyEmbeds(settingsInfoView.settingsInfoEmbed(event.getGuild(), lang, "notifications").build())
-                    .addComponents(
-                            ActionRow.of(settingsInfoView.settingsInfoMenu(lang, "notifications")),
-                            ActionRow.of(settingsInfoView.settingsInfoButtons(lang, "notifications", 0)),
-                            ActionRow.of(settingsInfoView.settingsInfoButtons(lang, "notifications", 1))
-                    )
-                    .setEphemeral(true)
-                    .queue();
-            case "reload" -> {
-                owner.settingsService().reload(guildId);
-                owner.moderationService().reload(guildId);
-                event.replyEmbeds(new EmbedBuilder()
-                                .setColor(new Color(46, 204, 113))
-                                .setTitle(owner.i18nService().t(lang, "settings.info_title"))
-                                .setDescription("\u2705 " + owner.i18nService().t(lang, "settings.reload_done"))
-                                .build())
-                        .setEphemeral(true)
-                        .queue();
-            }
-            case "language" -> owner.languageMenuHandler().openLanguageMenu(event, lang);
-            case "template" -> settingsTemplateMenuHandler.openTemplateMenu(event, lang);
-            case "module" -> settingsModuleMenuHandler.openModuleMenu(event, lang);
-            case "reset" -> settingsResetMenuHandler.openSettingsResetMenu(event, lang);
-            case "logs" -> settingsLogsMenuHandler.openLogsMenu(event, lang);
-            case "log-settings" -> openLogSettingsMenu(event, lang);
-            case "music" -> settingsMusicMenuHandler.openMusicMenu(event, lang);
-            case "number-chain" -> owner.numberChainMenuHandler().openNumberChainMenu(event, lang);
-            case "wordchain" -> owner.wordChainMenuHandler().openWordChainMenu(event, lang);
-            default -> event.reply(owner.i18nService().t(lang, "general.unknown_command")).setEphemeral(true).queue();
-        }
+        // Directly open the settings main menu without any subcommands or options
+        event.replyEmbeds(new EmbedBuilder()
+                        .setColor(new Color(52, 152, 219))
+                        .setTitle(owner.i18nService().t(lang, "settings.action"))
+                        .setDescription(owner.i18nService().t(lang, "settings.info_desc"))
+                        .build())
+                .addComponents(ActionRow.of(settingsActionMenu(lang)))
+                .setEphemeral(true)
+                .queue();
     }
 
     private void openLogSettingsMenu(SlashCommandInteractionEvent event, String lang) {
@@ -932,5 +888,8 @@ public final class SettingsCommandHandler {
         }
     }
 }
+
+
+
 
 

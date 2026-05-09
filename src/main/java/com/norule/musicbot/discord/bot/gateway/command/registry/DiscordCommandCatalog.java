@@ -157,8 +157,11 @@ public final class DiscordCommandCatalog {
                 ));
         commands.add(buildPlaylistCommand(CommandNames.CMD_PLAYLIST));
         commands.add(buildPlaylistCommand(CommandNames.CMD_PLAYLIST_ZH));
-        commands.add(buildSettingsCommand(CommandNames.CMD_SETTINGS));
-        commands.add(buildSettingsCommand(CommandNames.CMD_SETTINGS_ZH));
+        // /settings and /設定 are now simple slash commands without any options
+        commands.add(Commands.slash(CommandNames.CMD_SETTINGS, "Guild settings")
+                .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_SERVER)));
+        commands.add(Commands.slash(CommandNames.CMD_SETTINGS_ZH, "\u8a2d\u5b9a")
+                .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_SERVER)));
         commands.add(buildDeleteCommand());
         commands.add(buildDeleteCommandZh());
         commands.add(buildWarningsCommand(CommandNames.CMD_WARNINGS));
@@ -331,12 +334,7 @@ public final class DiscordCommandCatalog {
                 );
     }
 
-    private SlashCommandData buildSettingsCommand(String commandName) {
-        boolean zh = CommandNames.CMD_SETTINGS_ZH.equals(commandName);
-        return Commands.slash(commandName, zh ? "\u4f3a\u670d\u5668\u8a2d\u5b9a" : "Guild settings")
-                .setDefaultPermissions(DefaultMemberPermissions.enabledFor(Permission.MANAGE_SERVER))
-                .addOptions(buildSettingsActionOption(zh));
-    }
+    // The settings command is now defined directly in buildCommands() without any options.
 
     private static OptionData localizedOptionName(OptionData option, String zhTwName, String zhCnName) {
         return option
@@ -350,28 +348,6 @@ public final class DiscordCommandCatalog {
                 .setNameLocalization(DiscordLocale.CHINESE_CHINA, zhCnName);
     }
 
-    private OptionData buildSettingsActionOption(boolean zh) {
-        OptionData option = new OptionData(OptionType.STRING, CommandOptions.ACTION,
-                zh ? "\u4f3a\u670d\u5668\u8a2d\u5b9a" : "Guild settings", false)
-                .addChoices(
-                        new Command.Choice(zh ? SUB_SETTINGS_INFO_ZH : "info", "info"),
-                        new Command.Choice(zh ? SUB_SETTINGS_RELOAD_ZH : ROUTE_RELOAD, ROUTE_RELOAD),
-                        new Command.Choice(zh ? SUB_SETTINGS_RESET_ZH : CommandOptions.RESET, CommandOptions.RESET),
-                        new Command.Choice(zh ? SUB_SETTINGS_TEMPLATE_ZH : ROUTE_TEMPLATE, ROUTE_TEMPLATE),
-                        new Command.Choice(zh ? SUB_SETTINGS_MODULE_ZH : ROUTE_MODULE, ROUTE_MODULE),
-                        new Command.Choice(zh ? SUB_SETTINGS_LOGS_ZH : "logs", "logs"),
-                        new Command.Choice(zh ? SUB_SETTINGS_LOG_SETTINGS_ZH : ROUTE_LOG_SETTINGS, ROUTE_LOG_SETTINGS),
-                        new Command.Choice(zh ? SUB_SETTINGS_MUSIC_ZH : CommandNames.CMD_MUSIC, CommandNames.CMD_MUSIC),
-                        new Command.Choice(zh ? SUB_SETTINGS_NUMBER_CHAIN_ZH : CommandNames.CMD_NUMBER_CHAIN, CommandNames.CMD_NUMBER_CHAIN),
-                        new Command.Choice(zh ? SUB_SETTINGS_WORD_CHAIN_ZH : CommandNames.CMD_WORD_CHAIN, CommandNames.CMD_WORD_CHAIN),
-                        new Command.Choice(zh ? SUB_SETTINGS_LANGUAGE_ZH : ROUTE_LANGUAGE, ROUTE_LANGUAGE)
-                );
-        if (zh) {
-            option.setNameLocalization(DiscordLocale.CHINESE_TAIWAN, "\u9078\u9805");
-            option.setNameLocalization(DiscordLocale.CHINESE_CHINA, "\u9009\u9879");
-        }
-        return option;
-    }
 
     private OptionData buildWarningsActionOption(boolean zh) {
         OptionData option = new OptionData(OptionType.STRING, CommandOptions.ACTION,

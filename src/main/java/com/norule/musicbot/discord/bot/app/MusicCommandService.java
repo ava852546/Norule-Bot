@@ -161,6 +161,8 @@ public class MusicCommandService extends ListenerAdapter {
                 this, musicService, musicPanelRuntime.panelStateStore(), this.musicPlaybackText);
         this.musicService.setPlaybackFailureListener(playbackFailureNotifier::reportPlaybackFailure);
         this.helpViewRenderer = new HelpViewRenderer(this);
+        // Assign wordChainOps before initializing CommandHandlerRegistry to ensure it is available during handler creation
+        this.wordChainOps = wordChainOps;
         MinecraftStatusOps minecraftStatusOps = new MinecraftStatusOps(
                 new com.norule.musicbot.service.minecraft.MinecraftStatusService(
                         new McSrvStatGateway(),
@@ -169,7 +171,6 @@ public class MusicCommandService extends ListenerAdapter {
         );
         this.commandHandlers = new CommandHandlerRegistry(this, musicPanelRuntime.musicPanelController(), this.musicPlaybackText, minecraftStatusOps);
         this.statsEventService = statsEventService;
-        this.wordChainOps = wordChainOps;
         this.ticketConfigAdapter = new GuildDomainConfigAdapter(settingsService, runtimeConfig.getDefaultMusic());
         this.ticketOps = new TicketOps(new com.norule.musicbot.discord.bot.ops.ticket.TicketService(ticketConfigAdapter, ticketService, i18nService()));
         this.interactionRouter = new InteractionRouter(this, wordChainOps);
