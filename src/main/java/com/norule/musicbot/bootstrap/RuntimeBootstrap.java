@@ -96,6 +96,7 @@ public final class RuntimeBootstrap {
     private static final String CLEAR_TARGET_MESSAGE_LOG = "message_log";
     private static final String CLEAR_TARGET_MESSAGE_LOG_CACHE = "message_log_cache";
     private static final String CLEAR_TARGET_PLAY_HISTORY = "play_history";
+    private static final String CLEAR_TARGET_GUILD_COMMANDS = "guild_commands";
     private static final String REGEX_CONTROL_WITHOUT_NEWLINES = "[\\p{Cntrl}&&[^\\r\\n\\t]]";
     private static final String REGEX_ANSI_ESCAPE = "\u001B\\[[;\\d]*[ -/]*[@-~]";
     private static final String ENV_MYSQL_JDBC_URL = "MYSQL_JDBC_URL";
@@ -423,7 +424,7 @@ public final class RuntimeBootstrap {
     private static void installConsoleShutdownListener(ConsoleRuntimeContext context) {
         Thread listener = new Thread(() -> {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
-                logInfo("[NoRule] Console commands ready: help | reload | stop | clear message_log [t:7d] | clear play_history [t:7d]");
+                logInfo("[NoRule] Console commands ready: help | reload | stop | clear message_log [t:7d] | clear play_history [t:7d] | clear guild_commands");
                 String line;
                 while ((line = reader.readLine()) != null) {
                     String command = normalizeConsoleCommand(line);
@@ -459,7 +460,7 @@ public final class RuntimeBootstrap {
             printConsoleHelp();
             return;
         }
-        if (handleClearCommand(command, context.playerService())) {
+        if (handleClearCommand(command, context)) {
             return;
         }
         logInfo("[NoRule] Unknown console command: " + command);
@@ -484,14 +485,19 @@ public final class RuntimeBootstrap {
         logInfo("  stop                              Shutdown bot process");
         logInfo("  clear message_log [t:12d34m56s]   Prune old message_log_cache rows (default t:7d)");
         logInfo("  clear play_history [t:12d34m56s]  Prune old play_history rows (default t:7d)");
+        logInfo("  clear guild_commands              Clear stale guild slash commands throttled");
     }
 
-    private static boolean handleClearCommand(String command, MusicPlayerService playerService) {
+    private static boolean handleClearCommand(String command, ConsoleRuntimeContext context) {
         ClearCommand parsed = parseClearCommand(command);
         if (parsed == null) {
             return false;
         }
         if (parsed.target().startsWith("__")) {
+            return true;
+        }
+        if (CLEAR_TARGET_GUILD_COMMANDS.equals(parsed.target())) {
+            context.musicCommandListener().clearGuildCommandsThrottled();
             return true;
         }
         long cutoffMillis = System.currentTimeMillis() - parsed.retentionMillis();
@@ -511,7 +517,7 @@ public final class RuntimeBootstrap {
         }
         if (CLEAR_TARGET_PLAY_HISTORY.equals(parsed.target())) {
             try {
-                int removed = playerService.clearPlayHistoryByRetentionMillis(parsed.retentionMillis());
+                int removed = context.playerService().clearPlayHistoryByRetentionMillis(parsed.retentionMillis());
                 logInfo("[NoRule] clear play_history completed: removed=" + removed + ", retention=" + formatRetention(parsed.retentionMillis()));
             } catch (Exception e) {
                 logWarn("[NoRule] clear play_history failed: " + e.getMessage(), e);
@@ -535,8 +541,11 @@ public final class RuntimeBootstrap {
             target = CLEAR_TARGET_MESSAGE_LOG;
         } else if (CLEAR_TARGET_PLAY_HISTORY.equals(rawTarget)) {
             target = CLEAR_TARGET_PLAY_HISTORY;
+        } else if (CLEAR_TARGET_GUILD_COMMANDS.equals(rawTarget)) {
+            target = CLEAR_TARGET_GUILD_COMMANDS;
+            return new ClearCommand(target, 0L);
         } else {
-            logInfo("[NoRule] clear target unsupported: " + rawTarget + " (supported: message_log, play_history)");
+            logInfo("[NoRule] clear target unsupported: " + rawTarget + " (supported: message_log, play_history, guild_commands)");
             return new ClearCommand("__unsupported__", DEFAULT_CLEAR_RETENTION_MILLIS);
         }
 

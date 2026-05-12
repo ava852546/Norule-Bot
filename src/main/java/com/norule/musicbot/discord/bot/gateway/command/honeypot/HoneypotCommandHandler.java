@@ -2,7 +2,6 @@ package com.norule.musicbot.discord.bot.gateway.command.honeypot;
 
 import com.norule.musicbot.HoneypotService;
 import com.norule.musicbot.discord.bot.gateway.listener.HoneypotListener;
-import com.norule.musicbot.i18n.I18nService;
 
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
@@ -12,15 +11,12 @@ import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEve
 import java.awt.Color;
 import java.time.Instant;
 import java.util.EnumSet;
-import java.util.function.Supplier;
 
 public final class HoneypotCommandHandler {
     private final HoneypotService honeypotService;
-    private final Supplier<I18nService> i18n;
 
-    public HoneypotCommandHandler(HoneypotService honeypotService, Supplier<I18nService> i18n) {
+    public HoneypotCommandHandler(HoneypotService honeypotService) {
         this.honeypotService = honeypotService;
-        this.i18n = i18n;
     }
 
     public void handleCreateSlash(SlashCommandInteractionEvent event, String lang) {

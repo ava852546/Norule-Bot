@@ -190,6 +190,11 @@ public class MusicCommandService extends ListenerAdapter {
         this.ticketConfigAdapter.replaceGlobalMusic(newConfig.getDefaultMusic());
         commandRegistrar.syncCommands();
     }
+
+    public void clearGuildCommandsThrottled() {
+        commandRegistrar.clearGuildCommandsThrottled();
+    }
+
     public MusicPlayerService musicService() {
         return musicService;
     }

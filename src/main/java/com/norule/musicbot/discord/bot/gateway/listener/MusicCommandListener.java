@@ -94,6 +94,10 @@ public class MusicCommandListener extends ListenerAdapter {
         devOps.reloadRuntimeConfig(newConfig);
     }
 
+    public void clearGuildCommandsThrottled() {
+        service.clearGuildCommandsThrottled();
+    }
+
     @Override
     public void onReady(ReadyEvent event) {
         service.onReady(event);

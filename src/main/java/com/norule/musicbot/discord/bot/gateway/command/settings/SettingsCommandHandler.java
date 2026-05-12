@@ -8,7 +8,6 @@ import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsMus
 import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsResetMenuHandler;
 import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsTemplateMenuHandler;
 import com.norule.musicbot.discord.bot.gateway.command.settings.view.SettingsInfoView;
-import com.norule.musicbot.discord.bot.gateway.command.settings.view.SettingsUiText;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
@@ -52,25 +51,21 @@ public final class SettingsCommandHandler {
     private final MusicCommandService owner;
     private final DiscordCommandRouteMapper routeMapper = new DiscordCommandRouteMapper();
     private final Map<String, LogSettingsRequest> logSettingsRequests = new ConcurrentHashMap<>();
-    private final SettingsOptionValidator settingsOptionValidator;
     private final SettingsInfoView settingsInfoView;
     private final SettingsTemplateMenuHandler settingsTemplateMenuHandler;
     private final SettingsModuleMenuHandler settingsModuleMenuHandler;
     private final SettingsLogsMenuHandler settingsLogsMenuHandler;
     private final SettingsMusicMenuHandler settingsMusicMenuHandler;
     private final SettingsResetMenuHandler settingsResetMenuHandler;
-    private final SettingsUiText uiText;
 
     public SettingsCommandHandler(MusicCommandService owner) {
         this.owner = owner;
-        this.settingsOptionValidator = new SettingsOptionValidator(owner::i18nService);
         this.settingsInfoView = new SettingsInfoView(owner::i18nService, owner.settingsService(), owner.moderationService());
         this.settingsTemplateMenuHandler = new SettingsTemplateMenuHandler(owner);
         this.settingsModuleMenuHandler = new SettingsModuleMenuHandler(owner);
         this.settingsLogsMenuHandler = new SettingsLogsMenuHandler(owner::i18nService, owner.settingsService());
         this.settingsMusicMenuHandler = new SettingsMusicMenuHandler(owner);
         this.settingsResetMenuHandler = new SettingsResetMenuHandler(owner);
-        this.uiText = new SettingsUiText(owner::i18nService, owner.moderationService());
     }
 
     public void cleanupExpiredRequests(Instant now) {
@@ -105,22 +100,6 @@ public final class SettingsCommandHandler {
                 .queue();
     }
 
-    private void openLogSettingsMenu(SlashCommandInteractionEvent event, String lang) {
-        String token = Long.toHexString(System.nanoTime());
-        logSettingsRequests.put(token, new LogSettingsRequest(
-                event.getUser().getIdLong(),
-                event.getGuild().getIdLong(),
-                Instant.now().plusSeconds(120)
-        ));
-        event.replyEmbeds(new EmbedBuilder()
-                        .setColor(new Color(52, 152, 219))
-                        .setTitle(owner.i18nService().t(lang, "settings.log_settings.title"))
-                        .setDescription(owner.i18nService().t(lang, "settings.log_settings.menu_desc"))
-                        .build())
-                .addComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                .setEphemeral(true)
-                .queue();
-    }
 
     private void openLogSettingsMenu(StringSelectInteractionEvent event, String lang) {
         String token = Long.toHexString(System.nanoTime());

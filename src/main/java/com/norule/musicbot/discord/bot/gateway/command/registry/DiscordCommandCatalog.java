@@ -18,17 +18,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class DiscordCommandCatalog {
-    private static final String SUB_SETTINGS_INFO_ZH = "\u8a73\u7d30\u8cc7\u8a0a";
-    private static final String SUB_SETTINGS_RELOAD_ZH = "\u91cd\u8f09\u8a2d\u5b9a";
-    private static final String SUB_SETTINGS_RESET_ZH = "\u6062\u5fa9\u9810\u8a2d";
-    private static final String SUB_SETTINGS_TEMPLATE_ZH = "\u6a21\u677f\u7de8\u8f2f";
-    private static final String SUB_SETTINGS_MODULE_ZH = "\u6a21\u7d44\u958b\u95dc";
-    private static final String SUB_SETTINGS_LOGS_ZH = "\u65e5\u8a8c\u983b\u9053";
-    private static final String SUB_SETTINGS_LOG_SETTINGS_ZH = "\u65e5\u8a8c\u5ffd\u7565";
-    private static final String SUB_SETTINGS_MUSIC_ZH = "\u97f3\u6a02\u8a2d\u5b9a";
-    private static final String SUB_SETTINGS_LANGUAGE_ZH = "\u8a9e\u8a00\u8a2d\u7f6e";
-    private static final String SUB_SETTINGS_NUMBER_CHAIN_ZH = "\u63a5\u9f8d\u904a\u6232";
-    private static final String SUB_SETTINGS_WORD_CHAIN_ZH = "\u82f1\u6587\u63a5\u9f8d";
     private static final String SUB_GENERIC_ENABLE_ZH = "\u555f\u7528";
     private static final String SUB_GENERIC_STATUS_ZH = "\u72c0\u614b";
     private static final String SUB_MUSIC_STATS_ZH = "\u7d71\u8a08";
@@ -41,11 +30,6 @@ public final class DiscordCommandCatalog {
     private static final String OPTION_VOLUME_VALUE_ZH = "\u97f3\u91cf";
     private static final String PLAYLIST_SCOPE_MINE = "mine";
     private static final String PLAYLIST_SCOPE_ALL = "all";
-    private static final String ROUTE_LANGUAGE = "language";
-    private static final String ROUTE_LOG_SETTINGS = "log-settings";
-    private static final String ROUTE_RELOAD = "reload";
-    private static final String ROUTE_TEMPLATE = "template";
-    private static final String ROUTE_MODULE = "module";
 
     public List<CommandData> buildCommands() {
         List<CommandData> commands = new ArrayList<>();

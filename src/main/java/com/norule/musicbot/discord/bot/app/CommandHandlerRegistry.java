@@ -71,7 +71,7 @@ class CommandHandlerRegistry {
         this.numberChainMenuHandler = new SettingsNumberChainMenuHandler(service::i18nService, service.moderationService());
         this.wordChainMenuHandler = new SettingsWordChainMenuHandler(service::i18nService, service.wordChainOps(), service.moderationService());
         this.warningCommandHandler = new WarningCommandHandler(service);
-        this.honeypotCommandHandler = new HoneypotCommandHandler(service.honeypotService(), service::i18nService);
+        this.honeypotCommandHandler = new HoneypotCommandHandler(service.honeypotService());
         this.infoCommandHandler = new InfoCommandHandler(service::i18nService, service.settingsService());
         this.urlCommandHandler = new UrlCommandHandler(service.shortUrlService());
         this.playlistCommandHandler = new PlaylistCommandHandler(service, musicPanelController);

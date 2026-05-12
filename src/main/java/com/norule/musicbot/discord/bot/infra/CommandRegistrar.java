@@ -2,13 +2,22 @@ package com.norule.musicbot.discord.bot.infra;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import net.dv8tion.jda.api.JDA;
-import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.interactions.commands.build.CommandData;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import net.dv8tion.jda.api.entities.Guild;
 
 public final class CommandRegistrar {
+    private static final Logger log = LoggerFactory.getLogger(CommandRegistrar.class);
     private final MusicCommandService owner;
+    private final AtomicBoolean cleanupRunning = new AtomicBoolean(false);
 
     public CommandRegistrar(MusicCommandService owner) {
         this.owner = owner;
@@ -17,33 +26,63 @@ public final class CommandRegistrar {
     public void registerOnReady(JDA jda) {
         List<CommandData> commands = owner.buildCommands();
         jda.updateCommands().addCommands(commands).queue(
-                success -> System.out.println("[NoRule] Registered global slash commands: " + success.size()),
-                failure -> System.out.println("[NoRule] Failed to register global slash commands: " + failure.getMessage())
+                success -> log.info("[NoRule] Registered global slash commands: {} command(s)", success.size()),
+                failure -> log.warn("[NoRule] Failed to register global slash commands: {}", failure.getMessage())
         );
     }
 
-    /**
-     * Clears all guild‑specific slash commands for every guild the bot is currently in.
-     * This is useful when the bot previously registered commands as guild commands (e.g. during development)
-     * and they remain cached on Discord, causing duplicate command listings alongside the new global commands.
-     */
-    private void clearGuildCommands() {
-        JDA current = owner.currentJda();
-        if (current == null) {
+    public void clearGuildCommandsThrottled() {
+        if (!cleanupRunning.compareAndSet(false, true)) {
+            log.warn("[NoRule] Guild command cleanup is already running.");
             return;
         }
-        // Iterate over all guilds the bot is a member of and clear their command list.
-        current.getGuilds().forEach(guild -> {
+
+        JDA current = owner.currentJda();
+        if (current == null) {
+            log.info("[NoRule] Guild command cleanup skipped: JDA is null.");
+            cleanupRunning.set(false);
+            return;
+        }
+
+        List<Guild> guilds = current.getGuilds();
+        int total = guilds.size();
+        if (total == 0) {
+            log.info("[NoRule] Guild command cleanup skipped: no guilds.");
+            cleanupRunning.set(false);
+            return;
+        }
+
+        log.info("[NoRule] Guild command cleanup started: {} guild(s), delay=2s", total);
+
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        AtomicInteger index = new AtomicInteger(0);
+        AtomicInteger failed = new AtomicInteger(0);
+
+        scheduler.scheduleAtFixedRate(() -> {
+            int i = index.getAndIncrement();
+            if (i >= total) {
+                log.info("[NoRule] Guild command cleanup completed: {}/{} guild(s), failed={}", total, total, failed.get());
+                cleanupRunning.set(false);
+                scheduler.shutdown();
+                return;
+            }
+
+            if (i > 0 && i % 10 == 0) {
+                log.info("[NoRule] Guild command cleanup progress: {}/{} guild(s)", i, total);
+            }
+
+            Guild guild = guilds.get(i);
             guild.updateCommands().queue(
-                    success -> System.out.println("[NoRule] Cleared guild commands for guild " + guild.getId()),
-                    failure -> System.out.println("[NoRule] Failed to clear guild commands for guild " + guild.getId() + ": " + failure.getMessage())
+                    success -> log.debug("[NoRule] Cleared guild commands for guild {}", guild.getId()),
+                    failure -> {
+                        failed.incrementAndGet();
+                        log.warn("[NoRule] Failed to clear guild commands for guild {}: {}", guild.getId(), failure.getMessage());
+                    }
             );
-        });
+        }, 0, 2, TimeUnit.SECONDS);
     }
 
     public void syncCommands() {
-        // First, ensure any stale guild commands are removed to avoid duplicate listings.
-        clearGuildCommands();
 
         JDA current = owner.currentJda();
         if (current == null) {
@@ -51,8 +90,8 @@ public final class CommandRegistrar {
         }
         List<CommandData> commands = owner.buildCommands();
         current.updateCommands().addCommands(commands).queue(
-                success -> System.out.println("[NoRule] Synced global slash commands: " + success.size()),
-                failure -> System.out.println("[NoRule] Failed to sync global slash commands: " + failure.getMessage())
+                success -> log.info("[NoRule] Slash commands synchronized: {} command(s)", success.size()),
+                failure -> log.warn("[NoRule] Failed to sync global slash commands: {}", failure.getMessage())
         );
     }
 }
