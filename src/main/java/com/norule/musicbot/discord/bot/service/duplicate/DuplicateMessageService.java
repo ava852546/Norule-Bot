@@ -13,6 +13,7 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.exceptions.InsufficientPermissionException;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 
 import java.awt.Color;
@@ -55,6 +56,9 @@ public class DuplicateMessageService {
         if (!moderationService.isDuplicateDetectionEnabled(guildId)) {
             return;
         }
+        if (!canManageMessages(event)) {
+            return;
+        }
 
         String normalized = normalize(event.getMessage());
         if (normalized.isBlank()) {
@@ -78,9 +82,9 @@ public class DuplicateMessageService {
     }
 
     private void handleDuplicate(MessageReceivedEvent event, int duplicateCount) {
-        event.getMessage().delete().queue(ignored -> {
-        }, error -> {
-        });
+        if (!deleteDuplicateMessage(event)) {
+            return;
+        }
 
         Member member = event.getMember();
         if (member == null) {
@@ -142,6 +146,28 @@ public class DuplicateMessageService {
         target.sendMessageEmbeds(eb.build()).queue(ignored -> {
         }, error -> {
         });
+    }
+
+    private boolean deleteDuplicateMessage(MessageReceivedEvent event) {
+        if (!canManageMessages(event)) {
+            return false;
+        }
+        try {
+            event.getMessage().delete().queue(ignored -> {
+            }, error -> {
+            });
+            return true;
+        } catch (InsufficientPermissionException ignored) {
+            return false;
+        }
+    }
+
+    private boolean canManageMessages(MessageReceivedEvent event) {
+        Guild guild = event.getGuild();
+        Member self = guild.getSelfMember();
+        return self != null
+                && self.hasPermission(Permission.MESSAGE_MANAGE)
+                && self.hasPermission(event.getGuildChannel(), Permission.MESSAGE_MANAGE);
     }
 
     private TextChannel resolveNotifyChannel(MessageReceivedEvent event) {
@@ -240,7 +266,6 @@ public class DuplicateMessageService {
         }
     }
 }
-
 
 
 

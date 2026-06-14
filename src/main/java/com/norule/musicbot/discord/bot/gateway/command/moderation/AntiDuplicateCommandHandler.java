@@ -8,7 +8,6 @@ import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -47,13 +46,10 @@ public final class AntiDuplicateCommandHandler {
                     : event.getOption(OPTION_VALUE).getAsBoolean();
             if (enabled) {
                 Member self = event.getGuild().getSelfMember();
-                List<String> missingBotPermissions = new ArrayList<>();
-                if (!self.hasPermission(event.getGuildChannel(), Permission.MESSAGE_MANAGE)) {
-                    missingBotPermissions.add(Permission.MESSAGE_MANAGE.getName());
-                }
-                if (!self.hasPermission(Permission.MODERATE_MEMBERS)) {
-                    missingBotPermissions.add(Permission.MODERATE_MEMBERS.getName());
-                }
+                List<String> missingBotPermissions = AntiDuplicatePermissionPolicy.missingEnablePermissionNames(
+                        self.hasPermission(Permission.MESSAGE_MANAGE),
+                        self.hasPermission(event.getGuildChannel(), Permission.MESSAGE_MANAGE),
+                        self.hasPermission(Permission.MODERATE_MEMBERS));
                 if (!missingBotPermissions.isEmpty()) {
                     event.reply(i18n.get().t(lang, "anti_duplicate.missing_bot_permissions",
                                     Map.of("permissions", String.join(", ", missingBotPermissions))))
