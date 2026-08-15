@@ -11,6 +11,7 @@ public final class MusicPanelStateStore {
     private final Map<Long, Long> panelLastRefreshAt = new ConcurrentHashMap<>();
     private final Map<Long, String> panelLastSignature = new ConcurrentHashMap<>();
     private final Map<Long, ScheduledFuture<?>> delayedPanelRefreshByGuild = new ConcurrentHashMap<>();
+    private final Map<Long, Boolean> delayedPanelRefreshForceByGuild = new ConcurrentHashMap<>();
     private final Set<Long> panelRefreshingGuilds = ConcurrentHashMap.newKeySet();
     private final Map<Long, RefreshRequest> pendingPanelRefreshByGuild = new ConcurrentHashMap<>();
 
@@ -42,6 +43,7 @@ public final class MusicPanelStateStore {
         panelLastSignature.remove(guildId);
         panelLastRefreshAt.remove(guildId);
         pendingPanelRefreshByGuild.remove(guildId);
+        delayedPanelRefreshForceByGuild.remove(guildId);
         cancelDelayedRefreshTask(guildId);
     }
 
@@ -58,6 +60,7 @@ public final class MusicPanelStateStore {
         panelLastSignature.remove(guildId);
         panelLastRefreshAt.remove(guildId);
         pendingPanelRefreshByGuild.remove(guildId);
+        delayedPanelRefreshForceByGuild.remove(guildId);
         cancelDelayedRefreshTask(guildId);
         return true;
     }
@@ -111,8 +114,17 @@ public final class MusicPanelStateStore {
         delayedPanelRefreshByGuild.remove(guildId);
     }
 
+    public void mergeDelayedRefreshForce(long guildId, boolean force) {
+        delayedPanelRefreshForceByGuild.merge(guildId, force, (current, incoming) -> current || incoming);
+    }
+
+    public boolean pollDelayedRefreshForce(long guildId) {
+        return Boolean.TRUE.equals(delayedPanelRefreshForceByGuild.remove(guildId));
+    }
+
     public synchronized void cancelDelayedRefreshTask(long guildId) {
         ScheduledFuture<?> task = delayedPanelRefreshByGuild.remove(guildId);
+        delayedPanelRefreshForceByGuild.remove(guildId);
         if (task != null) {
             task.cancel(false);
         }
