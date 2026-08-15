@@ -29,4 +29,43 @@ class MusicPanelStateStoreTest {
         assertEquals(10L, active.channelId);
         assertEquals(200L, active.messageId);
     }
+
+    @Test
+    void pendingRefreshRequestsAreCoalescedAndEscalated() {
+        MusicPanelStateStore store = new MusicPanelStateStore();
+
+        store.requestRefresh(1L, false, false, true);
+        store.requestRefresh(1L, false, false, false);
+        store.requestRefresh(1L, true, true, false);
+
+        MusicPanelStateStore.RefreshRequest request = store.pollRefreshRequest(1L);
+        assertTrue(request.force());
+        assertTrue(request.immediate());
+        assertFalse(request.periodicOnly());
+        assertFalse(store.hasPendingRefresh(1L));
+    }
+
+    @Test
+    void refreshLockIsHeldUntilExplicitCompletion() {
+        MusicPanelStateStore store = new MusicPanelStateStore();
+
+        assertTrue(store.startRefreshing(1L));
+        assertFalse(store.startRefreshing(1L));
+
+        store.finishRefreshing(1L);
+
+        assertTrue(store.startRefreshing(1L));
+    }
+
+    @Test
+    void delayedRefreshPreservesStrongestForceIntent() {
+        MusicPanelStateStore store = new MusicPanelStateStore();
+
+        store.mergeDelayedRefreshForce(1L, false);
+        store.mergeDelayedRefreshForce(1L, true);
+        store.mergeDelayedRefreshForce(1L, false);
+
+        assertTrue(store.pollDelayedRefreshForce(1L));
+        assertFalse(store.pollDelayedRefreshForce(1L));
+    }
 }
