@@ -304,7 +304,7 @@ public final class RuntimeBootstrap {
                 honeypotService,
                 ticketService
         ));
-        installShutdownHook(jda, i18nService, config.getDefaultLanguage());
+        installShutdownHook(jda, i18nService, config.getDefaultLanguage(), musicCommandListener);
 
         try {
             jda.awaitReady();
@@ -474,7 +474,13 @@ public final class RuntimeBootstrap {
         logInfo("[NoRule] Console command received: " + command);
         if (SHUTDOWN_COMMANDS.contains(command)) {
             logInfo("[NoRule] Shutdown command received: " + command);
-            requestShutdown(context.jda(), context.i18nService(), context.language(), true);
+            requestShutdown(
+                    context.jda(),
+                    context.i18nService(),
+                    context.language(),
+                    context.musicCommandListener(),
+                    true
+            );
             return;
         }
         if (RELOAD_COMMANDS.contains(command)) {
@@ -695,9 +701,12 @@ public final class RuntimeBootstrap {
         }
     }
 
-    private static void installShutdownHook(JDA jda, I18nService i18nService, String language) {
+    private static void installShutdownHook(JDA jda,
+                                            I18nService i18nService,
+                                            String language,
+                                            MusicCommandListener musicCommandListener) {
         Runtime.getRuntime().addShutdownHook(new Thread(
-                () -> requestShutdown(jda, i18nService, language, false),
+                () -> requestShutdown(jda, i18nService, language, musicCommandListener, false),
                 "NoRuleShutdownHook"
         ));
     }
@@ -705,6 +714,7 @@ public final class RuntimeBootstrap {
     private static void requestShutdown(JDA jda,
                                         I18nService i18nService,
                                         String language,
+                                        MusicCommandListener musicCommandListener,
                                         boolean exitProcess) {
         if (!SHUTDOWN_STARTED.compareAndSet(false, true)) {
             if (exitProcess) {
@@ -714,6 +724,7 @@ public final class RuntimeBootstrap {
         }
 
         logLifecycleMessage(i18nService, language, false);
+        musicCommandListener.shutdown();
         WebControlServer webServer = WEB_SERVER.getAndSet(null);
         if (webServer != null) {
             webServer.shutdown();

@@ -20,7 +20,7 @@ class MusicPanelRuntime {
     MusicPanelRuntime(MusicCommandService service,
                       ScheduledExecutorService scheduler,
                       long panelPeriodicRefreshMs) {
-        MusicCommandChannelProvisioner commandChannelProvisioner = new MusicCommandChannelProvisioner(service);
+        MusicCommandChannelProvisioner commandChannelProvisioner = new MusicCommandChannelProvisioner(service, scheduler);
         this.panelStateStore = new MusicPanelStateStore();
         this.musicPanelRenderer = new MusicPanelRenderer(service, this.panelStateStore);
         this.musicPanelRefreshService = new MusicPanelRefreshService(

@@ -102,6 +102,10 @@ public class MusicCommandListener extends ListenerAdapter {
         service.clearGuildCommandsThrottled();
     }
 
+    public void shutdown() {
+        service.shutdown();
+    }
+
     @Override
     public void onReady(ReadyEvent event) {
         service.onReady(event);

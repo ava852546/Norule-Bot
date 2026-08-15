@@ -117,7 +117,11 @@ public class MusicCommandService extends ListenerAdapter {
     private final CommandCooldownService commandCooldownService;
     private final TransientStateCleanupService transientStateCleanupService;
     private final PrefixCommandRouter prefixCommandRouter;
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(task -> {
+        Thread thread = new Thread(task, "NoRuleMusicScheduler");
+        thread.setDaemon(true);
+        return thread;
+    });
     private final AtomicReference<JDA> jda = new AtomicReference<>();
     private final CommandRegistrar commandRegistrar;
     private final DiscordCommandCatalog discordCommandCatalog;
@@ -319,9 +323,7 @@ public class MusicCommandService extends ListenerAdapter {
         this.jda.set(event.getJDA());
         this.botReadyForSlashCommands.set(true);
         commandRegistrar.syncCommands();
-        for (Guild guild : event.getJDA().getGuilds()) {
-            musicPanelRuntime.musicPanelController().initializeGuild(guild);
-        }
+        musicPanelRuntime.musicPanelController().initializeGuilds(event.getJDA().getGuilds());
         ticketOps.onReady(event);
     }
 
@@ -329,6 +331,10 @@ public class MusicCommandService extends ListenerAdapter {
     public void onGuildJoin(GuildJoinEvent event) {
         // Global command registration is handled in onReady/syncCommands.
         musicPanelRuntime.musicPanelController().initializeGuild(event.getGuild());
+    }
+
+    public void shutdown() {
+        scheduler.shutdownNow();
     }
 
     @Override

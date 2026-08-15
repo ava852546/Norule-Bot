@@ -44,11 +44,15 @@ public final class MusicPanelController {
         if (guild == null) {
             return;
         }
-        resolveOrCreateCommandChannel(guild, null).thenAccept(channel -> {
-            if (channel != null) {
-                ensurePanelForChannel(guild, channel, owner.lang(guild.getIdLong()));
-            }
-        });
+        commandChannelProvisioner.queueProvisioning(guild, this::initializePanel);
+    }
+
+    public void initializeGuilds(List<Guild> guilds) {
+        commandChannelProvisioner.queueStartupProvisioning(guilds, this::initializePanel);
+    }
+
+    private void initializePanel(Guild guild, TextChannel channel) {
+        ensurePanelForChannel(guild, channel, owner.lang(guild.getIdLong()));
     }
 
     public void moveActivePanelToBottom(Guild guild, TextChannel preferredChannel) {
