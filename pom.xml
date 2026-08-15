@@ -23,7 +23,7 @@
         <external.lib.dir>${project.basedir}/runtime-libs</external.lib.dir>
         <jda.version>6.5.0</jda.version>
         <lavaplayer.version>2.2.7</lavaplayer.version>
-        <youtube.source.version>1.18.1</youtube.source.version>
+        <youtube.source.version>1.18.2</youtube.source.version>
         <lavasrc.version>4.8.3</lavasrc.version>
         <libdave.java.version>0.1.2</libdave.java.version>
         <libdave.natives.version>0.1.3</libdave.natives.version>
