@@ -308,6 +308,21 @@ numberChainReactionDelayMillis: 500
 
 music:
   youtube:
+    # 啟動時選擇播放後端：YOUTUBE_SOURCE 或 COMPANION。
+    playbackBackend: YOUTUBE_SOURCE
+    companion:
+      # 是否允許使用 Companion API；也可用 YOUTUBE_COMPANION_ENABLED 覆寫。
+      enabled: false
+      # Companion origin；未帶 path 時使用官方預設 /companion。
+      url: "http://127.0.0.1:8282"
+      # 對應 Companion SERVER_SECRET_KEY，必須是 16 位英數字元。
+      secret: ""
+      # Companion timeout、離線或 5xx 時，只 fallback youtube-source 一次。
+      fallbackToSource: true
+      # Companion TCP 連線逾時（毫秒）。
+      connectTimeoutMillis: 5000
+      # Companion player API 與 playback proxy 讀取逾時（毫秒）。
+      requestTimeoutMillis: 10000
     oauthEnabled: false
     oauthRefreshToken: ""
     cipherEnabled: false
@@ -324,9 +339,29 @@ music:
 
 `commandGuildId` 留空會註冊全域 Slash 指令；開發測試時可填單一伺服器 ID，加快指令更新速度。
 
+### YouTube 播放後端
+
+預設 `playbackBackend: YOUTUBE_SOURCE`，完整保留 youtube-source、既有 clients 與 Remote Cipher。也可在啟動環境設定：
+
+```text
+YOUTUBE_PLAYBACK_BACKEND=YOUTUBE_SOURCE
+```
+
+若要讓 Invidious Companion 只負責實際 YouTube 音訊播放，請先部署 Companion，讓 `SERVER_SECRET_KEY` 使用 16 位英數字元，再設定：
+
+```text
+YOUTUBE_PLAYBACK_BACKEND=COMPANION
+YOUTUBE_COMPANION_ENABLED=true
+YOUTUBE_COMPANION_URL=http://127.0.0.1:8282
+YOUTUBE_COMPANION_SECRET=ChangeMe12345678
+YOUTUBE_COMPANION_FALLBACK_TO_SOURCE=true
+```
+
+`YOUTUBE_COMPANION_SECRET` 範例僅示意；實際值必須符合 Companion 的 16 位英數限制。Bot 仍以 youtube-source 處理 URL、搜尋、playlist 與 metadata；播放時才呼叫 `POST /companion/youtubei/v1/player` 並透過 Companion `/videoplayback` proxy 讀取音訊。Bot 不會因此開放任意 HTTP 音訊來源。
+
 ### YouTube 嚴格播放預檢
 
-`youtube-source` 已更新到 `1.18.1`。如果另外部署 Lavalink 並安裝 `dev.lavalink.youtube:youtube-plugin:1.18.1`，可啟用：
+`youtube-source` 已更新到 `1.18.2`。如果另外部署 Lavalink 並安裝 `dev.lavalink.youtube:youtube-plugin:1.18.2`，可啟用：
 
 ```yml
 music:
@@ -347,7 +382,7 @@ lavalink:
     sources:
       youtube: false
   plugins:
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.1"
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
       snapshot: false
 ```
 

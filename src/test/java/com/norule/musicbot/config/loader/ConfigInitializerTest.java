@@ -15,6 +15,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConfigInitializerTest {
 
@@ -89,7 +90,18 @@ class ConfigInitializerTest {
         assertFalse(shortUrl.containsKey("bind"));
         assertFalse(shortUrl.containsKey("public"));
 
+        Map<String, Object> music = asMap(root.get("music"));
+        Map<String, Object> youtube = asMap(music.get("youtube"));
+        Map<String, Object> companion = asMap(youtube.get("companion"));
+        assertEquals("YOUTUBE_SOURCE", youtube.get("playbackBackend"));
+        assertEquals(false, companion.get("enabled"));
+        assertEquals("http://127.0.0.1:8282", companion.get("url"));
+        assertEquals(true, companion.get("fallbackToSource"));
+
         String normalized = Files.readString(configPath, StandardCharsets.UTF_8);
+        assertTrue(normalized.contains("# Startup-only YouTube playback backend"));
+        assertTrue(normalized.contains("# Enable Companion API use."));
+        assertTrue(normalized.contains("# Companion SERVER_SECRET_KEY"));
         initializer.initialize(configPath);
         assertEquals(normalized, Files.readString(configPath, StandardCharsets.UTF_8));
     }

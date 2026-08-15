@@ -1,6 +1,7 @@
 package com.norule.musicbot.config.domain;
 
 import com.norule.musicbot.config.BotConfig;
+import com.norule.musicbot.domain.music.YouTubePlaybackBackend;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -58,5 +59,33 @@ class MusicYoutubeConfigTest {
         assertEquals(MusicConfig.Youtube.AuthMode.OAUTH, config.getAuth().getMode());
         assertEquals("legacy-refresh-token", config.getAuth().getOauthRefreshToken());
         assertFalse(config.getAuth().isStrictAuthConfig());
+    }
+
+    @Test
+    void companionPlaybackSettingsMapToDomainConfig() {
+        BotConfig.Music.Youtube parsed = BotConfig.Music.Youtube.fromMap(
+                Map.of(
+                        "playbackBackend", "companion",
+                        "companion", Map.of(
+                                "enabled", true,
+                                "url", "http://companion.test:8282/companion",
+                                "secret", "ChangeMe12345678",
+                                "fallbackToSource", false,
+                                "connectTimeoutMillis", 2500,
+                                "requestTimeoutMillis", 7500
+                        )
+                ),
+                BotConfig.Music.Youtube.defaultValues()
+        );
+
+        MusicConfig.Youtube config = MusicConfig.Youtube.fromLegacy(parsed);
+
+        assertEquals(YouTubePlaybackBackend.COMPANION, config.getPlaybackBackend());
+        assertTrue(config.getCompanion().isEnabled());
+        assertEquals("http://companion.test:8282/companion", config.getCompanion().getUrl());
+        assertEquals("ChangeMe12345678", config.getCompanion().getSecret());
+        assertFalse(config.getCompanion().isFallbackToSource());
+        assertEquals(2500, config.getCompanion().getConnectTimeoutMillis());
+        assertEquals(7500, config.getCompanion().getRequestTimeoutMillis());
     }
 }

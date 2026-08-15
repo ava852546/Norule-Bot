@@ -10,6 +10,7 @@ import com.norule.musicbot.config.domain.StatsConfig;
 import com.norule.musicbot.config.loader.ConfigLoader;
 import com.norule.musicbot.domain.music.*;
 import com.norule.musicbot.gateway.spotify.SpotifyWebApiPlaylistInspector;
+import com.norule.musicbot.gateway.youtube.YouTubePlaybackRuntimeFactory;
 import com.norule.musicbot.i18n.*;
 import com.norule.musicbot.discord.bot.gateway.WordChainMessageListener;
 import com.norule.musicbot.discord.bot.gateway.command.shorturl.DiscordShortUrlAccessPublisher;
@@ -190,7 +191,8 @@ public final class RuntimeBootstrap {
                 guildConfigAdapter::getMusicPlaylistTrackLimit,
                 globalMusicConfig,
                 musicSqlitePath,
-                new SpotifyWebApiPlaylistInspector()
+                new SpotifyWebApiPlaylistInspector(),
+                YouTubePlaybackRuntimeFactory.create(globalMusicConfig.getYoutube())
         );
         Path moderationDataPath = resolveDataPath(baseDir, config.getModerationDataDir());
         ModerationSqliteRepository moderationSqliteRepository = sharedSqliteDatabase == null ? null : new ModerationSqliteRepository(sharedSqliteDatabase);

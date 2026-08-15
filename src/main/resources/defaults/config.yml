@@ -66,6 +66,27 @@ developers:
 # Global music integrations
 music:
   youtube:
+    # Startup-only YouTube playback backend: YOUTUBE_SOURCE or COMPANION.
+    # youtube_source, YOUTUBE_SOURCE, and youtube-source are accepted; invalid values fall back safely.
+    playbackBackend: YOUTUBE_SOURCE
+    # Invidious Companion is used only for YouTube audio playback; youtube-source still handles search and metadata.
+    companion:
+      # Must be true before COMPANION can make API requests. Environment: YOUTUBE_COMPANION_ENABLED.
+      enabled: false
+      # Companion origin or base URL. A bare origin uses the official default /companion base path.
+      # Environment: YOUTUBE_COMPANION_URL.
+      url: "http://127.0.0.1:8282"
+      # Must match Companion SERVER_SECRET_KEY (exactly 16 alphanumeric characters). Never log or commit a real secret.
+      # Environment: YOUTUBE_COMPANION_SECRET.
+      secret: ""
+      # On Companion timeout, offline, or HTTP 5xx, try youtube-source once. Environment: YOUTUBE_COMPANION_FALLBACK_TO_SOURCE.
+      fallbackToSource: true
+      # TCP connection timeout for Companion metadata and playback proxy requests.
+      # Environment: YOUTUBE_COMPANION_CONNECT_TIMEOUT_MILLIS.
+      connectTimeoutMillis: 5000
+      # Overall player API timeout and playback proxy socket timeout.
+      # Environment: YOUTUBE_COMPANION_REQUEST_TIMEOUT_MILLIS.
+      requestTimeoutMillis: 10000
     auth:
       mode: NONE
       strictAuthConfig: false

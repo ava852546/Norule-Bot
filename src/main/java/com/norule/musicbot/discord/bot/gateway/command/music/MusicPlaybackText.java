@@ -100,6 +100,9 @@ public final class MusicPlaybackText {
                 case "YOUTUBE_REGION_RESTRICTED" -> "music.youtube_region_restricted";
                 case "YOUTUBE_DECODER_FAILURE" -> "music.youtube_decoder_failure";
                 case "YOUTUBE_HTTP_FORBIDDEN" -> "music.youtube_http_forbidden";
+                case "YOUTUBE_COMPANION_UNAVAILABLE" -> "music.youtube_companion_unavailable";
+                case "YOUTUBE_COMPANION_TIMEOUT" -> "music.youtube_companion_timeout";
+                case "YOUTUBE_COMPANION_STREAM_UNAVAILABLE" -> "music.youtube_companion_stream_unavailable";
                 case "YOUTUBE_HTTP_BAD_REQUEST", "YOUTUBE_SIGNATURE_FAILURE", "YOUTUBE_CIPHER_FAILURE",
                         "YOUTUBE_NETWORK_TIMEOUT", "YOUTUBE_NETWORK_IO", "YOUTUBE_ALL_CLIENTS_FAILED",
                         "YOUTUBE_UNKNOWN" -> "music.youtube_source_temporary_failure";

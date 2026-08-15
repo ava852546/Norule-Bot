@@ -1,6 +1,7 @@
 package com.norule.musicbot.config.domain;
 
 import com.norule.musicbot.config.BotConfig;
+import com.norule.musicbot.domain.music.YouTubePlaybackBackend;
 
 public final class MusicConfig {
     public static final class Audio {
@@ -98,12 +99,15 @@ public final class MusicConfig {
     }
 
     public static final class Youtube {
+        private final YouTubePlaybackBackend playbackBackend;
+        private final String configuredPlaybackBackend;
         private final boolean oauthEnabled;
         private final boolean cipherEnabled;
         private final String oauthRefreshToken;
         private final String cipherServer;
         private final String cipherPassword;
         private final String cipherUserAgent;
+        private final Companion companion;
         private final Auth auth;
         private final StrictPrecheck strictPrecheck;
 
@@ -115,7 +119,8 @@ public final class MusicConfig {
                        String cipherUserAgent,
                        StrictPrecheck strictPrecheck) {
             this(oauthEnabled, cipherEnabled, oauthRefreshToken, cipherServer, cipherPassword,
-                    cipherUserAgent, Auth.fromLegacy(null, oauthEnabled, oauthRefreshToken), strictPrecheck);
+                    cipherUserAgent, Auth.fromLegacy(null, oauthEnabled, oauthRefreshToken), strictPrecheck,
+                    YouTubePlaybackBackend.YOUTUBE_SOURCE, "YOUTUBE_SOURCE", Companion.fromLegacy(null));
         }
 
         public Youtube(boolean oauthEnabled,
@@ -126,18 +131,40 @@ public final class MusicConfig {
                        String cipherUserAgent,
                        Auth auth,
                        StrictPrecheck strictPrecheck) {
+            this(oauthEnabled, cipherEnabled, oauthRefreshToken, cipherServer, cipherPassword,
+                    cipherUserAgent, auth, strictPrecheck, YouTubePlaybackBackend.YOUTUBE_SOURCE,
+                    "YOUTUBE_SOURCE", Companion.fromLegacy(null));
+        }
+
+        public Youtube(boolean oauthEnabled,
+                       boolean cipherEnabled,
+                       String oauthRefreshToken,
+                       String cipherServer,
+                       String cipherPassword,
+                       String cipherUserAgent,
+                       Auth auth,
+                       StrictPrecheck strictPrecheck,
+                       YouTubePlaybackBackend playbackBackend,
+                       String configuredPlaybackBackend,
+                       Companion companion) {
+            this.playbackBackend = playbackBackend == null
+                    ? YouTubePlaybackBackend.YOUTUBE_SOURCE
+                    : playbackBackend;
+            this.configuredPlaybackBackend = configuredPlaybackBackend == null ? "" : configuredPlaybackBackend;
             this.oauthEnabled = oauthEnabled;
             this.cipherEnabled = cipherEnabled;
             this.oauthRefreshToken = oauthRefreshToken == null ? "" : oauthRefreshToken;
             this.cipherServer = cipherServer == null ? "" : cipherServer;
             this.cipherPassword = cipherPassword == null ? "" : cipherPassword;
             this.cipherUserAgent = cipherUserAgent == null ? "" : cipherUserAgent;
+            this.companion = companion == null ? Companion.fromLegacy(null) : companion;
             this.auth = auth == null ? Auth.fromLegacy(null, oauthEnabled, oauthRefreshToken) : auth;
             this.strictPrecheck = strictPrecheck == null ? StrictPrecheck.fromLegacy(null) : strictPrecheck;
         }
 
         public static Youtube fromLegacy(BotConfig.Music.Youtube legacy) {
             BotConfig.Music.Youtube value = legacy == null ? BotConfig.Music.Youtube.defaultValues() : legacy;
+            String configuredBackend = value.getPlaybackBackend();
             return new Youtube(
                     value.isOauthEnabled(),
                     value.isCipherEnabled(),
@@ -146,18 +173,68 @@ public final class MusicConfig {
                     value.getCipherPassword(),
                     value.getCipherUserAgent(),
                     Auth.fromLegacy(value.getAuth(), value.isOauthEnabled(), value.getOauthRefreshToken()),
-                    StrictPrecheck.fromLegacy(value.getStrictPrecheck())
+                    StrictPrecheck.fromLegacy(value.getStrictPrecheck()),
+                    YouTubePlaybackBackend.parse(configuredBackend),
+                    configuredBackend,
+                    Companion.fromLegacy(value.getCompanion())
             );
         }
 
+        public YouTubePlaybackBackend getPlaybackBackend() { return playbackBackend; }
+        public String getConfiguredPlaybackBackend() { return configuredPlaybackBackend; }
         public boolean isOauthEnabled() { return oauthEnabled; }
         public boolean isCipherEnabled() { return cipherEnabled; }
         public String getOauthRefreshToken() { return oauthRefreshToken; }
         public String getCipherServer() { return cipherServer; }
         public String getCipherPassword() { return cipherPassword; }
         public String getCipherUserAgent() { return cipherUserAgent; }
+        public Companion getCompanion() { return companion; }
         public Auth getAuth() { return auth; }
         public StrictPrecheck getStrictPrecheck() { return strictPrecheck; }
+
+        public static final class Companion {
+            private final boolean enabled;
+            private final String url;
+            private final String secret;
+            private final boolean fallbackToSource;
+            private final int connectTimeoutMillis;
+            private final int requestTimeoutMillis;
+
+            public Companion(boolean enabled,
+                             String url,
+                             String secret,
+                             boolean fallbackToSource,
+                             int connectTimeoutMillis,
+                             int requestTimeoutMillis) {
+                this.enabled = enabled;
+                this.url = url == null ? "" : url;
+                this.secret = secret == null ? "" : secret;
+                this.fallbackToSource = fallbackToSource;
+                this.connectTimeoutMillis = Math.max(1, connectTimeoutMillis);
+                this.requestTimeoutMillis = Math.max(1, requestTimeoutMillis);
+            }
+
+            static Companion fromLegacy(BotConfig.Music.Youtube.Companion legacy) {
+                BotConfig.Music.Youtube.Companion value = legacy == null
+                        ? BotConfig.Music.Youtube.defaultValues().getCompanion()
+                        : legacy;
+                return new Companion(
+                        value.isEnabled(),
+                        value.getUrl(),
+                        value.getSecret(),
+                        value.isFallbackToSource(),
+                        value.getConnectTimeoutMillis(),
+                        value.getRequestTimeoutMillis()
+                );
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public String getUrl() { return url; }
+            public String getSecret() { return secret; }
+            public boolean isFallbackToSource() { return fallbackToSource; }
+            public int getConnectTimeoutMillis() { return connectTimeoutMillis; }
+            public int getRequestTimeoutMillis() { return requestTimeoutMillis; }
+        }
 
         public enum AuthMode {
             NONE,

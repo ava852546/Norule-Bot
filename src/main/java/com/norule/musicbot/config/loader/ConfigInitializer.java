@@ -266,9 +266,15 @@ public final class ConfigInitializer {
         }
         List<String> lines = yamlText.lines().toList();
         List<String> out = new ArrayList<>(lines.size() + 24);
+        boolean inYoutubeCompanion = false;
 
         for (String line : lines) {
             String trimmed = line.trim();
+            int indentation = line.length() - line.stripLeading().length();
+            if (inYoutubeCompanion && !trimmed.isBlank() && indentation <= 4
+                    && !"companion:".equals(trimmed)) {
+                inYoutubeCompanion = false;
+            }
             if (trimmed.startsWith("token:")) {
                 out.add("# Discord Bot Token (or set DISCORD_TOKEN env var)");
             } else if ("discord:".equals(trimmed)) {
@@ -309,6 +315,24 @@ public final class ConfigInitializer {
                 out.add("# Global music integrations");
             } else if ("youtube:".equals(trimmed) && line.startsWith("  ")) {
                 out.add("  # YouTube source options");
+            } else if (trimmed.startsWith("playbackBackend:") && indentation == 4) {
+                out.add("    # Startup-only YouTube playback backend: YOUTUBE_SOURCE or COMPANION.");
+                out.add("    # Invalid values fall back to YOUTUBE_SOURCE.");
+            } else if ("companion:".equals(trimmed) && indentation == 4) {
+                inYoutubeCompanion = true;
+                out.add("    # Invidious Companion playback proxy settings; search and metadata still use youtube-source.");
+            } else if (inYoutubeCompanion && trimmed.startsWith("enabled:")) {
+                out.add("      # Enable Companion API use. Environment: YOUTUBE_COMPANION_ENABLED.");
+            } else if (inYoutubeCompanion && trimmed.startsWith("url:")) {
+                out.add("      # Companion origin/base URL; a bare origin uses /companion. Environment: YOUTUBE_COMPANION_URL.");
+            } else if (inYoutubeCompanion && trimmed.startsWith("secret:")) {
+                out.add("      # Companion SERVER_SECRET_KEY (16 alphanumeric characters). Environment: YOUTUBE_COMPANION_SECRET.");
+            } else if (inYoutubeCompanion && trimmed.startsWith("fallbackToSource:")) {
+                out.add("      # Retry once with youtube-source after Companion timeout/offline/5xx.");
+            } else if (inYoutubeCompanion && trimmed.startsWith("connectTimeoutMillis:")) {
+                out.add("      # Companion TCP connection timeout in milliseconds.");
+            } else if (inYoutubeCompanion && trimmed.startsWith("requestTimeoutMillis:")) {
+                out.add("      # Companion player request and proxy socket timeout in milliseconds.");
             } else if ("strictPrecheck:".equals(trimmed) && line.startsWith("    ")) {
                 out.add("    # Optional Lavalink youtube-source stream precheck before queueing a YouTube video");
             } else if ("spotify:".equals(trimmed) && line.startsWith("  ")) {

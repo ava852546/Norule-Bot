@@ -1704,29 +1704,35 @@ public String getToken() {
         }
 
         public static class Youtube {
+            private final String playbackBackend;
             private final boolean oauthEnabled;
             private final boolean cipherEnabled;
             private final String oauthRefreshToken;
             private final String cipherServer;
             private final String cipherPassword;
             private final String cipherUserAgent;
+            private final Companion companion;
             private final Auth auth;
             private final StrictPrecheck strictPrecheck;
 
-            private Youtube(boolean oauthEnabled,
+            private Youtube(String playbackBackend,
+                            boolean oauthEnabled,
                             boolean cipherEnabled,
                             String oauthRefreshToken,
                             String cipherServer,
                             String cipherPassword,
                             String cipherUserAgent,
+                            Companion companion,
                             Auth auth,
                             StrictPrecheck strictPrecheck) {
+                this.playbackBackend = nullToEmpty(playbackBackend);
                 this.oauthEnabled = oauthEnabled;
                 this.cipherEnabled = cipherEnabled;
                 this.oauthRefreshToken = nullToEmpty(oauthRefreshToken);
                 this.cipherServer = nullToEmpty(cipherServer);
                 this.cipherPassword = nullToEmpty(cipherPassword);
                 this.cipherUserAgent = nullToEmpty(cipherUserAgent);
+                this.companion = companion == null ? Companion.defaultValues() : companion;
                 this.auth = auth == null ? Auth.defaultValues() : auth;
                 this.strictPrecheck = strictPrecheck == null ? StrictPrecheck.defaultValues() : strictPrecheck;
             }
@@ -1736,19 +1742,36 @@ public String getToken() {
                 boolean oauthEnabled = getBoolean(map, "oauthEnabled", defaults.isOauthEnabled());
                 String oauthRefreshToken = getString(map, "oauthRefreshToken", defaults.getOauthRefreshToken());
                 return new Youtube(
+                        getString(map, "playbackBackend", defaults.getPlaybackBackend()),
                         oauthEnabled,
                         getBoolean(map, "cipherEnabled", defaults.isCipherEnabled()),
                         oauthRefreshToken,
                         getString(map, "cipherServer", defaults.getCipherServer()),
                         getString(map, "cipherPassword", defaults.getCipherPassword()),
                         getString(map, "cipherUserAgent", defaults.getCipherUserAgent()),
+                        Companion.fromMap(asMap(map.get("companion")), defaults.getCompanion()),
                         Auth.fromMap(asMap(map.get("auth")), defaults.getAuth(), oauthEnabled, oauthRefreshToken),
                         StrictPrecheck.fromMap(asMap(map.get("strictPrecheck")), defaults.getStrictPrecheck())
                 );
             }
 
             public static Youtube defaultValues() {
-                return new Youtube(false, false, "", "", "", "", Auth.defaultValues(), StrictPrecheck.defaultValues());
+                return new Youtube(
+                        "YOUTUBE_SOURCE",
+                        false,
+                        false,
+                        "",
+                        "",
+                        "",
+                        "",
+                        Companion.defaultValues(),
+                        Auth.defaultValues(),
+                        StrictPrecheck.defaultValues()
+                );
+            }
+
+            public String getPlaybackBackend() {
+                return playbackBackend;
             }
 
             public boolean isOauthEnabled() {
@@ -1775,12 +1798,62 @@ public String getToken() {
                 return cipherUserAgent;
             }
 
+            public Companion getCompanion() {
+                return companion;
+            }
+
             public Auth getAuth() {
                 return auth;
             }
 
             public StrictPrecheck getStrictPrecheck() {
                 return strictPrecheck;
+            }
+
+            public static class Companion {
+                private final boolean enabled;
+                private final String url;
+                private final String secret;
+                private final boolean fallbackToSource;
+                private final int connectTimeoutMillis;
+                private final int requestTimeoutMillis;
+
+                private Companion(boolean enabled,
+                                  String url,
+                                  String secret,
+                                  boolean fallbackToSource,
+                                  int connectTimeoutMillis,
+                                  int requestTimeoutMillis) {
+                    this.enabled = enabled;
+                    this.url = nullToEmpty(url);
+                    this.secret = nullToEmpty(secret);
+                    this.fallbackToSource = fallbackToSource;
+                    this.connectTimeoutMillis = Math.max(1, connectTimeoutMillis);
+                    this.requestTimeoutMillis = Math.max(1, requestTimeoutMillis);
+                }
+
+                static Companion fromMap(Map<String, Object> map, Companion fallback) {
+                    Companion defaults = fallback == null ? defaultValues() : fallback;
+                    return new Companion(
+                            getBoolean(map, "enabled", defaults.isEnabled()),
+                            getString(map, "url", defaults.getUrl()),
+                            getString(map, "secret", defaults.getSecret()),
+                            getBoolean(map, "fallbackToSource", defaults.isFallbackToSource()),
+                            getInt(map, "connectTimeoutMillis", defaults.getConnectTimeoutMillis()),
+                            getInt(map, "requestTimeoutMillis", defaults.getRequestTimeoutMillis())
+                    );
+                }
+
+                static Companion defaultValues() {
+                    return new Companion(false, "http://127.0.0.1:8282", "", true, 5000, 10000);
+                }
+
+                public boolean isEnabled() { return enabled; }
+                public String getUrl() { return url; }
+                public String getSecret() { return secret; }
+                public boolean isFallbackToSource() { return fallbackToSource; }
+                public int getConnectTimeoutMillis() { return connectTimeoutMillis; }
+                public int getRequestTimeoutMillis() { return requestTimeoutMillis; }
             }
 
             public static class Auth {

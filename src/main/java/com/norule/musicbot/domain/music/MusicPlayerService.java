@@ -109,6 +109,7 @@ public class MusicPlayerService {
     private final BilibiliAudioSourceManager bilibiliSourceManager;
     private final MusicDataService musicDataService;
     private final SpotifyPlaylistInspector spotifyPlaylistInspector;
+    private final YouTubePlaybackTrackFactory youtubePlaybackTrackFactory;
     private final AudioInputClassifier inputClassifier = new AudioInputClassifier();
     private final TrackRecoveryService trackRecoveryService;
     private final MusicConfig.Youtube.AuthMode effectiveYoutubeAuthMode;
@@ -179,6 +180,27 @@ public class MusicPlayerService {
                               MusicConfig globalMusicConfig,
                               Path sqliteDbPath,
                               SpotifyPlaylistInspector spotifyPlaylistInspector) {
+        this(
+                dataDir,
+                historyLimitProvider,
+                statsRetentionDaysProvider,
+                playlistTrackLimitProvider,
+                globalMusicConfig,
+                sqliteDbPath,
+                spotifyPlaylistInspector,
+                YouTubePlaybackTrackFactory.youtubeSource()
+        );
+    }
+
+    @SuppressWarnings("deprecation")
+    public MusicPlayerService(Path dataDir,
+                              LongToIntFunction historyLimitProvider,
+                              LongToIntFunction statsRetentionDaysProvider,
+                              LongToIntFunction playlistTrackLimitProvider,
+                              MusicConfig globalMusicConfig,
+                              Path sqliteDbPath,
+                              SpotifyPlaylistInspector spotifyPlaylistInspector,
+                              YouTubePlaybackTrackFactory youtubePlaybackTrackFactory) {
         this.musicDataService = new MusicDataService(
                 dataDir,
                 historyLimitProvider,
@@ -189,6 +211,9 @@ public class MusicPlayerService {
         this.spotifyPlaylistInspector = spotifyPlaylistInspector == null
                 ? SpotifyPlaylistInspector.noOp()
                 : spotifyPlaylistInspector;
+        this.youtubePlaybackTrackFactory = youtubePlaybackTrackFactory == null
+                ? YouTubePlaybackTrackFactory.youtubeSource()
+                : youtubePlaybackTrackFactory;
         applyGlobalMusicConfig(globalMusicConfig == null ? MusicConfig.defaultValues() : globalMusicConfig);
         MusicConfig.Audio.Recovery recoveryConfig = audioConfig.getRecovery();
         this.trackRecoveryService = new TrackRecoveryService(
@@ -880,7 +905,7 @@ public class MusicPlayerService {
                     return;
                 }
                 applyTrackMetadata(track, sourceLabel, requesterId, requesterName, userInput, identifier);
-                guildMusicManager.getScheduler().queue(track);
+                queuePlaybackTrack(guildMusicManager, track);
                 messageSender.accept(track.getInfo().title);
             }
 
@@ -898,7 +923,7 @@ public class MusicPlayerService {
                     for (int i = 0; i < limit; i++) {
                         AudioTrack track = playlist.getTracks().get(i);
                         applyTrackMetadata(track, sourceLabel, requesterId, requesterName, userInput, identifier);
-                        guildMusicManager.getScheduler().queue(track);
+                        queuePlaybackTrack(guildMusicManager, track);
                     }
                     messageSender.accept(playlist.getTracks().get(0).getInfo().title);
                     return;
@@ -932,7 +957,7 @@ public class MusicPlayerService {
                     return;
                 }
                 applyTrackMetadata(firstTrack, sourceLabel, requesterId, requesterName, userInput, identifier);
-                guildMusicManager.getScheduler().queue(firstTrack);
+                queuePlaybackTrack(guildMusicManager, firstTrack);
                 messageSender.accept(firstTrack.getInfo().title);
             }
 
@@ -2010,7 +2035,8 @@ public class MusicPlayerService {
                 playerManager.loadItemOrdered(manager, identifier, new AudioLoadResultHandler() {
                     @Override
                     public void trackLoaded(AudioTrack loadedTrack) {
-                        handler.loaded(loadedTrack, loadedTrack.isSeekable());
+                        AudioTrack playbackTrack = preparePlaybackTrack(loadedTrack);
+                        handler.loaded(playbackTrack, playbackTrack.isSeekable());
                     }
 
                     @Override
@@ -2022,7 +2048,8 @@ public class MusicPlayerService {
                         if (loadedTrack == null) {
                             handler.noMatches();
                         } else {
-                            handler.loaded(loadedTrack, loadedTrack.isSeekable());
+                            AudioTrack playbackTrack = preparePlaybackTrack(loadedTrack);
+                            handler.loaded(playbackTrack, playbackTrack.isSeekable());
                         }
                     }
 
@@ -2326,7 +2353,7 @@ public class MusicPlayerService {
         }
         applyTrackMetadata(track, "autoplay", null, "AutoPlay");
         clearAutoplayNotice(guildId);
-        guildMusicManager.getScheduler().queue(track);
+        queuePlaybackTrack(guildMusicManager, track);
     }
 
     private void setAutoplayNotice(long guildId, String message) {
@@ -2791,13 +2818,30 @@ public class MusicPlayerService {
                     continue;
                 }
                 applyTrackMetadata(track, sourceLabel, requesterId, requesterName, originalInput, loadIdentifier);
-                guildMusicManager.getScheduler().queue(track);
+                AudioTrack queuedTrack = queuePlaybackTrack(guildMusicManager, track);
                 if (firstQueued == null) {
-                    firstQueued = track;
+                    firstQueued = queuedTrack;
                 }
             }
         }
         return firstQueued;
+    }
+
+    private AudioTrack queuePlaybackTrack(GuildMusicManager guildMusicManager, AudioTrack track) {
+        AudioTrack playbackTrack = preparePlaybackTrack(track);
+        guildMusicManager.getScheduler().queue(playbackTrack);
+        return playbackTrack;
+    }
+
+    private AudioTrack preparePlaybackTrack(AudioTrack track) {
+        if (track == null) {
+            return null;
+        }
+        String videoId = youtubeVideoId(track);
+        if (videoId == null || videoId.isBlank()) {
+            return track;
+        }
+        return youtubePlaybackTrackFactory.prepare(videoId, track);
     }
 
     private void cacheYoutubePlaylistTracks(String sourceUrl, List<AudioTrack> tracks) {
