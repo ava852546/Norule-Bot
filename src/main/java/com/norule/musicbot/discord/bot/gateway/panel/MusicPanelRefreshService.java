@@ -72,7 +72,7 @@ public final class MusicPanelRefreshService {
     }
 
     public void refreshPanel(long guildId) {
-        requestRefresh(guildId, true, false, false);
+        requestRefresh(guildId, false, false, false);
     }
 
     public void refreshPanelPeriodic(long guildId) {
@@ -148,7 +148,7 @@ public final class MusicPanelRefreshService {
         long now = System.currentTimeMillis();
         long lastRefresh = stateStore.getLastRefreshAt(guildId);
         if (!request.immediate() && now - lastRefresh < panelMinEditIntervalMs) {
-            scheduleDelayedPanelRefresh(guildId, panelMinEditIntervalMs - (now - lastRefresh));
+            scheduleDelayedPanelRefresh(guildId, panelMinEditIntervalMs - (now - lastRefresh), request.force());
             completion.run();
             return;
         }
@@ -197,9 +197,11 @@ public final class MusicPanelRefreshService {
                 });
     }
 
-    private void scheduleDelayedPanelRefresh(long guildId, long delayMs) {
+    private void scheduleDelayedPanelRefresh(long guildId, long delayMs, boolean force) {
+        stateStore.mergeDelayedRefreshForce(guildId, force);
         if (delayMs <= 0L) {
-            scheduler.execute(() -> refreshPanel(guildId));
+            boolean delayedForce = stateStore.pollDelayedRefreshForce(guildId);
+            scheduler.execute(() -> requestRefresh(guildId, delayedForce, false, false));
             return;
         }
         ScheduledFuture<?> existing = stateStore.getDelayedRefreshTask(guildId);
@@ -208,7 +210,8 @@ public final class MusicPanelRefreshService {
         }
         ScheduledFuture<?> future = scheduler.schedule(() -> {
             stateStore.removeDelayedRefreshTask(guildId);
-            refreshPanel(guildId);
+            boolean delayedForce = stateStore.pollDelayedRefreshForce(guildId);
+            requestRefresh(guildId, delayedForce, false, false);
         }, delayMs, TimeUnit.MILLISECONDS);
         stateStore.putDelayedRefreshTask(guildId, future);
     }
