@@ -12,6 +12,7 @@ public final class MusicPanelStateStore {
     private final Map<Long, String> panelLastSignature = new ConcurrentHashMap<>();
     private final Map<Long, ScheduledFuture<?>> delayedPanelRefreshByGuild = new ConcurrentHashMap<>();
     private final Set<Long> panelRefreshingGuilds = ConcurrentHashMap.newKeySet();
+    private final Map<Long, RefreshRequest> pendingPanelRefreshByGuild = new ConcurrentHashMap<>();
 
     public Map<Long, PanelRef> panelRefs() {
         return panelByGuild;
@@ -19,6 +20,13 @@ public final class MusicPanelStateStore {
 
     public PanelRef getPanelRef(long guildId) {
         return panelByGuild.get(guildId);
+    }
+
+    public boolean isActivePanel(long guildId, long channelId, long messageId) {
+        PanelRef active = panelByGuild.get(guildId);
+        return active != null
+                && active.channelId == channelId
+                && active.messageId == messageId;
     }
 
     public synchronized void putPanelRef(long guildId, PanelRef panelRef) {
@@ -33,6 +41,8 @@ public final class MusicPanelStateStore {
         panelByGuild.remove(guildId);
         panelLastSignature.remove(guildId);
         panelLastRefreshAt.remove(guildId);
+        pendingPanelRefreshByGuild.remove(guildId);
+        cancelDelayedRefreshTask(guildId);
     }
 
     public synchronized boolean compareAndClearPanelState(long guildId,
@@ -47,6 +57,8 @@ public final class MusicPanelStateStore {
         }
         panelLastSignature.remove(guildId);
         panelLastRefreshAt.remove(guildId);
+        pendingPanelRefreshByGuild.remove(guildId);
+        cancelDelayedRefreshTask(guildId);
         return true;
     }
 
@@ -64,6 +76,19 @@ public final class MusicPanelStateStore {
 
     public void putLastSignature(long guildId, String signature) {
         panelLastSignature.put(guildId, signature);
+    }
+
+    public void requestRefresh(long guildId, boolean force, boolean immediate, boolean periodicOnly) {
+        RefreshRequest incoming = new RefreshRequest(force, immediate, periodicOnly);
+        pendingPanelRefreshByGuild.merge(guildId, incoming, RefreshRequest::merge);
+    }
+
+    public RefreshRequest pollRefreshRequest(long guildId) {
+        return pendingPanelRefreshByGuild.remove(guildId);
+    }
+
+    public boolean hasPendingRefresh(long guildId) {
+        return pendingPanelRefreshByGuild.containsKey(guildId);
     }
 
     public boolean startRefreshing(long guildId) {
@@ -86,8 +111,25 @@ public final class MusicPanelStateStore {
         delayedPanelRefreshByGuild.remove(guildId);
     }
 
+    public synchronized void cancelDelayedRefreshTask(long guildId) {
+        ScheduledFuture<?> task = delayedPanelRefreshByGuild.remove(guildId);
+        if (task != null) {
+            task.cancel(false);
+        }
+    }
+
     public ArrayList<Long> snapshotGuildIds() {
         return new ArrayList<>(panelByGuild.keySet());
+    }
+
+    public record RefreshRequest(boolean force, boolean immediate, boolean periodicOnly) {
+        RefreshRequest merge(RefreshRequest other) {
+            return new RefreshRequest(
+                    force || other.force,
+                    immediate || other.immediate,
+                    periodicOnly && other.periodicOnly
+            );
+        }
     }
 
     public static final class PanelRef {
