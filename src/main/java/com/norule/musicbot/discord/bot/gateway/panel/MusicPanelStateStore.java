@@ -14,6 +14,7 @@ public final class MusicPanelStateStore {
     private final Map<Long, Boolean> delayedPanelRefreshForceByGuild = new ConcurrentHashMap<>();
     private final Set<Long> panelRefreshingGuilds = ConcurrentHashMap.newKeySet();
     private final Map<Long, RefreshRequest> pendingPanelRefreshByGuild = new ConcurrentHashMap<>();
+    private final Map<Long, PanelNotice> panelNoticeByGuild = new ConcurrentHashMap<>();
 
     public Map<Long, PanelRef> panelRefs() {
         return panelByGuild;
@@ -32,6 +33,19 @@ public final class MusicPanelStateStore {
 
     public synchronized void putPanelRef(long guildId, PanelRef panelRef) {
         panelByGuild.put(guildId, panelRef);
+    }
+
+    public synchronized void activatePanelRef(long guildId,
+                                              PanelRef panelRef,
+                                              String signature,
+                                              long refreshedAt) {
+        panelByGuild.put(guildId, panelRef);
+        if (signature == null) {
+            panelLastSignature.remove(guildId);
+        } else {
+            panelLastSignature.put(guildId, signature);
+        }
+        panelLastRefreshAt.put(guildId, refreshedAt);
     }
 
     public synchronized PanelRef removePanelRef(long guildId) {
@@ -134,6 +148,25 @@ public final class MusicPanelStateStore {
         return new ArrayList<>(panelByGuild.keySet());
     }
 
+    public PanelNotice putPanelNotice(long guildId, String message, long expiresAtMillis) {
+        PanelNotice notice = new PanelNotice(message, expiresAtMillis);
+        panelNoticeByGuild.put(guildId, notice);
+        return notice;
+    }
+
+    public PanelNotice getPanelNotice(long guildId, long nowMillis) {
+        PanelNotice notice = panelNoticeByGuild.get(guildId);
+        if (notice != null && notice.expiresAtMillis() <= nowMillis) {
+            panelNoticeByGuild.remove(guildId, notice);
+            return null;
+        }
+        return notice;
+    }
+
+    public boolean clearPanelNotice(long guildId, PanelNotice expected) {
+        return expected != null && panelNoticeByGuild.remove(guildId, expected);
+    }
+
     public record RefreshRequest(boolean force, boolean immediate, boolean periodicOnly) {
         RefreshRequest merge(RefreshRequest other) {
             return new RefreshRequest(
@@ -142,6 +175,9 @@ public final class MusicPanelStateStore {
                     periodicOnly && other.periodicOnly
             );
         }
+    }
+
+    public record PanelNotice(String message, long expiresAtMillis) {
     }
 
     public static final class PanelRef {

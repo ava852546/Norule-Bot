@@ -1499,7 +1499,10 @@ public class MusicPlayerService {
             return "-";
         }
         if (context.requesterId() != null) {
-            return "<@" + context.requesterId() + ">";
+            var member = guild.getMemberById(context.requesterId());
+            if (member != null) {
+                return member.getAsMention();
+            }
         }
         return context.requesterName().isBlank() ? "-" : context.requesterName();
     }
@@ -1517,6 +1520,19 @@ public class MusicPlayerService {
     public String getCurrentArtworkUrl(Guild guild) {
         AudioTrack track = getCurrentTrack(guild);
         return resolveArtworkUrl(track);
+    }
+
+    public String getCurrentUri(Guild guild) {
+        AudioTrack track = getCurrentTrack(guild);
+        if (track == null || track.getInfo() == null) {
+            return null;
+        }
+        return track.getInfo().uri;
+    }
+
+    public boolean isCurrentStream(Guild guild) {
+        AudioTrack track = getCurrentTrack(guild);
+        return track != null && track.getInfo() != null && track.getInfo().isStream;
     }
 
     public AudioTrack getCurrentTrack(Guild guild) {
@@ -1545,6 +1561,21 @@ public class MusicPlayerService {
 
     public List<AudioTrack> getQueueSnapshot(Guild guild) {
         return getGuildMusicManager(guild).getScheduler().snapshotQueue();
+    }
+
+    public int findQueuePosition(Guild guild, String title, Long requesterId) {
+        List<AudioTrack> queue = getQueueSnapshot(guild);
+        for (int index = queue.size() - 1; index >= 0; index--) {
+            AudioTrack track = queue.get(index);
+            if (track == null || track.getInfo() == null || !Objects.equals(title, track.getInfo().title)) {
+                continue;
+            }
+            TrackLoadContext context = readContext(track);
+            if (requesterId == null || (context != null && Objects.equals(requesterId, context.requesterId()))) {
+                return index + 1;
+            }
+        }
+        return 0;
     }
 
     public int shuffleQueue(Guild guild) {

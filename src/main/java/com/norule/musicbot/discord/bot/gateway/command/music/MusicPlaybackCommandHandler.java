@@ -16,6 +16,7 @@ import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+import net.dv8tion.jda.api.interactions.InteractionHook;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 import java.awt.Color;
@@ -42,7 +43,15 @@ public final class MusicPlaybackCommandHandler {
 
     public void cleanupExpiredRequests(Instant now) {
         Instant cutoff = now == null ? Instant.now() : now;
-        searchRequests.entrySet().removeIf(entry -> entry.getValue() == null || cutoff.isAfter(entry.getValue().expiresAt));
+        for (Map.Entry<String, SearchRequest> entry : searchRequests.entrySet()) {
+            SearchRequest request = entry.getValue();
+            if (request == null) {
+                searchRequests.remove(entry.getKey());
+            } else if (!cutoff.isBefore(request.expiresAt)
+                    && searchRequests.remove(entry.getKey(), request)) {
+                editExpiredSearch(entry.getKey(), request);
+            }
+        }
     }
 
     public void handleVolumeSlash(SlashCommandInteractionEvent event, String lang) {
@@ -58,10 +67,9 @@ public final class MusicPlaybackCommandHandler {
         }
         int applied = owner.musicService().setVolume(event.getGuild(), raw);
         panelController.refreshPanel(guildId);
-        TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
         event.reply(owner.musicUx(lang, "volume_set", Map.of("value", String.valueOf(applied))))
-                .queue(success -> panelController.moveActivePanelToBottom(event.getGuild(), panelChannel), error -> {
-                });
+                .setEphemeral(true)
+                .queue();
     }
     public void handleSpeedSlash(SlashCommandInteractionEvent event, String lang) {
         long guildId = event.getGuild().getIdLong();
@@ -76,29 +84,30 @@ public final class MusicPlaybackCommandHandler {
         }
         double applied = owner.musicService().setPlaybackSpeed(event.getGuild(), raw);
         panelController.refreshPanel(guildId);
-        TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
         event.reply(owner.musicUx(lang, "speed_set", Map.of("value", String.format(java.util.Locale.ROOT, "%.2f", applied))))
-                .queue(success -> panelController.moveActivePanelToBottom(event.getGuild(), panelChannel), error -> {
-                });
+                .setEphemeral(true)
+                .queue();
     }
     public void handleJoinSlash(SlashCommandInteractionEvent event) {
-        event.deferReply().queue(success -> handleJoin(event.getGuild(), event.getMember(),
-                text -> event.getHook().sendMessage(text)
-                        .queue(message -> panelController.moveActivePanelToBottom(event.getGuild(),
-                                        event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null),
-                                error -> {
-                                })), failure -> {
+        event.deferReply(true).queue(success -> handleJoin(event.getGuild(), event.getMember(),
+                text -> event.getHook().editOriginal(text).queue()), failure -> {
         });
     }
     public void handlePlaySlash(SlashCommandInteractionEvent event, String lang) {
-        event.deferReply().queue(success -> handlePlaySlashDeferred(event, lang), failure -> {
+        event.deferReply(true).queue(success -> {
+            TextChannel fallback = event.getChannelType() == ChannelType.TEXT
+                    ? event.getChannel().asTextChannel()
+                    : null;
+            panelController.resolveOrCreateCommandChannel(event.getGuild(), fallback)
+                    .thenAccept(panelChannel -> handlePlaySlashDeferred(event, lang, panelChannel));
+        }, failure -> {
         });
     }
 
-    private void handlePlaySlashDeferred(SlashCommandInteractionEvent event, String lang) {
+    private void handlePlaySlashDeferred(SlashCommandInteractionEvent event, String lang, TextChannel panelChannel) {
         String query = getPlayQuery(event);
         if (query.isBlank()) {
-            event.getHook().sendMessage(owner.i18nService().t(lang, "music.not_found", Map.of("query", ""))).queue();
+            event.getHook().editOriginal(owner.i18nService().t(lang, "music.not_found", Map.of("query", ""))).queue();
             return;
         }
         if (owner.musicService().isUrlLikeInput(query)) {
@@ -106,62 +115,51 @@ public final class MusicPlaybackCommandHandler {
                     event.getGuild(),
                     event.getMember(),
                     query,
-                    text -> event.getHook().sendMessage(text).queue(),
-                    event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null
+                    text -> event.getHook().editOriginal(text).queue(),
+                    panelChannel
             );
             return;
         }
 
         owner.musicService().searchTopTracks(query, 10, results -> {
             if (results.isEmpty()) {
-                event.getHook().sendMessage(owner.i18nService().t(lang, "music.not_found", Map.of("query", query))).queue();
+                event.getHook().editOriginal(owner.i18nService().t(lang, "music.not_found", Map.of("query", query))).queue();
                 return;
             }
             String token = UUID.randomUUID().toString().replace("-", "");
-            Long requestChannelId = resolveSearchRequestChannelId(event);
             SearchRequest request = new SearchRequest(
                     event.getUser().getIdLong(),
-                    requestChannelId,
+                    panelChannel == null ? null : panelChannel.getIdLong(),
                     query,
                     results,
-                    Instant.now().plusSeconds(30)
+                    Instant.now().plusSeconds(30),
+                    event.getHook(),
+                    lang
             );
             searchRequests.put(token, request);
-            event.getHook().sendMessageEmbeds(new EmbedBuilder()
+            event.getHook().editOriginalEmbeds(new EmbedBuilder()
                             .setColor(new Color(52, 152, 219))
                             .setTitle(owner.i18nService().t(lang, "music.search_title"))
                             .setDescription(owner.i18nService().t(lang, "music.search_desc", Map.of("seconds", "30")))
                             .build())
-                    .setComponents(ActionRow.of(buildSearchMenu(token, results)))
-                    .queue(message -> owner.scheduler().schedule(() -> expireSearchMenu(token, event.getGuild().getIdLong(), message.getIdLong()),
+                    .setComponents(ActionRow.of(buildSearchMenu(token, results, lang)))
+                    .queue(message -> owner.scheduler().schedule(() -> expireSearchMenu(token),
                             30, TimeUnit.SECONDS));
-        }, error -> event.getHook().sendMessage(playbackText.mapMusicLoadError(lang, error)).queue());
+        }, error -> event.getHook().editOriginal(playbackText.mapMusicLoadError(lang, error)).queue());
     }
     public void handleSkipSlash(SlashCommandInteractionEvent event) {
-        event.deferReply().queue(success -> handleSkip(event.getGuild(),
-                text -> event.getHook().sendMessage(text)
-                        .queue(message -> panelController.moveActivePanelToBottom(event.getGuild(),
-                                        event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null),
-                                error -> {
-                                })), failure -> {
+        event.deferReply(true).queue(success -> handleSkip(event.getGuild(),
+                text -> event.getHook().editOriginal(text).queue()), failure -> {
         });
     }
     public void handleStopSlash(SlashCommandInteractionEvent event) {
-        event.deferReply().queue(success -> handleStop(event.getGuild(),
-                text -> event.getHook().sendMessage(text)
-                        .queue(message -> panelController.moveActivePanelToBottom(event.getGuild(),
-                                        event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null),
-                                error -> {
-                                })), failure -> {
+        event.deferReply(true).queue(success -> handleStop(event.getGuild(),
+                text -> event.getHook().editOriginal(text).queue()), failure -> {
         });
     }
     public void handleLeaveSlash(SlashCommandInteractionEvent event) {
-        event.deferReply().queue(success -> handleLeave(event.getGuild(),
-                text -> event.getHook().sendMessage(text)
-                        .queue(message -> panelController.moveActivePanelToBottom(event.getGuild(),
-                                        event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null),
-                                error -> {
-                                })), failure -> {
+        event.deferReply(true).queue(success -> handleLeave(event.getGuild(),
+                text -> event.getHook().editOriginal(text).queue()), failure -> {
         });
     }
     public void handleRepeatSlash(SlashCommandInteractionEvent event, String lang) {
@@ -214,7 +212,9 @@ public final class MusicPlaybackCommandHandler {
         String token = event.getComponentId().substring(PLAY_PICK_PREFIX.length());
         SearchRequest request = searchRequests.remove(token);
         if (request == null) {
-            event.reply(owner.i18nService().t(lang, "music.search_expired")).setEphemeral(true).queue();
+            event.editMessage(owner.i18nService().t(lang, "music.search_expired"))
+                    .setComponents(List.of())
+                    .queue();
             return;
         }
         if (Instant.now().isAfter(request.expiresAt)) {
@@ -233,15 +233,15 @@ public final class MusicPlaybackCommandHandler {
         AudioTrack picked = request.results.get(index);
         Member member = event.getMember();
         if (member == null || member.getVoiceState() == null || member.getVoiceState().getChannel() == null) {
-            event.reply(owner.i18nService().t(lang, "music.join_first")).setEphemeral(true).queue();
+            event.editMessage(owner.i18nService().t(lang, "music.join_first")).setComponents(List.of()).queue();
             return;
         }
         AudioChannel memberChannel = member.getVoiceState().getChannel();
         AudioChannel botChannel = event.getGuild().getAudioManager().getConnectedChannel();
         if (botChannel != null && botChannel.getIdLong() != memberChannel.getIdLong()) {
-            event.reply(owner.i18nService().t(lang, "music.join_bot_voice_channel",
+            event.editMessage(owner.i18nService().t(lang, "music.join_bot_voice_channel",
                             Map.of("channel", botChannel.getAsMention())))
-                    .setEphemeral(true)
+                    .setComponents(List.of())
                     .queue();
             return;
         }
@@ -253,24 +253,48 @@ public final class MusicPlaybackCommandHandler {
         }
         String identifier = picked.getInfo().uri != null ? picked.getInfo().uri : picked.getInfo().title;
         String sourceLabel = playbackText.detectSource(picked);
-        owner.musicService().queueTrackByIdentifier(
+        boolean wasIdle = owner.musicService().getCurrentTitle(event.getGuild()) == null;
+        int queuedBefore = owner.musicService().getQueueSnapshot(event.getGuild()).size();
+        event.deferEdit().queue(ignored -> owner.musicService().queueTrackByIdentifier(
                 event.getGuild(),
                 identifier,
                 sourceLabel,
-                ignored -> panelController.refreshPanel(event.getGuild().getIdLong()),
+                response -> {
+                    if ("NO_MATCH".equals(response)) {
+                        event.getHook().editOriginal(owner.i18nService().t(
+                                lang,
+                                "music.not_found",
+                                Map.of("query", request.query)
+                        )).setComponents(List.of()).queue();
+                        return;
+                    }
+                    if (response != null && response.startsWith("LOAD_FAILED:")) {
+                        event.getHook().editOriginal(playbackText.mapMusicLoadError(
+                                lang,
+                                response.substring("LOAD_FAILED:".length())
+                        )).setComponents(List.of()).queue();
+                        return;
+                    }
+                    String title = response == null || response.isBlank() ? picked.getInfo().title : response;
+                    event.getHook().editOriginal(playbackSuccessText(
+                            event.getGuild(),
+                            lang,
+                            title,
+                            wasIdle,
+                            queuedBefore,
+                            event.getUser().getIdLong()
+                    )).setComponents(List.of()).queue();
+                    TextChannel panelChannel = request.channelId == null
+                            ? null
+                            : event.getGuild().getTextChannelById(request.channelId);
+                    if (panelChannel != null) {
+                        panelController.ensurePanelForChannel(event.getGuild(), panelChannel, lang);
+                    }
+                    panelController.refreshPanel(event.getGuild().getIdLong());
+                },
                 event.getUser().getIdLong(),
                 event.getUser().getName()
-        );
-        if (request.channelId != null) {
-            TextChannel panelChannel = event.getGuild().getTextChannelById(request.channelId);
-            if (panelChannel != null) {
-                panelController.recreatePanelForChannel(event.getGuild(), panelChannel, lang);
-            }
-        }
-        panelController.refreshPanel(event.getGuild().getIdLong());
-        event.editMessage(owner.musicUx(lang, "queue_added", Map.of("title", picked.getInfo().title)))
-                .setComponents(List.of())
-                .queue();
+        ));
     }
 
     private void handleTextVolume(MessageReceivedEvent event, Guild guild, String arg, String lang) {
@@ -328,19 +352,47 @@ public final class MusicPlaybackCommandHandler {
             owner.musicService().rememberCommandChannel(guild.getIdLong(), panelChannel.getIdLong());
         }
         owner.musicService().setGuildStateListener(guild.getIdLong(), () -> panelController.refreshPanel(guild.getIdLong()));
+        boolean wasIdle = owner.musicService().getCurrentTitle(guild) == null;
+        int queuedBefore = owner.musicService().getQueueSnapshot(guild).size();
         owner.musicService().loadAndPlay(guild, response -> {
             if ("NO_MATCH".equals(response)) {
                 sink.send(owner.i18nService().t(lang, "music.not_found", Map.of("query", query)));
             } else if (response.startsWith("LOAD_FAILED:")) {
                 sink.send(playbackText.mapMusicLoadError(lang, response.substring("LOAD_FAILED:".length())));
             } else {
-                sink.send(owner.musicUx(lang, "queue_added", Map.of("title", response)));
+                sink.send(playbackSuccessText(
+                        guild,
+                        lang,
+                        response,
+                        wasIdle,
+                        queuedBefore,
+                        member.getIdLong()
+                ));
                 if (panelChannel != null) {
-                    panelController.recreatePanelForChannel(guild, panelChannel, lang);
+                    panelController.ensurePanelForChannel(guild, panelChannel, lang);
                 }
             }
             panelController.refreshPanel(guild.getIdLong());
         }, query, member.getIdLong(), member.getEffectiveName());
+    }
+
+    private String playbackSuccessText(Guild guild,
+                                       String lang,
+                                       String title,
+                                       boolean wasIdle,
+                                       int queuedBefore,
+                                       Long requesterId) {
+        String currentTitle = owner.musicService().getCurrentTitle(guild);
+        if (wasIdle && title != null && title.equals(currentTitle)) {
+            return owner.musicText(lang, "play_started", Map.of("title", safe(title, 180)));
+        }
+        int resolvedPosition = owner.musicService().findQueuePosition(guild, title, requesterId);
+        return owner.musicText(lang, "queue_added_position", Map.of(
+                "title", safe(title, 180),
+                "position", String.valueOf(resolvedPosition > 0
+                        ? resolvedPosition
+                        : Math.max(1, queuedBefore + 1))
+        ));
     }
 
     private void handleJoin(Guild guild, Member member, MusicCommandService.TextSink sink) {
@@ -429,30 +481,9 @@ public final class MusicPlaybackCommandHandler {
         return queryOption == null ? "" : queryOption.getAsString().trim();
     }
 
-    private Long resolveSearchRequestChannelId(SlashCommandInteractionEvent event) {
-        if (event == null || event.getGuild() == null) {
-            return null;
-        }
-        if (event.getChannelType() == ChannelType.TEXT) {
-            return event.getChannel().getIdLong();
-        }
-        var configuredMusic = owner.settingsService().getMusic(event.getGuild().getIdLong());
-        if (configuredMusic != null && configuredMusic.getCommandChannelId() != null) {
-            TextChannel configured = event.getGuild().getTextChannelById(configuredMusic.getCommandChannelId());
-            if (configured != null) {
-                return configured.getIdLong();
-            }
-        }
-        Long remembered = owner.musicService().getLastCommandChannelId(event.getGuild().getIdLong());
-        if (remembered != null && event.getGuild().getTextChannelById(remembered) != null) {
-            return remembered;
-        }
-        return null;
-    }
-
-    private StringSelectMenu buildSearchMenu(String token, List<AudioTrack> tracks) {
+    private StringSelectMenu buildSearchMenu(String token, List<AudioTrack> tracks, String lang) {
         StringSelectMenu.Builder menu = StringSelectMenu.create(PLAY_PICK_PREFIX + token)
-                .setPlaceholder("Select one track (30s)");
+                .setPlaceholder(owner.musicText(lang, "search_placeholder"));
         for (int i = 0; i < tracks.size() && i < 10; i++) {
             AudioTrack track = tracks.get(i);
             String source = playbackText.detectSource(track);
@@ -463,25 +494,21 @@ public final class MusicPlaybackCommandHandler {
         return menu.build();
     }
 
-    private void expireSearchMenu(String token, long guildId, long messageId) {
+    private void expireSearchMenu(String token) {
         SearchRequest request = searchRequests.remove(token);
-        if (request == null || owner.currentJda() == null) {
+        if (request == null) {
             return;
         }
-        Guild guild = owner.currentJda().getGuildById(guildId);
-        if (guild == null) {
-            return;
-        }
-        String lang = owner.lang(guildId);
-        if (request.channelId == null) {
-            return;
-        }
-        TextChannel channel = guild.getTextChannelById(request.channelId);
-        if (channel == null) {
-            return;
-        }
-        channel.editMessageById(messageId, owner.i18nService().t(lang, "music.search_timeout"))
-                .setComponents(List.of())
+        editExpiredSearch(token, request);
+    }
+
+    private void editExpiredSearch(String token, SearchRequest request) {
+        request.hook.editOriginalEmbeds(new EmbedBuilder()
+                        .setColor(new Color(149, 165, 166))
+                        .setTitle(owner.musicText(request.lang, "search_expired_title"))
+                        .setDescription(owner.i18nService().t(request.lang, "music.search_expired"))
+                        .build())
+                .setComponents(ActionRow.of(buildSearchMenu(token, request.results, request.lang).asDisabled()))
                 .queue(success -> {
                 }, error -> {
                 });
@@ -539,13 +566,23 @@ public final class MusicPlaybackCommandHandler {
         private final String query;
         private final List<AudioTrack> results;
         private final Instant expiresAt;
+        private final InteractionHook hook;
+        private final String lang;
 
-        SearchRequest(long requestUserId, Long channelId, String query, List<AudioTrack> results, Instant expiresAt) {
+        SearchRequest(long requestUserId,
+                      Long channelId,
+                      String query,
+                      List<AudioTrack> results,
+                      Instant expiresAt,
+                      InteractionHook hook,
+                      String lang) {
             this.requestUserId = requestUserId;
             this.channelId = channelId;
             this.query = query;
             this.results = results;
             this.expiresAt = expiresAt;
+            this.hook = hook;
+            this.lang = lang;
         }
     }
 }

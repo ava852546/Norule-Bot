@@ -17,20 +17,13 @@ public final class MusicPlaybackText {
     }
 
     public String detectSource(AudioTrack track) {
-        String uri = track.getInfo().uri == null ? "" : track.getInfo().uri.toLowerCase();
-        if (uri.contains("spotify")) {
-            return "spotify";
+        if (track == null || track.getSourceManager() == null) {
+            return "unknown";
         }
-        if (uri.contains("youtube") || uri.contains("youtu.be")) {
-            return "youtube";
-        }
-        if (uri.contains("soundcloud.com")) {
-            return "soundcloud";
-        }
-        if (uri.contains("bilibili.com") || uri.contains("b23.tv")) {
-            return "bilibili";
-        }
-        return "url";
+        String sourceName = track.getSourceManager().getSourceName();
+        return sourceName == null || sourceName.isBlank()
+                ? "unknown"
+                : sourceName.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     public String mapRepeatLabel(String lang, String mode) {

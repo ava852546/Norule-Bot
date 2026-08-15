@@ -160,7 +160,7 @@ public class MusicCommandService extends ListenerAdapter {
         this.musicPanelRuntime = new MusicPanelRuntime(this, this.scheduler, PANEL_PERIODIC_REFRESH_MS);
         this.musicPlaybackText = new MusicPlaybackText(this::i18nService);
         this.playbackFailureNotifier = new PlaybackFailureNotifier(
-                this, musicService, musicPanelRuntime.panelStateStore(), this.musicPlaybackText);
+                this, musicPanelRuntime.panelStateStore(), this.musicPlaybackText);
         this.musicService.setPlaybackFailureListener(playbackFailureNotifier::reportPlaybackFailure);
         this.helpViewRenderer = new HelpViewRenderer(this);
         // Assign wordChainOps before initializing CommandHandlerRegistry to ensure it is available during handler creation
@@ -319,12 +319,16 @@ public class MusicCommandService extends ListenerAdapter {
         this.jda.set(event.getJDA());
         this.botReadyForSlashCommands.set(true);
         commandRegistrar.syncCommands();
+        for (Guild guild : event.getJDA().getGuilds()) {
+            musicPanelRuntime.musicPanelController().initializeGuild(guild);
+        }
         ticketOps.onReady(event);
     }
 
     @Override
     public void onGuildJoin(GuildJoinEvent event) {
         // Global command registration is handled in onReady/syncCommands.
+        musicPanelRuntime.musicPanelController().initializeGuild(event.getGuild());
     }
 
     @Override
@@ -480,7 +484,16 @@ public class MusicCommandService extends ListenerAdapter {
 
     public boolean isMusicCommandChannelAllowed(Guild guild, long channelId) {
         Long configured = settingsService.getMusic(guild.getIdLong()).getCommandChannelId();
-        return configured == null || configured == channelId;
+        if (configured == null || configured == channelId) {
+            return true;
+        }
+        TextChannel configuredChannel = guild.getTextChannelById(configured);
+        return configuredChannel == null || !guild.getSelfMember().hasPermission(
+                configuredChannel,
+                Permission.VIEW_CHANNEL,
+                Permission.MESSAGE_SEND,
+                Permission.MESSAGE_EMBED_LINKS
+        );
     }
     public boolean has(Member member, Permission permission) {
         return member != null && member.hasPermission(permission);
@@ -551,6 +564,7 @@ public class MusicCommandService extends ListenerAdapter {
     }
 
     public String panelSignature(Guild guild) {
+        AudioTrack currentTrack = musicService.getCurrentTrack(guild);
         String current = musicService.getCurrentTitle(guild);
         long duration = musicService.getCurrentDurationMillis(guild);
         long position = musicService.getCurrentPositionMillis(guild);
@@ -558,23 +572,41 @@ public class MusicCommandService extends ListenerAdapter {
         String state = current == null ? "IDLE" : (musicService.isPaused(guild) ? "PAUSED" : "PLAYING");
         String repeat = musicService.getRepeatMode(guild);
         List<AudioTrack> queue = musicService.getQueueSnapshot(guild);
-        String queueHead = queue.isEmpty() ? "-" : safe(queue.get(0).getInfo().title, 40);
+        StringBuilder queuePreview = new StringBuilder();
+        for (int index = 0; index < Math.min(queue.size(), 6); index++) {
+            AudioTrack queuedTrack = queue.get(index);
+            if (index > 0) {
+                queuePreview.append(',');
+            }
+            queuePreview.append(safe(queuedTrack.getIdentifier(), 60))
+                    .append(':')
+                    .append(safe(queuedTrack.getInfo().title, 40));
+        }
         String connected = guild.getAudioManager().getConnectedChannel() == null
                 ? "-"
                 : guild.getAudioManager().getConnectedChannel().getId();
         String source = musicService.getCurrentSource(guild);
         String autoplayNotice = musicService.getAutoplayNotice(guild.getIdLong());
+        MusicPanelStateStore.PanelNotice panelNotice = musicPanelRuntime.panelStateStore()
+                .getPanelNotice(guild.getIdLong(), System.currentTimeMillis());
         return String.join("|",
                 safe(current, 60),
+                currentTrack == null ? "-" : safe(currentTrack.getIdentifier(), 80),
+                safe(musicService.getCurrentAuthor(guild), 60),
+                safe(musicService.getCurrentRequesterDisplay(guild), 60),
+                safe(musicService.getCurrentArtworkUrl(guild), 100),
                 String.valueOf(duration),
                 String.valueOf(positionBucket),
+                String.valueOf(musicService.isCurrentStream(guild)),
                 state,
                 safe(repeat, 12),
+                String.valueOf(musicService.getVolume(guild)),
                 String.valueOf(queue.size()),
-                queueHead,
+                queuePreview.toString(),
                 connected,
                 safe(source, 20),
                 safe(autoplayNotice, 50),
+                panelNotice == null ? "-" : safe(panelNotice.message(), 120),
                 String.valueOf(isAutoplayEnabled(guild.getIdLong()))
         );
     }
@@ -676,12 +708,30 @@ public class MusicCommandService extends ListenerAdapter {
             case "playlist_page_indicator" -> zhCn ? "\u7B2C `{current}` / `{total}` \u9875" : (zh ? "\u7B2C `{current}` / `{total}` \u9801" : "Page `{current}` / `{total}`");
             case "playlist_source" -> zhCn ? "\u6B4C\u5355" : (zh ? "\u6B4C\u55AE" : CMD_PLAYLIST);
             case "queue_added" -> zhCn ? "\u5DF2\u52A0\u5165\u961F\u5217\uFF1A`{title}`" : (zh ? "\u5DF2\u52A0\u5165\u4F47\u5217\uFF1A`{title}`" : "Queued: `{title}`");
+            case "queue_added_position" -> zhCn ? "\u2705 **\u5DF2\u52A0\u5165\u961F\u5217**\n\n`{title}`\n\u961F\u5217\u4F4D\u7F6E\uFF1A`{position}`" : (zh ? "\u2705 **\u5DF2\u52A0\u5165\u4F47\u5217**\n\n`{title}`\n\u4F47\u5217\u4F4D\u7F6E\uFF1A`{position}`" : "\u2705 **Added to queue**\n\n`{title}`\nQueue position: `{position}`");
+            case "play_started" -> zhCn ? "\u2705 **\u5F00\u59CB\u64AD\u653E**\n\n`{title}`" : (zh ? "\u2705 **\u958B\u59CB\u64AD\u653E**\n\n`{title}`" : "\u2705 **Now playing**\n\n`{title}`");
+            case "search_placeholder" -> zhCn ? "\u9009\u62E9\u4E00\u9996\u6B4C\u66F2\uFF0830 \u79D2\uFF09" : (zh ? "\u9078\u64C7\u4E00\u9996\u6B4C\u66F2\uFF0830 \u79D2\uFF09" : "Select a track (30s)");
+            case "search_expired_title" -> zhCn ? "\u641C\u7D22\u7ED3\u679C\u5DF2\u5931\u6548" : (zh ? "\u641C\u5C0B\u7D50\u679C\u5DF2\u5931\u6548" : "Search results expired");
             case "panel_autoplay" -> zhCn ? "\u81EA\u52A8\u63A8\u8350" : (zh ? "\u81EA\u52D5\u63A8\u85A6" : "Autoplay");
             case "panel_autoplay_notice" -> zhCn ? "\u81EA\u52A8\u63A8\u8350\u63D0\u793A" : (zh ? "\u81EA\u52D5\u63A8\u85A6\u63D0\u793A" : "Autoplay Notice");
             case "btn_autoplay_on" -> zhCn ? "\u81EA\u52A8\u63A8\u8350\uFF1A\u5F00\u542F" : (zh ? "\u81EA\u52D5\u63A8\u85A6\uFF1A\u958B\u555F" : "Autoplay: ON");
             case "btn_autoplay_off" -> zhCn ? "\u81EA\u52A8\u63A8\u8350\uFF1A\u5173\u95ED" : (zh ? "\u81EA\u52D5\u63A8\u85A6\uFF1A\u95DC\u9589" : "Autoplay: OFF");
             case "panel_title" -> zhCn ? "\u97F3\u4E50\u63A7\u5236\u9762\u677F" : (zh ? "\u97F3\u6A02\u63A7\u5236\u9762\u677F" : "Music Control Panel");
+            case "panel_text_channel_only" -> zhCn ? "\u97F3\u4E50\u9762\u677F\u53EA\u80FD\u5EFA\u7ACB\u5728\u6587\u5B57\u9891\u9053\u3002" : (zh ? "\u97F3\u6A02\u9762\u677F\u53EA\u80FD\u5EFA\u7ACB\u5728\u6587\u5B57\u983B\u9053\u3002" : "The music panel requires a text channel.");
+            case "panel_ready" -> zhCn ? "\u97F3\u4E50\u63A7\u5236\u9762\u677F\u5DF2\u5728 {channel} \u5EFA\u7ACB\u6216\u66F4\u65B0\u3002" : (zh ? "\u97F3\u6A02\u63A7\u5236\u9762\u677F\u5DF2\u5728 {channel} \u5EFA\u7ACB\u6216\u66F4\u65B0\u3002" : "The music panel is ready in {channel}.");
+            case "panel_update_failed" -> zhCn ? "\u66F4\u65B0\u97F3\u4E50\u9762\u677F\u5931\u8D25\uFF1A{error}" : (zh ? "\u66F4\u65B0\u97F3\u6A02\u9762\u677F\u5931\u6557\uFF1A{error}" : "Failed to update the music panel: {error}");
+            case "panel_playback_error" -> zhCn ? "\u64AD\u653E\u9519\u8BEF" : (zh ? "\u64AD\u653E\u932F\u8AA4" : "Playback Error");
+            case "playback_failed" -> zhCn ? "\u65E0\u6CD5\u64AD\u653E `{title}`\uFF1A{error}" : (zh ? "\u7121\u6CD5\u64AD\u653E `{title}`\uFF1A{error}" : "Failed to play `{title}`: {error}");
             case "panel_current" -> zhCn ? "\u5F53\u524D\u64AD\u653E" : (zh ? "\u76EE\u524D\u64AD\u653E" : "Now Playing");
+            case "panel_next" -> zhCn ? "\u63A5\u4E0B\u6765" : (zh ? "\u63A5\u4E0B\u4F86" : "Up Next");
+            case "panel_queue_empty" -> zhCn ? "\u5F53\u524D\u6CA1\u6709\u5176\u4ED6\u6B4C\u66F2" : (zh ? "\u76EE\u524D\u6C92\u6709\u5176\u4ED6\u6B4C\u66F2" : "There are no other tracks.");
+            case "panel_more_tracks" -> zhCn ? "\uFF0B\u53E6\u5916 {count} \u9996" : (zh ? "\uFF0B\u53E6\u5916 {count} \u9996" : "+ {count} more");
+            case "panel_idle_prompt" -> zhCn ? "\u4F7F\u7528 `/play <\u6B4C\u66F2\u540D\u79F0\u6216\u7F51\u5740>` \u5F00\u59CB\u64AD\u653E\u3002" : (zh ? "\u4F7F\u7528 `/play <\u6B4C\u66F2\u540D\u7A31\u6216\u7DB2\u5740>` \u958B\u59CB\u64AD\u653E\u3002" : "Use `/play <name or URL>` to start playback.");
+            case "panel_not_connected" -> zhCn ? "\u5C1A\u672A\u8FDE\u63A5\u8BED\u97F3\u9891\u9053" : (zh ? "\u5C1A\u672A\u9023\u63A5\u8A9E\u97F3\u983B\u9053" : "Not connected to a voice channel");
+            case "panel_requested_by" -> zhCn ? "\u7531 {user} \u70B9\u64AD" : (zh ? "\u7531 {user} \u9EDE\u64AD" : "Requested by {user}");
+            case "panel_autoplay_requester" -> zhCn ? "\u81EA\u52A8\u63A8\u8350" : (zh ? "\u81EA\u52D5\u63A8\u85A6" : "Autoplay recommendation");
+            case "panel_queue_count" -> zhCn ? "\u961F\u5217 {count} \u9996" : (zh ? "\u4F47\u5217 {count} \u9996" : "{count} track(s) queued");
+            case "panel_live" -> "LIVE";
             case "panel_channel" -> zhCn ? "\u9891\u9053" : (zh ? "\u983B\u9053" : OPTION_CHANNEL);
             case "panel_queue" -> zhCn ? "\u961F\u5217" : (zh ? "\u4F47\u5217" : "Queue");
             case "panel_repeat" -> zhCn ? "\u5FAA\u73AF" : (zh ? "\u5FAA\u74B0" : CMD_REPEAT);
@@ -696,11 +746,15 @@ public class MusicCommandService extends ListenerAdapter {
             case "autoplay_on" -> zhCn ? "\u5F00\u542F" : (zh ? "\u958B\u555F" : "ON");
             case "autoplay_off" -> zhCn ? "\u5173\u95ED" : (zh ? "\u95DC\u9589" : "OFF");
             case "btn_play_pause" -> zhCn ? "\u64AD\u653E/\u6682\u505C" : (zh ? "\u64AD\u653E/\u66AB\u505C" : "Play/Pause");
+            case "btn_play" -> zhCn ? "\u64AD\u653E" : (zh ? "\u64AD\u653E" : "Play");
+            case "btn_pause" -> zhCn ? "\u6682\u505C" : (zh ? "\u66AB\u505C" : "Pause");
             case "btn_skip" -> zhCn ? "\u8DF3\u8FC7" : (zh ? "\u8DF3\u904E" : "Skip");
             case "btn_stop" -> zhCn ? "\u505C\u6B62" : (zh ? "\u505C\u6B62" : "Stop");
             case "btn_leave" -> zhCn ? "\u79BB\u5F00" : (zh ? "\u96E2\u958B" : CMD_LEAVE);
             case "btn_volume_down" -> zhCn ? "\u964D\u4F4E\u97F3\u91CF" : (zh ? "\u964D\u4F4E\u97F3\u91CF" : "Volume Down");
             case "btn_volume_up" -> zhCn ? "\u589E\u52A0\u97F3\u91CF" : (zh ? "\u589E\u52A0\u97F3\u91CF" : "Volume Up");
+            case "btn_volume_down_10" -> "-10%";
+            case "btn_volume_up_10" -> "+10%";
             case "btn_repeat_single" -> zhCn ? "\u5355\u66F2\u5FAA\u73AF" : (zh ? "\u55AE\u66F2\u5FAA\u74B0" : "Repeat One");
             case "btn_repeat_all" -> zhCn ? "\u961F\u5217\u5FAA\u73AF" : (zh ? "\u4F47\u5217\u5FAA\u74B0" : "Repeat Queue");
             case "btn_repeat_off" -> zhCn ? "\u5173\u95ED\u5FAA\u73AF" : (zh ? "\u95DC\u9589\u5FAA\u74B0" : "Disable Repeat");

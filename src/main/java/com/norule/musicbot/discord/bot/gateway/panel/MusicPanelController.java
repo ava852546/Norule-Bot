@@ -1,7 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.panel;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
-import net.dv8tion.jda.api.entities.Member;
+import com.norule.musicbot.discord.bot.gateway.command.music.MusicCommandChannelProvisioner;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
@@ -9,29 +9,45 @@ import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.LongConsumer;
 
 public final class MusicPanelController {
     private final MusicCommandService owner;
+    private final MusicCommandChannelProvisioner commandChannelProvisioner;
     private final LongConsumer panelRefresher;
-    public MusicPanelController(MusicCommandService owner, LongConsumer panelRefresher) {
+    public MusicPanelController(MusicCommandService owner,
+                                MusicCommandChannelProvisioner commandChannelProvisioner,
+                                LongConsumer panelRefresher) {
         this.owner = owner;
+        this.commandChannelProvisioner = commandChannelProvisioner;
         this.panelRefresher = panelRefresher;
     }
 
-    public void recreatePanelForChannel(Guild guild, TextChannel channel, String lang) {
-        long guildId = guild.getIdLong();
-        MusicPanelStateStore.PanelRef old = owner.panelRefs().remove(guildId);
-        if (old != null) {
-            TextChannel oldChannel = guild.getTextChannelById(old.channelId);
-            if (oldChannel != null) {
-                oldChannel.deleteMessageById(old.messageId).queue(success -> {
-                }, error -> {
-                });
-            }
-        }
+    public void ensurePanelForChannel(Guild guild, TextChannel channel, String lang) {
         owner.createPanelMessageWithFeedback(guild, channel, lang, () -> {
         }, error -> {
+        });
+    }
+
+    public CompletableFuture<TextChannel> resolveOrCreateCommandChannel(Guild guild, TextChannel fallback) {
+        return commandChannelProvisioner.ensureCommandChannel(guild).handle((channel, failure) -> {
+            if (failure != null) {
+                commandChannelProvisioner.logProvisioningFailure(guild, failure);
+                return commandChannelProvisioner.adoptCommandChannel(guild, fallback) ? fallback : null;
+            }
+            return channel;
+        });
+    }
+
+    public void initializeGuild(Guild guild) {
+        if (guild == null) {
+            return;
+        }
+        resolveOrCreateCommandChannel(guild, null).thenAccept(channel -> {
+            if (channel != null) {
+                ensurePanelForChannel(guild, channel, owner.lang(guild.getIdLong()));
+            }
         });
     }
 
@@ -57,22 +73,31 @@ public final class MusicPanelController {
         panelRefresher.accept(guildId);
     }
     public void handlePanelSlashCommand(SlashCommandInteractionEvent event, String lang) {
-        event.deferReply().queue();
-        if (!event.isFromGuild() || event.getGuild() == null || event.getChannelType().isThread()) {
-            event.getHook().sendMessage("Music panel can only be created in a text channel.").setEphemeral(true).queue();
+        if (!event.isFromGuild() || event.getGuild() == null) {
+            event.reply(owner.musicText(lang, "panel_text_channel_only"))
+                    .setEphemeral(true)
+                    .queue();
             return;
         }
-        if (!(event.getChannel() instanceof TextChannel textChannel)) {
-            event.getHook().sendMessage("Music panel can only be created in a text channel.").setEphemeral(true).queue();
-            return;
-        }
-        if (!textChannel.canTalk()) {
-            event.getHook().sendMessage("I cannot send messages in this channel. Check bot permissions.").setEphemeral(true).queue();
-            return;
-        }
-        owner.createPanelMessageWithFeedback(event.getGuild(), textChannel, lang,
-                () -> event.getHook().sendMessage(owner.i18nService().t(lang, "music.panel_title")).setEphemeral(true).queue(),
-                error -> event.getHook().sendMessage("Failed to create/update panel: " + error).setEphemeral(true).queue());
+        TextChannel fallback = event.getChannel() instanceof TextChannel textChannel ? textChannel : null;
+        event.deferReply(true).queue(hook -> resolveOrCreateCommandChannel(event.getGuild(), fallback)
+                .thenAccept(panelChannel -> {
+                    if (panelChannel == null) {
+                        hook.editOriginal(owner.musicText(lang, "panel_text_channel_only")).queue();
+                        return;
+                    }
+                    owner.createPanelMessageWithFeedback(event.getGuild(), panelChannel, lang,
+                            () -> hook.editOriginal(owner.musicText(
+                                    lang,
+                                    "panel_ready",
+                                    Map.of("channel", panelChannel.getAsMention())
+                            )).queue(),
+                            error -> hook.editOriginal(owner.musicText(
+                                    lang,
+                                    "panel_update_failed",
+                                    Map.of("error", error)
+                            )).queue());
+                }));
     }
     public boolean handlePanelButtonInteraction(ButtonInteractionEvent event, String lang) {
         String id = event.getComponentId();
@@ -88,7 +113,11 @@ public final class MusicPanelController {
         MusicPanelStateStore.PanelRef active = owner.panelRefs().get(guild.getIdLong());
         if (active == null || active.channelId != channel.getIdLong() || active.messageId != event.getMessageIdLong()) {
             event.reply(owner.i18nService().t(lang, "music.panel_stale")).setEphemeral(true)
-                    .queue(success -> recreatePanelForChannel(guild, channel, lang), error -> recreatePanelForChannel(guild, channel, lang));
+                    .queue(success -> {
+                        if (active == null) {
+                            ensurePanelForChannel(guild, channel, lang);
+                        }
+                    });
             return true;
         }
         if (!owner.canControlPanel(guild, event.getMember())) {
@@ -125,12 +154,6 @@ public final class MusicPanelController {
                 owner.musicService().stop(guild);
                 owner.musicService().leaveChannel(guild);
                 owner.refreshPanelMessage(guild, channel, event.getMessageIdLong(), false);
-                Member operatorMember = event.getMember();
-                String operator = operatorMember == null ? event.getUser().getAsMention() : operatorMember.getAsMention();
-                channel.sendMessage(owner.i18nService().t(lang, "music.left_by_operator", Map.of("user", operator)))
-                        .queue(success -> {
-                        }, error -> {
-                        });
             }
             case MusicCommandService.PANEL_REPEAT_TOGGLE -> {
                 event.deferEdit().queue();

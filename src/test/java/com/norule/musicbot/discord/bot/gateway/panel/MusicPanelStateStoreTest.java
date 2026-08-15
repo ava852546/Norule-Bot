@@ -68,4 +68,33 @@ class MusicPanelStateStoreTest {
         assertTrue(store.pollDelayedRefreshForce(1L));
         assertFalse(store.pollDelayedRefreshForce(1L));
     }
+
+    @Test
+    void activatingPanelDoesNotDropRefreshQueuedDuringCreation() {
+        MusicPanelStateStore store = new MusicPanelStateStore();
+        store.requestRefresh(1L, true, false, false);
+
+        store.activatePanelRef(
+                1L,
+                new MusicPanelStateStore.PanelRef(10L, 100L),
+                "rendered-state",
+                123L
+        );
+
+        assertTrue(store.hasPendingRefresh(1L));
+        assertEquals("rendered-state", store.getLastSignature(1L));
+        assertEquals(123L, store.getLastRefreshAt(1L));
+        assertTrue(store.isActivePanel(1L, 10L, 100L));
+    }
+
+    @Test
+    void olderNoticeExpiryCannotClearANewerNotice() {
+        MusicPanelStateStore store = new MusicPanelStateStore();
+        MusicPanelStateStore.PanelNotice older = store.putPanelNotice(1L, "older", 200L);
+        MusicPanelStateStore.PanelNotice newer = store.putPanelNotice(1L, "newer", 300L);
+
+        assertFalse(store.clearPanelNotice(1L, older));
+        assertEquals(newer, store.getPanelNotice(1L, 250L));
+        assertNull(store.getPanelNotice(1L, 300L));
+    }
 }
