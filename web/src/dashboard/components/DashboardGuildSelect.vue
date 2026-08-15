@@ -52,13 +52,13 @@ onBeforeUnmount(() => {
     >
       <img v-if="selectedGuild?.iconUrl" class="nr-server-icon is-image" :src="selectedGuild.iconUrl" :alt="selectedGuild.name" referrerpolicy="no-referrer">
       <span v-else class="nr-server-icon">{{ initials(selectedGuild?.name) }}</span>
-      <span class="nr-server-select-copy"><small>目前管理的伺服器</small><strong>{{ selectedGuild?.name || '選擇伺服器' }}</strong></span>
+      <span class="nr-server-select-copy"><small>{{ dashboard.i18n.t('dashboard_current_guild', '目前管理的伺服器') }}</small><strong>{{ selectedGuild?.name || dashboard.i18n.t('dashboard_select_guild', '選擇伺服器') }}</strong></span>
       <i class="nr-server-select-chevron">⌄</i>
     </button>
 
     <Transition name="nr-server-menu">
-      <div v-if="open" class="nr-server-menu" role="listbox" aria-label="選擇要管理的伺服器">
-        <p>伺服器管理</p>
+      <div v-if="open" class="nr-server-menu" role="listbox" :aria-label="dashboard.i18n.t('dashboard_select_guild_aria', '選擇要管理的伺服器')">
+        <p>{{ dashboard.i18n.t('dashboard_guild_management', '伺服器管理') }}</p>
         <button
           v-for="guild in dashboard.manageableGuilds.value"
           :key="guild.id"
@@ -71,7 +71,7 @@ onBeforeUnmount(() => {
         >
           <img v-if="guild.iconUrl" class="nr-server-option-icon" :src="guild.iconUrl" :alt="guild.name" referrerpolicy="no-referrer">
           <span v-else class="nr-server-option-icon">{{ initials(guild.name) }}</span>
-          <span><strong>{{ guild.name }}</strong><small>{{ guild.botCanManage ? 'Bot 已就緒' : 'Bot 權限可能不足' }}</small></span>
+          <span><strong>{{ guild.name }}</strong><small>{{ guild.botCanManage ? dashboard.i18n.t('badgeManageable', 'Bot 已就緒') : dashboard.i18n.t('badgeMissingPerm', 'Bot 權限可能不足') }}</small></span>
           <i>{{ guild.id === dashboard.state.selectedGuildId ? '✓' : '→' }}</i>
         </button>
       </div>

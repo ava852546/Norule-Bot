@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, watch } from 'vue'
+import { useDashboard } from '../composables/useDashboard'
+
+const dashboard = useDashboard()
 
 const props = defineProps<{
   open: boolean
@@ -33,7 +36,7 @@ onBeforeUnmount(() => {
         <section class="nr-modal" role="dialog" aria-modal="true" :aria-label="title">
           <header class="nr-modal-head">
             <div><h2>{{ title }}</h2><p v-if="description">{{ description }}</p></div>
-            <button type="button" class="nr-icon-button" :aria-label="'關閉 ' + title" @click="emit('close')">×</button>
+            <button type="button" class="nr-icon-button" :aria-label="dashboard.i18n.t('dashboard_close_named', '關閉 {name}', { name: title })" @click="emit('close')">×</button>
           </header>
           <div class="nr-modal-content"><slot /></div>
           <footer v-if="$slots.footer" class="nr-modal-footer"><slot name="footer" /></footer>

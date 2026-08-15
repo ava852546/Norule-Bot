@@ -219,8 +219,13 @@ function createDashboardStore() {
   }
 
   function confirmDiscard(sections: DashboardTab[] = [...state.dirtySections]) {
-    if (!sections.some((section) => state.dirtySections.has(section))) return true
-    return window.confirm(i18n.t('unsavedChangesConfirm', '尚有未儲存的變更，確定要捨棄嗎？'))
+    const dirtySections = sections.filter((section) => state.dirtySections.has(section))
+    if (dirtySections.length === 0) return true
+    const tabNames = dirtySections.map((section) => i18n.t(`tabs_${section}`, section)).join(', ')
+    const message = dirtySections.length === 1
+      ? i18n.t('unsavedChangesConfirmSingle', '「{tab}」分頁有尚未儲存的變更，確定要捨棄嗎？', { tab: tabNames })
+      : i18n.t('unsavedChangesConfirmMulti', '目前有 {count} 個分頁尚未儲存：{tabs}。確定要全部捨棄嗎？', { count: dirtySections.length, tabs: tabNames })
+    return window.confirm(message)
   }
 
   function mergeSettings(data: Partial<DashboardSettings>) {
@@ -308,7 +313,7 @@ function createDashboardStore() {
       applyLanguageDefaults()
       setStatus(i18n.t('settingsLoaded', '設定已載入'))
     } catch (error) {
-      const message = error instanceof Error ? error.message : '載入設定失敗'
+      const message = error instanceof Error ? error.message : i18n.t('dashboard_load_settings_failed', '載入設定失敗')
       setStatus(message)
       toast(message, 'error')
     } finally {
@@ -335,7 +340,7 @@ function createDashboardStore() {
         try {
           await loadGuilds()
         } catch (error) {
-          const message = error instanceof Error ? error.message : '伺服器清單載入失敗'
+          const message = error instanceof Error ? error.message : i18n.t('dashboard_load_guilds_failed', '伺服器清單載入失敗')
           setStatus(message)
           toast(message, 'error')
         }
@@ -430,7 +435,7 @@ function createDashboardStore() {
       applyLanguageDefaults()
       setStatus(i18n.t('settingsLoaded', '設定已載入'))
     } catch (error) {
-      const message = error instanceof Error ? error.message : '載入設定失敗'
+      const message = error instanceof Error ? error.message : i18n.t('dashboard_load_settings_failed', '載入設定失敗')
       setStatus(message)
       toast(message, 'error')
     } finally {
@@ -476,7 +481,7 @@ function createDashboardStore() {
       toast(message, 'success')
       return true
     } catch (error) {
-      const message = error instanceof Error ? error.message : '儲存失敗'
+      const message = error instanceof Error ? error.message : i18n.t('dashboard_save_failed', '儲存失敗')
       setStatus(message)
       toast(message, 'error')
       return false
