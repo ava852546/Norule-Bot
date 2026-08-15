@@ -124,6 +124,8 @@ public class MusicPlayerService {
     private final Map<Long, Long> spotifyPlaylistCooldownByGuild = new ConcurrentHashMap<>();
     private final Map<String, CachedPlaylistTracks> youtubePlaylistCache = new ConcurrentHashMap<>();
     private volatile MusicConfig.Youtube youtubeConfig;
+    private volatile MusicConfig.Oauth oauthConfig;
+    private volatile MusicConfig.Cipher cipherConfig;
     private volatile MusicConfig.Spotify spotifyConfig;
     private volatile MusicConfig.Audio audioConfig;
     private volatile AudioUrlSafetyValidator directHttpValidator;
@@ -274,6 +276,8 @@ public class MusicPlayerService {
 
     private void applyGlobalMusicConfig(MusicConfig config) {
         this.youtubeConfig = config.getYoutube();
+        this.oauthConfig = config.getOauth();
+        this.cipherConfig = config.getCipher();
         this.spotifyConfig = config.getSpotify();
         this.audioConfig = config.getAudio();
         this.directHttpValidator = new AudioUrlSafetyValidator(
@@ -361,7 +365,7 @@ public class MusicPlayerService {
             Class<?> sourceClass = Class.forName("com.github.topi314.lavasrc.spotify.SpotifySourceManager");
             boolean preferAnonymousToken = getBooleanEnvOverride("SPOTIFY_PREFER_ANONYMOUS_TOKEN", spotifyConfig.isPreferAnonymousToken());
             String customTokenEndpoint = normalizeCustomTokenEndpoint(
-                    firstNonBlank(System.getenv("SPOTIFY_CUSTOM_TOKEN_ENDPOINT"), spotifyConfig.getCustomTokenEndpoint())
+                    firstNonBlank(System.getenv("SPOTIFY_CUSTOM_TOKEN_ENDPOINT"))
             );
             Object source = createSpotifySourceManager(
                     sourceClass,
@@ -402,7 +406,7 @@ public class MusicPlayerService {
     private void applySpotifyOptions(Class<?> sourceClass, Object source) {
         tryInvokeBooleanSetter(sourceClass, source, "setPreferAnonymousToken",
                 getBooleanEnvOverride("SPOTIFY_PREFER_ANONYMOUS_TOKEN", spotifyConfig.isPreferAnonymousToken()));
-        String customEndpoint = firstNonBlank(System.getenv("SPOTIFY_CUSTOM_TOKEN_ENDPOINT"), spotifyConfig.getCustomTokenEndpoint());
+        String customEndpoint = firstNonBlank(System.getenv("SPOTIFY_CUSTOM_TOKEN_ENDPOINT"));
         if (customEndpoint != null) {
             tryInvokeStringSetter(sourceClass, source, "setCustomTokenEndpoint", customEndpoint);
         }
@@ -493,7 +497,7 @@ public class MusicPlayerService {
                 ? firstNonBlank(
                 System.getenv("YOUTUBE_CIPHER_SERVER"),
                 System.getenv("YOUTUBE_REMOTE_CIPHER_URL"),
-                youtubeConfig.getCipherServer()
+                cipherConfig.getServer()
         )
                 : null;
         dev.lavalink.youtube.clients.skeleton.Client[] clientArray =
@@ -504,12 +508,12 @@ public class MusicPlayerService {
         String remoteCipherPassword = firstNonBlank(
                 System.getenv("YOUTUBE_CIPHER_PASSWORD"),
                 System.getenv("YOUTUBE_REMOTE_CIPHER_PASSWORD"),
-                youtubeConfig.getCipherPassword()
+                cipherConfig.getPassword()
         );
         String remoteCipherUserAgent = firstNonBlank(
                 System.getenv("YOUTUBE_CIPHER_USER_AGENT"),
                 System.getenv("YOUTUBE_REMOTE_CIPHER_USER_AGENT"),
-                youtubeConfig.getCipherUserAgent()
+                cipherConfig.getUserAgent()
         );
         YoutubeSourceOptions options = new YoutubeSourceOptions()
                 .setRemoteCipher(remoteCipherUrl, remoteCipherPassword, remoteCipherUserAgent);
@@ -518,31 +522,29 @@ public class MusicPlayerService {
     }
 
     private boolean isYouTubeCipherEnabled() {
-        return getBooleanEnvOverride("YOUTUBE_CIPHER_ENABLED", youtubeConfig.isCipherEnabled());
+        return getBooleanEnvOverride("YOUTUBE_CIPHER_ENABLED", cipherConfig.isEnabled());
     }
 
     private YoutubeAuthRuntime resolveYoutubeAuthentication() {
-        MusicConfig.Youtube.Auth auth = youtubeConfig.getAuth();
         String configuredMode = firstNonBlank(System.getenv("YOUTUBE_AUTH_MODE"));
         MusicConfig.Youtube.AuthMode mode = configuredMode == null
-                ? auth.getMode()
+                ? (getBooleanEnvOverride("YOUTUBE_OAUTH_ENABLED", oauthConfig.isEnabled())
+                        ? MusicConfig.Youtube.AuthMode.OAUTH
+                        : MusicConfig.Youtube.AuthMode.NONE)
                 : parseYoutubeAuthMode(configuredMode);
-        boolean strict = getBooleanEnvOverride("YOUTUBE_STRICT_AUTH_CONFIG", auth.isStrictAuthConfig());
+        boolean strict = getBooleanEnvOverride("YOUTUBE_STRICT_AUTH_CONFIG", false);
         String poToken = firstNonBlank(
                 System.getenv("YOUTUBE_PO_TOKEN"),
-                System.getenv("YOUTUBE_POTOKEN"),
-                auth.getPoToken()
+                System.getenv("YOUTUBE_POTOKEN")
         );
         String visitorData = firstNonBlank(
                 System.getenv("YOUTUBE_VISITOR_DATA"),
-                System.getenv("YOUTUBE_VISITORDATA"),
-                auth.getVisitorData()
+                System.getenv("YOUTUBE_VISITORDATA")
         );
         String oauthRefreshToken = firstNonBlank(
                 System.getenv("YOUTUBE_OAUTH_REFRESH_TOKEN"),
                 System.getenv("YOUTUBE_REFRESH_TOKEN"),
-                auth.getOauthRefreshToken(),
-                youtubeConfig.getOauthRefreshToken()
+                oauthConfig.getRefreshToken()
         );
         if (mode == MusicConfig.Youtube.AuthMode.POT && (poToken == null || visitorData == null)) {
             return invalidYoutubeAuthentication(

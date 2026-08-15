@@ -218,7 +218,7 @@ class SpotifyWebApiPlaylistInspectorTest {
     }
 
     private MusicConfig.Spotify spotifyConfig() {
-        return new MusicConfig.Spotify(true, "client-id", "client-secret", "", "TW", false, "", 100, 0);
+        return new MusicConfig.Spotify(true, "client-id", "client-secret", "", "TW", false, 100, 0);
     }
 
     private static String metadata(String ownerId,

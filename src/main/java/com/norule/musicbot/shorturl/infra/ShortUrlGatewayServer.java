@@ -26,7 +26,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -38,6 +37,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ShortUrlGatewayServer {
+    private static final String BIND_HOST = "0.0.0.0";
     private static final long MULTIPART_OVERHEAD_BYTES = 128L * 1024L;
     private static final long IMAGE_ACCESS_DURATION_MILLIS = 60L * 60L * 1000L;
     private static final long VIEW_DEDUPLICATION_MILLIS = 60L * 1000L;
@@ -60,7 +60,6 @@ public final class ShortUrlGatewayServer {
     private final Map<String, Long> recentViewers = new ConcurrentHashMap<>();
     private volatile HttpServer server;
     private volatile ScheduledExecutorService maintenanceExecutor;
-    private volatile String bindHost = "";
     private volatile int bindPort = -1;
 
     public ShortUrlGatewayServer(ShortUrlService shortUrlService, Supplier<BotConfig.ShortUrl> configSupplier) {
@@ -88,7 +87,7 @@ public final class ShortUrlGatewayServer {
             stop();
             return;
         }
-        if (server != null && Objects.equals(bindHost, config.getBindHost()) && bindPort == config.getBindPort()) {
+        if (server != null && bindPort == config.getBindPort()) {
             return;
         }
         stop();
@@ -106,7 +105,7 @@ public final class ShortUrlGatewayServer {
 
     private void start(BotConfig.ShortUrl config) {
         try {
-            HttpServer created = HttpServer.create(new InetSocketAddress(config.getBindHost(), config.getBindPort()), 0);
+            HttpServer created = HttpServer.create(new InetSocketAddress(BIND_HOST, config.getBindPort()), 0);
             created.createContext("/api/short", this::handleShortUrlApi);
             created.createContext("/web/", this::handleWebAsset);
             created.createContext("/", this::handleResolve);
@@ -137,9 +136,8 @@ public final class ShortUrlGatewayServer {
             }, config.getCleanupIntervalMinutes(), config.getCleanupIntervalMinutes(), TimeUnit.MINUTES);
             this.server = created;
             this.maintenanceExecutor = maintenance;
-            this.bindHost = config.getBindHost();
             this.bindPort = config.getBindPort();
-            System.out.println("[NoRule] Short URL gateway started on http://" + config.getBindHost() + ":" + config.getBindPort());
+            System.out.println("[NoRule] Short URL gateway started on http://" + BIND_HOST + ":" + config.getBindPort());
         } catch (Exception e) {
             System.out.println("[NoRule] Failed to start short URL gateway: " + e.getMessage());
         }

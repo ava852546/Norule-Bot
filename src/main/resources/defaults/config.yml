@@ -1,3 +1,7 @@
+# =============================================================================
+# Core runtime
+# =============================================================================
+
 # Discord Bot Token (or set DISCORD_TOKEN env var)
 token: ""
 
@@ -27,7 +31,9 @@ runtime-dependencies:
 # Restrict slash command registration to a guild ID (empty = global)
 commandGuildId: ""
 
+# =============================================================================
 # Data and resource paths
+# =============================================================================
 data:
   guildSettingsDir: "guild/configs"
   languageDir: "lang"
@@ -47,15 +53,17 @@ commandCooldownSeconds: 3
 # Number-chain reaction delay in milliseconds
 numberChainReactionDelayMillis: 500
 
+# =============================================================================
+# Bot identity and access
+# =============================================================================
+
 # Bot profile / presence
 bot:
   description: 'NoRule Music Bot | /help'
   presenceStatus: "ONLINE"
-  activityType: "LISTENING"
   rotationSeconds: 20
   activities:
     - "LISTENING|NoRule Music Bot"
-  activityText: "NoRule Music Bot"
 
 # Developer whitelist IDs
 developers:
@@ -63,7 +71,9 @@ developers:
   # Destination channel for /report (bug reports & feedback). 0 or unset disables the command.
   developerChannelId: 0
 
-# Global music integrations
+# =============================================================================
+# Music and audio integrations
+# =============================================================================
 music:
   youtube:
     # Startup-only YouTube playback backend: YOUTUBE_SOURCE or COMPANION.
@@ -87,19 +97,6 @@ music:
       # Overall player API timeout and playback proxy socket timeout.
       # Environment: YOUTUBE_COMPANION_REQUEST_TIMEOUT_MILLIS.
       requestTimeoutMillis: 10000
-    auth:
-      mode: NONE
-      strictAuthConfig: false
-      poToken: ""
-      visitorData: ""
-      oauthRefreshToken: ""
-    # Legacy OAuth keys remain supported for existing installations.
-    oauthEnabled: false
-    oauthRefreshToken: ""
-    cipherEnabled: false
-    cipherServer: "http://localhost:8001"
-    cipherPassword: "test"
-    cipherUserAgent: "norule-music-bot"
     # Optional strict queue precheck using youtube-source plugin GET /youtube/stream/{videoId}.
     # Enable only when lavalinkBaseUrl/lavalinkPassword point to a Lavalink node with youtube-plugin installed.
     strictPrecheck:
@@ -112,6 +109,14 @@ music:
       timeoutMillis: 5000
       lavalinkBaseUrl: ""
       lavalinkPassword: ""
+  oauth:
+    enabled: false
+    refreshToken: ""
+  cipher:
+    enabled: false
+    server: "http://localhost:8001"
+    password: ""
+    userAgent: "norule-music-bot"
   spotify:
     enabled: false
     clientId: ""
@@ -119,7 +124,6 @@ music:
     spDc: ""
     countryCode: "TW"
     preferAnonymousToken: true
-    customTokenEndpoint: ""
     playlistMaxTracks: 50
     playlistLoadCooldownSeconds: 60
   audio:
@@ -136,7 +140,9 @@ music:
       resume-rewind-ms: 2000
       stuck-threshold-ms: 20000
 
-# English word-chain dictionary providers
+# =============================================================================
+# Word-chain dictionary integrations
+# =============================================================================
 dictionary:
   connectTimeoutSeconds: 5
   requestTimeoutSeconds: 5
@@ -149,11 +155,12 @@ dictionary:
     # MERRIAM_WEBSTER_API_KEY takes precedence over this value.
     apiKey: ""
 
-# Web control panel
+# =============================================================================
+# Web dashboard
+# =============================================================================
 web:
   enabled: false
   bind:
-    host: "0.0.0.0"
     port: 60000
   public:
     baseUrl: "https://dash.example.com"
@@ -161,17 +168,10 @@ web:
   discordClientId: ""
   discordClientSecret: ""
   discordRedirectUri: "https://dash.example.com/auth/callback"
-  ssl:
-    enabled: false
-    certDir: "certs"
-    privateKeyFile: "privkey.pem"
-    fullChainFile: "fullchain.pem"
-    keyStoreFile: "web-keystore.p12"
-    keyStoreType: "PKCS12"
-    keyStorePassword: ""
-    keyPassword: ""
 
-# Shared database settings
+# =============================================================================
+# Shared persistence
+# =============================================================================
 database:
   storage: "sqlite"
   mysql:
@@ -182,14 +182,15 @@ database:
   sqlite:
     path: "data/norule.db"
 
+# =============================================================================
 # Short URL service
+# =============================================================================
 # 啟用媒體分享時必須設定下方 secrets，或使用環境變數
 # SHORT_URL_QUOTA_HMAC_SECRET 與 SHORT_URL_DEVICE_HMAC_SECRET（環境變數優先）。
 shortUrl:
   enabled: false
-  bindHost: "0.0.0.0"
   bindPort: 60001
-  publicBaseUrl: "https://s.norule.me"
+  publicBaseUrl: "https://example.com/"
   codeLength: 7
   allowPrivateTargets: false
   dedupe: true
@@ -206,7 +207,8 @@ shortUrl:
     storagePath: "data/short-url-images"
     abuseProtection:
       secrets:
-        # 請使用兩組獨立、長期固定的隨機值；不要把真實 secret 提交到版本控制。
+        # 各填一組獨立且長期固定的 64 位十六進位字串（32 個隨機 bytes）。
+        # 可分別使用 openssl rand -hex 32 產生；變更後既有裝置身分與配額雜湊會失效。
         quotaHmacSecret: ""
         deviceHmacSecret: ""
       identityContinuity:
@@ -238,7 +240,9 @@ shortUrl:
         warningPercent: 70
         filesystemStopPercent: 80
 
-# Minecraft status query settings
+# =============================================================================
+# Minecraft status
+# =============================================================================
 minecraftStatus:
   userAgent: "NoRuleBot/1.0 contact: admin@norule.me"
   requestTimeoutMillis: 15000

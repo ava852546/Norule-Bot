@@ -1365,6 +1365,8 @@ public String getToken() {
         private final int statsRetentionDays;
         private final int playlistTrackLimit;
         private final Youtube youtube;
+        private final Oauth oauth;
+        private final Cipher cipher;
         private final Spotify spotify;
         private final Audio audio;
 
@@ -1374,11 +1376,13 @@ public String getToken() {
                       RepeatMode defaultRepeatMode,
                       Long commandChannelId,
                       int historyLimit,
-                      int statsRetentionDays,
-                      int playlistTrackLimit,
-                      Youtube youtube,
-                      Spotify spotify,
-                      Audio audio) {
+                       int statsRetentionDays,
+                       int playlistTrackLimit,
+                       Youtube youtube,
+                       Oauth oauth,
+                       Cipher cipher,
+                       Spotify spotify,
+                       Audio audio) {
             this.autoLeaveEnabled = autoLeaveEnabled;
             this.autoLeaveMinutes = autoLeaveMinutes;
             this.autoplayEnabled = autoplayEnabled;
@@ -1388,6 +1392,8 @@ public String getToken() {
             this.statsRetentionDays = Math.max(0, statsRetentionDays);
             this.playlistTrackLimit = Math.max(1, playlistTrackLimit);
             this.youtube = youtube == null ? Youtube.defaultValues() : youtube;
+            this.oauth = oauth == null ? Oauth.defaultValues() : oauth;
+            this.cipher = cipher == null ? Cipher.defaultValues() : cipher;
             this.spotify = spotify == null ? Spotify.defaultValues() : spotify;
             this.audio = audio == null ? Audio.defaultValues() : audio;
         }
@@ -1401,49 +1407,52 @@ public String getToken() {
                     parseRepeatMode(getString(map, "defaultRepeatMode", defaults.getDefaultRepeatMode().name())),
                     getLong(map, "commandChannelId", defaults.getCommandChannelId()),
                     getInt(map, "historyLimit", defaults.getHistoryLimit()),
-                    getInt(map, "statsRetentionDays", defaults.getStatsRetentionDays()),
-                    getInt(map, "playlistTrackLimit", defaults.getPlaylistTrackLimit()),
-                    Youtube.fromMap(asMap(map.get("youtube")), defaults.getYoutube()),
-                    Spotify.fromMap(asMap(map.get("spotify")), defaults.getSpotify()),
-                    Audio.fromMap(asMap(map.get("audio")), defaults.getAudio())
-            );
+                     getInt(map, "statsRetentionDays", defaults.getStatsRetentionDays()),
+                     getInt(map, "playlistTrackLimit", defaults.getPlaylistTrackLimit()),
+                     Youtube.fromMap(asMap(map.get("youtube")), defaults.getYoutube()),
+                     Oauth.fromMap(asMap(map.get("oauth")), defaults.getOauth()),
+                     Cipher.fromMap(asMap(map.get("cipher")), defaults.getCipher()),
+                     Spotify.fromMap(asMap(map.get("spotify")), defaults.getSpotify()),
+                     Audio.fromMap(asMap(map.get("audio")), defaults.getAudio())
+             );
         }
 
         public static Music defaultValues() {
             return new Music(true, 5, true, RepeatMode.OFF, null, 50, 0, 100,
-                    Youtube.defaultValues(), Spotify.defaultValues(), Audio.defaultValues());
+                    Youtube.defaultValues(), Oauth.defaultValues(), Cipher.defaultValues(),
+                    Spotify.defaultValues(), Audio.defaultValues());
         }
 
         public Music withAutoLeaveEnabled(boolean enabled) {
-            return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify, audio);
+            return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
         }
 
         public Music withAutoLeaveMinutes(int minutes) {
-            return new Music(autoLeaveEnabled, Math.max(1, minutes), autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify, audio);
+            return new Music(autoLeaveEnabled, Math.max(1, minutes), autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
         }
 
         public Music withAutoplayEnabled(boolean enabled) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, enabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, enabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
         }
 
         public Music withDefaultRepeatMode(RepeatMode mode) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, mode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, mode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
         }
 
         public Music withCommandChannelId(Long commandChannelId) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
         }
 
         public Music withHistoryLimit(int historyLimit) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
         }
 
         public Music withStatsRetentionDays(int statsRetentionDays) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
         }
 
         public Music withPlaylistTrackLimit(int playlistTrackLimit) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
         }
 
         public boolean isAutoLeaveEnabled() {
@@ -1480,6 +1489,14 @@ public String getToken() {
 
         public Youtube getYoutube() {
             return youtube;
+        }
+
+        public Oauth getOauth() {
+            return oauth;
+        }
+
+        public Cipher getCipher() {
+            return cipher;
         }
 
         public Spotify getSpotify() {
@@ -1616,6 +1633,64 @@ public String getToken() {
             }
         }
 
+        public static final class Oauth {
+            private final boolean enabled;
+            private final String refreshToken;
+
+            private Oauth(boolean enabled, String refreshToken) {
+                this.enabled = enabled;
+                this.refreshToken = nullToEmpty(refreshToken);
+            }
+
+            private static Oauth fromMap(Map<String, Object> map, Oauth fallback) {
+                Oauth defaults = fallback == null ? defaultValues() : fallback;
+                return new Oauth(
+                        getBoolean(map, "enabled", defaults.isEnabled()),
+                        getString(map, "refreshToken", defaults.getRefreshToken())
+                );
+            }
+
+            private static Oauth defaultValues() {
+                return new Oauth(false, "");
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public String getRefreshToken() { return refreshToken; }
+        }
+
+        public static final class Cipher {
+            private final boolean enabled;
+            private final String server;
+            private final String password;
+            private final String userAgent;
+
+            private Cipher(boolean enabled, String server, String password, String userAgent) {
+                this.enabled = enabled;
+                this.server = nullToEmpty(server);
+                this.password = nullToEmpty(password);
+                this.userAgent = nullToEmpty(userAgent);
+            }
+
+            private static Cipher fromMap(Map<String, Object> map, Cipher fallback) {
+                Cipher defaults = fallback == null ? defaultValues() : fallback;
+                return new Cipher(
+                        getBoolean(map, "enabled", defaults.isEnabled()),
+                        getString(map, "server", defaults.getServer()),
+                        getString(map, "password", defaults.getPassword()),
+                        getString(map, "userAgent", defaults.getUserAgent())
+                );
+            }
+
+            private static Cipher defaultValues() {
+                return new Cipher(false, "http://localhost:8001", "", "norule-music-bot");
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public String getServer() { return server; }
+            public String getPassword() { return password; }
+            public String getUserAgent() { return userAgent; }
+        }
+
         public static class Spotify {
             private final boolean enabled;
             private final String clientId;
@@ -1623,7 +1698,6 @@ public String getToken() {
             private final String spDc;
             private final String countryCode;
             private final boolean preferAnonymousToken;
-            private final String customTokenEndpoint;
             private final int playlistMaxTracks;
             private final int playlistLoadCooldownSeconds;
 
@@ -1633,7 +1707,6 @@ public String getToken() {
                             String spDc,
                             String countryCode,
                             boolean preferAnonymousToken,
-                            String customTokenEndpoint,
                             int playlistMaxTracks,
                             int playlistLoadCooldownSeconds) {
                 this.enabled = enabled;
@@ -1642,7 +1715,6 @@ public String getToken() {
                 this.spDc = nullToEmpty(spDc);
                 this.countryCode = nullToEmpty(countryCode);
                 this.preferAnonymousToken = preferAnonymousToken;
-                this.customTokenEndpoint = nullToEmpty(customTokenEndpoint);
                 this.playlistMaxTracks = Math.max(1, playlistMaxTracks);
                 this.playlistLoadCooldownSeconds = Math.max(0, playlistLoadCooldownSeconds);
             }
@@ -1656,14 +1728,13 @@ public String getToken() {
                         getString(map, "spDc", defaults.getSpDc()),
                         getString(map, "countryCode", defaults.getCountryCode()),
                         getBoolean(map, "preferAnonymousToken", defaults.isPreferAnonymousToken()),
-                        getString(map, "customTokenEndpoint", defaults.getCustomTokenEndpoint()),
                         getInt(map, "playlistMaxTracks", defaults.getPlaylistMaxTracks()),
                         getInt(map, "playlistLoadCooldownSeconds", defaults.getPlaylistLoadCooldownSeconds())
                 );
             }
 
-            public static Spotify defaultValues() {
-                return new Spotify(false, "", "", "", "TW", false, "", 50, 60);
+        public static Spotify defaultValues() {
+                return new Spotify(false, "", "", "", "TW", false, 50, 60);
             }
 
             public boolean isEnabled() {
@@ -1690,10 +1761,6 @@ public String getToken() {
                 return preferAnonymousToken;
             }
 
-            public String getCustomTokenEndpoint() {
-                return customTokenEndpoint;
-            }
-
             public int getPlaylistMaxTracks() {
                 return playlistMaxTracks;
             }
@@ -1705,52 +1772,22 @@ public String getToken() {
 
         public static class Youtube {
             private final String playbackBackend;
-            private final boolean oauthEnabled;
-            private final boolean cipherEnabled;
-            private final String oauthRefreshToken;
-            private final String cipherServer;
-            private final String cipherPassword;
-            private final String cipherUserAgent;
             private final Companion companion;
-            private final Auth auth;
             private final StrictPrecheck strictPrecheck;
 
             private Youtube(String playbackBackend,
-                            boolean oauthEnabled,
-                            boolean cipherEnabled,
-                            String oauthRefreshToken,
-                            String cipherServer,
-                            String cipherPassword,
-                            String cipherUserAgent,
                             Companion companion,
-                            Auth auth,
                             StrictPrecheck strictPrecheck) {
                 this.playbackBackend = nullToEmpty(playbackBackend);
-                this.oauthEnabled = oauthEnabled;
-                this.cipherEnabled = cipherEnabled;
-                this.oauthRefreshToken = nullToEmpty(oauthRefreshToken);
-                this.cipherServer = nullToEmpty(cipherServer);
-                this.cipherPassword = nullToEmpty(cipherPassword);
-                this.cipherUserAgent = nullToEmpty(cipherUserAgent);
                 this.companion = companion == null ? Companion.defaultValues() : companion;
-                this.auth = auth == null ? Auth.defaultValues() : auth;
                 this.strictPrecheck = strictPrecheck == null ? StrictPrecheck.defaultValues() : strictPrecheck;
             }
 
             public static Youtube fromMap(Map<String, Object> map, Youtube fallback) {
                 Youtube defaults = fallback == null ? defaultValues() : fallback;
-                boolean oauthEnabled = getBoolean(map, "oauthEnabled", defaults.isOauthEnabled());
-                String oauthRefreshToken = getString(map, "oauthRefreshToken", defaults.getOauthRefreshToken());
                 return new Youtube(
                         getString(map, "playbackBackend", defaults.getPlaybackBackend()),
-                        oauthEnabled,
-                        getBoolean(map, "cipherEnabled", defaults.isCipherEnabled()),
-                        oauthRefreshToken,
-                        getString(map, "cipherServer", defaults.getCipherServer()),
-                        getString(map, "cipherPassword", defaults.getCipherPassword()),
-                        getString(map, "cipherUserAgent", defaults.getCipherUserAgent()),
                         Companion.fromMap(asMap(map.get("companion")), defaults.getCompanion()),
-                        Auth.fromMap(asMap(map.get("auth")), defaults.getAuth(), oauthEnabled, oauthRefreshToken),
                         StrictPrecheck.fromMap(asMap(map.get("strictPrecheck")), defaults.getStrictPrecheck())
                 );
             }
@@ -1758,14 +1795,7 @@ public String getToken() {
             public static Youtube defaultValues() {
                 return new Youtube(
                         "YOUTUBE_SOURCE",
-                        false,
-                        false,
-                        "",
-                        "",
-                        "",
-                        "",
                         Companion.defaultValues(),
-                        Auth.defaultValues(),
                         StrictPrecheck.defaultValues()
                 );
             }
@@ -1774,36 +1804,8 @@ public String getToken() {
                 return playbackBackend;
             }
 
-            public boolean isOauthEnabled() {
-                return oauthEnabled;
-            }
-
-            public boolean isCipherEnabled() {
-                return cipherEnabled;
-            }
-
-            public String getOauthRefreshToken() {
-                return oauthRefreshToken;
-            }
-
-            public String getCipherServer() {
-                return cipherServer;
-            }
-
-            public String getCipherPassword() {
-                return cipherPassword;
-            }
-
-            public String getCipherUserAgent() {
-                return cipherUserAgent;
-            }
-
             public Companion getCompanion() {
                 return companion;
-            }
-
-            public Auth getAuth() {
-                return auth;
             }
 
             public StrictPrecheck getStrictPrecheck() {
@@ -1854,64 +1856,6 @@ public String getToken() {
                 public boolean isFallbackToSource() { return fallbackToSource; }
                 public int getConnectTimeoutMillis() { return connectTimeoutMillis; }
                 public int getRequestTimeoutMillis() { return requestTimeoutMillis; }
-            }
-
-            public static class Auth {
-                private final String mode;
-                private final boolean strictAuthConfig;
-                private final String poToken;
-                private final String visitorData;
-                private final String oauthRefreshToken;
-
-                private Auth(String mode,
-                             boolean strictAuthConfig,
-                             String poToken,
-                             String visitorData,
-                             String oauthRefreshToken) {
-                    this.mode = normalizeMode(mode);
-                    this.strictAuthConfig = strictAuthConfig;
-                    this.poToken = nullToEmpty(poToken);
-                    this.visitorData = nullToEmpty(visitorData);
-                    this.oauthRefreshToken = nullToEmpty(oauthRefreshToken);
-                }
-
-                static Auth fromMap(Map<String, Object> map,
-                                    Auth fallback,
-                                    boolean legacyOauthEnabled,
-                                    String legacyOauthRefreshToken) {
-                    Auth defaults = fallback == null ? defaultValues() : fallback;
-                    String legacyMode = legacyOauthEnabled || !nullToEmpty(legacyOauthRefreshToken).isBlank()
-                            ? "OAUTH"
-                            : defaults.getMode();
-                    String mode = map == null || map.isEmpty()
-                            ? legacyMode
-                            : getString(map, "mode", defaults.getMode());
-                    return new Auth(
-                            mode,
-                            getBoolean(map, "strictAuthConfig", defaults.isStrictAuthConfig()),
-                            getString(map, "poToken", defaults.getPoToken()),
-                            getString(map, "visitorData", defaults.getVisitorData()),
-                            getString(map, "oauthRefreshToken",
-                                    nullToEmpty(legacyOauthRefreshToken).isBlank()
-                                            ? defaults.getOauthRefreshToken()
-                                            : legacyOauthRefreshToken)
-                    );
-                }
-
-                static Auth defaultValues() {
-                    return new Auth("NONE", false, "", "", "");
-                }
-
-                public String getMode() { return mode; }
-                public boolean isStrictAuthConfig() { return strictAuthConfig; }
-                public String getPoToken() { return poToken; }
-                public String getVisitorData() { return visitorData; }
-                public String getOauthRefreshToken() { return oauthRefreshToken; }
-
-                private static String normalizeMode(String mode) {
-                    String normalized = nullToEmpty(mode).trim().toUpperCase(Locale.ROOT);
-                    return "POT".equals(normalized) || "OAUTH".equals(normalized) ? normalized : "NONE";
-                }
             }
 
             public static class StrictPrecheck {
@@ -2046,21 +1990,15 @@ public String getToken() {
     public static class BotProfile {
         private final String description;
         private final String presenceStatus;
-        private final String activityType;
-        private final String activityText;
         private final int activityRotationSeconds;
         private final List<String> activities;
 
         private BotProfile(String description,
                            String presenceStatus,
-                           String activityType,
-                           String activityText,
                            int activityRotationSeconds,
                            List<String> activities) {
             this.description = description;
             this.presenceStatus = presenceStatus;
-            this.activityType = activityType;
-            this.activityText = activityText;
             this.activityRotationSeconds = Math.max(5, activityRotationSeconds);
             this.activities = activities == null ? List.of() : List.copyOf(activities);
         }
@@ -2070,8 +2008,6 @@ public String getToken() {
             return new BotProfile(
                     getString(map, "description", defaults.getDescription()),
                     getString(map, "presenceStatus", defaults.getPresenceStatus()),
-                    getString(map, "activityType", defaults.getActivityType()),
-                    getString(map, "activityText", defaults.getActivityText()),
                     Math.max(5, getInt(map, "rotationSeconds",
                             getInt(map, "activityRotationSeconds", defaults.getActivityRotationSeconds()))),
                     getStringList(map, "activities", defaults.getActivities())
@@ -2079,7 +2015,7 @@ public String getToken() {
         }
 
         public static BotProfile defaultValues() {
-            return new BotProfile("NoRule Bot", "ONLINE", "PLAYING", "/help", 20, List.of());
+            return new BotProfile("NoRule Bot", "ONLINE", 20, List.of("PLAYING|/help"));
         }
 
         public String getDescription() {
@@ -2088,14 +2024,6 @@ public String getToken() {
 
         public String getPresenceStatus() {
             return presenceStatus;
-        }
-
-        public String getActivityType() {
-            return activityType;
-        }
-
-        public String getActivityText() {
-            return activityText;
         }
 
         public int getActivityRotationSeconds() {
@@ -2721,36 +2649,6 @@ public String getToken() {
     }
 
     public static class ShortUrl {
-        public static final class Bind {
-            private final String host;
-            private final int port;
-
-            private Bind(String host, int port) {
-                this.host = (host == null || host.isBlank()) ? "0.0.0.0" : host.trim();
-                this.port = Math.max(1, port);
-            }
-
-            private static Bind fromMap(Map<String, Object> map, Bind fallback) {
-                Bind defaults = fallback == null ? defaultValues() : fallback;
-                return new Bind(
-                        getString(map, "host", defaults.getHost()),
-                        getInt(map, "port", defaults.getPort())
-                );
-            }
-
-            private static Bind defaultValues() {
-                return new Bind("0.0.0.0", 60001);
-            }
-
-            public String getHost() {
-                return host;
-            }
-
-            public int getPort() {
-                return port;
-            }
-        }
-
         public static final class Public {
             private final String baseUrl;
 
@@ -3143,7 +3041,7 @@ public String getToken() {
         }
 
         private final boolean enabled;
-        private final Bind bind;
+        private final int bindPort;
         private final Public publicConfig;
         private final int codeLength;
         private final boolean allowPrivateTargets;
@@ -3156,7 +3054,7 @@ public String getToken() {
         private final Sqlite sqlite;
 
         private ShortUrl(boolean enabled,
-                         Bind bind,
+                         int bindPort,
                          Public publicConfig,
                          int codeLength,
                          boolean allowPrivateTargets,
@@ -3168,7 +3066,7 @@ public String getToken() {
                          Mysql mysql,
                          Sqlite sqlite) {
             this.enabled = enabled;
-            this.bind = bind == null ? Bind.defaultValues() : bind;
+            this.bindPort = Math.max(1, bindPort);
             this.publicConfig = publicConfig == null ? Public.defaultValues() : publicConfig;
             this.codeLength = Math.max(4, Math.min(32, codeLength));
             this.allowPrivateTargets = allowPrivateTargets;
@@ -3183,25 +3081,7 @@ public String getToken() {
 
         public static ShortUrl fromMap(Map<String, Object> map, ShortUrl fallback) {
             ShortUrl defaults = fallback == null ? defaultValues() : fallback;
-            Map<String, Object> bindMap = asMap(map.get("bind"));
             Map<String, Object> publicMap = asMap(map.get("public"));
-
-            Map<String, Object> effectiveBindMap = new LinkedHashMap<>(bindMap);
-            String bindHost = getString(map, "bindHost", "");
-            if (!bindHost.isBlank()) {
-                effectiveBindMap.put("host", bindHost);
-            }
-            int bindPort = getInt(map, "bindPort", -1);
-            if (bindPort > 0) {
-                effectiveBindMap.put("port", bindPort);
-            }
-            if (!effectiveBindMap.containsKey("host")) {
-                effectiveBindMap.put("host", getString(map, "host", defaults.getBindHost()));
-            }
-            if (!effectiveBindMap.containsKey("port")) {
-                effectiveBindMap.put("port", getInt(map, "port", defaults.getBindPort()));
-            }
-            Bind bind = Bind.fromMap(effectiveBindMap, defaults.getBind());
 
             Map<String, Object> effectivePublicMap = new LinkedHashMap<>(publicMap);
             String publicBaseUrl = getString(map, "publicBaseUrl", "");
@@ -3226,7 +3106,7 @@ public String getToken() {
 
             return new ShortUrl(
                     getBoolean(map, "enabled", defaults.isEnabled()),
-                    bind,
+                    getInt(map, "bindPort", getInt(asMap(map.get("bind")), "port", defaults.getBindPort())),
                     publicConfig,
                     getInt(map, "codeLength", defaults.getCodeLength()),
                     getBoolean(map, "allowPrivateTargets", defaults.isAllowPrivateTargets()),
@@ -3243,7 +3123,7 @@ public String getToken() {
         public static ShortUrl defaultValues() {
             return new ShortUrl(
                     false,
-                    Bind.defaultValues(),
+                    60001,
                     Public.defaultValues(),
                     7,
                     false,
@@ -3261,20 +3141,12 @@ public String getToken() {
             return enabled;
         }
 
-        public Bind getBind() {
-            return bind;
-        }
-
         public Public getPublic() {
             return publicConfig;
         }
 
-        public String getBindHost() {
-            return bind.getHost();
-        }
-
         public int getBindPort() {
-            return bind.getPort();
+            return bindPort;
         }
 
         public String getPublicBaseUrl() {
@@ -3287,11 +3159,6 @@ public String getToken() {
 
         public boolean isAllowPrivateTargets() {
             return allowPrivateTargets;
-        }
-
-        @Deprecated
-        public String getHost() {
-            return getBindHost();
         }
 
         @Deprecated
@@ -3405,36 +3272,6 @@ public String getToken() {
     }
 
     public static class Web {
-        public static final class Bind {
-            private final String host;
-            private final int port;
-
-            private Bind(String host, int port) {
-                this.host = host == null || host.isBlank() ? "0.0.0.0" : host.trim();
-                this.port = Math.max(1, port);
-            }
-
-            private static Bind fromMap(Map<String, Object> map, Bind fallback) {
-                Bind defaults = fallback == null ? defaultValues() : fallback;
-                return new Bind(
-                        getString(map, "host", defaults.getHost()),
-                        getInt(map, "port", defaults.getPort())
-                );
-            }
-
-            private static Bind defaultValues() {
-                return new Bind("0.0.0.0", 60000);
-            }
-
-            public String getHost() {
-                return host;
-            }
-
-            public int getPort() {
-                return port;
-            }
-        }
-
         public static final class Public {
             private final String baseUrl;
 
@@ -3461,24 +3298,22 @@ public String getToken() {
         }
 
         private final boolean enabled;
-        private final Bind bind;
+        private final int bindPort;
         private final Public publicConfig;
         private final int sessionExpireMinutes;
         private final String discordClientId;
         private final String discordClientSecret;
         private final String discordRedirectUri;
-        private final Ssl ssl;
 
         private Web(boolean enabled,
-                    Bind bind,
+                    int bindPort,
                     Public publicConfig,
                     int sessionExpireMinutes,
                     String discordClientId,
                     String discordClientSecret,
-                    String discordRedirectUri,
-                    Ssl ssl) {
+                    String discordRedirectUri) {
             this.enabled = enabled;
-            this.bind = bind == null ? Bind.defaultValues() : bind;
+            this.bindPort = Math.max(1, bindPort);
             this.publicConfig = publicConfig == null ? Public.defaultValues() : publicConfig;
             this.sessionExpireMinutes = Math.max(5, sessionExpireMinutes);
             this.discordClientId = discordClientId == null ? "" : discordClientId.trim();
@@ -3488,22 +3323,12 @@ public String getToken() {
                 redirect = defaultRedirectUri(this.publicConfig.getBaseUrl());
             }
             this.discordRedirectUri = redirect;
-            this.ssl = ssl == null ? Ssl.defaultValues() : ssl;
         }
 
         public static Web fromMap(Map<String, Object> map, Web fallback) {
             Web defaults = fallback == null ? defaultValues() : fallback;
             Map<String, Object> bindMap = asMap(map.get("bind"));
             Map<String, Object> publicMap = asMap(map.get("public"));
-
-            Map<String, Object> effectiveBindMap = new LinkedHashMap<>(bindMap);
-            if (!effectiveBindMap.containsKey("host")) {
-                effectiveBindMap.put("host", getString(map, "host", defaults.getBindHost()));
-            }
-            if (!effectiveBindMap.containsKey("port")) {
-                effectiveBindMap.put("port", getInt(map, "port", defaults.getBindPort()));
-            }
-            Bind bind = Bind.fromMap(effectiveBindMap, defaults.getBind());
 
             Map<String, Object> effectivePublicMap = new LinkedHashMap<>(publicMap);
             String publicBaseUrl = getString(effectivePublicMap, "baseUrl", "");
@@ -3520,13 +3345,12 @@ public String getToken() {
 
             return new Web(
                     getBoolean(map, "enabled", defaults.isEnabled()),
-                    bind,
+                    getInt(bindMap, "port", getInt(map, "port", defaults.getBindPort())),
                     publicConfig,
                     getInt(map, "sessionExpireMinutes", defaults.getSessionExpireMinutes()),
                     getString(map, "discordClientId", defaults.getDiscordClientId()),
                     getString(map, "discordClientSecret", defaults.getDiscordClientSecret()),
-                    redirectUri,
-                    Ssl.fromMap(asMap(map.get("ssl")), defaults.getSsl())
+                    redirectUri
             );
         }
 
@@ -3534,13 +3358,12 @@ public String getToken() {
             Public publicConfig = Public.defaultValues();
             return new Web(
                     false,
-                    Bind.defaultValues(),
+                    60000,
                     publicConfig,
                     720,
                     "",
                     "",
-                    defaultRedirectUri(publicConfig.getBaseUrl()),
-                    Ssl.defaultValues()
+                    defaultRedirectUri(publicConfig.getBaseUrl())
             );
         }
 
@@ -3548,29 +3371,16 @@ public String getToken() {
             return enabled;
         }
 
-        public Bind getBind() {
-            return bind;
-        }
-
         public Public getPublic() {
             return publicConfig;
         }
 
-        public String getBindHost() {
-            return bind.getHost();
-        }
-
         public int getBindPort() {
-            return bind.getPort();
+            return bindPort;
         }
 
         public String getPublicBaseUrl() {
             return publicConfig.getBaseUrl();
-        }
-
-        @Deprecated
-        public String getHost() {
-            return getBindHost();
         }
 
         @Deprecated
@@ -3599,10 +3409,6 @@ public String getToken() {
             return discordRedirectUri;
         }
 
-        public Ssl getSsl() {
-            return ssl;
-        }
-
         private static String defaultRedirectUri(String publicBaseUrl) {
             if (publicBaseUrl == null || publicBaseUrl.isBlank()) {
                 return "";
@@ -3614,93 +3420,6 @@ public String getToken() {
             return base + "/auth/callback";
         }
 
-        public static class Ssl {
-            private final boolean enabled;
-            private final String certDir;
-            private final String privateKeyFile;
-            private final String fullChainFile;
-            private final String keyStoreFile;
-            private final String keyStorePassword;
-            private final String keyStoreType;
-            private final String keyPassword;
-
-            private Ssl(boolean enabled,
-                        String certDir,
-                        String privateKeyFile,
-                        String fullChainFile,
-                        String keyStoreFile,
-                        String keyStorePassword,
-                        String keyStoreType,
-                        String keyPassword) {
-                this.enabled = enabled;
-                this.certDir = certDir;
-                this.privateKeyFile = privateKeyFile;
-                this.fullChainFile = fullChainFile;
-                this.keyStoreFile = keyStoreFile;
-                this.keyStorePassword = keyStorePassword;
-                this.keyStoreType = keyStoreType;
-                this.keyPassword = keyPassword;
-            }
-
-            public static Ssl fromMap(Map<String, Object> map, Ssl fallback) {
-                Ssl defaults = fallback == null ? defaultValues() : fallback;
-                return new Ssl(
-                        getBoolean(map, "enabled", defaults.isEnabled()),
-                        getString(map, "certDir", defaults.getCertDir()),
-                        getString(map, "privateKeyFile", defaults.getPrivateKeyFile()),
-                        getString(map, "fullChainFile", defaults.getFullChainFile()),
-                        getString(map, "keyStoreFile", defaults.getKeyStoreFile()),
-                        getString(map, "keyStorePassword", defaults.getKeyStorePassword()),
-                        getString(map, "keyStoreType", defaults.getKeyStoreType()),
-                        getString(map, "keyPassword", defaults.getKeyPassword())
-                );
-            }
-
-            public static Ssl defaultValues() {
-                return new Ssl(
-                        false,
-                        "certs",
-                        "privkey.pem",
-                        "fullchain.pem",
-                        "web-keystore.p12",
-                        "",
-                        "PKCS12",
-                        ""
-                );
-            }
-
-            public boolean isEnabled() {
-                return enabled;
-            }
-
-            public String getCertDir() {
-                return certDir;
-            }
-
-            public String getPrivateKeyFile() {
-                return privateKeyFile;
-            }
-
-            public String getFullChainFile() {
-                return fullChainFile;
-            }
-
-            public String getKeyStoreFile() {
-                return keyStoreFile;
-            }
-
-            public String getKeyStorePassword() {
-                return keyStorePassword;
-            }
-
-            public String getKeyStoreType() {
-                return keyStoreType;
-            }
-
-            public String getKeyPassword() {
-                return keyPassword;
-            }
-        }
     }
 
     @SuppressWarnings("unchecked")

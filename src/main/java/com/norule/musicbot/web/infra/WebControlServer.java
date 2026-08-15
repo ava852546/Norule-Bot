@@ -21,9 +21,6 @@ import com.norule.musicbot.web.service.WelcomePreviewService;
 import com.norule.musicbot.web.session.WebSessionManager;
 
 import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpsConfigurator;
-import com.sun.net.httpserver.HttpsParameters;
-import com.sun.net.httpserver.HttpsServer;
 import com.sun.net.httpserver.HttpServer;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.Permission;
@@ -35,41 +32,23 @@ import net.dv8tion.jda.api.utils.data.DataObject;
 
 import java.awt.Color;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.ByteArrayInputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.KeyStore;
-import java.security.KeyFactory;
-import java.security.PrivateKey;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.math.BigInteger;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
-import javax.net.ssl.KeyManagerFactory;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLParameters;
-import javax.net.ssl.TrustManagerFactory;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
     public class WebControlServer {
+    private static final String BIND_HOST = "0.0.0.0";
     private static final BigInteger ADMINISTRATOR_BIT = new BigInteger("8");
     private static final BigInteger MANAGE_GUILD_BIT = new BigInteger("32");
 
@@ -102,7 +81,6 @@ import java.util.regex.Pattern;
     private final String webAssetVersion = String.valueOf(System.currentTimeMillis());
 
     private volatile HttpServer server;
-    private volatile String bindHost = "";
     private volatile int bindPort = -1;
     public WebControlServer(JDA jda,
                             MusicPlayerService musicService,
@@ -162,7 +140,7 @@ import java.util.regex.Pattern;
             return;
         }
 
-        if (server != null && Objects.equals(bindHost, web.getHost()) && bindPort == web.getPort()) {
+        if (server != null && bindPort == web.getPort()) {
             return;
         }
 
@@ -200,179 +178,17 @@ import java.util.regex.Pattern;
             }));
             created.start();
             this.server = created;
-            this.bindHost = web.getHost();
             this.bindPort = web.getPort();
-            String scheme = web.getSsl().isEnabled() ? "https" : "http";
-            System.out.println("[NoRule] Web UI started on " + scheme + "://" + web.getHost() + ":" + web.getPort());
+            System.out.println("[NoRule] Web UI started on http://" + BIND_HOST + ":" + web.getPort());
         } catch (Exception e) {
             System.out.println("[NoRule] Failed to start Web UI: " + e.getMessage());
         }
     }
 
-    private HttpServer createWebServer(WebSettings web) throws Exception {
-        InetSocketAddress address = new InetSocketAddress(web.getHost(), web.getPort());
-        if (!web.getSsl().isEnabled()) {
-            return HttpServer.create(address, 0);
-        }
-
-        SSLContext sslContext = buildSslContext(web);
-        HttpsServer httpsServer = HttpsServer.create(address, 0);
-        httpsServer.setHttpsConfigurator(new HttpsConfigurator(sslContext) {
-            @Override
-    public void configure(HttpsParameters params) {
-                SSLParameters sslParameters = sslContext.getDefaultSSLParameters();
-                sslParameters.setNeedClientAuth(false);
-                params.setSSLParameters(sslParameters);
-            }
-        });
-        return httpsServer;
+    private HttpServer createWebServer(WebSettings web) throws IOException {
+        return HttpServer.create(new InetSocketAddress(BIND_HOST, web.getPort()), 0);
     }
 
-    private SSLContext buildSslContext(WebSettings web) throws Exception {
-        WebSettings.WebSslSettings ssl = web.getSsl();
-        Path certDir = resolveCertDir(ssl.getCertDir());
-        KeyStore keyStore;
-        char[] keyPassword;
-        if (canUsePemMode(ssl, certDir)) {
-            keyStore = buildKeyStoreFromPem(ssl, certDir);
-            String pwd = effectiveKeyPassword(ssl, false);
-            keyPassword = pwd.toCharArray();
-        } else {
-            String storePassword = ssl.getKeyStorePassword();
-            if (storePassword == null || storePassword.isBlank()) {
-                throw new IllegalStateException("web.ssl.keyStorePassword is required when keystore mode is used.");
-            }
-            String keyPwd = effectiveKeyPassword(ssl, true);
-            Path keyStorePath = certDir.resolve(ssl.getKeyStoreFile()).normalize();
-            if (!Files.exists(keyStorePath)) {
-                throw new IllegalStateException("SSL keystore not found: " + keyStorePath.toAbsolutePath()
-                        + ". Put privkey/fullchain in certDir or configure web.ssl.keyStoreFile.");
-            }
-
-            keyStore = KeyStore.getInstance(
-                    (ssl.getKeyStoreType() == null || ssl.getKeyStoreType().isBlank()) ? "PKCS12" : ssl.getKeyStoreType()
-            );
-            try (InputStream in = Files.newInputStream(keyStorePath)) {
-                keyStore.load(in, storePassword.toCharArray());
-            }
-            keyPassword = keyPwd.toCharArray();
-        }
-
-        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-        kmf.init(keyStore, keyPassword);
-        TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-        tmf.init(keyStore);
-        SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
-        return sslContext;
-    }
-
-  private boolean canUsePemMode(WebSettings.WebSslSettings ssl, Path certDir) {
-        if (ssl == null) {
-            return false;
-        }
-        if (ssl.getPrivateKeyFile() == null || ssl.getPrivateKeyFile().isBlank()
-                || ssl.getFullChainFile() == null || ssl.getFullChainFile().isBlank()) {
-            return false;
-        }
-        Path key = certDir.resolve(ssl.getPrivateKeyFile()).normalize();
-        Path cert = certDir.resolve(ssl.getFullChainFile()).normalize();
-        return Files.exists(key) && Files.exists(cert);
-    }
-
-  private String effectiveKeyPassword(WebSettings.WebSslSettings ssl, boolean requireStorePassword) {
-        String keyPassword = ssl.getKeyPassword();
-        if (keyPassword != null && !keyPassword.isBlank()) {
-            return keyPassword;
-        }
-        String storePassword = ssl.getKeyStorePassword();
-        if (storePassword != null && !storePassword.isBlank()) {
-            return storePassword;
-        }
-        return requireStorePassword ? "" : "";
-    }
-
-    private KeyStore buildKeyStoreFromPem(WebSettings.WebSslSettings ssl, Path certDir) throws Exception {
-        Path keyPath = certDir.resolve(ssl.getPrivateKeyFile()).normalize();
-        Path chainPath = certDir.resolve(ssl.getFullChainFile()).normalize();
-        PrivateKey privateKey = loadPrivateKeyFromPem(keyPath);
-        X509Certificate[] chain = loadCertificateChainFromPem(chainPath);
-        if (chain.length == 0) {
-            throw new IllegalStateException("No certificates found in " + chainPath.toAbsolutePath());
-        }
-
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        keyStore.load(null, null);
-        char[] entryPassword = effectiveKeyPassword(ssl, false).toCharArray();
-        keyStore.setKeyEntry("web", privateKey, entryPassword, chain);
-        return keyStore;
-    }
-
-    private PrivateKey loadPrivateKeyFromPem(Path keyPath) throws Exception {
-        String pem = Files.readString(keyPath, StandardCharsets.UTF_8);
-        byte[] pkcs8 = extractPemBlock(pem, "PRIVATE KEY");
-        if (pkcs8 == null) {
-            throw new IllegalStateException("Unsupported private key format: " + keyPath.toAbsolutePath()
-                    + " (expected -----BEGIN PRIVATE KEY-----).");
-        }
-        PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(pkcs8);
-        Exception last = null;
-        for (String algorithm : List.of("RSA", "EC", "DSA")) {
-            try {
-                return KeyFactory.getInstance(algorithm).generatePrivate(spec);
-            } catch (Exception e) {
-                last = e;
-            }
-        }
-        throw new IllegalStateException("Failed to parse private key: " + keyPath.toAbsolutePath(), last);
-    }
-
-    private X509Certificate[] loadCertificateChainFromPem(Path chainPath) throws Exception {
-        String pem = Files.readString(chainPath, StandardCharsets.UTF_8);
-        Pattern pattern = Pattern.compile(
-                "-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----",
-                Pattern.DOTALL
-        );
-        Matcher matcher = pattern.matcher(pem);
-        CertificateFactory cf = CertificateFactory.getInstance("X.509");
-        List<X509Certificate> certs = new ArrayList<>();
-        while (matcher.find()) {
-            String body = matcher.group(1).replaceAll("\\s", "");
-            byte[] der = Base64.getDecoder().decode(body);
-            try (ByteArrayInputStream in = new ByteArrayInputStream(der)) {
-                Certificate certificate = cf.generateCertificate(in);
-                certs.add((X509Certificate) certificate);
-            }
-        }
-        return certs.toArray(new X509Certificate[0]);
-    }
-
-  private byte[] extractPemBlock(String pem, String type) {
-        if (pem == null || pem.isBlank()) {
-            return null;
-        }
-        Pattern pattern = Pattern.compile(
-                "-----BEGIN " + Pattern.quote(type) + "-----(.*?)-----END " + Pattern.quote(type) + "-----",
-                Pattern.DOTALL
-        );
-        Matcher matcher = pattern.matcher(pem);
-        if (!matcher.find()) {
-            return null;
-        }
-        String base64 = matcher.group(1).replaceAll("\\s", "");
-        return Base64.getDecoder().decode(base64);
-    }
-
-  private Path resolveCertDir(String certDirRaw) {
-        if (certDirRaw == null || certDirRaw.isBlank()) {
-            return Path.of("certs").toAbsolutePath().normalize();
-        }
-        Path certDir = Path.of(certDirRaw);
-        if (certDir.isAbsolute()) {
-            return certDir.normalize();
-        }
-        return Path.of("").toAbsolutePath().resolve(certDir).normalize();
-    }
     public JDA jda() {
         return jda;
     }
@@ -394,8 +210,7 @@ import java.util.regex.Pattern;
     public WebSettings webSettings() {
         WebSettings settings = settingsSupplier.get();
         if (settings == null) {
-            return new WebSettings(false, "0.0.0.0", 60000, "https://dash.example.com", 720, "", "", "",
-                    new WebSettings.WebSslSettings(false, "certs", "privkey.pem", "fullchain.pem", "web-keystore.p12", "", "PKCS12", ""));
+            return new WebSettings(false, 60000, "https://dash.example.com", 720, "", "", "");
         }
         return settings;
     }
@@ -462,7 +277,7 @@ import java.util.regex.Pattern;
             return false;
         }
         String baseUrl = web.getBaseUrl();
-        return web.getSsl().isEnabled() || (baseUrl != null && baseUrl.toLowerCase().startsWith("https://"));
+        return baseUrl != null && baseUrl.toLowerCase().startsWith("https://");
     }
     public String readBody(HttpExchange exchange) throws IOException {
         return new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);

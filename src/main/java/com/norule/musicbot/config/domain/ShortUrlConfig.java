@@ -80,7 +80,6 @@ public final class ShortUrlConfig {
 
     private final String storage;
     private final boolean enabled;
-    private final String bindHost;
     private final int bindPort;
     private final String publicBaseUrl;
     private final int codeLength;
@@ -105,7 +104,6 @@ public final class ShortUrlConfig {
     private final String deviceHmacSecret;
 
     public ShortUrlConfig(boolean enabled,
-                          String bindHost,
                           int bindPort,
                           String publicBaseUrl,
                           int codeLength,
@@ -116,13 +114,12 @@ public final class ShortUrlConfig {
                           int cleanupIntervalMinutes,
                           Mysql mysql,
                           Sqlite sqlite) {
-        this(enabled, bindHost, bindPort, publicBaseUrl, codeLength, allowPrivateTargets, storage, dedupe,
+        this(enabled, bindPort, publicBaseUrl, codeLength, allowPrivateTargets, storage, dedupe,
                 ttlDays, cleanupIntervalMinutes,
                 new Image(true, 1, 365, 20, 100, 5 * 60, 30, "data/short-url-images"), mysql, sqlite);
     }
 
     public ShortUrlConfig(boolean enabled,
-                          String bindHost,
                           int bindPort,
                           String publicBaseUrl,
                           int codeLength,
@@ -135,7 +132,6 @@ public final class ShortUrlConfig {
                           Mysql mysql,
                           Sqlite sqlite) {
         this.enabled = enabled;
-        this.bindHost = bindHost == null || bindHost.isBlank() ? "0.0.0.0" : bindHost.trim();
         this.bindPort = Math.max(1, bindPort);
         String normalizedBaseUrl = publicBaseUrl == null || publicBaseUrl.isBlank()
                 ? "https://s.norule.me"
@@ -171,7 +167,6 @@ public final class ShortUrlConfig {
     public ShortUrlConfig(BotConfig.ShortUrl config) {
         BotConfig.ShortUrl source = config == null ? BotConfig.ShortUrl.defaultValues() : config;
         this.enabled = source.isEnabled();
-        this.bindHost = source.getBindHost();
         this.bindPort = source.getBindPort();
         this.publicBaseUrl = source.getPublicBaseUrl();
         this.codeLength = source.getCodeLength();
@@ -263,13 +258,10 @@ public final class ShortUrlConfig {
     }
 
     public boolean isEnabled() { return enabled; }
-    public String getBindHost() { return bindHost; }
     public int getBindPort() { return bindPort; }
     public String getPublicBaseUrl() { return publicBaseUrl; }
     public int getCodeLength() { return codeLength; }
     public boolean isAllowPrivateTargets() { return allowPrivateTargets; }
-    @Deprecated
-    public String getHost() { return getBindHost(); }
     @Deprecated
     public int getPort() { return getBindPort(); }
     public String getStorage() { return storage; }

@@ -29,6 +29,10 @@ public final class ConfigInitializer {
     private static final Pattern QUOTED_SIMPLE_KEY = Pattern.compile("(?m)^(\\s*)'([A-Za-z0-9_-]+)':");
     private static final Pattern TAGGED_BOOL = Pattern.compile("!!bool\\s*'(?i:(true|false))'");
     private static final Pattern TAGGED_INT = Pattern.compile("!!int\\s*'(-?\\d+)'");
+    private static final Pattern YAML_KEY_LINE = Pattern.compile(
+            "^(\\s*)(?:'([^']*)'|\"([^\"]*)\"|([A-Za-z0-9_.-]+))\\s*:(?:\\s.*)?$"
+    );
+    private static final String YAML_PATH_SEPARATOR = "\u001F";
     private final LanguageManager languageManager;
 
     public ConfigInitializer(LanguageManager languageManager) {
@@ -58,6 +62,7 @@ public final class ConfigInitializer {
             if (currentConfig == null) {
                 return;
             }
+            String currentYaml = Files.readString(configPath, StandardCharsets.UTF_8);
             if (currentConfig.isEmpty()) {
                 currentConfig = new LinkedHashMap<>();
             }
@@ -67,32 +72,15 @@ public final class ConfigInitializer {
             Path baseDir = parent == null ? Path.of(".") : parent;
             Path languagePath = resolvePath(baseDir, languageDir);
             languageManager.ensureLanguageResources(languagePath);
-            ensureWebCertificateDirectory(baseDir, currentConfig, defaultConfig);
 
             Map<String, Object> merged = deepMerge(defaultConfig, currentConfig);
             pruneGuildScopedRootSettings(merged);
-            String rendered = withHelpfulComments(dumpYaml(merged));
-            boolean needsCommentUpgrade = !hasHelpfulCommentMarker(configPath);
+            String rendered = restoreComments(currentYaml, withHelpfulComments(dumpYaml(merged)));
+            boolean needsCommentUpgrade = !hasYamlComment(currentYaml);
             if (migrated || !merged.equals(currentConfig) || needsCommentUpgrade) {
                 backupConfig(configPath);
                 writeYaml(configPath, rendered);
             }
-        } catch (Exception ignored) {
-        }
-    }
-
-    private void ensureWebCertificateDirectory(Path baseDir, Map<String, Object> currentConfig, Map<String, Object> defaultConfig) {
-        try {
-            Map<String, Object> currentWeb = asMap(currentConfig.get("web"));
-            Map<String, Object> defaultWeb = asMap(defaultConfig.get("web"));
-            Map<String, Object> currentSsl = asMap(currentWeb.get("ssl"));
-            Map<String, Object> defaultSsl = asMap(defaultWeb.get("ssl"));
-            String certDirRaw = getString(currentSsl, "certDir", getString(defaultSsl, "certDir", "certs"));
-            if (certDirRaw.isBlank()) {
-                certDirRaw = "certs";
-            }
-            Path certDir = resolvePath(baseDir, certDirRaw);
-            Files.createDirectories(certDir);
         } catch (Exception ignored) {
         }
     }
@@ -140,11 +128,19 @@ public final class ConfigInitializer {
         Map<String, Object> music = asMap(config.get("music"));
         if (!music.isEmpty()) {
             Map<String, Object> youtube = asMap(music.get("youtube"));
+            Map<String, Object> oauth = asMap(music.get("oauth"));
+            Map<String, Object> cipher = asMap(music.get("cipher"));
             Map<String, Object> spotify = asMap(music.get("spotify"));
             Map<String, Object> audio = asMap(music.get("audio"));
             Map<String, Object> globalMusic = new LinkedHashMap<>();
             if (!youtube.isEmpty()) {
                 globalMusic.put("youtube", youtube);
+            }
+            if (!oauth.isEmpty()) {
+                globalMusic.put("oauth", oauth);
+            }
+            if (!cipher.isEmpty()) {
+                globalMusic.put("cipher", cipher);
             }
             if (!spotify.isEmpty()) {
                 globalMusic.put("spotify", spotify);
@@ -237,13 +233,205 @@ public final class ConfigInitializer {
         }
     }
 
-    private boolean hasHelpfulCommentMarker(Path file) {
-        try {
-            String content = Files.readString(file, StandardCharsets.UTF_8);
-            return content.contains("# Discord Bot Token");
-        } catch (Exception ignored) {
+    private boolean hasYamlComment(String yamlText) {
+        if (yamlText == null || yamlText.isBlank()) {
             return false;
         }
+        return yamlText.lines().anyMatch(line -> findYamlCommentStart(line) >= 0);
+    }
+
+    private String restoreComments(String sourceYaml, String targetYaml) {
+        if (sourceYaml == null || sourceYaml.isBlank() || targetYaml == null || targetYaml.isBlank()) {
+            return targetYaml;
+        }
+
+        CommentSnapshot comments = remapMigratedComments(captureComments(sourceYaml));
+        if (comments.leading().isEmpty() && comments.inline().isEmpty() && comments.trailing().isEmpty()) {
+            return targetYaml;
+        }
+
+        YamlAnchorTracker tracker = new YamlAnchorTracker();
+        List<String> targetLines = targetYaml.lines().toList();
+        List<String> pending = new ArrayList<>();
+        List<String> out = new ArrayList<>(targetLines.size() + 24);
+        for (String line : targetLines) {
+            if (isBlankOrFullLineComment(line)) {
+                pending.add(line);
+                continue;
+            }
+
+            String anchor = tracker.anchorFor(line);
+            if (anchor == null) {
+                out.addAll(pending);
+                pending.clear();
+                out.add(line);
+                continue;
+            }
+
+            List<String> preservedLeading = comments.leading().get(anchor);
+            out.addAll(preservedLeading == null ? pending : reindentComments(preservedLeading, indentationOf(line)));
+            pending.clear();
+
+            String inlineComment = comments.inline().get(anchor);
+            out.add(inlineComment == null ? line : replaceInlineComment(line, inlineComment));
+        }
+
+        out.addAll(comments.trailing().isEmpty() ? pending : comments.trailing());
+        return String.join("\n", out) + "\n";
+    }
+
+    private CommentSnapshot remapMigratedComments(CommentSnapshot source) {
+        Map<String, List<String>> leading = new LinkedHashMap<>(source.leading());
+        Map<String, String> inline = new LinkedHashMap<>(source.inline());
+
+        preserveMovedComment(leading, path("bot", "activities"),
+                path("bot", "activityText"), path("bot", "activityType"));
+        preserveMovedComment(inline, path("bot", "activities"),
+                path("bot", "activityText"), path("bot", "activityType"));
+
+        preserveMovedComment(leading, path("music", "oauth", "enabled"),
+                path("music", "youtube", "oauthEnabled"));
+        preserveMovedComment(inline, path("music", "oauth", "enabled"),
+                path("music", "youtube", "oauthEnabled"));
+        preserveMovedComment(leading, path("music", "oauth", "refreshToken"),
+                path("music", "youtube", "oauthRefreshToken"),
+                path("music", "youtube", "auth", "oauthRefreshToken"));
+        preserveMovedComment(inline, path("music", "oauth", "refreshToken"),
+                path("music", "youtube", "oauthRefreshToken"),
+                path("music", "youtube", "auth", "oauthRefreshToken"));
+
+        preserveMovedComment(leading, path("music", "cipher", "enabled"),
+                path("music", "youtube", "cipherEnabled"));
+        preserveMovedComment(inline, path("music", "cipher", "enabled"),
+                path("music", "youtube", "cipherEnabled"));
+        preserveMovedComment(leading, path("music", "cipher", "server"),
+                path("music", "youtube", "cipherServer"));
+        preserveMovedComment(inline, path("music", "cipher", "server"),
+                path("music", "youtube", "cipherServer"));
+        preserveMovedComment(leading, path("music", "cipher", "password"),
+                path("music", "youtube", "cipherPassword"));
+        preserveMovedComment(inline, path("music", "cipher", "password"),
+                path("music", "youtube", "cipherPassword"));
+        preserveMovedComment(leading, path("music", "cipher", "userAgent"),
+                path("music", "youtube", "cipherUserAgent"));
+        preserveMovedComment(inline, path("music", "cipher", "userAgent"),
+                path("music", "youtube", "cipherUserAgent"));
+
+        preserveMovedComment(leading, path("web", "bind", "port"), path("web", "port"));
+        preserveMovedComment(inline, path("web", "bind", "port"), path("web", "port"));
+        preserveMovedComment(leading, path("web", "public", "baseUrl"), path("web", "baseUrl"));
+        preserveMovedComment(inline, path("web", "public", "baseUrl"), path("web", "baseUrl"));
+        preserveMovedComment(leading, path("shortUrl", "bindPort"), path("shortUrl", "bind", "port"));
+        preserveMovedComment(inline, path("shortUrl", "bindPort"), path("shortUrl", "bind", "port"));
+        preserveMovedComment(leading, path("shortUrl", "publicBaseUrl"),
+                path("shortUrl", "public", "baseUrl"));
+        preserveMovedComment(inline, path("shortUrl", "publicBaseUrl"),
+                path("shortUrl", "public", "baseUrl"));
+
+        return new CommentSnapshot(leading, inline, source.trailing());
+    }
+
+    @SafeVarargs
+    private static <T> void preserveMovedComment(Map<String, T> comments, String target, String... sources) {
+        if (comments.containsKey(target)) {
+            return;
+        }
+        for (String source : sources) {
+            T comment = comments.get(source);
+            if (comment != null) {
+                comments.put(target, comment);
+                return;
+            }
+        }
+    }
+
+    private static String path(String... segments) {
+        return String.join(YAML_PATH_SEPARATOR, segments);
+    }
+
+    private CommentSnapshot captureComments(String yamlText) {
+        YamlAnchorTracker tracker = new YamlAnchorTracker();
+        Map<String, List<String>> leading = new LinkedHashMap<>();
+        Map<String, String> inline = new LinkedHashMap<>();
+        List<String> pending = new ArrayList<>();
+
+        for (String line : yamlText.lines().toList()) {
+            if (isBlankOrFullLineComment(line)) {
+                pending.add(line);
+                continue;
+            }
+
+            String anchor = tracker.anchorFor(line);
+            if (anchor == null) {
+                pending.clear();
+                continue;
+            }
+
+            if (containsFullLineComment(pending)) {
+                leading.put(anchor, List.copyOf(pending));
+            }
+            pending.clear();
+
+            int commentStart = findYamlCommentStart(line);
+            if (commentStart >= 0) {
+                inline.put(anchor, line.substring(commentStart).stripTrailing());
+            }
+        }
+
+        List<String> trailing = containsFullLineComment(pending) ? List.copyOf(pending) : List.of();
+        return new CommentSnapshot(leading, inline, trailing);
+    }
+
+    private static boolean isBlankOrFullLineComment(String line) {
+        return line.isBlank() || line.stripLeading().startsWith("#");
+    }
+
+    private static boolean containsFullLineComment(List<String> lines) {
+        return lines.stream().anyMatch(line -> line.stripLeading().startsWith("#"));
+    }
+
+    private static List<String> reindentComments(List<String> comments, int indentation) {
+        String prefix = " ".repeat(Math.max(0, indentation));
+        return comments.stream()
+                .map(line -> line.isBlank() ? "" : prefix + line.stripLeading())
+                .toList();
+    }
+
+    private static int indentationOf(String line) {
+        return line.length() - line.stripLeading().length();
+    }
+
+    private static String replaceInlineComment(String line, String inlineComment) {
+        int existingCommentStart = findYamlCommentStart(line);
+        String content = existingCommentStart >= 0 ? line.substring(0, existingCommentStart) : line;
+        return content.stripTrailing() + " " + inlineComment;
+    }
+
+    private static int findYamlCommentStart(String line) {
+        boolean inSingleQuote = false;
+        boolean inDoubleQuote = false;
+        boolean escaped = false;
+        for (int i = 0; i < line.length(); i++) {
+            char current = line.charAt(i);
+            if (inDoubleQuote && current == '\\' && !escaped) {
+                escaped = true;
+                continue;
+            }
+            if (current == '\"' && !inSingleQuote && !escaped) {
+                inDoubleQuote = !inDoubleQuote;
+            } else if (current == '\'' && !inDoubleQuote) {
+                if (inSingleQuote && i + 1 < line.length() && line.charAt(i + 1) == '\'') {
+                    i++;
+                } else {
+                    inSingleQuote = !inSingleQuote;
+                }
+            } else if (current == '#' && !inSingleQuote && !inDoubleQuote
+                    && (i == 0 || Character.isWhitespace(line.charAt(i - 1)))) {
+                return i;
+            }
+            escaped = false;
+        }
+        return -1;
     }
 
     private String dumpYaml(Map<String, Object> root) {
@@ -363,6 +551,58 @@ public final class ConfigInitializer {
         return String.join("\n", out) + "\n";
     }
 
+    private record CommentSnapshot(
+            Map<String, List<String>> leading,
+            Map<String, String> inline,
+            List<String> trailing
+    ) {
+    }
+
+    private record YamlPath(int indentation, String value) {
+    }
+
+    private static final class YamlAnchorTracker {
+        private final List<YamlPath> keyStack = new ArrayList<>();
+        private final Map<String, Integer> sequenceIndexes = new LinkedHashMap<>();
+
+        private String anchorFor(String line) {
+            var keyMatcher = YAML_KEY_LINE.matcher(line);
+            if (keyMatcher.matches()) {
+                int indentation = keyMatcher.group(1).length();
+                while (!keyStack.isEmpty()
+                        && keyStack.get(keyStack.size() - 1).indentation() >= indentation) {
+                    keyStack.remove(keyStack.size() - 1);
+                }
+
+                String key = firstNonNull(keyMatcher.group(2), keyMatcher.group(3), keyMatcher.group(4));
+                String parent = keyStack.isEmpty() ? "" : keyStack.get(keyStack.size() - 1).value();
+                String path = parent.isEmpty() ? key : parent + YAML_PATH_SEPARATOR + key;
+                keyStack.add(new YamlPath(indentation, path));
+                return path;
+            }
+
+            String trimmed = line.stripLeading();
+            if (!trimmed.startsWith("-")
+                    || (trimmed.length() > 1 && !Character.isWhitespace(trimmed.charAt(1)))) {
+                return null;
+            }
+
+            String parent = keyStack.isEmpty() ? "" : keyStack.get(keyStack.size() - 1).value();
+            int index = sequenceIndexes.getOrDefault(parent, 0);
+            sequenceIndexes.put(parent, index + 1);
+            return parent + YAML_PATH_SEPARATOR + "[" + index + "]";
+        }
+
+        private static String firstNonNull(String... values) {
+            for (String value : values) {
+                if (value != null) {
+                    return value;
+                }
+            }
+            return "";
+        }
+    }
+
     private static final class SingleQuotedStringRepresenter extends Representer {
         private SingleQuotedStringRepresenter(DumperOptions options) {
             super(options);
@@ -399,6 +639,14 @@ public final class ConfigInitializer {
         return String.valueOf(value).trim();
     }
 
+    private boolean getBoolean(Map<String, Object> map, String key, boolean defaultValue) {
+        Object value = map.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        return value instanceof Boolean bool ? bool : Boolean.parseBoolean(String.valueOf(value));
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> mutableMap(Object object) {
         if (object instanceof Map<?, ?> map) {
@@ -409,16 +657,22 @@ public final class ConfigInitializer {
 
     private boolean migrateLegacyConfig(Map<String, Object> config) {
         boolean changed = migrateDataPathKeys(config);
+        changed |= migrateBotProfile(config);
+        changed |= migrateMusicSettings(config);
 
         Map<String, Object> web = mutableMap(config.get("web"));
         if (web != null && !web.isEmpty()) {
             changed |= migrateBindAndPublicUrl(web, "host", "port", "baseUrl", null);
+            Map<String, Object> bind = mutableMap(web.get("bind"));
+            changed |= removeKey(bind, "host");
+            changed |= removeKey(web, "ssl");
         }
 
         Map<String, Object> shortUrl = mutableMap(config.get("shortUrl"));
         if (shortUrl != null && !shortUrl.isEmpty()) {
             changed |= migrateBindAndPublicUrl(shortUrl, "host", "port", "baseUrl", "domain");
             changed |= ensureFlatShortUrlKeys(shortUrl);
+            changed |= removeKey(shortUrl, "bindHost");
 
             String storage = getString(shortUrl, "storage", "");
             if ("db".equalsIgnoreCase(storage)) {
@@ -569,6 +823,106 @@ public final class ConfigInitializer {
         return changed;
     }
 
+    private boolean migrateBotProfile(Map<String, Object> config) {
+        Map<String, Object> bot = mutableMap(config.get("bot"));
+        if (bot == null || bot.isEmpty()) {
+            return false;
+        }
+
+        boolean changed = false;
+        Object activities = bot.get("activities");
+        boolean hasActivities = activities instanceof Iterable<?> iterable && iterable.iterator().hasNext();
+        String legacyActivityText = getString(bot, "activityText", "");
+        if (!hasActivities && !legacyActivityText.isBlank()) {
+            String legacyActivityType = getString(bot, "activityType", "PLAYING");
+            String type = legacyActivityType.isBlank() ? "PLAYING" : legacyActivityType.trim();
+            bot.put("activities", List.of(type + "|" + legacyActivityText));
+            changed = true;
+        }
+        changed |= removeKey(bot, "activityType");
+        changed |= removeKey(bot, "activityText");
+        return changed;
+    }
+
+    private boolean migrateMusicSettings(Map<String, Object> config) {
+        Map<String, Object> music = mutableMap(config.get("music"));
+        if (music == null || music.isEmpty()) {
+            return false;
+        }
+
+        boolean changed = false;
+        Map<String, Object> youtube = mutableMap(music.get("youtube"));
+        if (youtube != null) {
+            Map<String, Object> legacyAuth = mutableMap(youtube.get("auth"));
+            Map<String, Object> oauth = mutableMap(music.get("oauth"));
+            boolean hasLegacyOauth = youtube.containsKey("oauthEnabled")
+                    || youtube.containsKey("oauthRefreshToken")
+                    || (legacyAuth != null && !legacyAuth.isEmpty());
+            if (oauth == null && hasLegacyOauth) {
+                oauth = new LinkedHashMap<>();
+                music.put("oauth", oauth);
+                changed = true;
+            }
+            if (oauth != null) {
+                if (!oauth.containsKey("enabled")) {
+                    boolean oauthMode = "OAUTH".equalsIgnoreCase(
+                            getString(legacyAuth == null ? Map.of() : legacyAuth, "mode", ""));
+                    if (youtube.containsKey("oauthEnabled") || oauthMode) {
+                        oauth.put("enabled", getBoolean(youtube, "oauthEnabled", oauthMode));
+                        changed = true;
+                    }
+                }
+                if (getString(oauth, "refreshToken", "").isBlank()) {
+                    String refreshToken = firstNonBlank(
+                            getString(youtube, "oauthRefreshToken", ""),
+                            getString(legacyAuth == null ? Map.of() : legacyAuth, "oauthRefreshToken", "")
+                    );
+                    if (!refreshToken.isBlank()) {
+                        oauth.put("refreshToken", refreshToken);
+                        changed = true;
+                    }
+                }
+            }
+
+            Map<String, Object> cipher = mutableMap(music.get("cipher"));
+            boolean hasLegacyCipher = List.of(
+                    "cipherEnabled", "cipherServer", "cipherPassword", "cipherUserAgent"
+            ).stream().anyMatch(youtube::containsKey);
+            if (cipher == null && hasLegacyCipher) {
+                cipher = new LinkedHashMap<>();
+                music.put("cipher", cipher);
+                changed = true;
+            }
+            if (cipher != null) {
+                changed |= copyIfAbsent(youtube, "cipherEnabled", cipher, "enabled");
+                changed |= copyIfAbsent(youtube, "cipherServer", cipher, "server");
+                changed |= copyIfAbsent(youtube, "cipherPassword", cipher, "password");
+                changed |= copyIfAbsent(youtube, "cipherUserAgent", cipher, "userAgent");
+            }
+
+            changed |= removeKey(youtube, "auth");
+            changed |= removeKey(youtube, "oauthEnabled");
+            changed |= removeKey(youtube, "oauthRefreshToken");
+            changed |= removeKey(youtube, "cipherEnabled");
+            changed |= removeKey(youtube, "cipherServer");
+            changed |= removeKey(youtube, "cipherPassword");
+            changed |= removeKey(youtube, "cipherUserAgent");
+        }
+
+        Map<String, Object> spotify = mutableMap(music.get("spotify"));
+        changed |= removeKey(spotify, "customTokenEndpoint");
+        return changed;
+    }
+
+    private static boolean copyIfAbsent(Map<String, Object> source, String sourceKey,
+                                        Map<String, Object> target, String targetKey) {
+        if (source == null || target == null || !source.containsKey(sourceKey) || target.containsKey(targetKey)) {
+            return false;
+        }
+        target.put(targetKey, source.get(sourceKey));
+        return true;
+    }
+
     private boolean migrateDataPathKeys(Map<String, Object> config) {
         Map<String, Object> data = mutableMap(config.get("data"));
         boolean changed = false;
@@ -610,15 +964,6 @@ public final class ConfigInitializer {
         boolean changed = false;
         Map<String, Object> bind = mutableMap(shortUrl.get("bind"));
         Map<String, Object> pub = mutableMap(shortUrl.get("public"));
-
-        String bindHost = getString(shortUrl, "bindHost", "");
-        if (bindHost.isBlank()) {
-            String nestedHost = getString(bind == null ? Map.of() : bind, "host", "");
-            if (!nestedHost.isBlank()) {
-                shortUrl.put("bindHost", nestedHost);
-                changed = true;
-            }
-        }
 
         Object bindPort = shortUrl.get("bindPort");
         int bindPortValue = -1;

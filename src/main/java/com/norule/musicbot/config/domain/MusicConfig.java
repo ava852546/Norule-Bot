@@ -98,67 +98,72 @@ public final class MusicConfig {
         public Recovery getRecovery() { return recovery; }
     }
 
+    public static final class Oauth {
+        private final boolean enabled;
+        private final String refreshToken;
+
+        public Oauth(boolean enabled, String refreshToken) {
+            this.enabled = enabled;
+            this.refreshToken = refreshToken == null ? "" : refreshToken;
+        }
+
+        static Oauth fromLegacy(BotConfig.Music.Oauth legacy) {
+            BotConfig.Music.Oauth value = legacy == null
+                    ? BotConfig.Music.defaultValues().getOauth()
+                    : legacy;
+            return new Oauth(value.isEnabled(), value.getRefreshToken());
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public String getRefreshToken() { return refreshToken; }
+    }
+
+    public static final class Cipher {
+        private final boolean enabled;
+        private final String server;
+        private final String password;
+        private final String userAgent;
+
+        public Cipher(boolean enabled, String server, String password, String userAgent) {
+            this.enabled = enabled;
+            this.server = server == null ? "" : server;
+            this.password = password == null ? "" : password;
+            this.userAgent = userAgent == null ? "" : userAgent;
+        }
+
+        static Cipher fromLegacy(BotConfig.Music.Cipher legacy) {
+            BotConfig.Music.Cipher value = legacy == null
+                    ? BotConfig.Music.defaultValues().getCipher()
+                    : legacy;
+            return new Cipher(
+                    value.isEnabled(),
+                    value.getServer(),
+                    value.getPassword(),
+                    value.getUserAgent()
+            );
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public String getServer() { return server; }
+        public String getPassword() { return password; }
+        public String getUserAgent() { return userAgent; }
+    }
+
     public static final class Youtube {
         private final YouTubePlaybackBackend playbackBackend;
         private final String configuredPlaybackBackend;
-        private final boolean oauthEnabled;
-        private final boolean cipherEnabled;
-        private final String oauthRefreshToken;
-        private final String cipherServer;
-        private final String cipherPassword;
-        private final String cipherUserAgent;
         private final Companion companion;
-        private final Auth auth;
         private final StrictPrecheck strictPrecheck;
 
-        public Youtube(boolean oauthEnabled,
-                       boolean cipherEnabled,
-                       String oauthRefreshToken,
-                       String cipherServer,
-                       String cipherPassword,
-                       String cipherUserAgent,
-                       StrictPrecheck strictPrecheck) {
-            this(oauthEnabled, cipherEnabled, oauthRefreshToken, cipherServer, cipherPassword,
-                    cipherUserAgent, Auth.fromLegacy(null, oauthEnabled, oauthRefreshToken), strictPrecheck,
-                    YouTubePlaybackBackend.YOUTUBE_SOURCE, "YOUTUBE_SOURCE", Companion.fromLegacy(null));
-        }
-
-        public Youtube(boolean oauthEnabled,
-                       boolean cipherEnabled,
-                       String oauthRefreshToken,
-                       String cipherServer,
-                       String cipherPassword,
-                       String cipherUserAgent,
-                       Auth auth,
-                       StrictPrecheck strictPrecheck) {
-            this(oauthEnabled, cipherEnabled, oauthRefreshToken, cipherServer, cipherPassword,
-                    cipherUserAgent, auth, strictPrecheck, YouTubePlaybackBackend.YOUTUBE_SOURCE,
-                    "YOUTUBE_SOURCE", Companion.fromLegacy(null));
-        }
-
-        public Youtube(boolean oauthEnabled,
-                       boolean cipherEnabled,
-                       String oauthRefreshToken,
-                       String cipherServer,
-                       String cipherPassword,
-                       String cipherUserAgent,
-                       Auth auth,
-                       StrictPrecheck strictPrecheck,
-                       YouTubePlaybackBackend playbackBackend,
+        private Youtube(YouTubePlaybackBackend playbackBackend,
                        String configuredPlaybackBackend,
-                       Companion companion) {
+                       Companion companion,
+                       StrictPrecheck strictPrecheck) {
             this.playbackBackend = playbackBackend == null
                     ? YouTubePlaybackBackend.YOUTUBE_SOURCE
                     : playbackBackend;
             this.configuredPlaybackBackend = configuredPlaybackBackend == null ? "" : configuredPlaybackBackend;
-            this.oauthEnabled = oauthEnabled;
-            this.cipherEnabled = cipherEnabled;
-            this.oauthRefreshToken = oauthRefreshToken == null ? "" : oauthRefreshToken;
-            this.cipherServer = cipherServer == null ? "" : cipherServer;
-            this.cipherPassword = cipherPassword == null ? "" : cipherPassword;
-            this.cipherUserAgent = cipherUserAgent == null ? "" : cipherUserAgent;
             this.companion = companion == null ? Companion.fromLegacy(null) : companion;
-            this.auth = auth == null ? Auth.fromLegacy(null, oauthEnabled, oauthRefreshToken) : auth;
             this.strictPrecheck = strictPrecheck == null ? StrictPrecheck.fromLegacy(null) : strictPrecheck;
         }
 
@@ -166,30 +171,16 @@ public final class MusicConfig {
             BotConfig.Music.Youtube value = legacy == null ? BotConfig.Music.Youtube.defaultValues() : legacy;
             String configuredBackend = value.getPlaybackBackend();
             return new Youtube(
-                    value.isOauthEnabled(),
-                    value.isCipherEnabled(),
-                    value.getOauthRefreshToken(),
-                    value.getCipherServer(),
-                    value.getCipherPassword(),
-                    value.getCipherUserAgent(),
-                    Auth.fromLegacy(value.getAuth(), value.isOauthEnabled(), value.getOauthRefreshToken()),
-                    StrictPrecheck.fromLegacy(value.getStrictPrecheck()),
                     YouTubePlaybackBackend.parse(configuredBackend),
                     configuredBackend,
-                    Companion.fromLegacy(value.getCompanion())
+                    Companion.fromLegacy(value.getCompanion()),
+                    StrictPrecheck.fromLegacy(value.getStrictPrecheck())
             );
         }
 
         public YouTubePlaybackBackend getPlaybackBackend() { return playbackBackend; }
         public String getConfiguredPlaybackBackend() { return configuredPlaybackBackend; }
-        public boolean isOauthEnabled() { return oauthEnabled; }
-        public boolean isCipherEnabled() { return cipherEnabled; }
-        public String getOauthRefreshToken() { return oauthRefreshToken; }
-        public String getCipherServer() { return cipherServer; }
-        public String getCipherPassword() { return cipherPassword; }
-        public String getCipherUserAgent() { return cipherUserAgent; }
         public Companion getCompanion() { return companion; }
-        public Auth getAuth() { return auth; }
         public StrictPrecheck getStrictPrecheck() { return strictPrecheck; }
 
         public static final class Companion {
@@ -251,51 +242,6 @@ public final class MusicConfig {
                     return NONE;
                 }
             }
-        }
-
-        public static final class Auth {
-            private final AuthMode mode;
-            private final boolean strictAuthConfig;
-            private final String poToken;
-            private final String visitorData;
-            private final String oauthRefreshToken;
-
-            private Auth(AuthMode mode,
-                         boolean strictAuthConfig,
-                         String poToken,
-                         String visitorData,
-                         String oauthRefreshToken) {
-                this.mode = mode == null ? AuthMode.NONE : mode;
-                this.strictAuthConfig = strictAuthConfig;
-                this.poToken = poToken == null ? "" : poToken;
-                this.visitorData = visitorData == null ? "" : visitorData;
-                this.oauthRefreshToken = oauthRefreshToken == null ? "" : oauthRefreshToken;
-            }
-
-            static Auth fromLegacy(BotConfig.Music.Youtube.Auth legacy,
-                                   boolean legacyOauthEnabled,
-                                   String legacyOauthRefreshToken) {
-                if (legacy == null) {
-                    AuthMode legacyMode = legacyOauthEnabled
-                            || (legacyOauthRefreshToken != null && !legacyOauthRefreshToken.isBlank())
-                            ? AuthMode.OAUTH
-                            : AuthMode.NONE;
-                    return new Auth(legacyMode, false, "", "", legacyOauthRefreshToken);
-                }
-                return new Auth(
-                        AuthMode.from(legacy.getMode()),
-                        legacy.isStrictAuthConfig(),
-                        legacy.getPoToken(),
-                        legacy.getVisitorData(),
-                        legacy.getOauthRefreshToken()
-                );
-            }
-
-            public AuthMode getMode() { return mode; }
-            public boolean isStrictAuthConfig() { return strictAuthConfig; }
-            public String getPoToken() { return poToken; }
-            public String getVisitorData() { return visitorData; }
-            public String getOauthRefreshToken() { return oauthRefreshToken; }
         }
 
         public static final class StrictPrecheck {
@@ -368,7 +314,6 @@ public final class MusicConfig {
         private final String spDc;
         private final String countryCode;
         private final boolean preferAnonymousToken;
-        private final String customTokenEndpoint;
         private final int playlistMaxTracks;
         private final int playlistLoadCooldownSeconds;
 
@@ -378,7 +323,6 @@ public final class MusicConfig {
                        String spDc,
                        String countryCode,
                        boolean preferAnonymousToken,
-                       String customTokenEndpoint,
                        int playlistMaxTracks,
                        int playlistLoadCooldownSeconds) {
             this.enabled = enabled;
@@ -387,7 +331,6 @@ public final class MusicConfig {
             this.spDc = spDc == null ? "" : spDc;
             this.countryCode = countryCode == null ? "" : countryCode;
             this.preferAnonymousToken = preferAnonymousToken;
-            this.customTokenEndpoint = customTokenEndpoint == null ? "" : customTokenEndpoint;
             this.playlistMaxTracks = Math.max(1, playlistMaxTracks);
             this.playlistLoadCooldownSeconds = Math.max(0, playlistLoadCooldownSeconds);
         }
@@ -401,7 +344,6 @@ public final class MusicConfig {
                     value.getSpDc(),
                     value.getCountryCode(),
                     value.isPreferAnonymousToken(),
-                    value.getCustomTokenEndpoint(),
                     value.getPlaylistMaxTracks(),
                     value.getPlaylistLoadCooldownSeconds()
             );
@@ -413,7 +355,6 @@ public final class MusicConfig {
         public String getSpDc() { return spDc; }
         public String getCountryCode() { return countryCode; }
         public boolean isPreferAnonymousToken() { return preferAnonymousToken; }
-        public String getCustomTokenEndpoint() { return customTokenEndpoint; }
         public int getPlaylistMaxTracks() { return playlistMaxTracks; }
         public int getPlaylistLoadCooldownSeconds() { return playlistLoadCooldownSeconds; }
     }
@@ -427,6 +368,8 @@ public final class MusicConfig {
     private final int statsRetentionDays;
     private final int playlistTrackLimit;
     private final Youtube youtube;
+    private final Oauth oauth;
+    private final Cipher cipher;
     private final Spotify spotify;
     private final Audio audio;
 
@@ -439,6 +382,8 @@ public final class MusicConfig {
                        int statsRetentionDays,
                        int playlistTrackLimit,
                        Youtube youtube,
+                       Oauth oauth,
+                       Cipher cipher,
                        Spotify spotify,
                        Audio audio) {
         this.autoLeaveEnabled = autoLeaveEnabled;
@@ -450,6 +395,8 @@ public final class MusicConfig {
         this.statsRetentionDays = Math.max(0, statsRetentionDays);
         this.playlistTrackLimit = Math.max(1, playlistTrackLimit);
         this.youtube = youtube == null ? Youtube.fromLegacy(null) : youtube;
+        this.oauth = oauth == null ? Oauth.fromLegacy(null) : oauth;
+        this.cipher = cipher == null ? Cipher.fromLegacy(null) : cipher;
         this.spotify = spotify == null ? Spotify.fromLegacy(null) : spotify;
         this.audio = audio == null ? Audio.fromLegacy(null) : audio;
     }
@@ -473,6 +420,8 @@ public final class MusicConfig {
                 value.statsRetentionDays,
                 value.playlistTrackLimit,
                 value.youtube,
+                value.oauth,
+                value.cipher,
                 value.spotify,
                 value.audio
         );
@@ -491,6 +440,8 @@ public final class MusicConfig {
                 scopedValue.getStatsRetentionDays(),
                 scopedValue.getPlaylistTrackLimit(),
                 Youtube.fromLegacy(globalValue.getYoutube()),
+                Oauth.fromLegacy(globalValue.getOauth()),
+                Cipher.fromLegacy(globalValue.getCipher()),
                 Spotify.fromLegacy(globalValue.getSpotify()),
                 Audio.fromLegacy(globalValue.getAudio())
         );
@@ -505,6 +456,8 @@ public final class MusicConfig {
     public int getStatsRetentionDays() { return statsRetentionDays; }
     public int getPlaylistTrackLimit() { return playlistTrackLimit; }
     public Youtube getYoutube() { return youtube; }
+    public Oauth getOauth() { return oauth; }
+    public Cipher getCipher() { return cipher; }
     public Spotify getSpotify() { return spotify; }
     public Audio getAudio() { return audio; }
 }

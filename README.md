@@ -6,7 +6,7 @@ NoRule Bot 是以 Java 21 LTS + JDA 製作的 Discord 多功能社群機器人�
 
 ## 目前版本
 
-- 專案版本：`1.6`
+- 專案版本：`1.7`
 - Java：`21 LTS`
 - Discord 函式庫：`JDA 6.3.1`
 - 音樂核心：`Lavaplayer 2.2.6`、`youtube-source 1.18.1`、`lavasrc 4.8.1`
@@ -252,7 +252,7 @@ mvn clean package
 建置完成後會產生：
 
 ```text
-target/discord-music-bot-1.6.jar
+target/discord-music-bot-1.7.jar
 runtime-libs/
 ```
 
@@ -269,7 +269,7 @@ runtime-libs/
 ### 首次啟動
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.6.jar
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.7.jar
 ```
 
 首次啟動會自動建立 `config.yml`、語言檔與必要資料夾。停止程式後，編輯 `config.yml`：
@@ -282,7 +282,7 @@ defaultLanguage: "zh-TW"
 再重新啟動：
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.6.jar
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.7.jar
 ```
 
 ## 常用設定
@@ -323,18 +323,20 @@ music:
       connectTimeoutMillis: 5000
       # Companion player API 與 playback proxy 讀取逾時（毫秒）。
       requestTimeoutMillis: 10000
-    oauthEnabled: false
-    oauthRefreshToken: ""
-    cipherEnabled: false
-    cipherServer: "http://localhost:8001"
-    cipherPassword: "test"
-    cipherUserAgent: "norule-music-bot"
     strictPrecheck:
       enabled: false
       cacheTtlHours: 24
       timeoutMillis: 5000
       lavalinkBaseUrl: ""
       lavalinkPassword: ""
+  oauth:
+    enabled: false
+    refreshToken: ""
+  cipher:
+    enabled: false
+    server: "http://localhost:8001"
+    password: ""
+    userAgent: "norule-music-bot"
 ```
 
 `commandGuildId` 留空會註冊全域 Slash 指令；開發測試時可填單一伺服器 ID，加快指令更新速度。
@@ -400,7 +402,6 @@ https://dash.norule.me/auth/callback
 web:
   enabled: true
   bind:
-    host: "0.0.0.0"
     port: 60000
   public:
     baseUrl: "https://dash.norule.me"
@@ -408,6 +409,8 @@ web:
   discordClientSecret: "YOUR_CLIENT_SECRET"
   discordRedirectUri: "https://dash.norule.me/auth/callback"
 ```
+
+Web Server 固定監聽 `0.0.0.0`；請使用防火牆限制來源，並由反向代理對外提供 HTTPS。
 
 啟動後開啟：
 
@@ -422,7 +425,6 @@ https://dash.norule.me
 ```yml
 shortUrl:
   enabled: true
-  bindHost: "0.0.0.0"
   bindPort: 60001
   publicBaseUrl: "https://s.norule.me"
   codeLength: 7
@@ -483,25 +485,7 @@ database:
 
 ## HTTPS 設定
 
-PEM 憑證放在 `certs/`：
-
-```text
-certs/privkey.pem
-certs/fullchain.pem
-```
-
-設定：
-
-```yml
-web:
-  ssl:
-    enabled: true
-    certDir: "certs"
-    privateKeyFile: "privkey.pem"
-    fullChainFile: "fullchain.pem"
-```
-
-若前面已經使用 Nginx 或 Cloudflare 終止 HTTPS，Java Web Server 可維持 HTTP，讓反向代理負責 TLS。
+Java Web Server 僅提供 HTTP。請使用 Nginx、Caddy、Cloudflare Tunnel 或其他反向代理終止 HTTPS，並將請求轉送至 `web.bind.port`。
 
 ## Web UI 前端開發
 
@@ -552,7 +536,7 @@ JAR 只包含最終 HTML、CSS、JavaScript 與 hashed assets，不包含 Node m
 ```bash
 git pull
 mvn clean package -DskipTests
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.6.jar
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.7.jar
 ```
 
 更新 Web UI 時不需要額外 Maven profile；普通 `mvn clean package` 已包含前端 build。

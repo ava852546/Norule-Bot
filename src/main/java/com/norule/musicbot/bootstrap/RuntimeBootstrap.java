@@ -350,19 +350,9 @@ public final class RuntimeBootstrap {
         List<String> configuredList = profile.getActivities();
         if (configuredList != null && !configuredList.isEmpty()) {
             for (String entry : configuredList) {
-                addActivityTemplatesFromEntry(templates, profile.getActivityType(), entry);
+                addActivityTemplatesFromEntry(templates, "PLAYING", entry);
             }
         }
-
-        if (!templates.isEmpty()) {
-            return templates;
-        }
-
-        String raw = profile.getActivityText();
-        if (raw == null || raw.isBlank()) {
-            return templates;
-        }
-        addActivityTemplatesFromEntry(templates, profile.getActivityType(), raw);
         return templates;
     }
 
@@ -793,30 +783,17 @@ public final class RuntimeBootstrap {
                     () -> {
                         BotConfig cfg = RUNTIME_CONFIG.get();
                         if (cfg == null) {
-                            return new WebSettings(false, "0.0.0.0", 60000, "https://dash.example.com", 720, "", "", "",
-                                    new WebSettings.WebSslSettings(false, "certs", "privkey.pem", "fullchain.pem", "web-keystore.p12", "", "PKCS12", ""));
+                            return new WebSettings(false, 60000, "https://dash.example.com", 720, "", "", "");
                         }
                         BotConfig.Web web = cfg.getWeb();
-                        BotConfig.Web.Ssl ssl = web.getSsl();
                         return new WebSettings(
                                 web.isEnabled(),
-                                web.getBindHost(),
                                 web.getBindPort(),
                                 web.getPublicBaseUrl(),
                                 web.getSessionExpireMinutes(),
                                 web.getDiscordClientId(),
                                 web.getDiscordClientSecret(),
-                                web.getDiscordRedirectUri(),
-                                new WebSettings.WebSslSettings(
-                                        ssl.isEnabled(),
-                                        ssl.getCertDir(),
-                                        ssl.getPrivateKeyFile(),
-                                        ssl.getFullChainFile(),
-                                        ssl.getKeyStoreFile(),
-                                        ssl.getKeyStorePassword(),
-                                        ssl.getKeyStoreType(),
-                                        ssl.getKeyPassword()
-                                )
+                                web.getDiscordRedirectUri()
                         );
                     },
                     () -> {

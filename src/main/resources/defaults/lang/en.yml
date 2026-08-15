@@ -59,7 +59,7 @@ music:
   youtube_private_video: "This YouTube video is private and cannot be played."
   youtube_region_restricted: "This YouTube video is not available in this region, so it cannot be played."
   youtube_unavailable: "This YouTube video is currently unavailable."
-  youtube_cipher_unreachable: "YouTube cipher server is unreachable. Start the cipher server or update music.youtube.cipherServer."
+  youtube_cipher_unreachable: "YouTube cipher server is unreachable. Start the cipher server or update music.cipher.server."
   youtube_source_temporary_failure: "YouTube source is temporarily unavailable. Please try again later."
   youtube_companion_unavailable: "Invidious Companion is currently unavailable. Please try again later."
   youtube_companion_timeout: "Invidious Companion timed out while preparing this track."

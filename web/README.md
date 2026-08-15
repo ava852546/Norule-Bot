@@ -5,7 +5,7 @@
 正式環境不需要 Node.js 或 Nuxt server。瀏覽器資產會在 Maven package 階段寫入 Java classpath，啟動方式仍是：
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.6.jar
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.7.jar
 ```
 
 ## 目錄

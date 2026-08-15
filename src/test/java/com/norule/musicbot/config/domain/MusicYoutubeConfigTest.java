@@ -12,53 +12,44 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MusicYoutubeConfigTest {
     @Test
-    void nestedPotAuthAndDifferentiatedCacheTtlsMapToDomainConfig() {
-        BotConfig.Music.Youtube parsed = BotConfig.Music.Youtube.fromMap(
+    void oauthCipherAndDifferentiatedCacheTtlsMapToDomainConfig() {
+        BotConfig.Music parsed = BotConfig.Music.fromMap(
                 Map.of(
-                        "auth", Map.of(
-                                "mode", "POT",
-                                "strictAuthConfig", true,
-                                "poToken", "configured-token",
-                                "visitorData", "configured-visitor"
+                        "oauth", Map.of(
+                                "enabled", true,
+                                "refreshToken", "configured-refresh-token"
                         ),
-                        "strictPrecheck", Map.of(
-                                "cacheTtlHours", 12,
-                                "cache", Map.of(
-                                        "playableTtlHours", 24,
-                                        "temporaryFailureTtlMinutes", 15,
-                                        "permanentFailureTtlHours", 48
+                        "cipher", Map.of(
+                                "enabled", true,
+                                "server", "http://cipher.test:8001",
+                                "password", "configured-password",
+                                "userAgent", "configured-agent"
+                        ),
+                        "youtube", Map.of(
+                                "strictPrecheck", Map.of(
+                                        "cacheTtlHours", 12,
+                                        "cache", Map.of(
+                                                "playableTtlHours", 24,
+                                                "temporaryFailureTtlMinutes", 15,
+                                                "permanentFailureTtlHours", 48
+                                        )
                                 )
                         )
                 ),
-                BotConfig.Music.Youtube.defaultValues()
+                BotConfig.Music.defaultValues()
         );
 
-        MusicConfig.Youtube config = MusicConfig.Youtube.fromLegacy(parsed);
+        MusicConfig config = MusicConfig.fromLegacy(parsed, parsed);
 
-        assertEquals(MusicConfig.Youtube.AuthMode.POT, config.getAuth().getMode());
-        assertTrue(config.getAuth().isStrictAuthConfig());
-        assertEquals("configured-token", config.getAuth().getPoToken());
-        assertEquals("configured-visitor", config.getAuth().getVisitorData());
-        assertEquals(24, config.getStrictPrecheck().getPlayableTtlHours());
-        assertEquals(15, config.getStrictPrecheck().getTemporaryFailureTtlMinutes());
-        assertEquals(48, config.getStrictPrecheck().getPermanentFailureTtlHours());
-    }
-
-    @Test
-    void legacyOauthKeysRemainBackwardCompatible() {
-        BotConfig.Music.Youtube parsed = BotConfig.Music.Youtube.fromMap(
-                Map.of(
-                        "oauthEnabled", true,
-                        "oauthRefreshToken", "legacy-refresh-token"
-                ),
-                BotConfig.Music.Youtube.defaultValues()
-        );
-
-        MusicConfig.Youtube config = MusicConfig.Youtube.fromLegacy(parsed);
-
-        assertEquals(MusicConfig.Youtube.AuthMode.OAUTH, config.getAuth().getMode());
-        assertEquals("legacy-refresh-token", config.getAuth().getOauthRefreshToken());
-        assertFalse(config.getAuth().isStrictAuthConfig());
+        assertTrue(config.getOauth().isEnabled());
+        assertEquals("configured-refresh-token", config.getOauth().getRefreshToken());
+        assertTrue(config.getCipher().isEnabled());
+        assertEquals("http://cipher.test:8001", config.getCipher().getServer());
+        assertEquals("configured-password", config.getCipher().getPassword());
+        assertEquals("configured-agent", config.getCipher().getUserAgent());
+        assertEquals(24, config.getYoutube().getStrictPrecheck().getPlayableTtlHours());
+        assertEquals(15, config.getYoutube().getStrictPrecheck().getTemporaryFailureTtlMinutes());
+        assertEquals(48, config.getYoutube().getStrictPrecheck().getPermanentFailureTtlHours());
     }
 
     @Test
