@@ -95,6 +95,18 @@ public final class MusicCommandChannelProvisioner {
 
         CompletableFuture<TextChannel> result = new CompletableFuture<>();
         guild.createTextChannel(DEFAULT_CHANNEL_NAME)
+                .addMemberPermissionOverride(
+                        guild.getSelfMember().getIdLong(),
+                        Permission.getRaw(
+                                Permission.VIEW_CHANNEL,
+                                Permission.MESSAGE_SEND,
+                                Permission.MESSAGE_EMBED_LINKS,
+                                Permission.MESSAGE_HISTORY,
+                                Permission.MESSAGE_MANAGE,
+                                Permission.MESSAGE_ADD_REACTION
+                        ),
+                        0L
+                )
                 .queue(channel -> {
                     rememberChannel(guild, channel);
                     LOGGER.info(

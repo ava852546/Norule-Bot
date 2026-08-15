@@ -10,6 +10,8 @@ import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.events.session.ReadyEvent;
 import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,6 +22,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VoiceAutoLeaveService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(VoiceAutoLeaveService.class);
+    private static final long IDLE_LEAVE_NOTICE_DELETE_DELAY_SECONDS = 30L;
+
     private enum LeaveReason {
         EMPTY_CHANNEL,
         IDLE_PLAYBACK
@@ -182,12 +187,30 @@ public class VoiceAutoLeaveService {
             return;
         }
         String lang = settingsService.getLanguage(guildId);
-        channel.sendMessage(i18n.t(lang, "music.auto_leave_idle_notice")).queue(success -> {
-        }, error -> {
-        });
+        channel.sendMessage(i18n.t(lang, "music.auto_leave_idle_notice")).queue(
+                message -> message.delete().queueAfter(
+                        IDLE_LEAVE_NOTICE_DELETE_DELAY_SECONDS,
+                        TimeUnit.SECONDS,
+                        ignored -> {
+                            // Notification deleted as scheduled.
+                        },
+                        error -> LOGGER.debug(
+                                "[NoRule] Failed to delete idle auto-leave notice: guildId={} channelId={} messageId={}",
+                                guildId,
+                                channel.getIdLong(),
+                                message.getIdLong(),
+                                error
+                        )
+                ),
+                error -> LOGGER.debug(
+                        "[NoRule] Failed to send idle auto-leave notice: guildId={} channelId={}",
+                        guildId,
+                        channel.getIdLong(),
+                        error
+                )
+        );
     }
 }
-
 
 
 

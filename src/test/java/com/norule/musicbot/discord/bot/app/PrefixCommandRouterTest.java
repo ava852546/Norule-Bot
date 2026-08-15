@@ -36,6 +36,19 @@ class PrefixCommandRouterTest {
     }
 
     @Test
+    void acceptsDollarPrefixedMusicCommandsWhenDollarIsConfigured() {
+        for (String command : new String[]{
+                "join", "play", "skip", "stop", "leave", "repeat", "volume", "history", "music", "playlist"
+        }) {
+            PrefixCommandRouter.PrefixInvocation invocation =
+                    PrefixCommandRouter.parseInvocation("$" + command + " demo", "$");
+
+            assertEquals(command, invocation.command());
+            assertEquals("demo", invocation.argument());
+        }
+    }
+
+    @Test
     void doesNotTreatOtherDollarCommandsOrMissingBoundaryAsQuickPlay() {
         assertNull(PrefixCommandRouter.parseInvocation("$playlist demo", "&&"));
         assertNull(PrefixCommandRouter.parseInvocation("$phttps://example.com/audio.mp3", "&&"));
