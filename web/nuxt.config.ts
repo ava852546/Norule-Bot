@@ -10,7 +10,7 @@ export default defineNuxtConfig({
       title: 'NoRule URL｜分享更短，傳得更遠',
       meta: [
         { name: 'description', content: '快速建立簡潔好記的短網址，或分享設有到期時間與密碼保護的圖片及影片。' },
-        { name: 'theme-color', content: '#f1eee5' },
+        { name: 'theme-color', content: '#11120f' },
       ],
     },
   },

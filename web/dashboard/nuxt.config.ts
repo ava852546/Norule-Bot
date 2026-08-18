@@ -15,7 +15,7 @@ export default defineNuxtConfig({
       title: 'NoRule Bot｜伺服器控制面板',
       meta: [
         { name: 'description', content: 'NoRule Bot 的 Discord 伺服器管理控制台。' },
-        { name: 'theme-color', content: '#171816' },
+        { name: 'theme-color', content: '#11120f' },
       ],
     },
   },

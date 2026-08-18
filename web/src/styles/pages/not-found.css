@@ -6,5 +6,5 @@
 .not-found-description { grid-column: 2; max-width: 35rem; margin: 0; color: var(--muted); font-size: .82rem; line-height: 1.7; }
 .not-found-actions { grid-column: 2; display: flex; margin-top: .5rem; }
 .not-found-link { display: inline-flex; min-height: 3rem; align-items: center; justify-content: center; padding: 0 .9rem; color: var(--nr-text); border: 1px solid var(--nr-border-strong); background: transparent; font: 750 .72rem var(--nr-font-display); text-decoration: none; }
-.not-found-link:hover { color: white; background: var(--nr-text); }
+.not-found-link:hover { color: var(--nr-accent-ink); background: var(--nr-text); }
 @media (max-width: 640px) { .not-found-card{grid-template-columns:1fr}.not-found-kicker,.not-found-title,.not-found-description,.not-found-actions{grid-column:1}.not-found-code{grid-row:auto}.not-found-link{width:100%} }

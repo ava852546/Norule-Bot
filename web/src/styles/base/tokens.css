@@ -10,9 +10,9 @@
   --panel: var(--nr-surface);
   --panel-soft: var(--nr-surface-soft);
   --panel-strong: var(--nr-surface);
-  --surface-1: rgba(23, 24, 22, 0.03);
-  --surface-2: rgba(23, 24, 22, 0.055);
-  --surface-3: rgba(23, 24, 22, 0.08);
+  --surface-1: rgba(238, 233, 220, 0.035);
+  --surface-2: rgba(238, 233, 220, 0.06);
+  --surface-3: rgba(238, 233, 220, 0.09);
   --line: var(--nr-border);
   --line-strong: var(--nr-border-strong);
   --text: var(--nr-text);
@@ -20,10 +20,10 @@
   --accent: var(--nr-accent);
   --accent-2: var(--nr-accent);
   --accent-3: var(--nr-accent-hover);
-  --accent-soft: rgba(233, 90, 50, 0.1);
-  --warn: #9a6517;
+  --accent-soft: rgba(240, 106, 67, 0.14);
+  --warn: #dda75d;
   --danger: var(--nr-danger);
-  --danger-2: #8f2623;
+  --danger-2: #d85b54;
   --shadow-xl: none;
   --shadow-lg: none;
   --shadow-md: none;
@@ -34,7 +34,7 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; color-scheme: light; }
+html { scroll-behavior: smooth; color-scheme: dark; }
 body { min-height: 100vh; margin: 0; color: var(--text); background: var(--bg); font-family: var(--font-ui); }
 body:lang(zh), html:lang(zh-TW), html:lang(zh-CN), html:lang(zh), body:lang(zh-TW), body:lang(zh-CN) { font-family: var(--font-sans-zh); }
 body::before { display: none; }
