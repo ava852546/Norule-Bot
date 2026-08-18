@@ -70,9 +70,12 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
         } catch (Exception streamFailure) {
             YouTubePlaybackException classified = classifyStreamFailure(streamFailure);
             LOGGER.warn(
-                    "[NoRule] YouTube playback failed: videoId={} backend=COMPANION category={}",
+                    "[NoRule] Companion audio stream failed: videoId={} stage=LAVAPLAYER_LOAD "
+                            + "category={} httpStatus={} failureType={}",
                     videoId,
-                    classified.category()
+                    classified.category(),
+                    classified.httpStatus(),
+                    streamFailure.getClass().getSimpleName()
             );
             ResolvedYouTubePlayback fallback;
             try {
@@ -83,10 +86,7 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
             if (fallback.backend() != com.norule.musicbot.domain.music.YouTubePlaybackBackend.YOUTUBE_SOURCE) {
                 throw friendly(classified);
             }
-            LOGGER.debug(
-                    "[NoRule] YouTube playback selected: videoId={} backend=YOUTUBE_SOURCE fallback=true",
-                    videoId
-            );
+            logSelection(fallback);
             processDelegate(youtubeSourceTrack, executor);
         }
     }
@@ -97,12 +97,24 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
                 (AudioPlayerManager) null,
                 new AudioReference(resolved.streamUri().toString(), trackInfo.title)
         );
+        String loadedType = loaded == null ? "null" : loaded.getClass().getSimpleName();
+        LOGGER.debug(
+                "[NoRule] Companion audio load result: videoId={} stage=LAVAPLAYER_LOAD loadedType={}",
+                videoId,
+                loadedType
+        );
         if (!(loaded instanceof InternalAudioTrack httpTrack)) {
             throw new YouTubePlaybackException(
                     YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE,
                     "Companion proxy did not expose a supported audio container."
             );
         }
+        LOGGER.debug(
+                "[NoRule] Companion audio stream opened: videoId={} stage=LAVAPLAYER_LOAD mime={} codec={}",
+                videoId,
+                mimeBase(resolved.mimeType()),
+                resolved.codec()
+        );
         processDelegate(httpTrack, executor);
     }
 
@@ -120,10 +132,26 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
                 );
             }
             Integer status = httpStatus(current.getMessage());
-            if (status != null && status >= 500) {
+            if (status != null && status == 408) {
+                return new YouTubePlaybackException(
+                        YoutubeFailureCategory.COMPANION_TIMEOUT,
+                        "Companion playback proxy timed out with HTTP 408.",
+                        status,
+                        failure
+                );
+            }
+            if (status != null && (status == 429 || status >= 500)) {
                 return new YouTubePlaybackException(
                         YoutubeFailureCategory.COMPANION_UNAVAILABLE,
                         "Companion playback proxy returned HTTP " + status + ".",
+                        status,
+                        failure
+                );
+            }
+            if (status != null && (status == 400 || status == 404 || status == 422)) {
+                return new YouTubePlaybackException(
+                        YoutubeFailureCategory.COMPANION_BAD_REQUEST,
+                        "Companion playback proxy rejected the request with HTTP " + status + ".",
                         status,
                         failure
                 );
@@ -146,11 +174,29 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
     }
 
     private void logSelection(ResolvedYouTubePlayback resolved) {
+        if (resolved.backend() == com.norule.musicbot.domain.music.YouTubePlaybackBackend.YOUTUBE_SOURCE
+                && resolved.primaryFailureCategory() != null) {
+            LOGGER.warn(
+                    "[NoRule] YouTube playback fallback: videoId={} primaryBackend=COMPANION "
+                            + "primaryFailure={} fallbackBackend=YOUTUBE_SOURCE",
+                    videoId,
+                    resolved.primaryFailureCategory()
+            );
+            return;
+        }
         LOGGER.debug(
                 "[NoRule] YouTube playback selected: videoId={} backend={}",
                 videoId,
                 resolved.backend()
         );
+    }
+
+    private String mimeBase(String mimeType) {
+        if (mimeType == null || mimeType.isBlank()) {
+            return "-";
+        }
+        int separator = mimeType.indexOf(';');
+        return (separator < 0 ? mimeType : mimeType.substring(0, separator)).trim();
     }
 
     private FriendlyException friendly(YouTubePlaybackException failure) {

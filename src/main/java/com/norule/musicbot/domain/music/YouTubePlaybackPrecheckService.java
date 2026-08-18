@@ -138,7 +138,8 @@ public final class YouTubePlaybackPrecheckService {
         YouTubePlaybackPrecheckStatus status = switch (failure.recoveryClass()) {
             case AUTH_MAY_HELP -> YouTubePlaybackPrecheckStatus.AUTH_REQUIRED;
             case PERMANENT -> YouTubePlaybackPrecheckStatus.PERMANENT_FAILURE;
-            case RETRYABLE, CLIENT_FALLBACK_MAY_HELP, DECODER_FALLBACK_MAY_HELP, UNKNOWN ->
+            case RETRYABLE, CLIENT_FALLBACK_MAY_HELP, DECODER_FALLBACK_MAY_HELP,
+                    CONFIGURATION_ERROR, UNKNOWN ->
                     YouTubePlaybackPrecheckStatus.TEMPORARY_FAILURE;
         };
         YouTubePlaybackPrecheckResult cachedFailure = status == YouTubePlaybackPrecheckStatus.PERMANENT_FAILURE

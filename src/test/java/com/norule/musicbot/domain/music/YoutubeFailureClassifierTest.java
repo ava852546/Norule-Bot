@@ -82,6 +82,34 @@ class YoutubeFailureClassifierTest {
         assertFalse(permanent.allowsPlaybackRecovery(MusicConfig.Youtube.AuthMode.OAUTH));
     }
 
+    @Test
+    void companionRecoveryAndHttpStatusPreserveFailureSemantics() {
+        YoutubeFailureReport stream = classifier.classify(new YouTubePlaybackException(
+                YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE,
+                "temporary stream failure"
+        ));
+        YoutubeFailureReport auth = classifier.classify(new YouTubePlaybackException(
+                YoutubeFailureCategory.COMPANION_AUTH_FAILED,
+                "authentication failed",
+                401,
+                null
+        ));
+        YoutubeFailureReport badRequest = classifier.classify(new YouTubePlaybackException(
+                YoutubeFailureCategory.COMPANION_BAD_REQUEST,
+                "bad request",
+                400,
+                null
+        ));
+
+        assertEquals(YoutubeRecoveryClass.RETRYABLE, stream.recoveryClass());
+        assertTrue(stream.allowsPlaybackRecovery(MusicConfig.Youtube.AuthMode.NONE));
+        assertEquals(YoutubeRecoveryClass.CONFIGURATION_ERROR, auth.recoveryClass());
+        assertEquals(401, auth.httpStatus());
+        assertFalse(auth.allowsPlaybackRecovery(MusicConfig.Youtube.AuthMode.POT));
+        assertEquals(YoutubeRecoveryClass.CONFIGURATION_ERROR, badRequest.recoveryClass());
+        assertEquals(400, badRequest.httpStatus());
+    }
+
     private void assertCategory(YoutubeFailureCategory expected, String message) {
         assertEquals(expected, classifier.classify(new RuntimeException(message)).category());
     }

@@ -230,15 +230,16 @@ public final class YoutubeFailureClassifier {
 
     private YoutubeRecoveryClass recoveryClass(YoutubeFailureCategory category) {
         return switch (category) {
-            case NETWORK_TIMEOUT, NETWORK_IO, COMPANION_UNAVAILABLE, COMPANION_TIMEOUT ->
+            case NETWORK_TIMEOUT, NETWORK_IO, COMPANION_UNAVAILABLE, COMPANION_TIMEOUT,
+                    COMPANION_STREAM_UNAVAILABLE ->
                     YoutubeRecoveryClass.RETRYABLE;
+            case COMPANION_AUTH_FAILED, COMPANION_BAD_REQUEST -> YoutubeRecoveryClass.CONFIGURATION_ERROR;
             case BOT_DETECTED, LOGIN_REQUIRED -> YoutubeRecoveryClass.AUTH_MAY_HELP;
             case NO_SUPPORTED_AUDIO_STREAM, PLAYER_CONFIGURATION_ERROR,
                     HTTP_FORBIDDEN, HTTP_BAD_REQUEST, SIGNATURE_FAILURE, CIPHER_FAILURE ->
                     YoutubeRecoveryClass.CLIENT_FALLBACK_MAY_HELP;
             case DECODER_FAILURE -> YoutubeRecoveryClass.DECODER_FALLBACK_MAY_HELP;
-            case VIDEO_UNAVAILABLE, VIDEO_PRIVATE, VIDEO_AGE_RESTRICTED, REGION_RESTRICTED,
-                    COMPANION_STREAM_UNAVAILABLE ->
+            case VIDEO_UNAVAILABLE, VIDEO_PRIVATE, VIDEO_AGE_RESTRICTED, REGION_RESTRICTED ->
                     YoutubeRecoveryClass.PERMANENT;
             case ALL_CLIENTS_FAILED, UNKNOWN -> YoutubeRecoveryClass.UNKNOWN;
         };
@@ -260,6 +261,8 @@ public final class YoutubeFailureClassifier {
             case NETWORK_IO -> 690;
             case COMPANION_TIMEOUT -> 680;
             case COMPANION_UNAVAILABLE -> 670;
+            case COMPANION_AUTH_FAILED -> 665;
+            case COMPANION_BAD_REQUEST -> 664;
             case COMPANION_STREAM_UNAVAILABLE -> 660;
             case HTTP_FORBIDDEN -> 600;
             case HTTP_BAD_REQUEST -> 590;
@@ -309,6 +312,9 @@ public final class YoutubeFailureClassifier {
     }
 
     private Integer structuredHttpStatus(Throwable failure) {
+        if (failure instanceof YouTubePlaybackException playbackException) {
+            return playbackException.httpStatus();
+        }
         if (failure instanceof HttpResponseException responseException) {
             return responseException.getStatusCode();
         }

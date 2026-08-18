@@ -52,7 +52,17 @@ public final class YouTubePlaybackRuntimeFactory {
                 companion.isFallbackToSource()
         );
         String url = firstNonBlank(env.apply("YOUTUBE_COMPANION_URL"), companion.getUrl());
-        String secret = firstNonBlank(env.apply("YOUTUBE_COMPANION_SECRET"), companion.getSecret());
+        SecretSelection secretSelection = selectSecret(
+                env.apply("YOUTUBE_COMPANION_SECRET"),
+                companion.getSecret()
+        );
+        String secret = secretSelection.value();
+        LOGGER.info(
+                "[NoRule] Invidious Companion authentication: secretConfigured={} secretLength={} source={}",
+                !secret.isBlank(),
+                secret.length(),
+                secretSelection.source()
+        );
         int connectTimeoutMillis = intOverride(
                 env.apply("YOUTUBE_COMPANION_CONNECT_TIMEOUT_MILLIS"),
                 companion.getConnectTimeoutMillis()
@@ -101,6 +111,7 @@ public final class YouTubePlaybackRuntimeFactory {
             } else {
                 LOGGER.warn("[NoRule] Invidious Companion unavailable: {}", health.detail());
             }
+            LOGGER.info("[NoRule] Invidious Companion player authentication: not probed");
             companionResolver = new CompanionPlaybackResolver(client);
         }
 
@@ -146,5 +157,24 @@ public final class YouTubePlaybackRuntimeFactory {
             }
         }
         return null;
+    }
+
+    static SecretSelection selectSecret(String environmentSecret, String configSecret) {
+        if (environmentSecret != null && !environmentSecret.isBlank()) {
+            return new SecretSelection(environmentSecret.trim(), SecretSource.ENVIRONMENT);
+        }
+        if (configSecret != null && !configSecret.isBlank()) {
+            return new SecretSelection(configSecret.trim(), SecretSource.CONFIG);
+        }
+        return new SecretSelection("", SecretSource.NONE);
+    }
+
+    enum SecretSource {
+        ENVIRONMENT,
+        CONFIG,
+        NONE
+    }
+
+    record SecretSelection(String value, SecretSource source) {
     }
 }

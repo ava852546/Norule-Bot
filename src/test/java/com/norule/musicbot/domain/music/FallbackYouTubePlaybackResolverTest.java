@@ -33,19 +33,25 @@ class FallbackYouTubePlaybackResolverTest {
     }
 
     @Test
-    void timeoutAndUnavailableEachUseOneSourceFallback() throws Exception {
+    void temporaryCompanionFailuresEachUseOneSourceFallback() throws Exception {
         assertSingleFallback(YoutubeFailureCategory.COMPANION_TIMEOUT);
         assertSingleFallback(YoutubeFailureCategory.COMPANION_UNAVAILABLE);
+        assertSingleFallback(YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE);
     }
 
     @Test
-    void streamUnavailableDoesNotFallback() {
+    void configurationFailuresDoNotFallback() {
+        assertNoFallback(YoutubeFailureCategory.COMPANION_AUTH_FAILED);
+        assertNoFallback(YoutubeFailureCategory.COMPANION_BAD_REQUEST);
+    }
+
+    private void assertNoFallback(YoutubeFailureCategory category) {
         AtomicInteger fallbackAttempts = new AtomicInteger();
         YouTubePlaybackResolver resolver = new FallbackYouTubePlaybackResolver(
                 videoId -> {
                     throw new YouTubePlaybackException(
-                            YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE,
-                            "no stream"
+                            category,
+                            "configuration failure"
                     );
                 },
                 videoId -> {
@@ -95,7 +101,9 @@ class FallbackYouTubePlaybackResolverTest {
                 }
         );
 
-        assertEquals(YouTubePlaybackBackend.YOUTUBE_SOURCE, resolver.resolve(VIDEO_ID).backend());
+        ResolvedYouTubePlayback resolved = resolver.resolve(VIDEO_ID);
+        assertEquals(YouTubePlaybackBackend.YOUTUBE_SOURCE, resolved.backend());
+        assertEquals(category, resolved.primaryFailureCategory());
         assertEquals(1, primaryAttempts.get());
         assertEquals(1, fallbackAttempts.get());
     }

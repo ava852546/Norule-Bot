@@ -5,6 +5,7 @@ public enum YoutubeRecoveryClass {
     AUTH_MAY_HELP,
     CLIENT_FALLBACK_MAY_HELP,
     DECODER_FALLBACK_MAY_HELP,
+    CONFIGURATION_ERROR,
     PERMANENT,
     UNKNOWN
 }

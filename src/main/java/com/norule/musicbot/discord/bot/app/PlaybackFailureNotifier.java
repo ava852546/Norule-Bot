@@ -41,11 +41,16 @@ class PlaybackFailureNotifier {
         playbackFailureLastSig.put(guildId, sig);
 
         String lang = service.lang(guildId);
-        String mapped = musicPlaybackText.mapMusicLoadError(lang, failure.rawError());
-        String message = service.musicText(lang, "playback_failed", Map.of(
-                "title", service.safe(failure.title(), 80),
-                "error", service.safe(mapped, 180)
-        ));
+        String message;
+        if (musicPlaybackText.isCompanionFailure(failure.rawError())) {
+            message = musicPlaybackText.companionPlaybackSkipped(lang);
+        } else {
+            String mapped = musicPlaybackText.mapMusicLoadError(lang, failure.rawError());
+            message = service.musicText(lang, "playback_failed", Map.of(
+                    "title", service.safe(failure.title(), 80),
+                    "error", service.safe(mapped, 180)
+            ));
+        }
         MusicPanelStateStore.PanelNotice notice = panelStateStore.putPanelNotice(
                 guildId,
                 message,

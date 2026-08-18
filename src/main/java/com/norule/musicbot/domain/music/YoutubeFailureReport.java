@@ -35,7 +35,7 @@ public record YoutubeFailureReport(
         return switch (recoveryClass) {
             case RETRYABLE, CLIENT_FALLBACK_MAY_HELP, DECODER_FALLBACK_MAY_HELP -> true;
             case AUTH_MAY_HELP -> authMode != null && authMode != MusicConfig.Youtube.AuthMode.NONE;
-            case PERMANENT, UNKNOWN -> false;
+            case CONFIGURATION_ERROR, PERMANENT, UNKNOWN -> false;
         };
     }
 }

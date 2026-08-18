@@ -27,6 +27,7 @@ public final class YouTubePlaybackException extends Exception {
 
     public boolean allowsSourceFallback() {
         return category == YoutubeFailureCategory.COMPANION_UNAVAILABLE
-                || category == YoutubeFailureCategory.COMPANION_TIMEOUT;
+                || category == YoutubeFailureCategory.COMPANION_TIMEOUT
+                || category == YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE;
     }
 }

@@ -9,6 +9,9 @@
     <!-- This warning includes YouTube's full format JSON; retain only actual errors from this client. -->
     <logger name="dev.lavalink.youtube.clients.skeleton.StreamingNonMusicClient" level="ERROR" />
 
+    <!-- HttpAudioTrack DEBUG includes the complete Companion proxy URL and its signed query. -->
+    <logger name="com.sedmelluq.discord.lavaplayer.source.http.HttpAudioTrack" level="INFO" />
+
     <!-- Configure root logger to output to console -->
     <root level="INFO">
         <appender-ref ref="STDOUT" />

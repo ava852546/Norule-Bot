@@ -10,6 +10,10 @@ import java.util.function.Supplier;
 public final class MusicPlaybackText {
     private static final String SPOTIFY_GENERATED_PLAYLIST_UNAVAILABLE_KEY =
             "music.spotify_generated_playlist_unavailable";
+    private static final String YOUTUBE_AUDIO_SOURCE_UNAVAILABLE_KEY =
+            "music.youtube_audio_source_unavailable";
+    private static final String YOUTUBE_PLAYBACK_SKIPPED_KEY =
+            "music.youtube_playback_skipped";
     private final Supplier<I18nService> i18nSupplier;
 
     public MusicPlaybackText(Supplier<I18nService> i18nSupplier) {
@@ -81,6 +85,9 @@ public final class MusicPlaybackText {
         if ("YOUTUBE_PRECHECK_UNKNOWN".equalsIgnoreCase(rawError)) {
             return i18n().t(lang, "music.youtube_precheck_unknown");
         }
+        if (isCompanionFailure(rawError)) {
+            return youtubeAudioSourceUnavailable(lang);
+        }
         if (rawError != null && rawError.regionMatches(true, 0, "YOUTUBE_", 0, "YOUTUBE_".length())) {
             return i18n().t(lang, switch (rawError.toUpperCase()) {
                 case "YOUTUBE_BOT_DETECTED" -> "music.youtube_bot_detected";
@@ -93,9 +100,6 @@ public final class MusicPlaybackText {
                 case "YOUTUBE_REGION_RESTRICTED" -> "music.youtube_region_restricted";
                 case "YOUTUBE_DECODER_FAILURE" -> "music.youtube_decoder_failure";
                 case "YOUTUBE_HTTP_FORBIDDEN" -> "music.youtube_http_forbidden";
-                case "YOUTUBE_COMPANION_UNAVAILABLE" -> "music.youtube_companion_unavailable";
-                case "YOUTUBE_COMPANION_TIMEOUT" -> "music.youtube_companion_timeout";
-                case "YOUTUBE_COMPANION_STREAM_UNAVAILABLE" -> "music.youtube_companion_stream_unavailable";
                 case "YOUTUBE_HTTP_BAD_REQUEST", "YOUTUBE_SIGNATURE_FAILURE", "YOUTUBE_CIPHER_FAILURE",
                         "YOUTUBE_NETWORK_TIMEOUT", "YOUTUBE_NETWORK_IO", "YOUTUBE_ALL_CLIENTS_FAILED",
                         "YOUTUBE_UNKNOWN" -> "music.youtube_source_temporary_failure";
@@ -125,21 +129,70 @@ public final class MusicPlaybackText {
         return i18n().t(lang, YoutubePlaybackErrorMapper.toMessageKey(rawError));
     }
 
+    public boolean isCompanionFailure(String rawError) {
+        if (rawError == null) {
+            return false;
+        }
+        return switch (rawError.trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "YOUTUBE_COMPANION_UNAVAILABLE", "YOUTUBE_COMPANION_TIMEOUT",
+                    "YOUTUBE_COMPANION_AUTH_FAILED", "YOUTUBE_COMPANION_BAD_REQUEST",
+                    "YOUTUBE_COMPANION_STREAM_UNAVAILABLE" -> true;
+            default -> false;
+        };
+    }
+
+    public String companionPlaybackSkipped(String lang) {
+        return translatedOrFallback(
+                lang,
+                YOUTUBE_PLAYBACK_SKIPPED_KEY,
+                "\u26A0\uFE0F This track cannot be played right now and was skipped automatically.",
+                "\u26A0\uFE0F \u76ee\u524d\u7121\u6cd5\u64ad\u653e\u9019\u9996\u6b4c\u66f2\uff0c\u5df2\u81ea\u52d5\u8df3\u904e\u3002",
+                "\u26A0\uFE0F \u76ee\u524d\u65e0\u6cd5\u64ad\u653e\u8fd9\u9996\u6b4c\u66f2\uff0c\u5df2\u81ea\u52a8\u8df3\u8fc7\u3002"
+        );
+    }
+
+    private String youtubeAudioSourceUnavailable(String lang) {
+        return translatedOrFallback(
+                lang,
+                YOUTUBE_AUDIO_SOURCE_UNAVAILABLE_KEY,
+                "\u26A0\uFE0F No playable audio source is available for this track. Please try again later "
+                        + "or choose another track.",
+                "\u26A0\uFE0F \u7121\u6cd5\u53d6\u5f97\u9019\u9996\u6b4c\u66f2\u7684\u53ef\u64ad\u653e\u97f3\u6e90\uff0c"
+                        + "\u8acb\u7a0d\u5f8c\u518d\u8a66\u6216\u9078\u64c7\u5176\u4ed6\u6b4c\u66f2\u3002",
+                "\u26A0\uFE0F \u65e0\u6cd5\u83b7\u53d6\u8fd9\u9996\u6b4c\u66f2\u7684\u53ef\u64ad\u653e\u97f3\u6e90\uff0c"
+                        + "\u8bf7\u7a0d\u540e\u91cd\u8bd5\u6216\u9009\u62e9\u5176\u4ed6\u6b4c\u66f2\u3002"
+        );
+    }
+
     private String spotifyGeneratedPlaylistUnavailable(String lang) {
+        return translatedOrFallback(
+                lang,
+                SPOTIFY_GENERATED_PLAYLIST_UNAVAILABLE_KEY,
+                "This is a Spotify-generated or personalized playlist, and its tracks cannot currently be "
+                        + "accessed. Please copy the tracks to a public playlist you created and try again.",
+                "\u9019\u662f Spotify \u52d5\u614b\u7522\u751f\u6216\u500b\u4eba\u5316\u7684\u64ad\u653e\u6e05\u55ae\uff0c"
+                        + "\u76ee\u524d\u7121\u6cd5\u53d6\u5f97\u5176\u4e2d\u7684\u6b4c\u66f2\u3002"
+                        + "\u8acb\u5c07\u6b4c\u66f2\u8907\u88fd\u5230\u4f60\u81ea\u5df1\u5efa\u7acb\u7684\u516c\u958b\u64ad\u653e\u6e05\u55ae\u5f8c\u518d\u8a66\u3002",
+                "\u8fd9\u662f Spotify \u52a8\u6001\u751f\u6210\u6216\u4e2a\u6027\u5316\u7684\u64ad\u653e\u5217\u8868\uff0c"
+                        + "\u76ee\u524d\u65e0\u6cd5\u83b7\u53d6\u5176\u4e2d\u7684\u6b4c\u66f2\u3002"
+                        + "\u8bf7\u5c06\u6b4c\u66f2\u590d\u5236\u5230\u4f60\u81ea\u5df1\u521b\u5efa\u7684\u516c\u5f00\u64ad\u653e\u5217\u8868\u540e\u91cd\u8bd5\u3002"
+        );
+    }
+
+    private String translatedOrFallback(String lang,
+                                        String key,
+                                        String english,
+                                        String traditionalChinese,
+                                        String simplifiedChinese) {
         I18nService i18n = i18n();
-        String translated = i18n.t(lang, SPOTIFY_GENERATED_PLAYLIST_UNAVAILABLE_KEY);
-        if (!SPOTIFY_GENERATED_PLAYLIST_UNAVAILABLE_KEY.equals(translated)) {
+        String translated = i18n.t(lang, key);
+        if (!key.equals(translated)) {
             return translated;
         }
         return switch (i18n.normalizeLanguage(lang)) {
-            case "zh-TW" -> "\u9019\u662f Spotify \u52d5\u614b\u7522\u751f\u6216\u500b\u4eba\u5316\u7684\u64ad\u653e\u6e05\u55ae\uff0c"
-                    + "\u76ee\u524d\u7121\u6cd5\u53d6\u5f97\u5176\u4e2d\u7684\u6b4c\u66f2\u3002"
-                    + "\u8acb\u5c07\u6b4c\u66f2\u8907\u88fd\u5230\u4f60\u81ea\u5df1\u5efa\u7acb\u7684\u516c\u958b\u64ad\u653e\u6e05\u55ae\u5f8c\u518d\u8a66\u3002";
-            case "zh-CN" -> "\u8fd9\u662f Spotify \u52a8\u6001\u751f\u6210\u6216\u4e2a\u6027\u5316\u7684\u64ad\u653e\u5217\u8868\uff0c"
-                    + "\u76ee\u524d\u65e0\u6cd5\u83b7\u53d6\u5176\u4e2d\u7684\u6b4c\u66f2\u3002"
-                    + "\u8bf7\u5c06\u6b4c\u66f2\u590d\u5236\u5230\u4f60\u81ea\u5df1\u521b\u5efa\u7684\u516c\u5f00\u64ad\u653e\u5217\u8868\u540e\u91cd\u8bd5\u3002";
-            default -> "This is a Spotify-generated or personalized playlist, and its tracks cannot currently be "
-                    + "accessed. Please copy the tracks to a public playlist you created and try again.";
+            case "zh-TW" -> traditionalChinese;
+            case "zh-CN" -> simplifiedChinese;
+            default -> english;
         };
     }
 

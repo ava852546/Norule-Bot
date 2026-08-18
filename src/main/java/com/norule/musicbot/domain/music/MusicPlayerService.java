@@ -2254,8 +2254,18 @@ public class MusicPlayerService {
         }
         LOGGER.warn(summary);
         if (LOGGER.isDebugEnabled() && exception != null) {
-            LOGGER.debug("YouTube {} failure details: guildId={} videoId={}",
-                    stage, guildId, sanitizeInputForLog(videoId), exception);
+            if (report.category().name().startsWith("COMPANION_")) {
+                LOGGER.debug(
+                        "YouTube {} failure details: guildId={} videoId={} failureType={}",
+                        stage,
+                        guildId,
+                        sanitizeInputForLog(videoId),
+                        exception.getClass().getName()
+                );
+            } else {
+                LOGGER.debug("YouTube {} failure details: guildId={} videoId={}",
+                        stage, guildId, sanitizeInputForLog(videoId), exception);
+            }
         }
     }
 

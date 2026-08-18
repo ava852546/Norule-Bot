@@ -6,6 +6,8 @@ import com.norule.musicbot.domain.music.ResolvedYouTubePlayback;
 import com.norule.musicbot.domain.music.YouTubePlaybackBackend;
 import com.norule.musicbot.domain.music.YouTubePlaybackException;
 import com.norule.musicbot.domain.music.YoutubeFailureCategory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -21,10 +23,19 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 public final class CompanionPlaybackClient {
+    private static final Logger LOGGER = LoggerFactory.getLogger(CompanionPlaybackClient.class);
     private static final int MAX_RESPONSE_CHARACTERS = 8 * 1024 * 1024;
+    private static final int MAX_REASON_INPUT_CHARACTERS = 2_048;
     private static final String GOOGLEVIDEO_SUFFIX = ".googlevideo.com";
+    private static final Pattern BEARER_SECRET = Pattern.compile("(?i)Bearer\\s+[^\\s,;]+");
+    private static final Pattern SENSITIVE_ASSIGNMENT = Pattern.compile(
+            "(?i)(authorization|secret|po[_ -]?token|pot|sig|lsig|(?<![A-Za-z0-9_])n|spc|visitor[_ -]?data)"
+                    + "\\s*[:=]\\s*[^\\s&,;}]+"
+    );
+    private static final Pattern HTTP_URL = Pattern.compile("(?i)https?://[^\\s]+");
 
     private final URI companionBaseUri;
     private final URI playerUri;
@@ -75,24 +86,58 @@ public final class CompanionPlaybackClient {
                 ))
                 .build();
 
-        HttpResponseData response = send(request);
-        if (response.statusCode() >= 500) {
-            throw new YouTubePlaybackException(
-                    YoutubeFailureCategory.COMPANION_UNAVAILABLE,
-                    "Invidious Companion returned HTTP " + response.statusCode() + ".",
-                    response.statusCode(),
-                    null
+        HttpResponseData response;
+        try {
+            response = send(request);
+        } catch (YouTubePlaybackException failure) {
+            LOGGER.warn(
+                    "[NoRule] Companion player request failed: videoId={} stage=PLAYER_REQUEST path={} "
+                            + "status={} category={} failureType={}",
+                    videoId,
+                    playerUri.getPath(),
+                    failure.httpStatus(),
+                    failure.category(),
+                    failure.getCause() == null
+                            ? failure.getClass().getSimpleName()
+                            : failure.getCause().getClass().getSimpleName()
             );
+            throw failure;
         }
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw streamUnavailable(
-                    "Invidious Companion rejected the player request with HTTP " + response.statusCode() + ".",
+            YoutubeFailureCategory category = playerRequestCategory(response.statusCode());
+            String reason = safeResponseReason(response.body());
+            LOGGER.warn(
+                    "[NoRule] Companion player request failed: videoId={} stage=PLAYER_REQUEST path={} "
+                            + "status={} contentType={} category={} reason={}",
+                    videoId,
+                    playerUri.getPath(),
+                    response.statusCode(),
+                    safeContentType(response.contentType()),
+                    category,
+                    reason
+            );
+            throw new YouTubePlaybackException(
+                    category,
+                    "Companion player request failed with HTTP " + response.statusCode() + ": " + reason,
                     response.statusCode(),
                     null
             );
         }
+        LOGGER.debug(
+                "[NoRule] Companion player request: videoId={} stage=PLAYER_REQUEST path={} status={} contentType={}",
+                videoId,
+                playerUri.getPath(),
+                response.statusCode(),
+                safeContentType(response.contentType())
+        );
         String body = response.body() == null ? "" : response.body();
         if (body.length() > MAX_RESPONSE_CHARACTERS) {
+            LOGGER.warn(
+                    "[NoRule] Companion player response failed: videoId={} stage=PLAYER_RESPONSE "
+                            + "category={} reason=response-too-large",
+                    videoId,
+                    YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE
+            );
             throw streamUnavailable("Invidious Companion player response is too large.", response.statusCode(), null);
         }
         try {
@@ -100,23 +145,105 @@ public final class CompanionPlaybackClient {
             String status = root.path("playabilityStatus").path("status").asText("");
             if (!"OK".equalsIgnoreCase(status)) {
                 String reason = root.path("playabilityStatus").path("reason").asText("stream unavailable");
-                throw streamUnavailable("Invidious Companion playability status: " + safeReason(reason), null, null);
+                YoutubeFailureCategory category = playabilityCategory(status, reason);
+                LOGGER.warn(
+                        "[NoRule] Companion player response failed: videoId={} stage=PLAYER_RESPONSE "
+                                + "playability={} category={} reason={}",
+                        videoId,
+                        safeReason(status),
+                        category,
+                        safeReason(reason)
+                );
+                throw new YouTubePlaybackException(
+                        category,
+                        "Companion playability status: " + safeReason(reason),
+                        response.statusCode(),
+                        null
+                );
             }
-            CompanionFormat format = selectAudioFormat(root.path("streamingData").path("adaptiveFormats"));
-            URI proxyUri = buildProxyUri(format.directUri());
+            FormatSelection selection;
+            try {
+                selection = selectAudioFormat(root.path("streamingData").path("adaptiveFormats"));
+            } catch (YouTubePlaybackException failure) {
+                LOGGER.warn(
+                        "[NoRule] Companion audio selection failed: videoId={} stage=FORMAT_SELECTION "
+                                + "category={} reason={}",
+                        videoId,
+                        failure.category(),
+                        safeReason(failure.getMessage())
+                );
+                throw failure;
+            }
+            LOGGER.debug(
+                    "[NoRule] Companion player response: videoId={} stage=PLAYER_RESPONSE playability={} "
+                            + "adaptiveFormats={} audioFormats={}",
+                    videoId,
+                    status,
+                    selection.adaptiveFormats(),
+                    selection.audioFormats()
+            );
+            CompanionFormat format = selection.selected();
+            if (format == null) {
+                LOGGER.warn(
+                        "[NoRule] Companion audio selection failed: videoId={} stage=FORMAT_SELECTION "
+                                + "adaptiveFormats={} audioFormats={} compatibleFormats={} category={}",
+                        videoId,
+                        selection.adaptiveFormats(),
+                        selection.audioFormats(),
+                        selection.compatibleFormats(),
+                        YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE
+                );
+                throw streamUnavailable(
+                        "Invidious Companion returned no LavaPlayer-compatible Opus or AAC audio stream.",
+                        response.statusCode(),
+                        null
+                );
+            }
+            LOGGER.debug(
+                    "[NoRule] Companion audio selected: videoId={} stage=FORMAT_SELECTION itag={} mime={} "
+                            + "codec={} bitrate={} contentLength={}",
+                    videoId,
+                    format.itag(),
+                    mimeBase(format.mimeType()),
+                    format.codec(),
+                    format.bitrate(),
+                    format.contentLength()
+            );
+            Instant expiresAt;
+            try {
+                expiresAt = expiration(format.directUri());
+            } catch (YouTubePlaybackException failure) {
+                LOGGER.warn(
+                        "[NoRule] Companion proxy URL failed: videoId={} stage=PROXY_URL category={} reason={}",
+                        videoId,
+                        failure.category(),
+                        safeReason(failure.getMessage())
+                );
+                throw failure;
+            }
+            URI proxyUri = buildProxyUri(videoId, format.directUri());
             return new ResolvedYouTubePlayback(
                     videoId,
                     YouTubePlaybackBackend.COMPANION,
                     proxyUri,
                     format.mimeType(),
                     format.codec(),
+                    format.itag(),
                     format.bitrate(),
                     format.contentLength(),
-                    expiration(format.directUri())
+                    expiresAt,
+                    null
             );
         } catch (YouTubePlaybackException failure) {
             throw failure;
         } catch (IOException | IllegalArgumentException failure) {
+            LOGGER.warn(
+                    "[NoRule] Companion player response failed: videoId={} stage=PLAYER_RESPONSE "
+                            + "category={} failureType={}",
+                    videoId,
+                    YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE,
+                    failure.getClass().getSimpleName()
+            );
             throw streamUnavailable("Invalid Invidious Companion player response.", null, failure);
         }
     }
@@ -177,59 +304,82 @@ public final class CompanionPlaybackClient {
         }
     }
 
-    private CompanionFormat selectAudioFormat(JsonNode formats) throws YouTubePlaybackException {
+    private FormatSelection selectAudioFormat(JsonNode formats) throws YouTubePlaybackException {
         if (!formats.isArray()) {
-            throw streamUnavailable("Invidious Companion returned no adaptive audio formats.", null, null);
+            return new FormatSelection(null, 0, 0, 0);
         }
         List<CompanionFormat> candidates = new ArrayList<>();
+        int adaptiveFormats = 0;
+        int audioFormats = 0;
+        int compatibleFormats = 0;
         for (JsonNode format : formats) {
+            adaptiveFormats++;
             String mimeType = format.path("mimeType").asText("");
             String directUrl = format.path("url").asText("");
-            if (!mimeType.toLowerCase(Locale.ROOT).startsWith("audio/") || directUrl.isBlank()) {
+            if (!mimeType.toLowerCase(Locale.ROOT).startsWith("audio/")) {
                 continue;
             }
+            audioFormats++;
             String codec = codecFromMimeType(mimeType);
             int codecPriority = codecPriority(codec);
-            if (codecPriority == 0) {
+            if (codecPriority == 0 || directUrl.isBlank()) {
                 continue;
             }
+            compatibleFormats++;
             URI directUri = validateGoogleVideoUri(directUrl);
+            int itag = format.path("itag").canConvertToInt() ? format.path("itag").asInt() : 0;
             long bitrate = format.path("bitrate").canConvertToLong() ? format.path("bitrate").asLong() : 0L;
             Long contentLength = parseLong(format.path("contentLength").asText(null));
             candidates.add(new CompanionFormat(
                     directUri,
                     mimeType,
                     codec,
+                    itag,
                     bitrate,
                     contentLength,
                     codecPriority
             ));
         }
-        return candidates.stream()
+        CompanionFormat selected = candidates.stream()
                 .max(Comparator.comparingInt(CompanionFormat::codecPriority)
                         .thenComparingLong(CompanionFormat::bitrate))
-                .orElseThrow(() -> streamUnavailable(
-                        "Invidious Companion returned no LavaPlayer-compatible Opus or AAC audio stream.",
-                        null,
-                        null
-                ));
+                .orElse(null);
+        return new FormatSelection(selected, adaptiveFormats, audioFormats, compatibleFormats);
     }
 
-    private URI buildProxyUri(URI directUri) throws YouTubePlaybackException {
+    private URI buildProxyUri(String videoId, URI directUri) throws YouTubePlaybackException {
         String rawQuery = directUri.getRawQuery();
         if (rawQuery == null || rawQuery.isBlank()) {
-            throw streamUnavailable("Companion stream URL is missing its signed query.", null, null);
+            throw proxyUrlFailure(videoId, "Companion stream URL is missing its signed query.", null);
         }
         if (queryValue(rawQuery, "host") != null) {
-            throw streamUnavailable("Companion stream URL contains an unexpected host parameter.", null, null);
+            throw proxyUrlFailure(videoId, "Companion stream URL contains an unexpected host parameter.", null);
         }
         try {
             URI proxyBase = appendPath(companionBaseUri, "/videoplayback");
             String encodedHost = URLEncoder.encode(directUri.getHost(), StandardCharsets.UTF_8);
-            return URI.create(proxyBase.toASCIIString() + "?host=" + encodedHost + "&" + rawQuery);
+            URI proxyUri = URI.create(proxyBase.toASCIIString() + "?host=" + encodedHost + "&" + rawQuery);
+            LOGGER.debug(
+                    "[NoRule] Companion proxy URL: videoId={} stage=PROXY_URL host={} path={} originHost={}",
+                    videoId,
+                    proxyUri.getHost(),
+                    proxyUri.getPath(),
+                    directUri.getHost()
+            );
+            return proxyUri;
         } catch (Exception failure) {
-            throw streamUnavailable("Unable to construct the Companion playback proxy URL.", null, failure);
+            throw proxyUrlFailure(videoId, "Unable to construct the Companion playback proxy URL.", failure);
         }
+    }
+
+    private YouTubePlaybackException proxyUrlFailure(String videoId, String message, Throwable cause) {
+        LOGGER.warn(
+                "[NoRule] Companion proxy URL failed: videoId={} stage=PROXY_URL category={} reason={}",
+                videoId,
+                YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE,
+                safeReason(message)
+        );
+        return streamUnavailable(message, null, cause);
     }
 
     private URI validateGoogleVideoUri(String value) throws YouTubePlaybackException {
@@ -341,6 +491,46 @@ public final class CompanionPlaybackClient {
         return 0;
     }
 
+    private static YoutubeFailureCategory playerRequestCategory(int status) {
+        if (status == 401 || status == 403) {
+            return YoutubeFailureCategory.COMPANION_AUTH_FAILED;
+        }
+        if (status == 400 || status == 404 || status == 422) {
+            return YoutubeFailureCategory.COMPANION_BAD_REQUEST;
+        }
+        if (status == 408) {
+            return YoutubeFailureCategory.COMPANION_TIMEOUT;
+        }
+        if (status == 429 || status >= 500) {
+            return YoutubeFailureCategory.COMPANION_UNAVAILABLE;
+        }
+        return YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE;
+    }
+
+    private static YoutubeFailureCategory playabilityCategory(String status, String reason) {
+        String normalized = ((status == null ? "" : status) + " " + (reason == null ? "" : reason))
+                .toLowerCase(Locale.ROOT);
+        if (normalized.contains("private")) {
+            return YoutubeFailureCategory.VIDEO_PRIVATE;
+        }
+        if (normalized.contains("age") || normalized.contains("confirm your age")) {
+            return YoutubeFailureCategory.VIDEO_AGE_RESTRICTED;
+        }
+        if (normalized.contains("country") || normalized.contains("region")) {
+            return YoutubeFailureCategory.REGION_RESTRICTED;
+        }
+        if (normalized.contains("login") || normalized.contains("sign in")) {
+            return YoutubeFailureCategory.LOGIN_REQUIRED;
+        }
+        if (normalized.contains("bot")) {
+            return YoutubeFailureCategory.BOT_DETECTED;
+        }
+        if (normalized.contains("unavailable") || normalized.contains("not available")) {
+            return YoutubeFailureCategory.VIDEO_UNAVAILABLE;
+        }
+        return YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE;
+    }
+
     private static Long parseLong(String value) {
         if (value == null || value.isBlank()) {
             return null;
@@ -366,12 +556,57 @@ public final class CompanionPlaybackClient {
         return null;
     }
 
-    private static String safeReason(String value) {
+    private String safeResponseReason(String body) {
+        if (body == null || body.isBlank()) {
+            return "response omitted";
+        }
+        String bounded = body.length() <= MAX_REASON_INPUT_CHARACTERS
+                ? body
+                : body.substring(0, MAX_REASON_INPUT_CHARACTERS);
+        try {
+            JsonNode root = objectMapper.readTree(bounded);
+            for (String field : List.of("message", "reason", "detail", "error")) {
+                JsonNode value = root.path(field);
+                if (value.isTextual() && !value.asText().isBlank()) {
+                    return safeReason(value.asText());
+                }
+            }
+            return "structured error response";
+        } catch (IOException ignored) {
+            // A short plain-text error response can still provide a safe diagnostic after redaction.
+        }
+        String trimmed = bounded.stripLeading();
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            return "invalid JSON error response";
+        }
+        return safeReason(bounded);
+    }
+
+    private String safeReason(String value) {
         if (value == null || value.isBlank()) {
             return "unavailable";
         }
-        String sanitized = value.replace('\r', ' ').replace('\n', ' ').replaceAll("\\s+", " ").trim();
+        String sanitized = value;
+        if (!secret.isBlank()) {
+            sanitized = sanitized.replace(secret, "<redacted>");
+        }
+        sanitized = BEARER_SECRET.matcher(sanitized).replaceAll("Bearer <redacted>");
+        sanitized = SENSITIVE_ASSIGNMENT.matcher(sanitized).replaceAll("$1=<redacted>");
+        sanitized = HTTP_URL.matcher(sanitized).replaceAll("<redacted-url>");
+        sanitized = sanitized.replace('\r', ' ').replace('\n', ' ').replaceAll("\\s+", " ").trim();
         return sanitized.length() <= 160 ? sanitized : sanitized.substring(0, 160);
+    }
+
+    private static String safeContentType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return "-";
+        }
+        int separator = contentType.indexOf(';');
+        return (separator < 0 ? contentType : contentType.substring(0, separator)).trim();
+    }
+
+    private static String mimeBase(String mimeType) {
+        return safeContentType(mimeType);
     }
 
     private static YouTubePlaybackException streamUnavailable(String message,
@@ -389,10 +624,16 @@ public final class CompanionPlaybackClient {
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(Math.max(1, connectTimeoutMillis)))
                 .followRedirects(HttpClient.Redirect.NEVER)
+                // Plain-http Companion deployments may reject the JDK client's h2c upgrade request with HTTP 400.
+                .version(HttpClient.Version.HTTP_1_1)
                 .build();
         return request -> {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            return new HttpResponseData(response.statusCode(), response.body());
+            return new HttpResponseData(
+                    response.statusCode(),
+                    response.headers().firstValue("Content-Type").orElse(null),
+                    response.body()
+            );
         };
     }
 
@@ -403,16 +644,28 @@ public final class CompanionPlaybackClient {
         HttpResponseData send(HttpRequest request) throws IOException, InterruptedException;
     }
 
-    record HttpResponseData(int statusCode, String body) {
+    record HttpResponseData(int statusCode, String contentType, String body) {
+        HttpResponseData(int statusCode, String body) {
+            this(statusCode, null, body);
+        }
     }
 
     private record CompanionFormat(
             URI directUri,
             String mimeType,
             String codec,
+            int itag,
             long bitrate,
             Long contentLength,
             int codecPriority
+    ) {
+    }
+
+    private record FormatSelection(
+            CompanionFormat selected,
+            int adaptiveFormats,
+            int audioFormats,
+            int compatibleFormats
     ) {
     }
 }
