@@ -87,7 +87,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', dashboard.befor
       <main class="nr-auth-page">
         <header class="nr-auth-header">
           <div class="nr-brand"><span class="nr-brand-mark"><img v-if="dashboard.state.bot?.avatarUrl" :src="dashboard.state.bot.avatarUrl" :alt="dashboard.state.bot.username" referrerpolicy="no-referrer"><template v-else>N</template><i /></span><span><strong>{{ dashboard.state.bot?.username || 'NoRule Bot' }}</strong><small>{{ dashboard.i18n.t('dashboard_brand_console', 'BOT 控制台') }}</small></span></div>
-          <span class="nr-auth-system">CONTROL PORTAL / DISCORD</span>
+          <span class="nr-auth-system">NORULE BOT / WEB CONSOLE</span>
         </header>
 
         <div class="nr-auth-layout">
@@ -100,7 +100,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', dashboard.befor
           </section>
         </div>
 
-        <footer class="nr-auth-footer"><span>NO RULE BOT / CONTROL</span><span>SECURE DISCORD AUTHENTICATION</span></footer>
+        <footer class="nr-auth-footer"><span>NO RULE BOT / CONTROL</span><DashboardExternalLinks /></footer>
       </main>
     </template>
 

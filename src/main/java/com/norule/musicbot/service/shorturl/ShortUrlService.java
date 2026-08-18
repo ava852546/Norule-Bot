@@ -55,7 +55,9 @@ public final class ShortUrlService {
                 entry.getTarget(),
                 entry.getCreatedAt(),
                 entry.getExpiresAt(),
-                entry.getViewCount()
+                entry.getViewCount(),
+                entry.getOwnerUserId(),
+                entry.getLastAccessedAt()
         );
     }
 }

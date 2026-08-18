@@ -20,6 +20,8 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
                 created_at BIGINT NOT NULL,
                 expires_at BIGINT NOT NULL,
                 view_count BIGINT NOT NULL DEFAULT 0,
+                owner_user_id VARCHAR(64) NOT NULL DEFAULT '',
+                last_accessed_at BIGINT NOT NULL DEFAULT 0,
                 PRIMARY KEY (code),
                 KEY idx_short_urls_target_expires (target(255), expires_at),
                 KEY idx_short_urls_expires_at (expires_at)
@@ -33,18 +35,20 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """;
     private static final String LOG_CHANNEL_SETTING = "discord_log_channel_id";
-    private static final String SELECT_BY_CODE = "SELECT code, target, created_at, expires_at, view_count FROM short_urls WHERE code = ?";
+    private static final String SELECT_FIELDS = "code, target, created_at, expires_at, view_count, owner_user_id, last_accessed_at";
+    private static final String SELECT_BY_CODE = "SELECT " + SELECT_FIELDS + " FROM short_urls WHERE code = ?";
     private static final String SELECT_ACTIVE_BY_TARGET = """
-            SELECT code, target, created_at, expires_at, view_count
+            SELECT %s
             FROM short_urls
             WHERE target = ? AND expires_at > ?
             ORDER BY created_at DESC
             LIMIT 1
-            """;
-    private static final String INSERT = "INSERT INTO short_urls (code, target, created_at, expires_at, view_count) VALUES (?, ?, ?, ?, ?)";
+            """.formatted(SELECT_FIELDS);
+    private static final String INSERT = "INSERT INTO short_urls (code, target, created_at, expires_at, view_count, owner_user_id, last_accessed_at) VALUES (?, ?, ?, ?, ?, ?, ?)";
     private static final String DELETE_BY_CODE = "DELETE FROM short_urls WHERE code = ?";
     private static final String CLEANUP = "DELETE FROM short_urls WHERE expires_at <= ?";
     private static final String INCREMENT_VIEW_COUNT = "UPDATE short_urls SET view_count = view_count + 1 WHERE code = ?";
+    private static final String INCREMENT_VIEW_METRICS = "UPDATE short_urls SET view_count = view_count + 1, last_accessed_at = ? WHERE code = ?";
     private static final String SELECT_VIEW_COUNT = "SELECT view_count FROM short_urls WHERE code = ?";
     private static final String SELECT_SETTING = "SELECT setting_value FROM short_url_settings WHERE setting_key = ?";
     private static final String UPSERT_SETTING = """
@@ -114,6 +118,8 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
             statement.setLong(3, entry.getCreatedAt());
             statement.setLong(4, entry.getExpiresAt());
             statement.setLong(5, entry.getViewCount());
+            statement.setString(6, entry.getOwnerUserId());
+            statement.setLong(7, entry.getLastAccessedAt());
             statement.executeUpdate();
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to save short url", e);
@@ -144,9 +150,24 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
 
     @Override
     public long incrementViewCount(String code) {
+        return incrementViewCountInternal(code, 0L, false);
+    }
+
+    @Override
+    public long incrementViewCount(String code, long lastAccessedAt) {
+        return incrementViewCountInternal(code, lastAccessedAt, true);
+    }
+
+    private long incrementViewCountInternal(String code, long lastAccessedAt, boolean updateLastAccessedAt) {
         try (Connection connection = dataSource.getConnection()) {
-            try (PreparedStatement update = connection.prepareStatement(INCREMENT_VIEW_COUNT)) {
-                update.setString(1, code);
+            try (PreparedStatement update = connection.prepareStatement(
+                    updateLastAccessedAt ? INCREMENT_VIEW_METRICS : INCREMENT_VIEW_COUNT)) {
+                if (updateLastAccessedAt) {
+                    update.setLong(1, lastAccessedAt);
+                    update.setString(2, code);
+                } else {
+                    update.setString(1, code);
+                }
                 if (update.executeUpdate() == 0) {
                     return 0L;
                 }
@@ -206,6 +227,8 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
              Statement statement = connection.createStatement()) {
             statement.execute(CREATE_TABLE);
             ensureViewCountColumn(connection, statement);
+            ensureColumn(connection, statement, "owner_user_id", "VARCHAR(64) NOT NULL DEFAULT ''");
+            ensureColumn(connection, statement, "last_accessed_at", "BIGINT NOT NULL DEFAULT 0");
             statement.execute(CREATE_SETTINGS_TABLE);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to initialize short url mysql schema", e);
@@ -218,17 +241,24 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
                 rs.getString("target"),
                 rs.getLong("created_at"),
                 rs.getLong("expires_at"),
-                rs.getLong("view_count")
+                rs.getLong("view_count"),
+                rs.getString("owner_user_id"),
+                rs.getLong("last_accessed_at")
         );
     }
 
     private static void ensureViewCountColumn(Connection connection, Statement statement) throws SQLException {
+        ensureColumn(connection, statement, "view_count", "BIGINT NOT NULL DEFAULT 0");
+    }
+
+    private static void ensureColumn(Connection connection, Statement statement, String name,
+                                     String definition) throws SQLException {
         DatabaseMetaData metadata = connection.getMetaData();
-        try (ResultSet columns = metadata.getColumns(connection.getCatalog(), null, "short_urls", "view_count")) {
+        try (ResultSet columns = metadata.getColumns(connection.getCatalog(), null, "short_urls", name)) {
             if (columns.next()) {
                 return;
             }
         }
-        statement.execute("ALTER TABLE short_urls ADD COLUMN view_count BIGINT NOT NULL DEFAULT 0");
+        statement.execute("ALTER TABLE short_urls ADD COLUMN " + name + " " + definition);
     }
 }

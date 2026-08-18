@@ -32,6 +32,7 @@ await rm(outputAssets, { recursive: true, force: true })
 await mkdir(path.dirname(outputAssets), { recursive: true })
 await cp(generatedAssets, outputAssets, { recursive: true })
 await copyFile(generatedHtmlPath, path.resolve(outputRoot, 'short-url.html'))
+await copyFile(path.resolve(generatedRoot, 'short-url-stats.html'), path.resolve(outputRoot, 'short-url-stats.html'))
 
 for (const reference of new Set(assetReferences)) {
   await access(path.resolve(outputRoot, reference.replace('/web/', '')))

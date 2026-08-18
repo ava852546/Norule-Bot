@@ -47,7 +47,8 @@ public final class ShortUrlWebService {
             return;
         }
 
-        ShortUrl created = shortUrlOps.createFromWeb(target, customCode, clientAddress(exchange));
+        ShortUrl created = shortUrlOps.createFromWeb(
+                target, customCode, owner.authenticatedUserId(exchange), clientAddress(exchange));
         if (created == null) {
             owner.sendJson(exchange, 400, DataObject.empty()
                     .put("error", "Invalid url or code")

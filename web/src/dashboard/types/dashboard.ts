@@ -130,7 +130,12 @@ export interface NumberChainSettings {
   channelId: string
   nextNumber: number
   highestNumber: number
-  topContributors: Array<{ userId: string; count: number }>
+  topContributors: Array<{
+    userId: string
+    displayName: string
+    avatarUrl: string
+    count: number
+  }>
 }
 
 export interface TicketOption {

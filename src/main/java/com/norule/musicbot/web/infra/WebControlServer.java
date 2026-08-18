@@ -17,6 +17,7 @@ import com.norule.musicbot.web.controller.WebMetadataController;
 import com.norule.musicbot.web.controller.WebStaticAssetController;
 import com.norule.musicbot.web.service.MinecraftStatusWebService;
 import com.norule.musicbot.web.service.WebLanguageService;
+import com.norule.musicbot.web.service.WebSessionService;
 import com.norule.musicbot.web.service.WelcomePreviewService;
 import com.norule.musicbot.web.session.WebSessionManager;
 
@@ -234,6 +235,29 @@ import java.util.function.Supplier;
     public String authenticatedUserId(HttpExchange exchange) {
         WebSessionManager.WebSession session = sessionManager.requireSession(exchange);
         return session == null ? "" : session.userId;
+    }
+
+    public String shortUrlStatisticsLoginUrl(String returnTo, String anonymousDeviceToken) {
+        String base = resolveHomeUrl(webSettings());
+        String requestId = new WebSessionService(sessionManager).issuePendingLogin(
+                returnTo,
+                anonymousDeviceToken,
+                System.currentTimeMillis() + 60_000L
+        );
+        String loginPath = "/auth/login?request=" + encode(requestId);
+        return "/".equals(base) ? loginPath : base + loginPath;
+    }
+
+    public String activateAuthenticationHandoff(HttpExchange exchange) {
+        String ticket = parseUrlEncoded(exchange.getRequestURI().getRawQuery())
+                .getOrDefault("__nr_auth", "");
+        WebSettings settings = webSettings();
+        return new WebSessionService(sessionManager).activateSessionHandoff(
+                exchange,
+                ticket,
+                isSecureCookie(settings),
+                settings.getSessionExpireMinutes()
+        );
     }
     public DiscordOAuthClient discordOAuthClient() {
         return discordOAuthClient;

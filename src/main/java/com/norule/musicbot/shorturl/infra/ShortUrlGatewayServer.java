@@ -4,6 +4,7 @@ import com.norule.musicbot.ShortUrlService;
 import com.norule.musicbot.config.BotConfig;
 import com.norule.musicbot.domain.shorturl.ImageShare;
 import com.norule.musicbot.domain.shorturl.QuotaSubject;
+import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
 import com.norule.musicbot.service.shorturl.ImageShareService;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
@@ -31,6 +32,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
 import java.util.function.Supplier;
 import java.util.function.Function;
 import java.util.regex.Matcher;
@@ -56,6 +58,8 @@ public final class ShortUrlGatewayServer {
     private final ShortUrlService shortUrlService;
     private final Supplier<BotConfig.ShortUrl> configSupplier;
     private final Function<HttpExchange, String> authenticatedUserResolver;
+    private final BiFunction<String, String, String> statisticsLoginUrlFactory;
+    private final Function<HttpExchange, String> authenticationHandoffResolver;
     private final Map<String, ImageAccessGrant> imageAccessGrants = new ConcurrentHashMap<>();
     private final Map<String, Long> recentViewers = new ConcurrentHashMap<>();
     private volatile HttpServer server;
@@ -69,6 +73,16 @@ public final class ShortUrlGatewayServer {
     public ShortUrlGatewayServer(ShortUrlService shortUrlService,
                                  Supplier<BotConfig.ShortUrl> configSupplier,
                                  Function<HttpExchange, String> authenticatedUserResolver) {
+        this(shortUrlService, configSupplier, authenticatedUserResolver,
+                (returnTo, anonymousDeviceToken) -> "/auth/login?returnTo=" + java.net.URLEncoder.encode(
+                        returnTo, StandardCharsets.UTF_8), exchange -> "");
+    }
+
+    public ShortUrlGatewayServer(ShortUrlService shortUrlService,
+                                 Supplier<BotConfig.ShortUrl> configSupplier,
+                                 Function<HttpExchange, String> authenticatedUserResolver,
+                                 BiFunction<String, String, String> statisticsLoginUrlFactory,
+                                 Function<HttpExchange, String> authenticationHandoffResolver) {
         if (shortUrlService == null) {
             throw new IllegalArgumentException("shortUrlService cannot be null");
         }
@@ -79,6 +93,10 @@ public final class ShortUrlGatewayServer {
         this.configSupplier = configSupplier;
         this.authenticatedUserResolver = authenticatedUserResolver == null ? exchange -> ""
                 : authenticatedUserResolver;
+        this.statisticsLoginUrlFactory = statisticsLoginUrlFactory == null ? (returnTo, deviceToken) -> ""
+                : statisticsLoginUrlFactory;
+        this.authenticationHandoffResolver = authenticationHandoffResolver == null ? exchange -> ""
+                : authenticationHandoffResolver;
     }
 
     public synchronized void syncWithConfig() {
@@ -179,6 +197,11 @@ public final class ShortUrlGatewayServer {
             return;
         }
 
+        if (isStatisticsQuery(exchange.getRequestURI().getRawQuery())) {
+            handleStatistics(exchange, code);
+            return;
+        }
+
         ImageShare imageShare = shortUrlService.resolveImageShare(code);
         if (imageShare != null) {
             handleImageShareResolve(exchange, imageShare);
@@ -266,7 +289,7 @@ public final class ShortUrlGatewayServer {
         ShortUrlService.ShortUrlEntry created = shortUrlService.create(
                 target,
                 customCode,
-                "",
+                authenticatedUserId(exchange),
                 clientAddress(exchange)
         );
         if (created == null) {
@@ -398,6 +421,97 @@ public final class ShortUrlGatewayServer {
             }
         }
         sendHtml(exchange, 200, buildImageViewPage(viewed));
+    }
+
+    private void handleStatistics(HttpExchange exchange, String code) throws IOException {
+        if (!isGetOrHead(exchange)) {
+            sendText(exchange, 405, "Method Not Allowed");
+            return;
+        }
+        Map<String, String> query = parseUrlEncoded(exchange.getRequestURI().getRawQuery());
+        if (query.containsKey("__nr_auth")) {
+            String transferredUserId = resolveAuthenticationHandoff(exchange);
+            if (!transferredUserId.isBlank()) {
+                redirect(exchange, shortUrlService.toPublicUrl(code) + "?stats");
+                return;
+            }
+        }
+        String userId = authenticatedUserId(exchange);
+        if (userId.isBlank()) {
+            String returnTo = shortUrlService.toPublicUrl(code) + "?stats";
+            String loginUrl = statisticsLoginUrlFactory.apply(
+                    returnTo, readCookie(exchange, ANONYMOUS_DEVICE_COOKIE));
+            if (loginUrl == null || loginUrl.isBlank()) {
+                sendText(exchange, 503, "Authentication unavailable");
+                return;
+            }
+            redirect(exchange, loginUrl);
+            return;
+        }
+        ShortUrlStatistics statistics = shortUrlService.findStatisticsForOwner(code, userId);
+        if (statistics == null) {
+            sendHtml(exchange, 404, buildShortUrlNotFoundPage());
+            return;
+        }
+        exchange.getResponseHeaders().set("Cache-Control", "private, no-store");
+        exchange.getResponseHeaders().set("Referrer-Policy", "no-referrer");
+        sendHtml(exchange, 200, buildStatisticsPage(statistics));
+    }
+
+    static boolean isStatisticsQuery(String rawQuery) {
+        if (rawQuery == null || rawQuery.isBlank()) {
+            return false;
+        }
+        for (String pair : rawQuery.split("&")) {
+            String key = pair.split("=", 2)[0];
+            if ("stats".equals(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static String buildStatisticsPage(ShortUrlStatistics statistics) {
+        String resourceName = statistics.resourceType() == ShortUrlStatistics.ResourceType.MEDIA_SHARE
+                ? "媒體分享" : "短網址";
+        String lastAccessed = statistics.lastAccessedAt() <= 0L
+                ? "尚無存取紀錄"
+                : IMAGE_DATE_FORMAT.format(Instant.ofEpochMilli(statistics.lastAccessedAt()));
+        return renderTemplateString(loadTemplateResource("web/short-url-stats.html"), Map.ofEntries(
+                Map.entry("__RESOURCE_NAME__", resourceName),
+                Map.entry("__RESOURCE_CODE__", htmlEscape(statistics.code())),
+                Map.entry("__RESOURCE_VIEWS__", String.format(Locale.ROOT, "%,d", statistics.viewCount())),
+                Map.entry("__RESOURCE_CREATED__", IMAGE_DATE_FORMAT.format(
+                        Instant.ofEpochMilli(statistics.createdAt()))),
+                Map.entry("__RESOURCE_LAST_ACCESSED__", lastAccessed),
+                Map.entry("__RESOURCE_EXPIRES__", IMAGE_DATE_FORMAT.format(
+                        Instant.ofEpochMilli(statistics.expiresAt())))
+        ));
+    }
+
+    private String authenticatedUserId(HttpExchange exchange) {
+        try {
+            String userId = authenticatedUserResolver.apply(exchange);
+            return userId == null ? "" : userId.trim();
+        } catch (RuntimeException ignored) {
+            return "";
+        }
+    }
+
+    private String resolveAuthenticationHandoff(HttpExchange exchange) {
+        try {
+            String userId = authenticationHandoffResolver.apply(exchange);
+            return userId == null ? "" : userId.trim();
+        } catch (RuntimeException ignored) {
+            return "";
+        }
+    }
+
+    private void redirect(HttpExchange exchange, String location) throws IOException {
+        exchange.getResponseHeaders().set("Location", location);
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        exchange.sendResponseHeaders(302, -1);
+        exchange.close();
     }
 
     private void handleImageShareContent(HttpExchange exchange, String code) throws IOException {

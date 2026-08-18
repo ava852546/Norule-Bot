@@ -15,6 +15,10 @@ public interface ShortUrlRepository {
 
     long incrementViewCount(String code);
 
+    default long incrementViewCount(String code, long lastAccessedAt) {
+        return incrementViewCount(code);
+    }
+
     Long findLogChannelId();
 
     void saveLogChannelId(Long channelId);

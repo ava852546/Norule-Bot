@@ -1115,6 +1115,13 @@ public final class RuntimeBootstrap {
             }, exchange -> {
                 WebControlServer webServer = WEB_SERVER.get();
                 return webServer == null ? "" : webServer.authenticatedUserId(exchange);
+            }, (returnTo, anonymousDeviceToken) -> {
+                WebControlServer webServer = WEB_SERVER.get();
+                return webServer == null ? ""
+                        : webServer.shortUrlStatisticsLoginUrl(returnTo, anonymousDeviceToken);
+            }, exchange -> {
+                WebControlServer webServer = WEB_SERVER.get();
+                return webServer == null ? "" : webServer.activateAuthenticationHandoff(exchange);
             });
             SHORT_URL_GATEWAY_SERVER.set(gatewayServer);
         }

@@ -35,12 +35,13 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
                 owner_id TEXT NOT NULL DEFAULT '',
                 quota_group_id TEXT NOT NULL DEFAULT '',
                 created_device_id_hash TEXT NOT NULL DEFAULT '',
-                created_ip_hash TEXT NOT NULL DEFAULT ''
+                created_ip_hash TEXT NOT NULL DEFAULT '',
+                last_accessed_at INTEGER NOT NULL DEFAULT 0
             )
             """;
     private static final String CREATE_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_url_images_expires ON short_url_images(expires_at)";
     private static final String CREATE_CONTENT_HASH_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_url_images_content_hash_expires ON short_url_images(content_hash, expires_at)";
-    private static final String SELECT_FIELDS = "code, storage_name, content_type, size_bytes, created_at, expires_at, password_hash, content_hash, view_count, storage_state, archive_storage_name, archived_at, owner_type, owner_id, quota_group_id, created_device_id_hash, created_ip_hash";
+    private static final String SELECT_FIELDS = "code, storage_name, content_type, size_bytes, created_at, expires_at, password_hash, content_hash, view_count, storage_state, archive_storage_name, archived_at, owner_type, owner_id, quota_group_id, created_device_id_hash, created_ip_hash, last_accessed_at";
     private static final String SELECT_BY_CODE = "SELECT " + SELECT_FIELDS + " FROM short_url_images WHERE code = ?";
     private static final String SELECT_ACTIVE_BY_CONTENT_HASH = """
             SELECT %s
@@ -48,11 +49,12 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
             WHERE content_hash = ? AND expires_at > ? AND storage_state = 'ACTIVE'
             ORDER BY created_at DESC
             """.formatted(SELECT_FIELDS);
-    private static final String INSERT = "INSERT INTO short_url_images (code, storage_name, content_type, size_bytes, created_at, expires_at, password_hash, content_hash, view_count, storage_state, archive_storage_name, archived_at, owner_type, owner_id, quota_group_id, created_device_id_hash, created_ip_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    private static final String UPDATE = "UPDATE short_url_images SET storage_name = ?, content_type = ?, size_bytes = ?, created_at = ?, expires_at = ?, password_hash = ?, content_hash = ?, view_count = ?, storage_state = ?, archive_storage_name = ?, archived_at = ?, owner_type = ?, owner_id = ?, quota_group_id = ?, created_device_id_hash = ?, created_ip_hash = ? WHERE code = ?";
+    private static final String INSERT = "INSERT INTO short_url_images (code, storage_name, content_type, size_bytes, created_at, expires_at, password_hash, content_hash, view_count, storage_state, archive_storage_name, archived_at, owner_type, owner_id, quota_group_id, created_device_id_hash, created_ip_hash, last_accessed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    private static final String UPDATE = "UPDATE short_url_images SET storage_name = ?, content_type = ?, size_bytes = ?, created_at = ?, expires_at = ?, password_hash = ?, content_hash = ?, view_count = ?, storage_state = ?, archive_storage_name = ?, archived_at = ?, owner_type = ?, owner_id = ?, quota_group_id = ?, created_device_id_hash = ?, created_ip_hash = ?, last_accessed_at = ? WHERE code = ?";
     private static final String DELETE_BY_CODE = "DELETE FROM short_url_images WHERE code = ?";
     private static final String SELECT_EXPIRED = "SELECT " + SELECT_FIELDS + " FROM short_url_images WHERE expires_at <= ? AND storage_state = 'ACTIVE'";
     private static final String INCREMENT_VIEW_COUNT = "UPDATE short_url_images SET view_count = view_count + 1 WHERE code = ?";
+    private static final String INCREMENT_VIEW_METRICS = "UPDATE short_url_images SET view_count = view_count + 1, last_accessed_at = ? WHERE code = ?";
     private static final String SELECT_VIEW_COUNT = "SELECT view_count FROM short_url_images WHERE code = ?";
 
     private final String jdbcUrl;
@@ -186,9 +188,24 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
 
     @Override
     public long incrementViewCount(String code) {
+        return incrementViewCountInternal(code, 0L, false);
+    }
+
+    @Override
+    public long incrementViewCount(String code, long lastAccessedAt) {
+        return incrementViewCountInternal(code, lastAccessedAt, true);
+    }
+
+    private long incrementViewCountInternal(String code, long lastAccessedAt, boolean updateLastAccessedAt) {
         try (Connection connection = DriverManager.getConnection(jdbcUrl)) {
-            try (PreparedStatement update = connection.prepareStatement(INCREMENT_VIEW_COUNT)) {
-                update.setString(1, code);
+            try (PreparedStatement update = connection.prepareStatement(
+                    updateLastAccessedAt ? INCREMENT_VIEW_METRICS : INCREMENT_VIEW_COUNT)) {
+                if (updateLastAccessedAt) {
+                    update.setLong(1, lastAccessedAt);
+                    update.setString(2, code);
+                } else {
+                    update.setString(1, code);
+                }
                 if (update.executeUpdate() == 0) {
                     return 0L;
                 }
@@ -211,6 +228,7 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
             ensureContentHashColumn(connection, statement);
             ensureViewCountColumn(connection, statement);
             ensureLifecycleColumns(connection, statement);
+            ensureColumn(connection, statement, "last_accessed_at", "INTEGER NOT NULL DEFAULT 0");
             statement.execute(CREATE_INDEX);
             statement.execute(CREATE_CONTENT_HASH_INDEX);
         } catch (SQLException e) {
@@ -236,7 +254,8 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
                 resultSet.getString("owner_id"),
                 resultSet.getString("quota_group_id"),
                 resultSet.getString("created_device_id_hash"),
-                resultSet.getString("created_ip_hash")
+                resultSet.getString("created_ip_hash"),
+                resultSet.getLong("last_accessed_at")
         );
     }
 
@@ -247,7 +266,7 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
 
     private void bindUpdate(PreparedStatement statement, ImageShare imageShare) throws SQLException {
         bindCommon(statement, imageShare, 1);
-        statement.setString(17, imageShare.code());
+        statement.setString(18, imageShare.code());
     }
 
     private void bindCommon(PreparedStatement statement, ImageShare imageShare, int start) throws SQLException {
@@ -267,7 +286,8 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
         statement.setString(index++, imageShare.ownerId());
         statement.setString(index++, imageShare.quotaGroupId());
         statement.setString(index++, imageShare.createdDeviceIdHash());
-        statement.setString(index, imageShare.createdIpHash());
+        statement.setString(index++, imageShare.createdIpHash());
+        statement.setLong(index, imageShare.lastAccessedAt());
     }
 
     private MediaStorageState parseStorageState(String value) {

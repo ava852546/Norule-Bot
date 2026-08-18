@@ -1,6 +1,7 @@
 package com.norule.musicbot;
 
 import com.norule.musicbot.domain.shorturl.ShortUrlAccessEvent;
+import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
 import com.norule.musicbot.shorturl.ShortUrlRepository;
 import org.junit.jupiter.api.Test;
 
@@ -151,6 +152,26 @@ class ShortUrlServiceTest {
         assertEquals("198.51.100.42", events.get(1).clientAddress());
     }
 
+    @Test
+    void exposesStatisticsOnlyToTheRecordedOwner() {
+        InMemoryRepository repository = new InMemoryRepository();
+        ShortUrlService service = new ShortUrlService(repository);
+        ShortUrlService.ShortUrlEntry owned = service.create(
+                "https://example.com/private-stats", "owned-code", "owner-a", "127.0.0.1");
+        ShortUrlService.ShortUrlEntry anonymous = service.create(
+                "https://example.com/anonymous", "anonymous-code", "", "127.0.0.1");
+
+        service.recordView(owned, "127.0.0.1", "JUnit");
+
+        ShortUrlStatistics statistics = service.findStatisticsForOwner("owned-code", "owner-a");
+        assertNotNull(statistics);
+        assertEquals(1L, statistics.viewCount());
+        assertTrue(statistics.lastAccessedAt() > 0L);
+        assertNull(service.findStatisticsForOwner("owned-code", "owner-b"));
+        assertNull(service.findStatisticsForOwner("anonymous-code", "owner-a"));
+        assertNotNull(anonymous);
+    }
+
     private static final class InMemoryRepository implements ShortUrlRepository {
         private final Map<String, ShortUrlService.ShortUrlEntry> store = new LinkedHashMap<>();
         private Long logChannelId;
@@ -202,6 +223,17 @@ class ShortUrlServiceTest {
             }
             long updated = entry.getViewCount() + 1L;
             store.put(code, entry.withViewCount(updated));
+            return updated;
+        }
+
+        @Override
+        public long incrementViewCount(String code, long lastAccessedAt) {
+            ShortUrlService.ShortUrlEntry entry = store.get(code);
+            if (entry == null) {
+                return 0L;
+            }
+            long updated = entry.getViewCount() + 1L;
+            store.put(code, entry.withViewMetrics(updated, lastAccessedAt));
             return updated;
         }
 

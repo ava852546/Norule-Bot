@@ -44,7 +44,7 @@ body.nr-modal-open { overflow: hidden; }
 button.nr-brand { width: 100%; padding: 1.15rem 1.25rem; border-bottom: 1px solid var(--nr-line); cursor: pointer; }
 .nr-brand.is-centered { justify-content: flex-start; padding: 0 0 1.25rem; border-bottom: 1px solid var(--nr-line); }
 .nr-brand-mark { position: relative; display: grid; width: 2.4rem; height: 2.1rem; flex: 0 0 2.4rem; place-items: center; overflow: hidden; color: var(--nr-on-accent); background: var(--nr-accent); font-family: var(--nr-mono); font-size: .8rem; font-weight: 900; }
-.nr-brand-mark img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(1) contrast(1.1); }
+.nr-brand-mark img { width: 100%; height: 100%; object-fit: cover; }
 .nr-brand-mark i { position: absolute; right: 0; bottom: 0; width: .45rem; height: .45rem; background: var(--nr-green); }
 .nr-brand strong { display: block; font-family: var(--nr-display); font-size: .95rem; letter-spacing: .035em; }
 .nr-brand small { display: block; margin-top: .05rem; color: var(--nr-muted); font-family: var(--nr-mono); font-size: .6rem; letter-spacing: .08em; }
@@ -70,6 +70,9 @@ button.nr-brand { width: 100%; padding: 1.15rem 1.25rem; border-bottom: 1px soli
 .nr-server-directory small, .nr-account small { color: var(--nr-subtle); font-size: .58rem; }
 .nr-account img, .nr-avatar-fallback, .nr-guild-mini { display: grid; width: 2.1rem; height: 2.1rem; place-items: center; object-fit: cover; color: var(--nr-ivory); background: var(--nr-charcoal); font-family: var(--nr-mono); font-size: .58rem; font-weight: 800; }
 .nr-account > button { width: 2rem; height: 2rem; color: var(--nr-muted); background: transparent; cursor: pointer; }
+.nr-external-links { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .75rem; padding: .75rem .25rem 0; border-top: 1px solid var(--nr-line); font: .52rem var(--nr-mono); letter-spacing: .035em; }
+.nr-external-links a { padding: .2rem 0; color: var(--nr-subtle); text-decoration: none; }
+.nr-external-links a:hover, .nr-external-links a:focus-visible { color: var(--nr-ink); text-decoration: underline; text-underline-offset: .2rem; }
 
 /* Top bar */
 .nr-topbar { position: sticky; z-index: 30; top: 0; display: flex; height: var(--nr-topbar-height); align-items: center; gap: 1rem; padding: 0 clamp(1.25rem,3vw,3rem); border-bottom: 1px solid var(--nr-line-strong); background: var(--nr-paper); }
@@ -128,7 +131,7 @@ button.nr-brand { width: 100%; padding: 1.15rem 1.25rem; border-bottom: 1px soli
 
 .nr-status-card { display: grid; grid-template-columns: auto minmax(15rem,1fr) auto; align-items: center; gap: 1.1rem; margin-bottom: 3.5rem; padding: 1.25rem 0; border-top: 2px solid var(--nr-line-strong); border-bottom: 1px solid var(--nr-line); }
 .nr-bot-avatar { position: relative; display: grid; width: 3.5rem; height: 3.5rem; place-items: center; overflow: hidden; color: var(--nr-ivory); background: var(--nr-charcoal-deep); border: 1px solid var(--nr-line); font-family: var(--nr-mono); font-weight: 900; }
-.nr-bot-avatar img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(1); }
+.nr-bot-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .nr-bot-avatar i { position: absolute; right: 0; bottom: 0; width: .7rem; height: .7rem; border: .18rem solid var(--nr-paper); background: var(--nr-green); }
 .nr-bot-info > div { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
 .nr-bot-info h3 { margin: 0; font-family: var(--nr-display); font-size: 1.1rem; }
@@ -237,11 +240,18 @@ button.nr-brand { width: 100%; padding: 1.15rem 1.25rem; border-bottom: 1px soli
 .nr-reset-row { display: flex; min-height: 3rem; align-items: center; justify-content: flex-end; gap: .5rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--nr-line); }
 .nr-reset-row > span { margin-right: auto; color: var(--nr-red); font-size: .62rem; }
 .nr-contributor-list { display: grid; }
-.nr-contributor-list > div { display: grid; grid-template-columns: 1.8rem 1fr auto; align-items: center; gap: .6rem; padding: .7rem 0; border-top: 1px solid var(--nr-line); }
+.nr-contributor-list > div { display: grid; grid-template-columns: 1.8rem minmax(0,1fr) auto; align-items: center; gap: .8rem; padding: .7rem 0; border-top: 1px solid var(--nr-line); }
 .nr-contributor-list > div:last-child { border-bottom: 1px solid var(--nr-line); }
-.nr-contributor-list span { display: grid; width: 1.55rem; height: 1.55rem; place-items: center; color: var(--nr-ivory); background: var(--nr-charcoal-deep); border: 1px solid var(--nr-line); font-size: .55rem; }
 .nr-contributor-list strong, .nr-contributor-list b { font-size: .65rem; }
 .nr-contributor-list b { color: var(--nr-muted); }
+.nr-contributor-rank { display: grid; width: 1.55rem; height: 1.55rem; place-items: center; color: var(--nr-ivory); background: var(--nr-charcoal-deep); border: 1px solid var(--nr-line); font-size: .55rem; }
+.nr-contributor-identity { display: grid; min-width: 0; grid-template-columns: 2.2rem minmax(0,1fr); align-items: center; gap: .7rem; }
+.nr-contributor-avatar { display: grid; width: 2.2rem; height: 2.2rem; overflow: hidden; place-items: center; color: var(--nr-ink); background: var(--nr-paper-deep); border: 1px solid var(--nr-line-strong); font: 700 .68rem var(--nr-mono); }
+.nr-contributor-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.nr-contributor-copy { display: grid; min-width: 0; gap: .14rem; }
+.nr-contributor-copy strong, .nr-contributor-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nr-contributor-copy strong { color: var(--nr-ink); }
+.nr-contributor-copy small { color: var(--nr-subtle); font: .5rem var(--nr-mono); }
 .nr-ticket-option-layout { display: grid; grid-template-columns: minmax(13rem,.72fr) minmax(0,1.7fr); gap: 1.5rem; }
 .nr-ticket-option-list { display: grid; align-content: start; }
 .nr-ticket-option-list > button { display: grid; grid-template-columns: 2.1rem minmax(0,1fr); align-items: center; gap: .6rem; padding: .7rem .5rem; border-top: 1px solid var(--nr-line); color: var(--nr-muted); background: transparent; text-align: left; cursor: pointer; }
@@ -320,6 +330,7 @@ button.nr-brand { width: 100%; padding: 1.15rem 1.25rem; border-bottom: 1px soli
 .nr-auth-cta { min-width: 15rem; }
 .nr-auth-note { max-width: 29rem; margin-top: .9rem; color: var(--nr-muted); font-size: .62rem; line-height: 1.55; }
 .nr-auth-footer { display: flex; justify-content: space-between; gap: 2rem; padding: 1rem clamp(1.5rem,4vw,4rem); color: var(--nr-subtle); border-top: 1px solid var(--nr-line); font-family: var(--nr-mono); font-size: .54rem; letter-spacing: .07em; }
+.nr-auth-footer .nr-external-links { justify-content: flex-end; padding: 0; border-top: 0; }
 .nr-loading-card { width: min(31rem,calc(100vw - 3rem)); justify-items: center; gap: .9rem; padding: 2rem; border: 1px solid var(--nr-line-strong); background: var(--nr-paper-raised); }
 .nr-loading-line, .nr-loading-block { width: 90%; height: 1rem; background: var(--nr-paper-deep); animation: nr-pulse 1.2s ease-in-out infinite alternate; }
 .nr-loading-line.is-short { width: 65%; }
@@ -405,6 +416,7 @@ button.nr-brand { width: 100%; padding: 1.15rem 1.25rem; border-bottom: 1px soli
   .nr-auth-card { padding: 2rem 1.25rem; }
   .nr-auth-cta { width: 100%; }
   .nr-auth-footer { display: grid; gap: .35rem; padding: 1rem; }
+  .nr-auth-footer .nr-external-links { justify-content: flex-start; }
   .nr-welcome-preview-copy { padding-right: 0; }
   .nr-welcome-thumb { position: static; width: 3.5rem; height: 3.5rem; margin-bottom: .6rem; }
 }

@@ -311,7 +311,8 @@ public final class ImageShareService {
                 quotaSubject == null ? "" : quotaSubject.ownerId(),
                 quotaSubject == null ? "" : quotaSubject.quotaGroupId(),
                 quotaSubject == null ? "" : quotaSubject.deviceIdHash(),
-                quotaSubject == null ? "" : quotaSubject.ipHash()
+                quotaSubject == null ? "" : quotaSubject.ipHash(),
+                0L
         );
         try {
             storage.save(imageShare, upload.content());
@@ -410,8 +411,9 @@ public final class ImageShareService {
         if (imageShare == null) {
             return null;
         }
-        long viewCount = imageRepository.incrementViewCount(imageShare.code());
-        return imageShare.withViewCount(viewCount);
+        long accessedAt = clock.millis();
+        long viewCount = imageRepository.incrementViewCount(imageShare.code(), accessedAt);
+        return imageShare.withViewMetrics(viewCount, accessedAt);
     }
 
     public Options options() {

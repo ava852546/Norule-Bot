@@ -65,6 +65,7 @@ function logout() {
           <span><strong>{{ dashboard.state.user.username }}</strong><small>{{ dashboard.i18n.t('dashboard_discord_admin', 'Discord 管理者') }}</small></span>
           <button type="button" :aria-label="dashboard.i18n.t('logoutBtn', '登出')" @click="requestLogout">↪</button>
         </div>
+        <DashboardExternalLinks />
       </div>
     </div>
   </aside>

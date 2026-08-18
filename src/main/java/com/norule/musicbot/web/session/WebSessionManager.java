@@ -10,6 +10,8 @@ public final class WebSessionManager {
 
     private final Map<String, OAuthState> oauthStates = new ConcurrentHashMap<>();
     private final Map<String, WebSession> sessions = new ConcurrentHashMap<>();
+    private final Map<String, SessionHandoff> sessionHandoffs = new ConcurrentHashMap<>();
+    private final Map<String, PendingLogin> pendingLogins = new ConcurrentHashMap<>();
 
     public Map<String, OAuthState> oauthStates() {
         return oauthStates;
@@ -17,6 +19,14 @@ public final class WebSessionManager {
 
     public Map<String, WebSession> sessions() {
         return sessions;
+    }
+
+    public Map<String, SessionHandoff> sessionHandoffs() {
+        return sessionHandoffs;
+    }
+
+    public Map<String, PendingLogin> pendingLogins() {
+        return pendingLogins;
     }
 
     public WebSession requireSession(HttpExchange exchange) {
@@ -65,12 +75,48 @@ public final class WebSessionManager {
         long now = System.currentTimeMillis();
         oauthStates.entrySet().removeIf(e -> e.getValue().expiresAtMillis < now);
         sessions.entrySet().removeIf(e -> e.getValue().expiresAtMillis < now);
+        sessionHandoffs.entrySet().removeIf(e -> e.getValue().expiresAtMillis < now);
+        pendingLogins.entrySet().removeIf(e -> e.getValue().expiresAtMillis < now);
     }
 
     public static class OAuthState {
         public final long expiresAtMillis;
+        public final String returnTo;
+        public final String anonymousDeviceToken;
 
         public OAuthState(long expiresAtMillis) {
+            this(expiresAtMillis, "", "");
+        }
+
+        public OAuthState(long expiresAtMillis, String returnTo) {
+            this(expiresAtMillis, returnTo, "");
+        }
+
+        public OAuthState(long expiresAtMillis, String returnTo, String anonymousDeviceToken) {
+            this.expiresAtMillis = expiresAtMillis;
+            this.returnTo = returnTo == null ? "" : returnTo;
+            this.anonymousDeviceToken = anonymousDeviceToken == null ? "" : anonymousDeviceToken;
+        }
+    }
+
+    public static class PendingLogin {
+        public final String returnTo;
+        public final String anonymousDeviceToken;
+        public final long expiresAtMillis;
+
+        public PendingLogin(String returnTo, String anonymousDeviceToken, long expiresAtMillis) {
+            this.returnTo = returnTo == null ? "" : returnTo;
+            this.anonymousDeviceToken = anonymousDeviceToken == null ? "" : anonymousDeviceToken;
+            this.expiresAtMillis = expiresAtMillis;
+        }
+    }
+
+    public static class SessionHandoff {
+        public final WebSession session;
+        public final long expiresAtMillis;
+
+        public SessionHandoff(WebSession session, long expiresAtMillis) {
+            this.session = session;
             this.expiresAtMillis = expiresAtMillis;
         }
     }

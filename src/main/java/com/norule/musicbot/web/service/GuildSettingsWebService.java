@@ -435,8 +435,17 @@ public final class GuildSettingsWebService {
     private DataObject buildNumberChainPayload(Guild guild) {
         DataArray topContributors = DataArray.empty();
         for (ModerationService.NumberChainContributor contributor : owner.moderationService().getTopNumberChainContributors(guild.getIdLong(), 5)) {
+            Member contributorMember = owner.resolveMember(guild, contributor.getUserId());
+            String displayName = contributorMember == null
+                    ? String.valueOf(contributor.getUserId())
+                    : contributorMember.getEffectiveName();
+            String avatarUrl = contributorMember == null
+                    ? ""
+                    : contributorMember.getUser().getEffectiveAvatarUrl();
             topContributors.add(DataObject.empty()
                     .put("userId", String.valueOf(contributor.getUserId()))
+                    .put("displayName", displayName)
+                    .put("avatarUrl", avatarUrl)
                     .put("count", contributor.getCount()));
         }
         return DataObject.empty()

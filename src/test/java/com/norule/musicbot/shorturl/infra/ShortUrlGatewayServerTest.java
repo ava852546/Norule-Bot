@@ -1,6 +1,7 @@
 package com.norule.musicbot.shorturl.infra;
 
 import com.norule.musicbot.domain.shorturl.ImageShare;
+import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -68,5 +69,34 @@ class ShortUrlGatewayServerTest {
                 ShortUrlGatewayServer.parseByteRange("BYTES=0-9", 1000L));
         assertNull(ShortUrlGatewayServer.parseByteRange("bytes=1000-", 1000L));
         assertNull(ShortUrlGatewayServer.parseByteRange("bytes=0-1,4-5", 1000L));
+    }
+
+    @Test
+    void recognizesStatsParameterButNotAnEmptyTrailingQuery() {
+        assertTrue(ShortUrlGatewayServer.isStatisticsQuery("stats"));
+        assertTrue(ShortUrlGatewayServer.isStatisticsQuery("stats&__nr_auth=ticket"));
+        assertFalse(ShortUrlGatewayServer.isStatisticsQuery(""));
+        assertFalse(ShortUrlGatewayServer.isStatisticsQuery(null));
+        assertFalse(ShortUrlGatewayServer.isStatisticsQuery("view=stats"));
+    }
+
+    @Test
+    void rendersAggregateStatisticsWithoutVisitorDetails() {
+        ShortUrlStatistics statistics = new ShortUrlStatistics(
+                ShortUrlStatistics.ResourceType.SHORT_URL,
+                "safe-code",
+                18L,
+                1_700_000_000_000L,
+                1_710_000_000_000L,
+                1_800_000_000_000L
+        );
+
+        String html = ShortUrlGatewayServer.buildStatisticsPage(statistics);
+
+        assertTrue(html.contains("存取統計"));
+        assertTrue(html.contains("safe-code"));
+        assertTrue(html.contains(">18<"));
+        assertFalse(html.contains("IP 位址"));
+        assertFalse(html.contains("__RESOURCE_"));
     }
 }

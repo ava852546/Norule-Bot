@@ -3,6 +3,7 @@ package com.norule.musicbot;
 import com.norule.musicbot.domain.shorturl.ShortUrlDomainService;
 import com.norule.musicbot.domain.shorturl.ImageShare;
 import com.norule.musicbot.domain.shorturl.ShortUrlAccessEvent;
+import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
 import com.norule.musicbot.service.shorturl.ImageShareService;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
@@ -32,9 +33,24 @@ public final class ShortUrlService {
         }
     }
 
-    public record ShortUrlEntry(String code, String target, long createdAt, long expiresAt, long viewCount) {
+    public record ShortUrlEntry(String code,
+                                String target,
+                                long createdAt,
+                                long expiresAt,
+                                long viewCount,
+                                String ownerUserId,
+                                long lastAccessedAt) {
+        public ShortUrlEntry {
+            ownerUserId = ownerUserId == null ? "" : ownerUserId.trim();
+            lastAccessedAt = Math.max(0L, lastAccessedAt);
+        }
+
         public ShortUrlEntry(String code, String target, long createdAt, long expiresAt) {
-            this(code, target, createdAt, expiresAt, 0L);
+            this(code, target, createdAt, expiresAt, 0L, "", 0L);
+        }
+
+        public ShortUrlEntry(String code, String target, long createdAt, long expiresAt, long viewCount) {
+            this(code, target, createdAt, expiresAt, viewCount, "", 0L);
         }
 
         public String getCode() { return code; }
@@ -42,9 +58,17 @@ public final class ShortUrlService {
         public long getCreatedAt() { return createdAt; }
         public long getExpiresAt() { return expiresAt; }
         public long getViewCount() { return viewCount; }
+        public String getOwnerUserId() { return ownerUserId; }
+        public long getLastAccessedAt() { return lastAccessedAt; }
 
         public ShortUrlEntry withViewCount(long updatedViewCount) {
-            return new ShortUrlEntry(code, target, createdAt, expiresAt, Math.max(0L, updatedViewCount));
+            return new ShortUrlEntry(code, target, createdAt, expiresAt, Math.max(0L, updatedViewCount),
+                    ownerUserId, lastAccessedAt);
+        }
+
+        public ShortUrlEntry withViewMetrics(long updatedViewCount, long updatedLastAccessedAt) {
+            return new ShortUrlEntry(code, target, createdAt, expiresAt, Math.max(0L, updatedViewCount),
+                    ownerUserId, updatedLastAccessedAt);
         }
     }
 
@@ -149,10 +173,12 @@ public final class ShortUrlService {
         maybeCleanup(now);
 
         long safeTtl = ttlMillis <= 0L ? currentOptions.ttlMillis() : ttlMillis;
+        String normalizedOwnerUserId = creatorDiscordUserId == null ? "" : creatorDiscordUserId.trim();
         String requestedSlug = domainService.normalizeSlug(customSlug);
         if (requestedSlug.isBlank() && currentOptions.dedupeEnabled()) {
             ShortUrlEntry existing = repository.findActiveByTarget(target, now);
-            if (existing != null && !domainService.isExpired(existing.getExpiresAt(), now)) {
+            if (existing != null && !domainService.isExpired(existing.getExpiresAt(), now)
+                    && existing.ownerUserId().equals(normalizedOwnerUserId)) {
                 return existing;
             }
         }
@@ -161,7 +187,8 @@ public final class ShortUrlService {
         if (code == null) {
             return null;
         }
-        ShortUrlEntry created = new ShortUrlEntry(code, target, now, now + safeTtl, 0L);
+        ShortUrlEntry created = new ShortUrlEntry(
+                code, target, now, now + safeTtl, 0L, normalizedOwnerUserId, 0L);
         repository.save(created);
         publishAccess(ShortUrlAccessEvent.Action.CREATED, ShortUrlAccessEvent.ResourceType.URL,
                 created.code(), created.target(), created.viewCount(), created.expiresAt(), false, 0L,
@@ -218,6 +245,10 @@ public final class ShortUrlService {
             return "";
         }
         return options.get().publicBaseUrl() + "/" + code.trim();
+    }
+
+    public String publicBaseUrl() {
+        return options.get().publicBaseUrl();
     }
 
     public void updateOptions(Options options) {
@@ -305,7 +336,9 @@ public final class ShortUrlService {
         if (entry == null) {
             return null;
         }
-        ShortUrlEntry viewed = entry.withViewCount(repository.incrementViewCount(entry.code()));
+        long accessedAt = System.currentTimeMillis();
+        ShortUrlEntry viewed = entry.withViewMetrics(
+                repository.incrementViewCount(entry.code(), accessedAt), accessedAt);
         publishAccess(ShortUrlAccessEvent.Action.VIEWED, ShortUrlAccessEvent.ResourceType.URL,
                 viewed.code(), viewed.target(), viewed.viewCount(), viewed.expiresAt(), false, 0L,
                 "", clientAddress, userAgent);
@@ -321,6 +354,37 @@ public final class ShortUrlService {
                 viewed.code(), viewed.contentType(), viewed.viewCount(), viewed.expiresAt(),
                 viewed.isPasswordProtected(), viewed.sizeBytes(), "", clientAddress, userAgent);
         return viewed;
+    }
+
+    public ShortUrlStatistics findStatisticsForOwner(String code, String ownerUserId) {
+        if (code == null || code.isBlank() || ownerUserId == null || ownerUserId.isBlank()) {
+            return null;
+        }
+        String normalizedCode = code.trim();
+        String normalizedOwner = ownerUserId.trim();
+        ImageShare imageShare = resolveImageShare(normalizedCode);
+        if (imageShare != null && normalizedOwner.equals(imageShare.ownerUserId())) {
+            return new ShortUrlStatistics(
+                    ShortUrlStatistics.ResourceType.MEDIA_SHARE,
+                    imageShare.code(),
+                    imageShare.viewCount(),
+                    imageShare.createdAt(),
+                    imageShare.lastAccessedAt(),
+                    imageShare.expiresAt()
+            );
+        }
+        ShortUrlEntry entry = resolve(normalizedCode);
+        if (entry == null || !normalizedOwner.equals(entry.ownerUserId())) {
+            return null;
+        }
+        return new ShortUrlStatistics(
+                ShortUrlStatistics.ResourceType.SHORT_URL,
+                entry.code(),
+                entry.viewCount(),
+                entry.createdAt(),
+                entry.lastAccessedAt(),
+                entry.expiresAt()
+        );
     }
 
     private ShortUrlAccessEvent.ResourceType mediaResourceType(ImageShare imageShare) {

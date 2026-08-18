@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>NoRule URL｜__RESOURCE_NAME__統計</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0a101a;--surface:#101826;--text:#eaf0ff;--muted:#95a4bf;--border:#2a3550;--accent:#4d7cff}
+    *{box-sizing:border-box}body{min-height:100vh;margin:0;background:var(--bg);color:var(--text);font-family:Inter,"Noto Sans TC","PingFang TC",sans-serif}a{color:inherit}.shell{width:min(1080px,calc(100% - 2rem));margin:0 auto}
+    header{display:flex;min-height:68px;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}.brand{font-weight:750;letter-spacing:.035em;text-decoration:none}.mode{color:var(--muted);font:600 11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.1em}
+    main{padding:clamp(2.5rem,7vw,6rem) 0}.heading{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2rem;align-items:end;padding-bottom:2rem;border-bottom:2px solid var(--border)}.eyebrow{margin:0 0 .8rem;color:var(--accent);font:700 12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.08em}h1{margin:0;font-size:clamp(2rem,5vw,4.2rem);line-height:1;letter-spacing:-.04em}.code{padding:.65rem .8rem;border:1px solid var(--border);background:var(--surface);font:650 13px/1 ui-monospace,SFMono-Regular,Consolas,monospace}
+    .metrics{display:grid;grid-template-columns:1.15fr repeat(3,1fr);border-bottom:1px solid var(--border)}.metric{min-width:0;padding:1.5rem 1.25rem 1.8rem;border-right:1px solid var(--border)}.metric:last-child{border-right:0}.metric dt{margin-bottom:1rem;color:var(--muted);font:650 11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.07em}.metric dd{margin:0;font-size:clamp(.9rem,1.5vw,1.05rem);line-height:1.5;overflow-wrap:anywhere}.metric:first-child{background:var(--surface)}.metric:first-child dd{font-size:clamp(2.6rem,6vw,5.4rem);font-weight:760;line-height:.9;color:var(--accent)}
+    footer{display:flex;flex-wrap:wrap;gap:1rem 1.5rem;padding:1.2rem 0 2rem;border-top:1px solid var(--border);color:var(--muted);font:600 11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}footer a{text-underline-offset:.25rem}
+    @media(max-width:760px){.heading{grid-template-columns:1fr;align-items:start}.code{justify-self:start}.metrics{grid-template-columns:1fr 1fr}.metric:nth-child(2){border-right:0}.metric:nth-child(n+3){border-top:1px solid var(--border)}}@media(max-width:500px){.shell{width:min(100% - 1.25rem,1080px)}.metrics{grid-template-columns:1fr}.metric{border-right:0}.metric:nth-child(n+2){border-top:1px solid var(--border)}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header><a class="brand" href="/">NoRule URL</a><span class="mode">OWNER STATISTICS</span></header>
+    <main>
+      <section class="heading"><div><p class="eyebrow">PRIVATE / __RESOURCE_NAME__</p><h1>存取統計</h1></div><span class="code">/__RESOURCE_CODE__</span></section>
+      <dl class="metrics">
+        <div class="metric"><dt>總點擊／瀏覽</dt><dd>__RESOURCE_VIEWS__</dd></div>
+        <div class="metric"><dt>建立時間</dt><dd>__RESOURCE_CREATED__</dd></div>
+        <div class="metric"><dt>最後存取</dt><dd>__RESOURCE_LAST_ACCESSED__</dd></div>
+        <div class="metric"><dt>到期時間</dt><dd>__RESOURCE_EXPIRES__</dd></div>
+      </dl>
+    </main>
+    <footer><a href="/">返回 NoRule URL</a><a href="https://www.norule.me/bot/terms-of-service/">服務條款</a><a href="https://www.norule.me/bot/privacy-policy/">隱私權政策</a></footer>
+  </div>
+</body>
+</html>

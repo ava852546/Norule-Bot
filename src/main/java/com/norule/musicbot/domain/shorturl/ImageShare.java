@@ -17,7 +17,8 @@ public record ImageShare(
         String ownerId,
         String quotaGroupId,
         String createdDeviceIdHash,
-        String createdIpHash
+        String createdIpHash,
+        long lastAccessedAt
 ) {
     public ImageShare {
         storageState = storageState == null ? MediaStorageState.ACTIVE : storageState;
@@ -51,7 +52,29 @@ public record ImageShare(
                       long viewCount) {
         this(code, storageName, contentType, sizeBytes, createdAt, expiresAt, passwordHash, contentHash,
                 viewCount, MediaStorageState.ACTIVE, "", 0L, MediaOwnerType.ANONYMOUS_DEVICE,
-                "", "", "", "");
+                "", "", "", "", 0L);
+    }
+
+    public ImageShare(String code,
+                      String storageName,
+                      String contentType,
+                      long sizeBytes,
+                      long createdAt,
+                      long expiresAt,
+                      String passwordHash,
+                      String contentHash,
+                      long viewCount,
+                      MediaStorageState storageState,
+                      String archiveStorageName,
+                      long archivedAt,
+                      MediaOwnerType ownerType,
+                      String ownerId,
+                      String quotaGroupId,
+                      String createdDeviceIdHash,
+                      String createdIpHash) {
+        this(code, storageName, contentType, sizeBytes, createdAt, expiresAt, passwordHash, contentHash,
+                viewCount, storageState, archiveStorageName, archivedAt, ownerType, ownerId,
+                quotaGroupId, createdDeviceIdHash, createdIpHash, 0L);
     }
 
     public boolean isPasswordProtected() {
@@ -63,24 +86,34 @@ public record ImageShare(
     }
 
     public ImageShare withViewCount(long updatedViewCount) {
+        return withViewMetrics(updatedViewCount, lastAccessedAt);
+    }
+
+    public ImageShare withViewMetrics(long updatedViewCount, long updatedLastAccessedAt) {
         return new ImageShare(code, storageName, contentType, sizeBytes, createdAt, expiresAt,
                 passwordHash, contentHash, Math.max(0L, updatedViewCount), storageState,
                 archiveStorageName, archivedAt, ownerType, ownerId, quotaGroupId,
-                createdDeviceIdHash, createdIpHash);
+                createdDeviceIdHash, createdIpHash, Math.max(0L, updatedLastAccessedAt));
     }
 
     public ImageShare withStorageState(MediaStorageState updatedState, String updatedArchiveStorageName,
                                        long updatedArchivedAt) {
         return new ImageShare(code, storageName, contentType, sizeBytes, createdAt, expiresAt,
                 passwordHash, contentHash, viewCount, updatedState, updatedArchiveStorageName,
-                updatedArchivedAt, ownerType, ownerId, quotaGroupId, createdDeviceIdHash, createdIpHash);
+                updatedArchivedAt, ownerType, ownerId, quotaGroupId, createdDeviceIdHash, createdIpHash,
+                lastAccessedAt);
     }
 
     public ImageShare withOwnership(MediaOwnerType updatedOwnerType, String updatedOwnerId,
                                     String updatedQuotaGroupId) {
         return new ImageShare(code, storageName, contentType, sizeBytes, createdAt, expiresAt,
                 passwordHash, contentHash, viewCount, storageState, archiveStorageName, archivedAt,
-                updatedOwnerType, updatedOwnerId, updatedQuotaGroupId, createdDeviceIdHash, createdIpHash);
+                updatedOwnerType, updatedOwnerId, updatedQuotaGroupId, createdDeviceIdHash, createdIpHash,
+                lastAccessedAt);
+    }
+
+    public String ownerUserId() {
+        return ownerType == MediaOwnerType.DISCORD_USER ? ownerId : "";
     }
 
     public boolean isPubliclyAvailable(long nowMillis) {

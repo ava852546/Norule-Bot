@@ -7,11 +7,13 @@ import com.sun.net.httpserver.HttpExchange;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.util.Map;
 import java.util.UUID;
 
 public final class WebAuthService {
     private static final long OAUTH_STATE_TTL_MILLIS = 5 * 60_000L;
+    private static final long SESSION_HANDOFF_TTL_MILLIS = 60_000L;
     private static final String ANONYMOUS_DEVICE_COOKIE = "nr_anon_device";
 
     private final WebControlServer owner;
@@ -28,8 +30,20 @@ public final class WebAuthService {
             return;
         }
         WebSettings web = owner.webSettings();
+        Map<String, String> query = owner.parseUrlEncoded(exchange.getRequestURI().getRawQuery());
+        WebSessionManager.PendingLogin pendingLogin = webSessionService.consumePendingLogin(
+                query.getOrDefault("request", ""));
+        String requestedReturnTo = pendingLogin == null
+                ? query.getOrDefault("returnTo", "") : pendingLogin.returnTo;
+        String returnTo = sanitizeReturnTo(
+                requestedReturnTo,
+                owner.resolveHomeUrl(web),
+                owner.shortUrlService().publicBaseUrl()
+        );
+        String anonymousDeviceToken = pendingLogin == null ? "" : pendingLogin.anonymousDeviceToken;
         String state = UUID.randomUUID().toString().replace("-", "");
-        webSessionService.putOAuthState(state, System.currentTimeMillis() + OAUTH_STATE_TTL_MILLIS);
+        webSessionService.putOAuthState(
+                state, System.currentTimeMillis() + OAUTH_STATE_TTL_MILLIS, returnTo, anonymousDeviceToken);
 
         String authorizeUrl = "https://discord.com/oauth2/authorize"
                 + "?response_type=code"
@@ -80,7 +94,11 @@ public final class WebAuthService {
 
             try {
                 var mediaIdentity = owner.shortUrlService().authenticateMediaIdentity(
-                        readCookie(exchange, ANONYMOUS_DEVICE_COOKIE), userId, clientAddress(exchange));
+                        stateData.anonymousDeviceToken.isBlank()
+                                ? readCookie(exchange, ANONYMOUS_DEVICE_COOKIE)
+                                : stateData.anonymousDeviceToken,
+                        userId,
+                        clientAddress(exchange));
                 if (mediaIdentity != null && mediaIdentity.mergeStatus()
                         == com.norule.musicbot.shorturl.MediaSecurityRepository.IdentityMergeStatus.ACCOUNT_SWITCH_BLOCKED) {
                     System.err.println("[NoRule] MEDIA_DEVICE_ACCOUNT_SWITCH discordUserId=" + userId);
@@ -92,9 +110,17 @@ public final class WebAuthService {
 
             long ttlMillis = Math.max(5, web.getSessionExpireMinutes()) * 60_000L;
             String sessionId = UUID.randomUUID().toString().replace("-", "");
-            webSessionService.putSession(exchange, sessionId, userId, username, avatarUrl, accessToken,
+            WebSessionManager.WebSession session = webSessionService.putSession(
+                    exchange, sessionId, userId, username, avatarUrl, accessToken,
                     System.currentTimeMillis() + ttlMillis, owner.isSecureCookie(web), web.getSessionExpireMinutes());
-            owner.redirect(exchange, owner.resolveHomeUrl(web));
+            String destination = stateData.returnTo.isBlank() ? owner.resolveHomeUrl(web) : stateData.returnTo;
+            if (requiresSessionHandoff(destination, owner.resolveHomeUrl(web),
+                    owner.shortUrlService().publicBaseUrl())) {
+                String ticket = webSessionService.issueSessionHandoff(
+                        session, System.currentTimeMillis() + SESSION_HANDOFF_TTL_MILLIS);
+                destination = appendQueryParameter(destination, "__nr_auth", ticket);
+            }
+            owner.redirect(exchange, destination);
         } catch (Exception e) {
             owner.sendText(exchange, 401, "OAuth failed: " + e.getMessage());
         }
@@ -150,5 +176,73 @@ public final class WebAuthService {
         }
         return remoteAddress == null || remoteAddress.getAddress() == null
                 ? "unknown" : remoteAddress.getAddress().getHostAddress();
+    }
+
+    static String sanitizeReturnTo(String requested, String dashboardBaseUrl, String shortUrlBaseUrl) {
+        String fallback = dashboardBaseUrl == null || dashboardBaseUrl.isBlank() ? "/" : dashboardBaseUrl;
+        if (requested == null || requested.isBlank() || requested.contains("\r") || requested.contains("\n")) {
+            return fallback;
+        }
+        try {
+            URI candidate = URI.create(requested.trim());
+            if (!candidate.isAbsolute()) {
+                return candidate.getRawAuthority() == null
+                        && candidate.getRawPath() != null
+                        && candidate.getRawPath().startsWith("/")
+                        && !candidate.getRawPath().startsWith("//")
+                        ? candidate.toString() : fallback;
+            }
+            if (sameOrigin(candidate, URI.create(fallback))) {
+                return candidate.toString();
+            }
+            URI shortBase = URI.create(shortUrlBaseUrl == null ? "" : shortUrlBaseUrl);
+            if (sameOrigin(candidate, shortBase) && isShortUrlStatisticsPath(candidate)) {
+                return candidate.toString();
+            }
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
+        return fallback;
+    }
+
+    private static boolean requiresSessionHandoff(String destination,
+                                                  String dashboardBaseUrl,
+                                                  String shortUrlBaseUrl) {
+        try {
+            URI target = URI.create(destination);
+            return target.isAbsolute()
+                    && sameOrigin(target, URI.create(shortUrlBaseUrl))
+                    && !sameOrigin(target, URI.create(dashboardBaseUrl));
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isShortUrlStatisticsPath(URI uri) {
+        String path = uri.getRawPath();
+        return path != null && path.matches("/[^/]+") && "stats".equals(uri.getRawQuery())
+                && uri.getRawFragment() == null;
+    }
+
+    private static boolean sameOrigin(URI left, URI right) {
+        if (left == null || right == null || left.getScheme() == null || right.getScheme() == null
+                || left.getHost() == null || right.getHost() == null) {
+            return false;
+        }
+        return left.getScheme().equalsIgnoreCase(right.getScheme())
+                && left.getHost().equalsIgnoreCase(right.getHost())
+                && effectivePort(left) == effectivePort(right);
+    }
+
+    private static int effectivePort(URI uri) {
+        if (uri.getPort() >= 0) {
+            return uri.getPort();
+        }
+        return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+    }
+
+    private static String appendQueryParameter(String url, String name, String value) {
+        String separator = url.contains("?") ? "&" : "?";
+        return url + separator + name + "=" + value;
     }
 }

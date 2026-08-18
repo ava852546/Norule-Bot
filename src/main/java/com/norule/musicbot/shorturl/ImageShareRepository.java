@@ -32,4 +32,8 @@ public interface ImageShareRepository {
     }
 
     long incrementViewCount(String code);
+
+    default long incrementViewCount(String code, long lastAccessedAt) {
+        return incrementViewCount(code);
+    }
 }

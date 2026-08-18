@@ -8,6 +8,10 @@ const confirmingReset = ref(false)
 const resetting = ref(false)
 const dirty = () => dashboard.markDirty('numberChain')
 
+function contributorInitial(displayName: string, userId: string) {
+  return (displayName || userId || '?').trim().charAt(0).toUpperCase()
+}
+
 async function confirmReset() {
   resetting.value = true
   try {
@@ -34,7 +38,22 @@ async function confirmReset() {
       </div>
     </DashboardSection>
     <DashboardSection v-if="cfg.topContributors.length" :title="dashboard.i18n.t('dashboard_number_chain_contributors', '活躍貢獻者')" :description="dashboard.i18n.t('dashboard_number_chain_contributors_description', '依成功接續數字次數排序。')">
-      <div class="nr-contributor-list"><div v-for="(member, index) in cfg.topContributors" :key="member.userId"><span>{{ index + 1 }}</span><strong>{{ member.userId }}</strong><b>{{ dashboard.i18n.t('dashboard_count_times', '{count} 次', { count: member.count }) }}</b></div></div>
+      <div class="nr-contributor-list">
+        <div v-for="(member, index) in cfg.topContributors" :key="member.userId" class="nr-contributor-row">
+          <span class="nr-contributor-rank">{{ index + 1 }}</span>
+          <div class="nr-contributor-identity">
+            <span class="nr-contributor-avatar">
+              <img v-if="member.avatarUrl" :src="member.avatarUrl" :alt="member.displayName" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+              <template v-else>{{ contributorInitial(member.displayName, member.userId) }}</template>
+            </span>
+            <span class="nr-contributor-copy">
+              <strong>{{ member.displayName || member.userId }}</strong>
+              <small>{{ member.userId }}</small>
+            </span>
+          </div>
+          <b>{{ dashboard.i18n.t('dashboard_count_times', '{count} 次', { count: member.count }) }}</b>
+        </div>
+      </div>
     </DashboardSection>
   </div>
 </template>
