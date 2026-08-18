@@ -2,9 +2,9 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 
 const navLinks = [
-  { label: '01 縮短', href: '#shorten' },
-  { label: '02 媒體', href: '#media' },
-  { label: '03 原則', href: '#principles' },
+  { label: '01 短網址', href: '#shorten' },
+  { label: '02 媒體分享', href: '#media' },
+  { label: '03 服務規格', href: '#principles' },
 ]
 
 type ToolName = 'shorten' | 'media'
@@ -43,28 +43,22 @@ const principles = [
   <div id="top" class="home-page">
     <NrNavbar brand="NoRule URL" :links="navLinks" @navigate="handleNavigation" />
 
-    <main>
+    <main class="utility-main">
       <NrPageContainer>
-        <section class="hero" aria-labelledby="hero-title">
-          <div class="hero__index" aria-hidden="true">
-            <span>NR / URL</span>
-            <strong>01</strong>
-            <i />
-            <small>LINK OPERATIONS</small>
-          </div>
+        <section class="utility-shell" aria-labelledby="hero-title">
+          <aside class="utility-intro">
+            <div class="utility-intro__meta"><span>NR / URL</span><b><i /> PUBLIC ACCESS</b></div>
+            <h1 id="hero-title">縮短，更簡單。</h1>
+            <p class="utility-intro__lead">建立容易分享的短連結，或上傳有期限與密碼保護的媒體。</p>
+            <dl class="utility-summary">
+              <div><dt>01</dt><dd>免登入使用</dd></div>
+              <div><dt>02</dt><dd>可自訂短碼</dd></div>
+              <div><dt>03</dt><dd>限時媒體分享</dd></div>
+            </dl>
+          </aside>
 
-          <div class="hero__copy">
-            <p class="hero__kicker">一個直接的分享工具</p>
-            <h1 id="hero-title"><span>把連結縮短，</span><em>把控制留下。</em></h1>
-            <p class="hero__lead">建立容易傳送、容易辨識的短網址；或讓圖片與影片在你設定的時間內被看見。</p>
-            <div class="hero__facts" aria-label="服務特色摘要">
-              <span><b>00</b> 免登入</span>
-              <span><b>01</b> 自訂短碼</span>
-              <span><b>02</b> 到期與密碼</span>
-            </div>
-          </div>
-
-          <div class="hero__tool">
+          <section class="utility-workspace" aria-label="連結建立工具">
+            <header class="workspace-bar"><div><span>NO RULE URL</span><strong>連結工具</strong></div><small>NO SIGN-IN REQUIRED</small></header>
             <div class="tool-switch" role="tablist" aria-label="選擇分享工具">
               <button id="shorten-tab" type="button" role="tab" :aria-selected="activeTool === 'shorten'" aria-controls="shorten" :tabindex="activeTool === 'shorten' ? 0 : -1" @click="selectTool('shorten')" @keydown.right.prevent="selectTool('media')"><span>01</span>縮短網址</button>
               <button id="media-tab" type="button" role="tab" :aria-selected="activeTool === 'media'" aria-controls="media" :tabindex="activeTool === 'media' ? 0 : -1" @click="selectTool('media')" @keydown.left.prevent="selectTool('shorten')"><span>02</span>媒體分享</button>
@@ -72,40 +66,35 @@ const principles = [
 
             <div id="shorten" v-show="activeTool === 'shorten'" class="tool-panel" role="tabpanel" aria-labelledby="shorten-tab">
               <header class="tool-panel__heading">
-                <p>SHORT LINK / 01</p>
-                <div><h2>貼上完整網址。</h2><span>短碼可以留白；需要辨識度時再命名。</span></div>
+                <div><p>SHORT LINK / 01</p><h2>建立短連結</h2></div>
+                <span>貼上完整網址；短碼可以留白，需要辨識度時再命名。</span>
               </header>
               <ShortUrlForm />
             </div>
 
             <div id="media" v-show="activeTool === 'media'" class="tool-panel" role="tabpanel" aria-labelledby="media-tab">
               <header class="tool-panel__heading">
-                <p>MEDIA DROP / 02</p>
-                <div><h2>選擇媒體與存取期限。</h2><span>上傳完成後，連結會清楚標示到期時間。</span></div>
+                <div><p>MEDIA DROP / 02</p><h2>建立媒體連結</h2></div>
+                <span>選擇圖片或影片，設定存取期限與密碼保護。</span>
               </header>
               <MediaShareForm />
             </div>
-          </div>
+          </section>
         </section>
 
-        <section id="principles" class="principles" aria-labelledby="principles-title">
-          <header class="principles__heading">
-            <p>03 / SHARING RULES</p>
-            <h2 id="principles-title">每一步都有理由，<br>沒有多餘流程。</h2>
+        <section id="principles" class="capabilities" aria-labelledby="principles-title">
+          <header class="capabilities__heading">
+            <p>03 / SERVICE SCOPE</p>
+            <h2 id="principles-title">清楚的分享控制</h2>
+            <span>從建立連結到限制存取，每個選項都直接對應實際用途。</span>
           </header>
-          <ol class="principle-list">
+          <ol class="capability-list">
             <li v-for="principle in principles" :key="principle.number">
               <span>{{ principle.number }}</span>
               <h3>{{ principle.title }}</h3>
               <p>{{ principle.description }}</p>
             </li>
           </ol>
-        </section>
-
-        <section class="closing" aria-labelledby="closing-title">
-          <p>READY WHEN YOU ARE</p>
-          <h2 id="closing-title">下一條連結，<br>不必那麼長。</h2>
-          <a href="#shorten" @click="selectTool('shorten', false)">回到縮短工具 <span aria-hidden="true">↗</span></a>
         </section>
       </NrPageContainer>
     </main>
@@ -115,5 +104,5 @@ const principles = [
 </template>
 
 <style scoped>
-.home-page{position:relative}.hero{display:grid;min-height:min(46rem,calc(100vh - 4.55rem));grid-template-columns:4.75rem minmax(20rem,.8fr) minmax(36rem,1.25fr);align-items:start;border-right:1px solid var(--nr-border);border-left:1px solid var(--nr-border)}.hero__index{display:grid;min-height:100%;grid-template-rows:auto auto 1fr auto;gap:1.2rem;padding:1.75rem .75rem;border-right:1px solid var(--nr-border);font-family:var(--nr-font-mono)}.hero__index span,.hero__index small,.hero__kicker,.tool-panel__heading>p,.principles__heading>p,.closing>p{margin:0;color:var(--nr-text-muted);font-family:var(--nr-font-mono);font-size:.65rem;font-weight:700;letter-spacing:.08em}.hero__index strong{font-family:var(--nr-font-display);font-size:clamp(2.9rem,4.4vw,4.5rem);font-weight:650;line-height:.8}.hero__index i{width:1px;justify-self:center;background:var(--nr-border)}.hero__index small{align-self:end;writing-mode:vertical-rl}.hero__copy{display:grid;align-content:start;gap:1.35rem;padding:clamp(3.25rem,5vw,5rem) clamp(1.75rem,3vw,3rem) 2.5rem}.hero__kicker{color:var(--nr-accent);text-transform:uppercase}.hero h1{margin:0;font-family:var(--nr-font-display);font-size:clamp(3.8rem,4.8vw,5.1rem);font-weight:680;line-height:.86;letter-spacing:-.055em}.hero h1 span,.hero h1 em{display:block;white-space:nowrap;word-break:keep-all}.hero h1 em{color:var(--nr-accent);font-style:normal}.hero__lead{max-width:34rem;margin:0;color:var(--nr-text-muted);font-size:clamp(1rem,1.4vw,1.18rem);line-height:1.7}.hero__facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin-top:clamp(1rem,2.4vh,2rem);border-top:1px solid var(--nr-border);border-bottom:1px solid var(--nr-border)}.hero__facts span{display:grid;gap:.35rem;padding:.85rem .65rem;color:var(--nr-text-muted);font-size:.7rem}.hero__facts span+span{border-left:1px solid var(--nr-border)}.hero__facts b{color:var(--nr-text);font-family:var(--nr-font-mono);font-size:.62rem}.hero__tool{min-width:0;align-self:stretch;border-left:1px solid var(--nr-border-strong);background:var(--nr-surface)}.tool-switch{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--nr-border-strong)}.tool-switch button{display:flex;min-height:4.55rem;align-items:center;gap:.75rem;padding:0 1.5rem;border:0;color:var(--nr-text-muted);background:transparent;font-family:var(--nr-font-display);font-weight:700;text-align:left;cursor:pointer}.tool-switch button+button{border-left:1px solid var(--nr-border)}.tool-switch button span{font-family:var(--nr-font-mono);font-size:.62rem}.tool-switch button[aria-selected="true"]{color:var(--nr-accent-ink);background:var(--nr-text)}.tool-panel{padding:clamp(2rem,3vw,3rem)}.tool-panel__heading{display:grid;grid-template-columns:7rem minmax(0,1fr);gap:1.25rem;margin-bottom:2rem}.tool-panel__heading>p{padding-top:.45rem;color:var(--nr-accent)}.tool-panel__heading h2{margin:0;font-family:var(--nr-font-display);font-size:clamp(2rem,3vw,3.25rem);font-weight:680;line-height:.95;letter-spacing:-.035em}.tool-panel__heading span{display:block;max-width:32rem;margin-top:.7rem;color:var(--nr-text-muted);font-size:.82rem}.principles{display:grid;grid-template-columns:minmax(16rem,.8fr) minmax(0,1.2fr);gap:clamp(2rem,6vw,6rem);padding:clamp(4rem,6.5vw,6.5rem) 0;border-top:1px solid var(--nr-border-strong)}.principles__heading{align-self:start;position:sticky;top:7rem}.principles__heading>p{color:var(--nr-accent)}.principles__heading h2{margin:1.4rem 0 0;font-family:var(--nr-font-display);font-size:clamp(3rem,6vw,6rem);font-weight:670;line-height:.9;letter-spacing:-.045em}.principle-list{margin:0;padding:0;border-top:1px solid var(--nr-border-strong);list-style:none}.principle-list li{display:grid;grid-template-columns:4rem minmax(9rem,.65fr) minmax(14rem,1fr);gap:1.3rem;align-items:baseline;padding:1.5rem 0;border-bottom:1px solid var(--nr-border)}.principle-list span{font-family:var(--nr-font-mono);font-size:.68rem}.principle-list h3{margin:0;font-family:var(--nr-font-display);font-size:1.35rem}.principle-list p{margin:0;color:var(--nr-text-muted);font-size:.88rem}.closing{display:grid;grid-template-columns:minmax(8rem,.45fr) minmax(18rem,1fr) auto;align-items:end;gap:2rem;padding:clamp(4rem,8vw,7rem) 0;border-top:1px solid var(--nr-border-strong)}.closing>p{align-self:start;color:var(--nr-accent)}.closing h2{margin:0;font-family:var(--nr-font-display);font-size:clamp(3.5rem,8vw,8rem);font-weight:670;line-height:.82;letter-spacing:-.055em}.closing a{display:flex;min-height:3.4rem;align-items:center;gap:1rem;padding:0 1rem;border:1px solid var(--nr-border-strong);font-family:var(--nr-font-display);font-size:.86rem;font-weight:700;text-decoration:none}.closing a:hover{color:var(--nr-accent-ink);background:var(--nr-text)}@media(max-width:1120px){.hero{grid-template-columns:4.75rem minmax(0,1fr)}.hero__tool{grid-column:1/-1;border-top:1px solid var(--nr-border-strong);border-left:0}.hero__copy{min-height:60vh}.hero h1{font-size:clamp(4rem,8vw,6.5rem)}.principles{grid-template-columns:1fr}.principles__heading{position:static}.closing{grid-template-columns:1fr auto}.closing>p{grid-column:1/-1}}@media(max-width:700px){.hero{display:block;min-height:0;border:0}.hero__index{display:none}.hero__copy{min-height:0;padding:4rem 0 3rem}.hero h1{font-size:clamp(3.25rem,15.8vw,5rem)}.hero__facts{grid-template-columns:1fr}.hero__facts span{grid-template-columns:2rem 1fr}.hero__facts span+span{border-top:1px solid var(--nr-border);border-left:0}.hero__tool{margin-right:-.75rem;margin-left:-.75rem;border-right:1px solid var(--nr-border-strong);border-left:1px solid var(--nr-border-strong)}.tool-switch button{min-height:4rem;padding:0 .8rem}.tool-panel{padding:2rem .8rem 2.5rem}.tool-panel__heading{grid-template-columns:1fr;gap:.7rem}.principles{padding:5rem 0}.principles__heading h2{font-size:clamp(3rem,14vw,4.7rem)}.principle-list li{grid-template-columns:2.5rem 1fr;padding:1.3rem 0}.principle-list p{grid-column:2}.closing{grid-template-columns:1fr;align-items:start}.closing h2{font-size:clamp(4rem,18vw,6rem)}.closing a{width:max-content}}
+.home-page{position:relative}.utility-main{min-height:calc(100vh - 4.55rem)}.utility-shell{display:grid;grid-template-columns:minmax(18rem,.58fr) minmax(42rem,1.42fr);align-items:stretch;padding:clamp(2rem,4vw,4rem) 0 3.5rem}.utility-intro{display:grid;min-width:0;align-content:start;padding:1.75rem clamp(1.5rem,3vw,3rem) 1.75rem 0;border-top:1px solid var(--nr-border-strong);border-bottom:1px solid var(--nr-border)}.utility-intro__meta{display:flex;align-items:center;justify-content:space-between;gap:1rem;color:var(--nr-text-muted);font-family:var(--nr-font-mono);font-size:.6rem;letter-spacing:.08em}.utility-intro__meta b{display:flex;align-items:center;gap:.45rem;color:var(--nr-success);font-size:inherit}.utility-intro__meta i{width:.45rem;height:.45rem;background:currentColor}.utility-intro h1{margin:clamp(2.5rem,5vw,4.5rem) 0 .9rem;font-family:var(--nr-font-display);font-size:clamp(2.8rem,4.2vw,4.4rem);font-weight:680;line-height:1;letter-spacing:-.035em;word-break:keep-all}.utility-intro__lead{max-width:27rem;margin:0;color:var(--nr-text-muted);font-size:.95rem;line-height:1.7}.utility-summary{display:grid;margin:clamp(2.5rem,5vw,4rem) 0 0;padding:0;border-top:1px solid var(--nr-border)}.utility-summary div{display:grid;grid-template-columns:2.5rem 1fr;gap:.75rem;padding:.8rem 0;border-bottom:1px solid var(--nr-border)}.utility-summary dt{color:var(--nr-accent);font-family:var(--nr-font-mono);font-size:.62rem;font-weight:800}.utility-summary dd{margin:0;color:var(--nr-text-muted);font-size:.72rem}.utility-workspace{min-width:0;border:1px solid var(--nr-border-strong);background:var(--nr-surface)}.workspace-bar{display:flex;min-height:4rem;align-items:center;justify-content:space-between;gap:1rem;padding:.8rem 1.4rem;border-bottom:1px solid var(--nr-border)}.workspace-bar div{display:flex;align-items:baseline;gap:.8rem}.workspace-bar span,.workspace-bar small,.tool-panel__heading p,.capabilities__heading>p{color:var(--nr-text-muted);font-family:var(--nr-font-mono);font-size:.58rem;letter-spacing:.08em}.workspace-bar strong{font-family:var(--nr-font-display);font-size:.9rem}.tool-switch{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--nr-border-strong)}.tool-switch button{display:flex;min-height:3.75rem;align-items:center;gap:.75rem;padding:0 1.4rem;border:0;color:var(--nr-text-muted);background:var(--nr-bg);font-family:var(--nr-font-display);font-size:.84rem;font-weight:700;text-align:left;cursor:pointer}.tool-switch button+button{border-left:1px solid var(--nr-border)}.tool-switch button span{font-family:var(--nr-font-mono);font-size:.6rem}.tool-switch button[aria-selected="true"]{color:var(--nr-text);background:var(--nr-bg-elevated);box-shadow:inset 0 -3px var(--nr-accent)}.tool-panel{padding:clamp(1.75rem,3vw,2.75rem)}.tool-panel__heading{display:flex;align-items:end;justify-content:space-between;gap:2rem;margin-bottom:1.6rem}.tool-panel__heading p{margin:0 0 .45rem;color:var(--nr-accent)}.tool-panel__heading h2{margin:0;font-family:var(--nr-font-display);font-size:clamp(1.65rem,2.4vw,2.35rem);font-weight:680;line-height:1}.tool-panel__heading>span{max-width:25rem;color:var(--nr-text-muted);font-size:.76rem;line-height:1.55;text-align:right}.capabilities{display:grid;grid-template-columns:minmax(16rem,.65fr) minmax(0,1.35fr);gap:clamp(2.5rem,6vw,6rem);padding:3.5rem 0 4.5rem;border-top:1px solid var(--nr-border-strong)}.capabilities__heading>p{margin:0;color:var(--nr-accent)}.capabilities__heading h2{margin:.75rem 0 .65rem;font-family:var(--nr-font-display);font-size:clamp(1.8rem,3vw,2.75rem);font-weight:670;line-height:1}.capabilities__heading>span{display:block;max-width:28rem;color:var(--nr-text-muted);font-size:.78rem;line-height:1.6}.capability-list{margin:0;padding:0;border-top:1px solid var(--nr-border-strong);list-style:none}.capability-list li{display:grid;grid-template-columns:2.5rem minmax(9rem,.6fr) minmax(14rem,1fr);gap:1rem;align-items:baseline;padding:1.15rem 0;border-bottom:1px solid var(--nr-border)}.capability-list>li>span{color:var(--nr-accent);font-family:var(--nr-font-mono);font-size:.62rem}.capability-list h3{margin:0;font-family:var(--nr-font-display);font-size:1rem}.capability-list p{margin:0;color:var(--nr-text-muted);font-size:.76rem;line-height:1.55}@media(max-width:1100px){.utility-shell{grid-template-columns:1fr;padding-top:2rem}.utility-intro{padding:1.75rem 0 2rem}.utility-intro h1{margin:2rem 0 .75rem}.utility-summary{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:2rem}.utility-summary div{grid-template-columns:1fr;gap:.3rem;padding:.75rem}.utility-summary div+div{border-left:1px solid var(--nr-border)}.capabilities{grid-template-columns:1fr;gap:2rem}}@media(max-width:700px){.utility-main{min-height:0}.utility-shell{padding-top:1.5rem}.utility-intro h1{font-size:clamp(2.4rem,12vw,3.4rem)}.utility-summary{grid-template-columns:1fr}.utility-summary div{grid-template-columns:2.5rem 1fr;padding:.75rem 0}.utility-summary div+div{border-left:0}.utility-workspace{margin-right:-.75rem;margin-left:-.75rem}.workspace-bar{align-items:flex-start;padding:.8rem}.workspace-bar div{display:grid;gap:.1rem}.workspace-bar small{max-width:9rem;text-align:right}.tool-switch button{min-height:3.6rem;padding:0 .8rem}.tool-panel{padding:1.5rem .8rem 2rem}.tool-panel__heading{display:grid;gap:.75rem}.tool-panel__heading>span{text-align:left}.capabilities{padding:3rem 0}.capability-list li{grid-template-columns:2.5rem 1fr}.capability-list p{grid-column:2}}
 </style>

@@ -10,9 +10,9 @@
   --panel: var(--nr-surface);
   --panel-soft: var(--nr-surface-soft);
   --panel-strong: var(--nr-surface);
-  --surface-1: rgba(238, 233, 220, 0.035);
-  --surface-2: rgba(238, 233, 220, 0.06);
-  --surface-3: rgba(238, 233, 220, 0.09);
+  --surface-1: rgba(234, 240, 255, 0.035);
+  --surface-2: rgba(234, 240, 255, 0.06);
+  --surface-3: rgba(234, 240, 255, 0.09);
   --line: var(--nr-border);
   --line-strong: var(--nr-border-strong);
   --text: var(--nr-text);
@@ -20,8 +20,8 @@
   --accent: var(--nr-accent);
   --accent-2: var(--nr-accent);
   --accent-3: var(--nr-accent-hover);
-  --accent-soft: rgba(240, 106, 67, 0.14);
-  --warn: #dda75d;
+  --accent-soft: rgba(77, 124, 255, 0.16);
+  --warn: #e1ad63;
   --danger: var(--nr-danger);
   --danger-2: #d85b54;
   --shadow-xl: none;

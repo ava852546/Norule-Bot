@@ -80,24 +80,27 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', dashboard.befor
   <div class="nr-dashboard">
 
     <template v-if="dashboard.state.authenticating">
-      <main class="nr-auth-page"><section class="nr-auth-card nr-loading-card"><span class="nr-brand-mark"><img v-if="dashboard.state.bot?.avatarUrl" :src="dashboard.state.bot.avatarUrl" :alt="dashboard.state.bot.username" referrerpolicy="no-referrer"><template v-else>N</template><i /></span><div class="nr-loading-line" /><div class="nr-loading-line is-short" /><div class="nr-loading-block" /></section></main>
+      <main class="nr-auth-page nr-auth-page--loading"><section class="nr-auth-card nr-loading-card"><span class="nr-brand-mark"><img v-if="dashboard.state.bot?.avatarUrl" :src="dashboard.state.bot.avatarUrl" :alt="dashboard.state.bot.username" referrerpolicy="no-referrer"><template v-else>N</template><i /></span><div class="nr-loading-line" /><div class="nr-loading-line is-short" /><div class="nr-loading-block" /></section></main>
     </template>
 
     <template v-else-if="!dashboard.state.authenticated">
       <main class="nr-auth-page">
-        <aside class="nr-auth-aside" aria-hidden="true">
-          <p>NR / CONTROL</p>
-          <strong>把伺服器<br>整理成一套<br><em>清楚規則。</em></strong>
-          <span>DISCORD OPERATIONS<br>MODULES 01—08</span>
-        </aside>
-        <section class="nr-auth-card">
-          <div class="nr-brand is-centered"><span class="nr-brand-mark"><img v-if="dashboard.state.bot?.avatarUrl" :src="dashboard.state.bot.avatarUrl" :alt="dashboard.state.bot.username" referrerpolicy="no-referrer"><template v-else>N</template><i /></span><span><strong>{{ dashboard.state.bot?.username || 'NoRule' }}</strong><small>{{ dashboard.i18n.t('dashboard_brand_console', 'BOT 控制台') }}</small></span></div>
-          <span class="nr-auth-kicker">01 / {{ dashboard.i18n.t('dashboard_auth_kicker', 'DISCORD SERVER MANAGEMENT') }}</span>
-          <h1>{{ dashboard.i18n.t('dashboard_auth_title', '掌握伺服器，') }}<em>{{ dashboard.i18n.t('dashboard_auth_title_emphasis', '不必迷路。') }}</em></h1>
-          <p>{{ dashboard.i18n.t('dashboard_auth_description', '以 Discord 安全登入後，集中管理 NoRule Bot 的通知、音樂、票券、歡迎訊息與自動化設定。') }}</p>
-          <a class="nr-button is-primary is-large" href="/auth/login">{{ dashboard.i18n.t('loginBtn', '使用 Discord 登入') }} <span>→</span></a>
-          <small class="nr-auth-note">{{ dashboard.i18n.t('dashboard_auth_note', '只有具備「管理伺服器」權限的伺服器會出現在控制台。') }}</small>
-        </section>
+        <header class="nr-auth-header">
+          <div class="nr-brand"><span class="nr-brand-mark"><img v-if="dashboard.state.bot?.avatarUrl" :src="dashboard.state.bot.avatarUrl" :alt="dashboard.state.bot.username" referrerpolicy="no-referrer"><template v-else>N</template><i /></span><span><strong>{{ dashboard.state.bot?.username || 'NoRule Bot' }}</strong><small>{{ dashboard.i18n.t('dashboard_brand_console', 'BOT 控制台') }}</small></span></div>
+          <span class="nr-auth-system">CONTROL PORTAL / DISCORD</span>
+        </header>
+
+        <div class="nr-auth-layout">
+          <section class="nr-auth-card">
+            <span class="nr-auth-kicker">WEB CONTROL PANEL</span>
+            <h1>{{ dashboard.i18n.t('dashboard_auth_portal_title', 'NoRule Bot 網頁控制台') }}</h1>
+            <p>{{ dashboard.i18n.t('dashboard_auth_description', '使用 Discord 帳號登入，管理你有權限的伺服器設定。') }}</p>
+            <a class="nr-button is-primary nr-auth-cta" href="/auth/login">{{ dashboard.i18n.t('loginBtn', '使用 Discord 登入') }} <span>→</span></a>
+            <small class="nr-auth-note">{{ dashboard.i18n.t('dashboard_auth_note', '只有具備「管理伺服器」權限的伺服器會出現在控制台。') }}</small>
+          </section>
+        </div>
+
+        <footer class="nr-auth-footer"><span>NO RULE BOT / CONTROL</span><span>SECURE DISCORD AUTHENTICATION</span></footer>
       </main>
     </template>
 

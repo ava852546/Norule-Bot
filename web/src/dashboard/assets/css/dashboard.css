@@ -1,24 +1,24 @@
 :root {
   --nr-sidebar-width: 17.5rem;
   --nr-topbar-height: 4.5rem;
-  --nr-paper: #11120f;
-  --nr-paper-raised: #181915;
-  --nr-paper-deep: #20211d;
-  --nr-ink: #eee9dc;
-  --nr-muted: #a3a097;
-  --nr-subtle: #77776f;
-  --nr-line: #3b3c36;
-  --nr-line-strong: #979389;
-  --nr-accent: #f06a43;
-  --nr-accent-dark: #ff8059;
-  --nr-green: #68bd91;
-  --nr-red: #f07870;
-  --nr-blue: #ff9a76;
-  --nr-charcoal: #181915;
-  --nr-charcoal-deep: #0c0d0b;
-  --nr-ivory: #eee9dc;
-  --nr-ivory-bright: #fffaf0;
-  --nr-on-accent: #11120f;
+  --nr-paper: #0b1220;
+  --nr-paper-raised: #121a2b;
+  --nr-paper-deep: #182235;
+  --nr-ink: #eaf0ff;
+  --nr-muted: #9da9c0;
+  --nr-subtle: #73809a;
+  --nr-line: #2b364c;
+  --nr-line-strong: #465572;
+  --nr-accent: #4c7dff;
+  --nr-accent-dark: #6a95ff;
+  --nr-green: #45c58a;
+  --nr-red: #ff6f79;
+  --nr-blue: #6a95ff;
+  --nr-charcoal: #121a2b;
+  --nr-charcoal-deep: #080e19;
+  --nr-ivory: #eaf0ff;
+  --nr-ivory-bright: #f8faff;
+  --nr-on-accent: #ffffff;
   --nr-text: var(--nr-ink);
   --nr-font: "Aptos", "Segoe UI Variable Text", "Microsoft JhengHei UI", "Microsoft JhengHei", system-ui, sans-serif;
   --nr-display: "Bahnschrift SemiCondensed", "Arial Narrow", "Microsoft JhengHei UI", sans-serif;
@@ -306,19 +306,21 @@ button.nr-brand { width: 100%; padding: 1.15rem 1.25rem; border-bottom: 1px soli
 .nr-toast-enter-active, .nr-toast-leave-active { transition: 160ms ease; }
 .nr-toast-enter-from, .nr-toast-leave-to { transform: translateX(1rem); opacity: 0; }
 
-/* Authentication and empty states */
-.nr-auth-page { display: grid; min-height: 100vh; grid-template-columns:minmax(18rem,.9fr) minmax(24rem,1.1fr); }
-.nr-auth-aside { display: grid; min-height: 100vh; grid-template-rows:auto 1fr auto; padding: clamp(2rem,5vw,5rem); color: var(--nr-ivory); border-right: 1px solid var(--nr-line-strong); background: var(--nr-charcoal-deep); }
-.nr-auth-aside > p, .nr-auth-aside > span { margin: 0; color: var(--nr-muted); font-family: var(--nr-mono); font-size: .65rem; letter-spacing: .08em; }
-.nr-auth-aside > strong { align-self: center; font-family: var(--nr-display); font-size: clamp(3.5rem,6.7vw,7.5rem); font-weight: 660; line-height: .82; letter-spacing: -.045em; }
-.nr-auth-aside em { color: var(--nr-accent); font-style: normal; }
-.nr-auth-card { display: grid; width: min(40rem,100%); align-content: center; justify-items: start; padding: clamp(2rem,7vw,7rem); background: var(--nr-paper); text-align: left; }
-.nr-auth-kicker { margin-top: clamp(2rem,6vh,5rem); color: var(--nr-accent-dark); font-family: var(--nr-mono); font-size: .62rem; font-weight: 900; letter-spacing: .1em; }
-.nr-auth-card h1 { margin: 1.1rem 0 .9rem; font-family: var(--nr-display); font-size: clamp(3.2rem,6vw,6rem); font-weight: 660; line-height: .86; letter-spacing: -.05em; }
-.nr-auth-card h1 em { display: block; color: var(--nr-accent); font-style: normal; }
-.nr-auth-card > p { max-width: 30rem; margin: 0 0 2rem; color: var(--nr-muted); font-size: .88rem; line-height: 1.75; }
-.nr-auth-note { margin-top: 1rem; color: var(--nr-muted); font-size: .62rem; }
-.nr-loading-card { grid-column: 1 / -1; align-self: center; justify-self: center; justify-items: center; gap: .9rem; border: 1px solid var(--nr-line-strong); background: var(--nr-paper-raised); }
+/* Authentication is a focused control portal, separate from the signed-in dashboard composition. */
+.nr-auth-page { display: grid; min-height: 100vh; grid-template-rows: auto 1fr auto; background: var(--nr-paper); }
+.nr-auth-page--loading { grid-template-rows: 1fr; place-items: center; }
+.nr-auth-header { display: flex; min-height: 5rem; align-items: center; justify-content: space-between; gap: 2rem; padding: 0 clamp(1.5rem,4vw,4rem); border-bottom: 1px solid var(--nr-line); background: var(--nr-charcoal-deep); }
+.nr-auth-header .nr-brand { flex: none; }
+.nr-auth-system { color: var(--nr-muted); font-family: var(--nr-mono); font-size: .6rem; letter-spacing: .09em; }
+.nr-auth-layout { display: grid; width: min(calc(100% - clamp(3rem,8vw,8rem)),44rem); align-items: center; margin-inline: auto; padding: clamp(3.5rem,8vh,6.5rem) 0; }
+.nr-auth-card { display: grid; align-content: start; justify-items: start; padding: clamp(2rem,5vw,3.5rem); border: 1px solid var(--nr-line); background: var(--nr-paper-raised); text-align: left; }
+.nr-auth-kicker { margin: 0; color: var(--nr-accent-dark); font-family: var(--nr-mono); font-size: .62rem; font-weight: 850; letter-spacing: .09em; }
+.nr-auth-card h1 { margin: 1rem 0 .8rem; font-family: var(--nr-display); font-size: clamp(2.25rem,4vw,3.4rem); font-weight: 660; line-height: 1; letter-spacing: -.02em; }
+.nr-auth-card > p { max-width: 34rem; margin: 0 0 1.75rem; color: var(--nr-muted); font-size: .9rem; line-height: 1.7; }
+.nr-auth-cta { min-width: 15rem; }
+.nr-auth-note { max-width: 29rem; margin-top: .9rem; color: var(--nr-muted); font-size: .62rem; line-height: 1.55; }
+.nr-auth-footer { display: flex; justify-content: space-between; gap: 2rem; padding: 1rem clamp(1.5rem,4vw,4rem); color: var(--nr-subtle); border-top: 1px solid var(--nr-line); font-family: var(--nr-mono); font-size: .54rem; letter-spacing: .07em; }
+.nr-loading-card { width: min(31rem,calc(100vw - 3rem)); justify-items: center; gap: .9rem; padding: 2rem; border: 1px solid var(--nr-line-strong); background: var(--nr-paper-raised); }
 .nr-loading-line, .nr-loading-block { width: 90%; height: 1rem; background: var(--nr-paper-deep); animation: nr-pulse 1.2s ease-in-out infinite alternate; }
 .nr-loading-line.is-short { width: 65%; }
 .nr-loading-block { height: 5rem; margin-top: .5rem; }
@@ -353,10 +355,7 @@ button.nr-brand { width: 100%; padding: 1.15rem 1.25rem; border-bottom: 1px soli
   .nr-page-head-actions { grid-column: 2; justify-content: flex-start; }
   .nr-ticket-option-layout { grid-template-columns: 1fr; }
   .nr-ticket-option-list { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .nr-auth-page { grid-template-columns: 1fr; }
-  .nr-auth-aside { min-height: 46vh; }
-  .nr-auth-aside > strong { padding: 3rem 0; }
-  .nr-auth-card { width: 100%; min-height: 54vh; }
+  .nr-auth-layout { width: min(calc(100% - 3rem),40rem); padding: 3.5rem 0; }
 }
 
 @media (max-width: 620px) {
@@ -400,9 +399,12 @@ button.nr-brand { width: 100%; padding: 1.15rem 1.25rem; border-bottom: 1px soli
   .nr-modal { width: 100%; max-height: 94vh; border-right: 0; border-bottom: 0; border-left: 0; box-shadow: none; }
   .nr-guild-directory article { grid-template-columns: 2.6rem minmax(0,1fr); }
   .nr-guild-directory article > .nr-button { grid-column: 1 / -1; }
-  .nr-auth-aside { min-height: 42vh; padding: 1.5rem; }
-  .nr-auth-aside > strong { font-size: clamp(3.4rem,17vw,5rem); }
-  .nr-auth-card { min-height: 58vh; padding: 2.5rem 1.5rem; }
+  .nr-auth-header { min-height: 4.5rem; padding: 0 1rem; }
+  .nr-auth-system { display: none; }
+  .nr-auth-layout { width: min(calc(100% - 2rem),40rem); padding: 2.5rem 0; }
+  .nr-auth-card { padding: 2rem 1.25rem; }
+  .nr-auth-cta { width: 100%; }
+  .nr-auth-footer { display: grid; gap: .35rem; padding: 1rem; }
   .nr-welcome-preview-copy { padding-right: 0; }
   .nr-welcome-thumb { position: static; width: 3.5rem; height: 3.5rem; margin-bottom: .6rem; }
 }
