@@ -7,14 +7,14 @@ const dashboard = useDashboard()
 const logoutConfirmOpen = ref(false)
 
 const tabs = computed<DashboardTabDefinition[]>(() => [
-  { id: 'general', labelKey: 'tabs_general', fallback: '一般設定', caption: dashboard.i18n.t('dashboard_nav_general_caption', '語言與基礎偏好'), icon: '⌂' },
-  { id: 'notifications', labelKey: 'tabs_notifications', fallback: '通知設定', caption: dashboard.i18n.t('dashboard_nav_notifications_caption', '成員與語音通知'), icon: '◉' },
-  { id: 'logs', labelKey: 'tabs_logs', fallback: '日誌紀錄', caption: dashboard.i18n.t('dashboard_nav_logs_caption', '事件記錄與排除規則'), icon: '▤' },
-  { id: 'music', labelKey: 'tabs_music', fallback: '音樂設定', caption: dashboard.i18n.t('dashboard_nav_music_caption', '播放行為與統計'), icon: '♫' },
-  { id: 'privateRoom', labelKey: 'tabs_privateRoom', fallback: '私人房間', caption: dashboard.i18n.t('dashboard_nav_private_room_caption', '動態語音房間'), icon: '◇' },
-  { id: 'welcome', labelKey: 'tabs_welcome', fallback: '歡迎訊息', caption: dashboard.i18n.t('dashboard_nav_welcome_caption', '新成員迎賓流程'), icon: '✦' },
-  { id: 'numberChain', labelKey: 'tabs_numberChain', fallback: '數字接龍', caption: dashboard.i18n.t('dashboard_nav_number_chain_caption', '頻道與遊戲進度'), icon: '#' },
-  { id: 'ticket', labelKey: 'tabs_ticket', fallback: '票券系統', caption: dashboard.i18n.t('dashboard_nav_ticket_caption', '客服流程與歷史'), icon: '▣' },
+  { id: 'general', labelKey: 'tabs_general', fallback: '一般設定', caption: dashboard.i18n.t('dashboard_nav_general_caption', '語言與基礎偏好'), icon: '01' },
+  { id: 'notifications', labelKey: 'tabs_notifications', fallback: '通知設定', caption: dashboard.i18n.t('dashboard_nav_notifications_caption', '成員與語音通知'), icon: '02' },
+  { id: 'logs', labelKey: 'tabs_logs', fallback: '日誌紀錄', caption: dashboard.i18n.t('dashboard_nav_logs_caption', '事件記錄與排除規則'), icon: '03' },
+  { id: 'music', labelKey: 'tabs_music', fallback: '音樂設定', caption: dashboard.i18n.t('dashboard_nav_music_caption', '播放行為與統計'), icon: '04' },
+  { id: 'privateRoom', labelKey: 'tabs_privateRoom', fallback: '私人房間', caption: dashboard.i18n.t('dashboard_nav_private_room_caption', '動態語音房間'), icon: '05' },
+  { id: 'welcome', labelKey: 'tabs_welcome', fallback: '歡迎訊息', caption: dashboard.i18n.t('dashboard_nav_welcome_caption', '新成員迎賓流程'), icon: '06' },
+  { id: 'numberChain', labelKey: 'tabs_numberChain', fallback: '數字接龍', caption: dashboard.i18n.t('dashboard_nav_number_chain_caption', '頻道與遊戲進度'), icon: '07' },
+  { id: 'ticket', labelKey: 'tabs_ticket', fallback: '票券系統', caption: dashboard.i18n.t('dashboard_nav_ticket_caption', '客服流程與歷史'), icon: '08' },
 ])
 
 function requestLogout() {
@@ -37,7 +37,7 @@ function logout() {
       </button>
 
       <nav class="nr-nav" :aria-label="dashboard.i18n.t('dashboard_navigation', '控制面板功能')">
-        <p>{{ dashboard.i18n.t('dashboard_workspace', '工作區') }}</p>
+        <p>MODULE INDEX / {{ dashboard.i18n.t('dashboard_workspace', '工作區') }}</p>
         <button
           v-for="tab in tabs"
           :key="tab.id"

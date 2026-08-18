@@ -19,5 +19,5 @@ const describedBy = computed(() => [props.hint && `${selectId.value}-hint`, prop
 </template>
 
 <style scoped>
-.nr-select{display:grid;gap:.55rem}.nr-select__label{font-size:.88rem;font-weight:680}select{width:100%;min-height:var(--nr-control-height);padding:0 2.6rem 0 1rem;color:var(--nr-text);border:1px solid var(--nr-border);border-radius:var(--nr-radius-md);outline:0;background:#090e0b;cursor:pointer}select:focus{border-color:var(--nr-border-strong);box-shadow:0 0 0 3px rgba(112,230,171,.08)}select:disabled{cursor:not-allowed;opacity:.55}.nr-select__hint,.nr-select__error{font-size:.78rem;line-height:1.45}.nr-select__hint{color:var(--nr-text-muted)}.nr-select__error{color:var(--nr-danger)}
+.nr-select{display:grid;gap:.5rem}.nr-select__label{font-family:var(--nr-font-mono);font-size:.7rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}select{width:100%;min-height:var(--nr-control-height);padding:0 2.6rem 0 1rem;color:var(--nr-text);border:1px solid var(--nr-border-strong);border-radius:0;outline:0;background:var(--nr-surface);cursor:pointer}select:focus{box-shadow:inset 5px 0 0 var(--nr-accent)}select:disabled{cursor:not-allowed;opacity:.55}.nr-select__hint,.nr-select__error{font-size:.75rem;line-height:1.45}.nr-select__hint{color:var(--nr-text-muted)}.nr-select__error{color:var(--nr-danger)}
 </style>

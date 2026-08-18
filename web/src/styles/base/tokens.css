@@ -1,105 +1,42 @@
 @import url("../../../app/assets/css/tokens.css");
 
 :root {
-  --font-sans:
-    "Aptos",
-    "Segoe UI Variable Text",
-    "Bahnschrift",
-    "Trebuchet MS",
-    sans-serif;
-  --font-sans-zh:
-    "Microsoft JhengHei UI",
-    "Microsoft JhengHei",
-    "PingFang TC",
-    "Noto Sans TC",
-    "Heiti TC",
-    "Segoe UI Variable Text",
-    "Segoe UI",
-    system-ui,
-    -apple-system,
-    sans-serif;
-  --font-ui: var(--font-sans);
+  --font-sans: var(--nr-font-sans);
+  --font-sans-zh: var(--nr-font-sans);
+  --font-ui: var(--nr-font-sans);
   --bg: var(--nr-bg);
-  --bg-2: #08192a;
-  --bg-3: #0a2035;
+  --bg-2: var(--nr-bg-elevated);
+  --bg-3: var(--nr-bg);
   --panel: var(--nr-surface);
-  --panel-soft: rgba(14, 27, 45, 0.78);
-  --panel-strong: rgba(7, 15, 28, 0.96);
-  --surface-1: rgba(255, 255, 255, 0.032);
-  --surface-2: rgba(255, 255, 255, 0.055);
-  --surface-3: rgba(255, 255, 255, 0.078);
+  --panel-soft: var(--nr-surface-soft);
+  --panel-strong: var(--nr-surface);
+  --surface-1: rgba(23, 24, 22, 0.03);
+  --surface-2: rgba(23, 24, 22, 0.055);
+  --surface-3: rgba(23, 24, 22, 0.08);
   --line: var(--nr-border);
   --line-strong: var(--nr-border-strong);
   --text: var(--nr-text);
   --muted: var(--nr-text-muted);
   --accent: var(--nr-accent);
-  --accent-2: #4c8dff;
-  --accent-3: #8be0ff;
-  --accent-soft: rgba(76, 141, 255, 0.14);
-  --warn: #f6b44f;
+  --accent-2: var(--nr-accent);
+  --accent-3: var(--nr-accent-hover);
+  --accent-soft: rgba(233, 90, 50, 0.1);
+  --warn: #9a6517;
   --danger: var(--nr-danger);
-  --danger-2: #c93d54;
-  --shadow-xl: 0 30px 70px rgba(0, 0, 0, 0.42);
-  --shadow-lg: 0 18px 36px rgba(0, 0, 0, 0.28);
-  --shadow-md: 0 14px 28px rgba(0, 0, 0, 0.24);
-  --radius-xl: 26px;
-  --radius-lg: var(--nr-radius-lg);
-  --radius-md: var(--nr-radius-md);
-  --radius-sm: var(--nr-radius-sm);
+  --danger-2: #8f2623;
+  --shadow-xl: none;
+  --shadow-lg: none;
+  --shadow-md: none;
+  --radius-xl: 0;
+  --radius-lg: 0;
+  --radius-md: 0;
+  --radius-sm: 0;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-html {
-  scroll-behavior: smooth;
-  color-scheme: dark;
-}
-
-body {
-  margin: 0;
-  min-height: 100vh;
-  color: var(--text);
-  font-family: var(--font-ui);
-  background:
-    radial-gradient(circle at 10% 12%, rgba(76, 141, 255, 0.18), transparent 25%),
-    radial-gradient(circle at 84% 8%, rgba(54, 213, 141, 0.16), transparent 22%),
-    radial-gradient(circle at 70% 68%, rgba(139, 224, 255, 0.08), transparent 20%),
-    linear-gradient(180deg, var(--bg-3) 0%, var(--bg-2) 26%, var(--bg) 100%);
-}
-
-body:lang(zh) {
-  font-family: var(--font-sans-zh);
-}
-
-html:lang(zh-TW),
-html:lang(zh-CN),
-html:lang(zh),
-body:lang(zh-TW),
-body:lang(zh-CN),
-body:lang(zh) {
-  --font-ui: var(--font-sans-zh);
-  font-family: var(--font-ui);
-}
-
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
-  background-size: 36px 36px;
-  mask-image: linear-gradient(180deg, rgba(0,0,0,.55), transparent 92%);
-}
-
-::selection {
-  background: rgba(76, 141, 255, 0.28);
-  color: #ffffff;
-}
-
-.hidden {
-  display: none !important;
-}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; color-scheme: light; }
+body { min-height: 100vh; margin: 0; color: var(--text); background: var(--bg); font-family: var(--font-ui); }
+body:lang(zh), html:lang(zh-TW), html:lang(zh-CN), html:lang(zh), body:lang(zh-TW), body:lang(zh-CN) { font-family: var(--font-sans-zh); }
+body::before { display: none; }
+::selection { color: var(--nr-accent-ink); background: var(--nr-accent); }
+.hidden { display: none !important; }

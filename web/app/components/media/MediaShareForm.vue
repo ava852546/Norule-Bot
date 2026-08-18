@@ -93,7 +93,7 @@ async function submit() {
 </script>
 
 <template>
-  <NrCard tone="strong" padding="lg" class="media-form-card">
+  <div class="media-form">
     <form novalidate @submit.prevent="submit">
       <div class="media-form-card__upload">
         <div>
@@ -122,9 +122,9 @@ async function submit() {
     </form>
     <p v-if="configLoading" class="media-form-card__config" role="status">正在載入伺服器限制…</p>
     <NrResultCard :status="disabled ? 'disabled' : shownStatus" title="媒體分享連結建立完成" :url="result?.shortUrl" :meta="formattedExpiration ? `到期時間：${formattedExpiration}` : ''" :error="shownError" :progress="progress" :copy-state="clipboard.state.value" @copy="result && clipboard.copy(result.shortUrl)" />
-  </NrCard>
+  </div>
 </template>
 
 <style scoped>
-.media-form-card{overflow:hidden}.media-form-card::after{position:absolute;z-index:-1;right:-10rem;bottom:-12rem;width:26rem;height:26rem;border-radius:50%;background:rgba(112,230,171,.05);filter:blur(40px);content:""}form{display:grid;gap:1.25rem}.media-form-card__upload{display:flex;align-items:center;justify-content:space-between;gap:1.2rem;padding:1.1rem;border:1px dashed var(--nr-border-strong);border-radius:var(--nr-radius-md);background:rgba(112,230,171,.025)}.media-form-card__upload>div{display:grid;min-width:0;gap:.2rem}.media-form-card__label{color:var(--nr-accent);font-size:.73rem;font-weight:760;letter-spacing:.08em}.media-form-card__upload strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.media-form-card__upload small{color:var(--nr-text-muted);font-size:.76rem}.media-form-card__native-file{position:absolute;width:1px;height:1px;opacity:0}.media-form-card__options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch;gap:1rem}.media-form-card__option-surface,.media-form-card__options :deep(.nr-switch){min-height:8.5rem;border:1px solid var(--nr-border);border-radius:var(--nr-radius-md);background:rgba(5,9,7,.45)}.media-form-card__option-surface{display:grid;align-content:center;padding:.7rem .85rem}.media-form-card__options :deep(.nr-switch){height:100%}.media-form-card__visibility{min-height:2.35rem;padding:0 .7rem;color:var(--nr-accent);border:0;border-radius:.55rem;background:transparent;cursor:pointer}.media-form-card__visibility:hover{background:rgba(112,230,171,.08)}.media-form-card__config{margin:1rem 0 0;color:var(--nr-text-muted);font-size:.82rem}@media(max-width:640px){.media-form-card__upload{display:grid}.media-form-card__upload :deep(.nr-button){width:100%}.media-form-card__options{grid-template-columns:1fr}}
+.media-form{border-top:1px solid var(--nr-border-strong)}form{display:grid;gap:1.5rem;padding-top:1.5rem}.media-form-card__upload{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:1.2rem;padding:1.25rem 0;border-bottom:1px solid var(--nr-border)}.media-form-card__upload>div{display:grid;min-width:0;gap:.3rem}.media-form-card__label{color:var(--nr-accent);font-family:var(--nr-font-mono);font-size:.65rem;font-weight:760;letter-spacing:.08em}.media-form-card__upload strong{overflow:hidden;font-family:var(--nr-font-display);font-size:1.25rem;text-overflow:ellipsis;white-space:nowrap}.media-form-card__upload small{max-width:35rem;color:var(--nr-text-muted);font-size:.74rem}.media-form-card__native-file{position:absolute;width:1px;height:1px;opacity:0}.media-form-card__options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:1.3rem 1.8rem}.media-form-card__option-surface{display:grid;align-content:start}.media-form-card__visibility{min-height:2.35rem;padding:0 .7rem;color:var(--nr-accent);border:0;background:transparent;font-size:.75rem;font-weight:700;cursor:pointer}.media-form-card__visibility:hover{text-decoration:underline}.media-form-card__config{margin:1rem 0 0;color:var(--nr-text-muted);font-size:.78rem}@media(max-width:640px){.media-form-card__upload{grid-template-columns:1fr}.media-form-card__upload :deep(.nr-button){width:100%}.media-form-card__options{grid-template-columns:1fr}}
 </style>

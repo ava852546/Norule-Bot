@@ -37,6 +37,7 @@ const tabMeta = computed<Record<DashboardTab, { title: string; description: stri
 
 const activeMeta = computed(() => tabMeta.value[dashboard.state.currentTab])
 const activeComponent = computed(() => components[dashboard.state.currentTab])
+const activeCode = computed(() => String(Object.keys(components).indexOf(dashboard.state.currentTab) + 1).padStart(2, '0'))
 const configurableSectionCount = Object.keys(components).length
 const enabledFeatureCount = computed(() => [
   dashboard.state.settings.notifications.enabled,
@@ -48,10 +49,10 @@ const enabledFeatureCount = computed(() => [
 ].filter(Boolean).length)
 
 const quickSettings = computed(() => [
-  { tab: 'general' as DashboardTab, icon: '⌂', tone: 'violet', title: dashboard.i18n.t('tabs_general', '一般設定'), description: dashboard.i18n.t('dashboard_tab_general_description', '管理語言與這個伺服器的基礎偏好。') },
-  { tab: 'welcome' as DashboardTab, icon: '✦', tone: 'violet', title: dashboard.i18n.t('tabs_welcome', '歡迎訊息'), description: dashboard.i18n.t('dashboard_quick_welcome_description', '設定新成員加入時的歡迎頻道與內容。') },
-  { tab: 'logs' as DashboardTab, icon: '▤', tone: 'blue', title: dashboard.i18n.t('dashboard_quick_logs_title', '管理日誌'), description: dashboard.i18n.t('dashboard_quick_logs_description', '記錄訊息、頻道、身分組與管理操作。') },
-  { tab: 'notifications' as DashboardTab, icon: '◉', tone: 'amber', title: dashboard.i18n.t('dashboard_quick_notifications_title', '通知中心'), description: dashboard.i18n.t('dashboard_quick_notifications_description', '集中管理成員與語音活動通知。') },
+  { tab: 'general' as DashboardTab, code: '01', title: dashboard.i18n.t('tabs_general', '一般設定'), description: dashboard.i18n.t('dashboard_tab_general_description', '管理語言與這個伺服器的基礎偏好。') },
+  { tab: 'welcome' as DashboardTab, code: '06', title: dashboard.i18n.t('tabs_welcome', '歡迎訊息'), description: dashboard.i18n.t('dashboard_quick_welcome_description', '設定新成員加入時的歡迎頻道與內容。') },
+  { tab: 'logs' as DashboardTab, code: '03', title: dashboard.i18n.t('dashboard_quick_logs_title', '管理日誌'), description: dashboard.i18n.t('dashboard_quick_logs_description', '記錄訊息、頻道、身分組與管理操作。') },
+  { tab: 'notifications' as DashboardTab, code: '02', title: dashboard.i18n.t('dashboard_quick_notifications_title', '通知中心'), description: dashboard.i18n.t('dashboard_quick_notifications_description', '集中管理成員與語音活動通知。') },
 ])
 
 function initializeFromHash() {
@@ -77,7 +78,6 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', dashboard.befor
 
 <template>
   <div class="nr-dashboard">
-    <div class="nr-stars" aria-hidden="true"><i /><i /><i /></div>
 
     <template v-if="dashboard.state.authenticating">
       <main class="nr-auth-page"><section class="nr-auth-card nr-loading-card"><span class="nr-brand-mark"><img v-if="dashboard.state.bot?.avatarUrl" :src="dashboard.state.bot.avatarUrl" :alt="dashboard.state.bot.username" referrerpolicy="no-referrer"><template v-else>N</template><i /></span><div class="nr-loading-line" /><div class="nr-loading-line is-short" /><div class="nr-loading-block" /></section></main>
@@ -85,9 +85,14 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', dashboard.befor
 
     <template v-else-if="!dashboard.state.authenticated">
       <main class="nr-auth-page">
+        <aside class="nr-auth-aside" aria-hidden="true">
+          <p>NR / CONTROL</p>
+          <strong>把伺服器<br>整理成一套<br><em>清楚規則。</em></strong>
+          <span>DISCORD OPERATIONS<br>MODULES 01—08</span>
+        </aside>
         <section class="nr-auth-card">
           <div class="nr-brand is-centered"><span class="nr-brand-mark"><img v-if="dashboard.state.bot?.avatarUrl" :src="dashboard.state.bot.avatarUrl" :alt="dashboard.state.bot.username" referrerpolicy="no-referrer"><template v-else>N</template><i /></span><span><strong>{{ dashboard.state.bot?.username || 'NoRule' }}</strong><small>{{ dashboard.i18n.t('dashboard_brand_console', 'BOT 控制台') }}</small></span></div>
-          <span class="nr-auth-kicker">{{ dashboard.i18n.t('dashboard_auth_kicker', 'DISCORD SERVER MANAGEMENT') }}</span>
+          <span class="nr-auth-kicker">01 / {{ dashboard.i18n.t('dashboard_auth_kicker', 'DISCORD SERVER MANAGEMENT') }}</span>
           <h1>{{ dashboard.i18n.t('dashboard_auth_title', '掌握伺服器，') }}<em>{{ dashboard.i18n.t('dashboard_auth_title_emphasis', '不必迷路。') }}</em></h1>
           <p>{{ dashboard.i18n.t('dashboard_auth_description', '以 Discord 安全登入後，集中管理 NoRule Bot 的通知、音樂、票券、歡迎訊息與自動化設定。') }}</p>
           <a class="nr-button is-primary is-large" href="/auth/login">{{ dashboard.i18n.t('loginBtn', '使用 Discord 登入') }} <span>→</span></a>
@@ -103,6 +108,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', dashboard.befor
         <main class="nr-content">
           <template v-if="dashboard.manageableGuilds.value.length && dashboard.state.selectedGuildId">
             <header class="nr-page-head">
+              <span class="nr-page-code">{{ dashboard.state.atHome ? '00' : activeCode }}</span>
               <div><p class="nr-breadcrumb"><button type="button" :aria-current="dashboard.state.atHome ? 'page' : undefined" @click="dashboard.openHome">{{ dashboard.i18n.t('dashboard_breadcrumb', '控制台') }}</button><template v-if="!dashboard.state.atHome"> / <span>{{ activeMeta.title }}</span></template></p><h1>{{ dashboard.state.atHome ? dashboard.i18n.t('dashboard_home_title', '控制台首頁') : activeMeta.title }}</h1><h2>{{ dashboard.state.atHome ? dashboard.i18n.t('dashboard_home_description', '集中掌握伺服器狀態，快速前往常用管理功能。') : activeMeta.description }}</h2></div>
               <div v-if="dashboard.state.atHome" class="nr-page-head-actions"><button type="button" class="nr-button is-secondary" :disabled="dashboard.state.loadingGuilds" @click="dashboard.loadGuilds">↻ {{ dashboard.state.loadingGuilds ? dashboard.i18n.t('dashboard_refreshing', '重新整理中…') : dashboard.i18n.t('dashboard_refresh_guilds', '重新整理伺服器') }}</button></div>
               <div v-else class="nr-page-head-actions"><button type="button" class="nr-button is-secondary" :disabled="dashboard.state.loadingSection" @click="dashboard.loadSection(dashboard.state.currentTab, true)">↻ {{ dashboard.i18n.t('dashboard_reload_section', '重新載入') }}</button><button type="button" class="nr-button is-primary" :disabled="dashboard.state.saving || !dashboard.hasDirtyChanges.value" @click="dashboard.saveSettings">{{ dashboard.state.saving ? dashboard.i18n.t('dashboard_saving', '儲存中…') : dashboard.i18n.t('dashboard_save_changes', '儲存變更') }}</button></div>
@@ -118,7 +124,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', dashboard.befor
               <header class="nr-subsection-head"><div><h2>{{ dashboard.i18n.t('dashboard_quick_settings', '快速設定') }}</h2><p>{{ dashboard.i18n.t('dashboard_quick_settings_description', '直接前往最常使用的伺服器功能') }}</p></div></header>
               <div class="nr-quick-grid">
                 <button v-for="item in quickSettings" :key="item.tab" type="button" class="nr-quick-card" @click="dashboard.switchTab(item.tab)">
-                  <span class="nr-setting-icon" :class="`is-${item.tone}`">{{ item.icon }}</span><i>{{ dashboard.i18n.t('dashboard_open_settings', '前往設定') }} →</i><h3>{{ item.title }}</h3><p>{{ item.description }}</p>
+                  <span class="nr-quick-index">{{ item.code }}</span><span class="nr-quick-copy"><h3>{{ item.title }}</h3><p>{{ item.description }}</p></span><i>{{ dashboard.i18n.t('dashboard_open_settings', '前往設定') }} →</i>
                 </button>
               </div>
             </section>

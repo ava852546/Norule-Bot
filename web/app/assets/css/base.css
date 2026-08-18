@@ -9,38 +9,29 @@
 html {
   min-width: 20rem;
   scroll-behavior: smooth;
-  scroll-padding-top: 6rem;
+  scroll-padding-top: 5rem;
   background: var(--nr-bg);
 }
 
 body {
-  margin: 0;
   min-width: 20rem;
   min-height: 100vh;
+  margin: 0;
   color: var(--nr-text);
+  background: var(--nr-bg);
   font-family: var(--nr-font-sans);
-  line-height: 1.6;
-  background:
-    radial-gradient(circle at 15% -10%, rgba(112, 230, 171, 0.12), transparent 28rem),
-    radial-gradient(circle at 90% 18%, rgba(112, 230, 171, 0.055), transparent 26rem),
-    var(--nr-bg);
+  line-height: 1.55;
   text-rendering: optimizeLegibility;
 }
 
 button,
 input,
-select {
-  font: inherit;
-}
+select { font: inherit; }
 
 button,
-a {
-  -webkit-tap-highlight-color: transparent;
-}
+a { -webkit-tap-highlight-color: transparent; }
 
-a {
-  color: inherit;
-}
+a { color: inherit; }
 
 ::selection {
   color: var(--nr-accent-ink);
@@ -48,18 +39,13 @@ a {
 }
 
 :focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--nr-focus) 78%, transparent);
+  outline: 3px solid var(--nr-focus);
   outline-offset: 3px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-
-  *,
-  *::before,
-  *::after {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

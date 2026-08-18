@@ -6,21 +6,23 @@
   <title>此分享已到期 | NoRule URL</title>
   <link rel="stylesheet" href="/web/app.css" />
 </head>
-<body>
-<div class="page-frame page-shell">
-  <main class="console-shell">
-    <section class="console-row not-found-wrap">
-      <article class="card not-found-card">
-        <div class="section-kicker not-found-kicker">NoRule URL</div>
-        <p class="not-found-code">410</p>
-        <h1 class="not-found-title">此分享已到期</h1>
-        <p class="not-found-description">此圖片或影片分享已到期，無法再存取。</p>
-        <div class="not-found-actions">
-          <a class="not-found-link" href="/">建立新的短網址</a>
-        </div>
-      </article>
-    </section>
-  </main>
-</div>
+<body class="short-url-page">
+<main class="share-expired-shell">
+  <header class="share-expired-header">
+    <a class="short-url-brand" href="/" aria-label="NoRule URL home">
+      <span class="short-url-brand-mark">NR</span>
+      <span>NoRule URL</span>
+    </a>
+  </header>
+  <section class="share-expired-layout" aria-labelledby="expired-title">
+    <strong class="share-expired-code" aria-hidden="true">410</strong>
+    <div class="share-expired-copy">
+      <span class="short-url-eyebrow">LINK STATE / EXPIRED</span>
+      <h1 id="expired-title">這次分享<br>已經結束。</h1>
+      <p>此圖片或影片已超過分享者設定的存取期限，內容不再提供瀏覽。</p>
+      <a href="/">建立新的分享連結 →</a>
+    </div>
+  </section>
+</main>
 </body>
 </html>

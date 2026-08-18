@@ -34,7 +34,7 @@ async function submit() {
 </script>
 
 <template>
-  <NrCard as="div" tone="strong" padding="lg" class="short-form-card">
+  <div class="short-form">
     <form novalidate @submit.prevent="submit">
       <div class="short-form-card__primary">
         <NrInput id="target-url" v-model="targetUrl" label="要縮短的網址" type="url" placeholder="https://example.com/very/long/url" autocomplete="url" required :error="clientError" />
@@ -45,9 +45,9 @@ async function submit() {
       </NrInput>
     </form>
     <NrResultCard :status="shownStatus" title="短網址建立完成" :url="result?.shortUrl" :meta="result ? `前往 ${result.targetUrl}` : ''" :error="shownError" :copy-state="clipboard.state.value" @copy="result && clipboard.copy(result.shortUrl)" />
-  </NrCard>
+  </div>
 </template>
 
 <style scoped>
-.short-form-card{overflow:hidden}.short-form-card::before{position:absolute;inset:0 auto auto 10%;width:80%;height:1px;background:linear-gradient(90deg,transparent,var(--nr-accent),transparent);content:"";opacity:.55}form{display:grid;gap:1.1rem}.short-form-card__primary{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:.75rem}.short-form-card__primary :deep(.nr-button){min-width:7.2rem}@media(max-width:640px){.short-form-card__primary{grid-template-columns:1fr}.short-form-card__primary :deep(.nr-button){width:100%}}
+.short-form{border-top:1px solid var(--nr-border-strong)}form{display:grid;gap:1.4rem;padding-top:1.5rem}.short-form-card__primary{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:0}.short-form-card__primary :deep(.nr-button){min-width:8rem;margin-left:-1px}.short-form :deep(.nr-result){margin-top:1.75rem}@media(max-width:640px){.short-form-card__primary{grid-template-columns:1fr;gap:.7rem}.short-form-card__primary :deep(.nr-button){width:100%;margin-left:0}}
 </style>

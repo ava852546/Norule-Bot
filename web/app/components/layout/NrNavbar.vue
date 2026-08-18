@@ -8,7 +8,7 @@ defineEmits<{ navigate: [link: NavbarLink] }>()
   <header class="nr-navbar">
     <NrPageContainer>
       <nav aria-label="主要導覽">
-        <a class="nr-navbar__brand" href="#top" aria-label="回到頁面頂端"><span aria-hidden="true" />{{ brand }}</a>
+        <a class="nr-navbar__brand" href="#top" aria-label="回到頁面頂端"><span aria-hidden="true">NR</span><strong>{{ brand }}</strong></a>
         <div class="nr-navbar__links">
           <a v-for="link in links" :key="link.href" :href="link.href" @click="$emit('navigate', link)">{{ link.label }}</a>
         </div>
@@ -19,5 +19,5 @@ defineEmits<{ navigate: [link: NavbarLink] }>()
 </template>
 
 <style scoped>
-.nr-navbar{position:sticky;z-index:20;top:0;border-bottom:1px solid rgba(210,235,220,.08);background:rgba(8,11,10,.78);backdrop-filter:blur(18px)}nav{display:flex;min-height:4.8rem;align-items:center;justify-content:space-between;gap:2rem}.nr-navbar__brand{display:inline-flex;align-items:center;gap:.7rem;font-weight:780;letter-spacing:-.025em;text-decoration:none}.nr-navbar__brand span{width:.7rem;height:.7rem;border-radius:50%;background:var(--nr-accent);box-shadow:0 0 20px rgba(112,230,171,.7)}.nr-navbar__links{display:flex;align-items:center;gap:clamp(1rem,3vw,2.3rem)}.nr-navbar__links a{color:var(--nr-text-muted);font-size:.88rem;font-weight:620;text-decoration:none;transition:color 160ms ease}.nr-navbar__links a:hover{color:var(--nr-text)}@media(max-width:640px){nav{min-height:4.2rem;gap:.65rem}.nr-navbar__brand{gap:.45rem;font-size:.86rem}.nr-navbar__links{gap:.58rem}.nr-navbar__links a{font-size:.69rem;white-space:nowrap}}
+.nr-navbar{position:sticky;z-index:20;top:0;border-bottom:1px solid var(--nr-border-strong);background:var(--nr-bg)}nav{display:grid;min-height:4.55rem;grid-template-columns:minmax(12rem,1fr) auto;align-items:center;gap:2rem}.nr-navbar__brand{display:inline-flex;width:max-content;align-items:center;gap:.7rem;text-decoration:none}.nr-navbar__brand span{display:grid;width:2.15rem;height:1.55rem;place-items:center;color:var(--nr-accent-ink);background:var(--nr-accent);font-family:var(--nr-font-mono);font-size:.65rem;font-weight:800;letter-spacing:.08em}.nr-navbar__brand strong{font-family:var(--nr-font-display);font-size:.95rem;font-weight:720;letter-spacing:.04em;text-transform:uppercase}.nr-navbar__links{display:flex;align-items:stretch;align-self:stretch}.nr-navbar__links a{display:flex;align-items:center;padding:0 clamp(.8rem,2vw,1.5rem);border-left:1px solid var(--nr-border);color:var(--nr-text-muted);font-family:var(--nr-font-mono);font-size:.72rem;text-decoration:none;transition:color 120ms ease,background 120ms ease}.nr-navbar__links a:hover{color:var(--nr-accent-ink);background:var(--nr-text)}@media(max-width:640px){nav{min-height:4rem;grid-template-columns:auto 1fr;gap:.5rem}.nr-navbar__brand strong{display:none}.nr-navbar__links{justify-content:flex-end}.nr-navbar__links a{padding:0 .55rem;border-left:0;font-size:.62rem}.nr-navbar__links a:first-child{display:none}}
 </style>

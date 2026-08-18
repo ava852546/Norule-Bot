@@ -12,6 +12,7 @@ withDefaults(defineProps<{
 <template>
   <section class="nr-section-card">
     <header class="nr-section-head">
+      <span class="nr-section-index" aria-hidden="true" />
       <div>
         <span v-if="eyebrow" class="nr-eyebrow">{{ eyebrow }}</span>
         <h2>{{ title }}</h2>
