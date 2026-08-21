@@ -41,7 +41,9 @@ const principles = [
 
 <template>
   <div id="top" class="home-page">
-    <NrNavbar brand="NoRule URL" :links="navLinks" @navigate="handleNavigation" />
+    <NrNavbar brand="NoRule URL" :links="navLinks" @navigate="handleNavigation">
+      <template #action><ShortUrlSessionAction /></template>
+    </NrNavbar>
 
     <main class="utility-main">
       <NrPageContainer>
@@ -58,7 +60,7 @@ const principles = [
           </aside>
 
           <section class="utility-workspace" aria-label="連結建立工具">
-            <header class="workspace-bar"><div><span>NO RULE URL</span><strong>連結工具</strong></div><small>NO SIGN-IN REQUIRED</small></header>
+            <header class="workspace-bar"><div><span>NO RULE URL</span><strong>連結工具</strong></div><small>SIGN-IN OPTIONAL</small></header>
             <div class="tool-switch" role="tablist" aria-label="選擇分享工具">
               <button id="shorten-tab" type="button" role="tab" :aria-selected="activeTool === 'shorten'" aria-controls="shorten" :tabindex="activeTool === 'shorten' ? 0 : -1" @click="selectTool('shorten')" @keydown.right.prevent="selectTool('media')"><span>01</span>縮短網址</button>
               <button id="media-tab" type="button" role="tab" :aria-selected="activeTool === 'media'" aria-controls="media" :tabindex="activeTool === 'media' ? 0 : -1" @click="selectTool('media')" @keydown.left.prevent="selectTool('shorten')"><span>02</span>媒體分享</button>

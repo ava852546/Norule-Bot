@@ -13,8 +13,12 @@ class WebAuthServiceTest {
 
     @Test
     void allowsOnlyTheConfiguredShortUrlStatsDestination() {
+        assertEquals("https://s.norule.me/", WebAuthService.sanitizeReturnTo(
+                "https://s.norule.me/", DASHBOARD, SHORT_URL));
         assertEquals("https://s.norule.me/abc123?stats", WebAuthService.sanitizeReturnTo(
                 "https://s.norule.me/abc123?stats", DASHBOARD, SHORT_URL));
+        assertEquals(DASHBOARD, WebAuthService.sanitizeReturnTo(
+                "https://s.norule.me/about", DASHBOARD, SHORT_URL));
         assertEquals(DASHBOARD, WebAuthService.sanitizeReturnTo(
                 "https://s.norule.me/abc123?", DASHBOARD, SHORT_URL));
         assertEquals(DASHBOARD, WebAuthService.sanitizeReturnTo(

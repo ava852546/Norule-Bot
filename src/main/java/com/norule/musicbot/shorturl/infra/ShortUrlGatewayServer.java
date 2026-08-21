@@ -33,8 +33,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
-import java.util.function.Supplier;
+import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -58,8 +59,9 @@ public final class ShortUrlGatewayServer {
     private final ShortUrlService shortUrlService;
     private final Supplier<BotConfig.ShortUrl> configSupplier;
     private final Function<HttpExchange, String> authenticatedUserResolver;
-    private final BiFunction<String, String, String> statisticsLoginUrlFactory;
+    private final BiFunction<String, String, String> authenticationLoginUrlFactory;
     private final Function<HttpExchange, String> authenticationHandoffResolver;
+    private final Consumer<HttpExchange> authenticationLogoutHandler;
     private final Map<String, ImageAccessGrant> imageAccessGrants = new ConcurrentHashMap<>();
     private final Map<String, Long> recentViewers = new ConcurrentHashMap<>();
     private volatile HttpServer server;
@@ -75,14 +77,24 @@ public final class ShortUrlGatewayServer {
                                  Function<HttpExchange, String> authenticatedUserResolver) {
         this(shortUrlService, configSupplier, authenticatedUserResolver,
                 (returnTo, anonymousDeviceToken) -> "/auth/login?returnTo=" + java.net.URLEncoder.encode(
-                        returnTo, StandardCharsets.UTF_8), exchange -> "");
+                        returnTo, StandardCharsets.UTF_8), exchange -> "", exchange -> { });
     }
 
     public ShortUrlGatewayServer(ShortUrlService shortUrlService,
                                  Supplier<BotConfig.ShortUrl> configSupplier,
                                  Function<HttpExchange, String> authenticatedUserResolver,
-                                 BiFunction<String, String, String> statisticsLoginUrlFactory,
+                                 BiFunction<String, String, String> authenticationLoginUrlFactory,
                                  Function<HttpExchange, String> authenticationHandoffResolver) {
+        this(shortUrlService, configSupplier, authenticatedUserResolver, authenticationLoginUrlFactory,
+                authenticationHandoffResolver, exchange -> { });
+    }
+
+    public ShortUrlGatewayServer(ShortUrlService shortUrlService,
+                                 Supplier<BotConfig.ShortUrl> configSupplier,
+                                 Function<HttpExchange, String> authenticatedUserResolver,
+                                 BiFunction<String, String, String> authenticationLoginUrlFactory,
+                                 Function<HttpExchange, String> authenticationHandoffResolver,
+                                 Consumer<HttpExchange> authenticationLogoutHandler) {
         if (shortUrlService == null) {
             throw new IllegalArgumentException("shortUrlService cannot be null");
         }
@@ -93,10 +105,12 @@ public final class ShortUrlGatewayServer {
         this.configSupplier = configSupplier;
         this.authenticatedUserResolver = authenticatedUserResolver == null ? exchange -> ""
                 : authenticatedUserResolver;
-        this.statisticsLoginUrlFactory = statisticsLoginUrlFactory == null ? (returnTo, deviceToken) -> ""
-                : statisticsLoginUrlFactory;
+        this.authenticationLoginUrlFactory = authenticationLoginUrlFactory == null ? (returnTo, deviceToken) -> ""
+                : authenticationLoginUrlFactory;
         this.authenticationHandoffResolver = authenticationHandoffResolver == null ? exchange -> ""
                 : authenticationHandoffResolver;
+        this.authenticationLogoutHandler = authenticationLogoutHandler == null ? exchange -> { }
+                : authenticationLogoutHandler;
     }
 
     public synchronized void syncWithConfig() {
@@ -184,6 +198,11 @@ public final class ShortUrlGatewayServer {
                 sendText(exchange, 405, "Method Not Allowed");
                 return;
             }
+            if (parseUrlEncoded(exchange.getRequestURI().getRawQuery()).containsKey("__nr_auth")) {
+                resolveAuthenticationHandoff(exchange);
+                redirect(exchange, shortUrlService.publicBaseUrl() + "/");
+                return;
+            }
             sendHtml(exchange, 200, loadTemplate("web/short-url.html"));
             return;
         }
@@ -236,6 +255,18 @@ public final class ShortUrlGatewayServer {
 
     private void handleShortUrlApi(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
+        if ("/api/short/session".equals(path)) {
+            handleSessionStatus(exchange);
+            return;
+        }
+        if ("/api/short/session/login".equals(path)) {
+            handleSessionLogin(exchange);
+            return;
+        }
+        if ("/api/short/session/logout".equals(path)) {
+            handleSessionLogout(exchange);
+            return;
+        }
         String contentPathPrefix = "/api/short/image/content/";
         if (path.startsWith(contentPathPrefix)) {
             handleImageShareContent(exchange, path.substring(contentPathPrefix.length()));
@@ -262,6 +293,54 @@ public final class ShortUrlGatewayServer {
                 .put("error", "Not Found")
                 .put("errorCode", "NOT_FOUND")
                 .toString());
+    }
+
+    private void handleSessionStatus(HttpExchange exchange) throws IOException {
+        if (!isGetOrHead(exchange)) {
+            sendJson(exchange, 405, DataObject.empty()
+                    .put("error", "Method Not Allowed")
+                    .put("errorCode", "METHOD_NOT_ALLOWED")
+                    .toString());
+            return;
+        }
+        exchange.getResponseHeaders().set("Cache-Control", "private, no-store");
+        sendJson(exchange, 200, DataObject.empty()
+                .put("authenticated", !authenticatedUserId(exchange).isBlank())
+                .toString());
+    }
+
+    private void handleSessionLogin(HttpExchange exchange) throws IOException {
+        if (!isGetOrHead(exchange)) {
+            sendText(exchange, 405, "Method Not Allowed");
+            return;
+        }
+        String homeUrl = shortUrlService.publicBaseUrl() + "/";
+        if (!authenticatedUserId(exchange).isBlank()) {
+            redirect(exchange, homeUrl);
+            return;
+        }
+        AnonymousDeviceIdentityService.DeviceIdentity device = ensureAnonymousDevice(exchange);
+        String deviceToken = device == null ? readCookie(exchange, ANONYMOUS_DEVICE_COOKIE) : device.token();
+        String loginUrl = authenticationLoginUrlFactory.apply(
+                homeUrl, deviceToken);
+        if (loginUrl == null || loginUrl.isBlank()) {
+            sendText(exchange, 503, "Authentication unavailable");
+            return;
+        }
+        redirect(exchange, loginUrl);
+    }
+
+    private void handleSessionLogout(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendJson(exchange, 405, DataObject.empty()
+                    .put("error", "Method Not Allowed")
+                    .put("errorCode", "METHOD_NOT_ALLOWED")
+                    .toString());
+            return;
+        }
+        authenticationLogoutHandler.accept(exchange);
+        exchange.getResponseHeaders().set("Cache-Control", "private, no-store");
+        sendJson(exchange, 200, DataObject.empty().put("authenticated", false).toString());
     }
 
     private void handleCreateShortUrl(HttpExchange exchange) throws IOException {
@@ -439,7 +518,7 @@ public final class ShortUrlGatewayServer {
         String userId = authenticatedUserId(exchange);
         if (userId.isBlank()) {
             String returnTo = shortUrlService.toPublicUrl(code) + "?stats";
-            String loginUrl = statisticsLoginUrlFactory.apply(
+            String loginUrl = authenticationLoginUrlFactory.apply(
                     returnTo, readCookie(exchange, ANONYMOUS_DEVICE_COOKIE));
             if (loginUrl == null || loginUrl.isBlank()) {
                 sendText(exchange, 503, "Authentication unavailable");

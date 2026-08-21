@@ -196,7 +196,7 @@ public final class WebAuthService {
                 return candidate.toString();
             }
             URI shortBase = URI.create(shortUrlBaseUrl == null ? "" : shortUrlBaseUrl);
-            if (sameOrigin(candidate, shortBase) && isShortUrlStatisticsPath(candidate)) {
+            if (sameOrigin(candidate, shortBase) && isAllowedShortUrlReturn(candidate)) {
                 return candidate.toString();
             }
         } catch (IllegalArgumentException ignored) {
@@ -218,10 +218,15 @@ public final class WebAuthService {
         }
     }
 
-    private static boolean isShortUrlStatisticsPath(URI uri) {
+    private static boolean isAllowedShortUrlReturn(URI uri) {
         String path = uri.getRawPath();
-        return path != null && path.matches("/[^/]+") && "stats".equals(uri.getRawQuery())
-                && uri.getRawFragment() == null;
+        if (uri.getRawFragment() != null) {
+            return false;
+        }
+        if ("/".equals(path) && uri.getRawQuery() == null) {
+            return true;
+        }
+        return path != null && path.matches("/[^/]+") && "stats".equals(uri.getRawQuery());
     }
 
     private static boolean sameOrigin(URI left, URI right) {

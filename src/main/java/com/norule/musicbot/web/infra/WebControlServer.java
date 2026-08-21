@@ -237,7 +237,7 @@ import java.util.function.Supplier;
         return session == null ? "" : session.userId;
     }
 
-    public String shortUrlStatisticsLoginUrl(String returnTo, String anonymousDeviceToken) {
+    public String shortUrlLoginUrl(String returnTo, String anonymousDeviceToken) {
         String base = resolveHomeUrl(webSettings());
         String requestId = new WebSessionService(sessionManager).issuePendingLogin(
                 returnTo,
@@ -258,6 +258,10 @@ import java.util.function.Supplier;
                 isSecureCookie(settings),
                 settings.getSessionExpireMinutes()
         );
+    }
+
+    public void clearAuthenticationSession(HttpExchange exchange) {
+        new WebSessionService(sessionManager).clearSessionCookie(exchange, isSecureCookie(webSettings()));
     }
     public DiscordOAuthClient discordOAuthClient() {
         return discordOAuthClient;
