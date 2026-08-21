@@ -196,6 +196,17 @@ shortUrl:
   dedupe: true
   ttlDays: 7
   cleanupIntervalMinutes: 10
+  abuseProtection:
+    creation:
+      enabled: true
+      anonymous:
+        maxRequestsPerMinute: 10
+        maxRequestsPer10Minutes: 50
+        maxCreatesPerDay: 200
+      authenticated:
+        maxRequestsPerMinute: 30
+        maxRequestsPer10Minutes: 150
+        maxCreatesPerDay: 500
   image:
     enabled: true
     defaultRetentionHours: 1

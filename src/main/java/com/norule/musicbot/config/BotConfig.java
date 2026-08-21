@@ -2649,6 +2649,73 @@ public String getToken() {
     }
 
     public static class ShortUrl {
+        public static final class CreationAbuseProtection {
+            public static final class Limits {
+                private final int maxRequestsPerMinute;
+                private final int maxRequestsPer10Minutes;
+                private final int maxCreatesPerDay;
+
+                private Limits(int maxRequestsPerMinute,
+                               int maxRequestsPer10Minutes,
+                               int maxCreatesPerDay) {
+                    this.maxRequestsPerMinute = Math.max(1, maxRequestsPerMinute);
+                    this.maxRequestsPer10Minutes = Math.max(
+                            this.maxRequestsPerMinute, maxRequestsPer10Minutes);
+                    this.maxCreatesPerDay = Math.max(1, maxCreatesPerDay);
+                }
+
+                private static Limits fromMap(Map<String, Object> map, Limits fallback) {
+                    Limits defaults = fallback == null ? anonymousDefaults() : fallback;
+                    return new Limits(
+                            getInt(map, "maxRequestsPerMinute", defaults.getMaxRequestsPerMinute()),
+                            getInt(map, "maxRequestsPer10Minutes", defaults.getMaxRequestsPer10Minutes()),
+                            getInt(map, "maxCreatesPerDay", defaults.getMaxCreatesPerDay())
+                    );
+                }
+
+                private static Limits anonymousDefaults() {
+                    return new Limits(10, 50, 200);
+                }
+
+                private static Limits authenticatedDefaults() {
+                    return new Limits(30, 150, 500);
+                }
+
+                public int getMaxRequestsPerMinute() { return maxRequestsPerMinute; }
+                public int getMaxRequestsPer10Minutes() { return maxRequestsPer10Minutes; }
+                public int getMaxCreatesPerDay() { return maxCreatesPerDay; }
+            }
+
+            private final boolean enabled;
+            private final Limits anonymous;
+            private final Limits authenticated;
+
+            private CreationAbuseProtection(boolean enabled, Limits anonymous, Limits authenticated) {
+                this.enabled = enabled;
+                this.anonymous = anonymous == null ? Limits.anonymousDefaults() : anonymous;
+                this.authenticated = authenticated == null ? Limits.authenticatedDefaults() : authenticated;
+            }
+
+            private static CreationAbuseProtection fromMap(Map<String, Object> map,
+                                                           CreationAbuseProtection fallback) {
+                CreationAbuseProtection defaults = fallback == null ? defaultValues() : fallback;
+                return new CreationAbuseProtection(
+                        getBoolean(map, "enabled", defaults.isEnabled()),
+                        Limits.fromMap(asMap(map.get("anonymous")), defaults.getAnonymous()),
+                        Limits.fromMap(asMap(map.get("authenticated")), defaults.getAuthenticated())
+                );
+            }
+
+            private static CreationAbuseProtection defaultValues() {
+                return new CreationAbuseProtection(
+                        true, Limits.anonymousDefaults(), Limits.authenticatedDefaults());
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public Limits getAnonymous() { return anonymous; }
+            public Limits getAuthenticated() { return authenticated; }
+        }
+
         public static final class Public {
             private final String baseUrl;
 
@@ -3049,6 +3116,7 @@ public String getToken() {
         private final boolean dedupe;
         private final int ttlDays;
         private final int cleanupIntervalMinutes;
+        private final CreationAbuseProtection creationAbuseProtection;
         private final Image image;
         private final Mysql mysql;
         private final Sqlite sqlite;
@@ -3062,6 +3130,7 @@ public String getToken() {
                          boolean dedupe,
                          int ttlDays,
                          int cleanupIntervalMinutes,
+                         CreationAbuseProtection creationAbuseProtection,
                          Image image,
                          Mysql mysql,
                          Sqlite sqlite) {
@@ -3074,6 +3143,8 @@ public String getToken() {
             this.dedupe = dedupe;
             this.ttlDays = Math.max(1, ttlDays);
             this.cleanupIntervalMinutes = Math.max(1, cleanupIntervalMinutes);
+            this.creationAbuseProtection = creationAbuseProtection == null
+                    ? CreationAbuseProtection.defaultValues() : creationAbuseProtection;
             this.image = image == null ? Image.defaultValues() : image;
             this.mysql = mysql == null ? Mysql.defaultValues() : mysql;
             this.sqlite = sqlite == null ? Sqlite.defaultValues() : sqlite;
@@ -3114,6 +3185,9 @@ public String getToken() {
                     getBoolean(map, "dedupe", defaults.isDedupe()),
                     getInt(map, "ttlDays", defaults.getTtlDays()),
                     getInt(map, "cleanupIntervalMinutes", defaults.getCleanupIntervalMinutes()),
+                    CreationAbuseProtection.fromMap(
+                            asMap(asMap(map.get("abuseProtection")).get("creation")),
+                            defaults.getCreationAbuseProtection()),
                     Image.fromMap(asMap(map.get("image")), defaults.getImage()),
                     Mysql.fromMap(asMap(map.get("mysql")), defaults.getMysql()),
                     Sqlite.fromMap(asMap(map.get("sqlite")), defaults.getSqlite())
@@ -3131,6 +3205,7 @@ public String getToken() {
                     true,
                     7,
                     10,
+                    CreationAbuseProtection.defaultValues(),
                     Image.defaultValues(),
                     Mysql.defaultValues(),
                     Sqlite.defaultValues()
@@ -3180,6 +3255,10 @@ public String getToken() {
 
         public int getCleanupIntervalMinutes() {
             return cleanupIntervalMinutes;
+        }
+
+        public CreationAbuseProtection getCreationAbuseProtection() {
+            return creationAbuseProtection;
         }
 
         public Image getImage() {

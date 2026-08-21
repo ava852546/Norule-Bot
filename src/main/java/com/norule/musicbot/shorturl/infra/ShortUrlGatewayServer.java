@@ -8,6 +8,9 @@ import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
 import com.norule.musicbot.service.shorturl.ImageShareService;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
+import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
+import com.norule.musicbot.web.security.ClientAddressResolver;
+import com.norule.musicbot.web.security.HttpRequestBodyReader;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import net.dv8tion.jda.api.utils.data.DataObject;
@@ -352,7 +355,25 @@ public final class ShortUrlGatewayServer {
             return;
         }
 
-        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        String body;
+        try {
+            body = HttpRequestBodyReader.readUtf8BodyLimited(
+                    exchange, HttpRequestBodyReader.MAX_SHORT_URL_REQUEST_BODY_BYTES);
+        } catch (HttpRequestBodyReader.RequestBodyTooLargeException ignored) {
+            sendJson(exchange, 413, DataObject.empty()
+                    .put("error", "Request body too large")
+                    .put("errorCode", "REQUEST_BODY_TOO_LARGE")
+                    .toString());
+            return;
+        }
+        String ownerUserId = authenticatedUserId(exchange);
+        String address = clientAddress(exchange);
+        ShortUrlCreationGuard.Decision requestDecision = shortUrlService
+                .checkCreationRequest(ownerUserId, address);
+        if (!requestDecision.allowed()) {
+            sendCreationGuardFailure(exchange, requestDecision.status(), requestDecision.retryAfterSeconds());
+            return;
+        }
         String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
         Map<String, String> form = parseRequestBody(body, contentType);
         String target = form.getOrDefault("url", "").trim();
@@ -365,25 +386,49 @@ public final class ShortUrlGatewayServer {
             return;
         }
 
-        ShortUrlService.ShortUrlEntry created = shortUrlService.create(
-                target,
-                customCode,
-                authenticatedUserId(exchange),
-                clientAddress(exchange)
-        );
-        if (created == null) {
-            sendJson(exchange, 400, DataObject.empty()
-                    .put("error", "Invalid url or code")
-                    .put("errorCode", "INVALID_URL_OR_CODE")
-                    .toString());
-            return;
-        }
+        try (ShortUrlCreationGuard.CreationPermit permit = shortUrlService
+                .beginShortUrlCreation(ownerUserId, address)) {
+            if (!permit.allowed()) {
+                sendCreationGuardFailure(exchange, permit.status(), permit.retryAfterSeconds());
+                return;
+            }
+            ShortUrlService.CreationOutcome outcome = shortUrlService.createWithOutcome(
+                    target, customCode, ownerUserId, address);
+            ShortUrlService.ShortUrlEntry created = outcome.entry();
+            if (created == null) {
+                sendJson(exchange, 400, DataObject.empty()
+                        .put("error", "Invalid url or code")
+                        .put("errorCode", "INVALID_URL_OR_CODE")
+                        .toString());
+                return;
+            }
+            if (outcome.newlyCreated()) {
+                permit.commitSuccessfulCreation();
+            }
 
-        sendJson(exchange, 200, DataObject.empty()
-                .put("code", created.getCode())
-                .put("shortUrl", shortUrlService.toPublicUrl(created.getCode()))
-                .put("targetUrl", created.getTarget())
-                .put("viewCount", created.getViewCount())
+            sendJson(exchange, 200, DataObject.empty()
+                    .put("code", created.getCode())
+                    .put("shortUrl", shortUrlService.toPublicUrl(created.getCode()))
+                    .put("targetUrl", created.getTarget())
+                    .put("viewCount", created.getViewCount())
+                    .toString());
+        }
+    }
+
+    private void sendCreationGuardFailure(HttpExchange exchange,
+                                          ShortUrlCreationGuard.Status status,
+                                          long retryAfterSeconds) throws IOException {
+        boolean dailyQuota = status == ShortUrlCreationGuard.Status.DAILY_QUOTA_EXCEEDED;
+        long safeRetryAfter = Math.max(1L, retryAfterSeconds);
+        exchange.getResponseHeaders().set("Retry-After", String.valueOf(safeRetryAfter));
+        sendJson(exchange, 429, DataObject.empty()
+                .put("error", dailyQuota
+                        ? "Daily short URL creation quota exceeded"
+                        : "Too many short URL requests")
+                .put("errorCode", dailyQuota
+                        ? "SHORT_URL_DAILY_QUOTA_EXCEEDED"
+                        : "SHORT_URL_RATE_LIMITED")
+                .put("retryAfterSeconds", safeRetryAfter)
                 .toString());
     }
 
@@ -468,7 +513,7 @@ public final class ShortUrlGatewayServer {
                     .put("passwordProtected", created.isPasswordProtected())
                     .put("viewCount", created.viewCount())
                     .toString());
-        } catch (RequestBodyTooLargeException e) {
+        } catch (HttpRequestBodyReader.RequestBodyTooLargeException e) {
             sendImageError(exchange, 413, "MEDIA_TOO_LARGE", "The uploaded file exceeds the configured size limit");
         } catch (InvalidMultipartException e) {
             sendImageError(exchange, 400, "INVALID_MEDIA_UPLOAD", "Invalid media upload request");
@@ -644,10 +689,10 @@ public final class ShortUrlGatewayServer {
 
     private String readPassword(HttpExchange exchange) throws IOException {
         try {
-            String body = new String(readBodyLimited(exchange, 64L * 1024L), StandardCharsets.UTF_8);
+            String body = HttpRequestBodyReader.readUtf8BodyLimited(exchange, 64L * 1024L);
             Map<String, String> form = parseRequestBody(body, exchange.getRequestHeaders().getFirst("Content-Type"));
             return form.getOrDefault("password", "");
-        } catch (RequestBodyTooLargeException ignored) {
+        } catch (HttpRequestBodyReader.RequestBodyTooLargeException ignored) {
             return "";
         }
     }
@@ -1038,9 +1083,9 @@ public final class ShortUrlGatewayServer {
         try {
             requestLimit = Math.addExact(maxFileSizeBytes, MULTIPART_OVERHEAD_BYTES);
         } catch (ArithmeticException e) {
-            throw new RequestBodyTooLargeException();
+            throw new HttpRequestBodyReader.RequestBodyTooLargeException(maxFileSizeBytes);
         }
-        byte[] body = readBodyLimited(exchange, requestLimit);
+        byte[] body = HttpRequestBodyReader.readBodyLimited(exchange, requestLimit);
         byte[] boundaryBytes = ("--" + boundary).getBytes(StandardCharsets.US_ASCII);
         byte[] lineBreak = "\r\n".getBytes(StandardCharsets.US_ASCII);
         byte[] headersEndMarker = "\r\n\r\n".getBytes(StandardCharsets.US_ASCII);
@@ -1108,58 +1153,6 @@ public final class ShortUrlGatewayServer {
             return matcher.find() ? matcher.group(1) : null;
         }
         return null;
-    }
-
-    private byte[] readBodyLimited(HttpExchange exchange, long limit) throws IOException, RequestBodyTooLargeException {
-        long contentLength = parseContentLength(exchange.getRequestHeaders().getFirst("Content-Length"));
-        if (contentLength > limit) {
-            throw new RequestBodyTooLargeException();
-        }
-        int initialCapacity = contentLength > 0L ? (int) contentLength : 8192;
-        byte[] body = new byte[Math.max(1, initialCapacity)];
-        byte[] chunk = new byte[8192];
-        long total = 0L;
-        try (InputStream input = exchange.getRequestBody()) {
-            int read;
-            while ((read = input.read(chunk)) >= 0) {
-                if (read == 0) {
-                    continue;
-                }
-                total += read;
-                if (total > limit) {
-                    throw new RequestBodyTooLargeException();
-                }
-                if (total > body.length) {
-                    int newCapacity = body.length;
-                    while (newCapacity < total) {
-                        int doubled = newCapacity > Integer.MAX_VALUE / 2
-                                ? Integer.MAX_VALUE
-                                : newCapacity * 2;
-                        newCapacity = (int) Math.min(limit, doubled);
-                        if (newCapacity <= body.length) {
-                            throw new RequestBodyTooLargeException();
-                        }
-                    }
-                    body = Arrays.copyOf(body, newCapacity);
-                }
-                System.arraycopy(chunk, 0, body, (int) total - read, read);
-            }
-        }
-        if (total == body.length) {
-            return body;
-        }
-        return Arrays.copyOf(body, (int) total);
-    }
-
-    private long parseContentLength(String rawContentLength) {
-        if (rawContentLength == null || rawContentLength.isBlank()) {
-            return -1L;
-        }
-        try {
-            return Long.parseLong(rawContentLength.trim());
-        } catch (NumberFormatException ignored) {
-            return -1L;
-        }
     }
 
     private int findNextBoundary(byte[] source, byte[] marker, int fromIndex) {
@@ -1243,20 +1236,7 @@ public final class ShortUrlGatewayServer {
     }
 
     private String clientAddress(HttpExchange exchange) {
-        InetSocketAddress remoteAddress = exchange.getRemoteAddress();
-        String forwarded = exchange.getRequestHeaders().getFirst("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank() && isTrustedLocalProxy(remoteAddress)) {
-            return forwarded.split(",", 2)[0].trim();
-        }
-        return remoteAddress == null || remoteAddress.getAddress() == null
-                ? "unknown"
-                : remoteAddress.getAddress().getHostAddress();
-    }
-
-    private boolean isTrustedLocalProxy(InetSocketAddress remoteAddress) {
-        return remoteAddress != null && remoteAddress.getAddress() != null
-                && (remoteAddress.getAddress().isLoopbackAddress()
-                || remoteAddress.getAddress().isSiteLocalAddress());
+        return ClientAddressResolver.resolve(exchange);
     }
 
     private String userAgent(HttpExchange exchange) {
@@ -1400,9 +1380,6 @@ public final class ShortUrlGatewayServer {
             }
             return null;
         }
-    }
-
-    private static final class RequestBodyTooLargeException extends IOException {
     }
 
     private static final class InvalidMultipartException extends Exception {

@@ -4,6 +4,9 @@ import com.norule.musicbot.domain.shorturl.ShortUrl;
 import com.norule.musicbot.service.shorturl.ShortUrlService;
 
 public final class ShortUrlOps {
+    public record CreationResult(ShortUrl shortUrl, boolean newlyCreated) {
+    }
+
     private final ShortUrlService shortUrlService;
 
     public ShortUrlOps(ShortUrlService shortUrlService) {
@@ -26,6 +29,15 @@ public final class ShortUrlOps {
                                   String ownerUserId,
                                   String clientAddress) {
         return shortUrlService.create(url, customCode, ownerUserId, clientAddress);
+    }
+
+    public CreationResult createFromWebWithOutcome(String url,
+                                                   String customCode,
+                                                   String ownerUserId,
+                                                   String clientAddress) {
+        ShortUrlService.CreateResult result = shortUrlService.createWithOutcome(
+                url, customCode, ownerUserId, clientAddress);
+        return new CreationResult(result.shortUrl(), result.newlyCreated());
     }
 
     public ShortUrl resolve(String code) {

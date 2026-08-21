@@ -3,9 +3,14 @@ package com.norule.musicbot.web.service;
 import com.norule.musicbot.web.session.WebSessionManager;
 import com.sun.net.httpserver.HttpExchange;
 
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.UUID;
 
 public final class WebSessionService {
+    private static final int CSRF_TOKEN_BYTES = 32;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     private final WebSessionManager sessionManager;
 
     public WebSessionService(WebSessionManager sessionManager) {
@@ -65,6 +70,7 @@ public final class WebSessionService {
                 username,
                 avatarUrl,
                 accessToken,
+                newCsrfToken(),
                 expiresAtMillis
         );
         sessionManager.sessions().put(sessionId, session);
@@ -103,5 +109,11 @@ public final class WebSessionService {
 
     public void clearSessionCookie(HttpExchange exchange, boolean secureCookie) {
         sessionManager.clearSessionCookie(exchange, secureCookie);
+    }
+
+    private String newCsrfToken() {
+        byte[] bytes = new byte[CSRF_TOKEN_BYTES];
+        SECURE_RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 }

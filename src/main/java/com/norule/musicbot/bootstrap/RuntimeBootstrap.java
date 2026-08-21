@@ -682,6 +682,7 @@ public final class RuntimeBootstrap {
                 ShortUrlConfig shortUrlConfig = new ShortUrlConfig(reloaded.getShortUrl());
                 shortUrlService.updateOptions(shortUrlConfig.toOptions());
                 shortUrlService.updateImageShareOptions(shortUrlConfig.toImageShareOptions());
+                shortUrlService.updateCreationGuardOptions(shortUrlConfig.getCreationGuardOptions());
             }
             context.musicCommandListener().reloadRuntimeConfig(snapshot);
             startActivityRotation(context.jda(), reloaded.getBotProfile());
@@ -1015,7 +1016,10 @@ public final class RuntimeBootstrap {
                 quotaHmacSecret,
                 deviceHmacSecret
         );
-        return new ShortUrlService(repository, shortUrlConfig.toOptions(), imageShareService, identityService);
+        ShortUrlService service = new ShortUrlService(
+                repository, shortUrlConfig.toOptions(), imageShareService, identityService);
+        service.updateCreationGuardOptions(shortUrlConfig.getCreationGuardOptions());
+        return service;
     }
 
     private static ImageShareService createImageShareService(ShortUrlConfig config,

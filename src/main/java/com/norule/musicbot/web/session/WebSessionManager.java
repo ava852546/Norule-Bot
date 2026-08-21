@@ -55,18 +55,16 @@ public final class WebSessionManager {
     }
 
     public void setSessionCookie(HttpExchange exchange, String sessionId, boolean secureCookie, int sessionExpireMinutes) {
-        String sameSite = secureCookie ? "None" : "Lax";
         int maxAge = Math.max(300, Math.max(5, sessionExpireMinutes) * 60);
         String cookie = SESSION_COOKIE + "=" + sessionId
                 + "; Path=/; Max-Age=" + maxAge
-                + "; HttpOnly; SameSite=" + sameSite
+                + "; HttpOnly; SameSite=Lax"
                 + (secureCookie ? "; Secure" : "");
         exchange.getResponseHeaders().add("Set-Cookie", cookie);
     }
 
     public void clearSessionCookie(HttpExchange exchange, boolean secureCookie) {
-        String sameSite = secureCookie ? "None" : "Lax";
-        String cookie = SESSION_COOKIE + "=; Path=/; Max-Age=0; HttpOnly; SameSite=" + sameSite
+        String cookie = SESSION_COOKIE + "=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
                 + (secureCookie ? "; Secure" : "");
         exchange.getResponseHeaders().add("Set-Cookie", cookie);
     }
@@ -126,13 +124,20 @@ public final class WebSessionManager {
         public final String username;
         public final String avatarUrl;
         public final String accessToken;
+        public final String csrfToken;
         public final long expiresAtMillis;
 
-        public WebSession(String userId, String username, String avatarUrl, String accessToken, long expiresAtMillis) {
+        public WebSession(String userId,
+                          String username,
+                          String avatarUrl,
+                          String accessToken,
+                          String csrfToken,
+                          long expiresAtMillis) {
             this.userId = userId;
             this.username = username;
             this.avatarUrl = avatarUrl;
             this.accessToken = accessToken;
+            this.csrfToken = csrfToken;
             this.expiresAtMillis = expiresAtMillis;
         }
     }

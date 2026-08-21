@@ -7,6 +7,7 @@ import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
 import com.norule.musicbot.service.shorturl.ImageShareService;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
+import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
 import com.norule.musicbot.domain.shorturl.QuotaSubject;
 import com.norule.musicbot.shorturl.ShortUrlAccessPublisher;
 import com.norule.musicbot.shorturl.ShortUrlRepository;
@@ -72,6 +73,9 @@ public final class ShortUrlService {
         }
     }
 
+    public record CreationOutcome(ShortUrlEntry entry, boolean newlyCreated) {
+    }
+
     private static final long DEFAULT_TTL_MILLIS = 7L * 24L * 60L * 60L * 1000L;
     private static final long DEFAULT_CLEANUP_INTERVAL_MILLIS = 10L * 60L * 1000L;
     private static final String DEFAULT_PUBLIC_BASE_URL = "https://s.norule.me";
@@ -83,6 +87,8 @@ public final class ShortUrlService {
     private final ShortUrlRepository repository;
     private final ImageShareService imageShareService;
     private final AnonymousDeviceIdentityService anonymousDeviceIdentityService;
+    private final ShortUrlCreationGuard creationGuard = new ShortUrlCreationGuard(
+            ShortUrlCreationGuard.Options.defaults());
     private final AtomicReference<Options> options = new AtomicReference<>();
     private final AtomicReference<ShortUrlAccessPublisher> accessPublisher =
             new AtomicReference<>(ShortUrlAccessPublisher.NO_OP);
@@ -141,32 +147,40 @@ public final class ShortUrlService {
                                 String customSlug,
                                 String creatorDiscordUserId,
                                 String clientAddress) {
-        return create(rawTarget, customSlug, options.get().ttlMillis(), creatorDiscordUserId, clientAddress);
+        return createWithOutcome(rawTarget, customSlug, creatorDiscordUserId, clientAddress).entry();
+    }
+
+    public CreationOutcome createWithOutcome(String rawTarget,
+                                             String customSlug,
+                                             String creatorDiscordUserId,
+                                             String clientAddress) {
+        return createOutcome(rawTarget, customSlug, options.get().ttlMillis(),
+                creatorDiscordUserId, clientAddress);
     }
 
     public ShortUrlEntry create(String rawTarget, long ttlMillis) {
-        return create(rawTarget, null, ttlMillis, "", "");
+        return createOutcome(rawTarget, null, ttlMillis, "", "").entry();
     }
 
     public ShortUrlEntry create(String rawTarget, String customSlug, long ttlMillis) {
-        return create(rawTarget, customSlug, ttlMillis, "", "");
+        return createOutcome(rawTarget, customSlug, ttlMillis, "", "").entry();
     }
 
-    private ShortUrlEntry create(String rawTarget,
-                                 String customSlug,
-                                 long ttlMillis,
-                                 String creatorDiscordUserId,
-                                 String clientAddress) {
+    private CreationOutcome createOutcome(String rawTarget,
+                                          String customSlug,
+                                          long ttlMillis,
+                                          String creatorDiscordUserId,
+                                          String clientAddress) {
         String target = domainService.normalizeTarget(rawTarget);
         if (!domainService.isValidTarget(target)) {
-            return null;
+            return new CreationOutcome(null, false);
         }
         Options currentOptions = options.get();
         if (!currentOptions.allowPrivateTargets() && domainService.isPrivateOrLocalTarget(target)) {
-            return null;
+            return new CreationOutcome(null, false);
         }
         if (isSelfDomainTarget(target)) {
-            return null;
+            return new CreationOutcome(null, false);
         }
 
         long now = System.currentTimeMillis();
@@ -179,13 +193,13 @@ public final class ShortUrlService {
             ShortUrlEntry existing = repository.findActiveByTarget(target, now);
             if (existing != null && !domainService.isExpired(existing.getExpiresAt(), now)
                     && existing.ownerUserId().equals(normalizedOwnerUserId)) {
-                return existing;
+                return new CreationOutcome(existing, false);
             }
         }
 
         String code = resolveCodeForCreate(customSlug, now);
         if (code == null) {
-            return null;
+            return new CreationOutcome(null, false);
         }
         ShortUrlEntry created = new ShortUrlEntry(
                 code, target, now, now + safeTtl, 0L, normalizedOwnerUserId, 0L);
@@ -193,7 +207,7 @@ public final class ShortUrlService {
         publishAccess(ShortUrlAccessEvent.Action.CREATED, ShortUrlAccessEvent.ResourceType.URL,
                 created.code(), created.target(), created.viewCount(), created.expiresAt(), false, 0L,
                 creatorDiscordUserId, clientAddress, "");
-        return created;
+        return new CreationOutcome(created, true);
     }
 
     public String resolveTarget(String code) {
@@ -256,6 +270,20 @@ public final class ShortUrlService {
             return;
         }
         this.options.set(options);
+    }
+
+    public void updateCreationGuardOptions(ShortUrlCreationGuard.Options options) {
+        creationGuard.updateOptions(options);
+    }
+
+    public ShortUrlCreationGuard.Decision checkCreationRequest(String creatorDiscordUserId,
+                                                                String clientAddress) {
+        return creationGuard.checkRequest(creatorDiscordUserId, clientAddress);
+    }
+
+    public ShortUrlCreationGuard.CreationPermit beginShortUrlCreation(String creatorDiscordUserId,
+                                                                      String clientAddress) {
+        return creationGuard.beginCreation(creatorDiscordUserId, clientAddress);
     }
 
     public ImageShareService.UploadResult createImageShare(ImageShareService.Upload upload) {

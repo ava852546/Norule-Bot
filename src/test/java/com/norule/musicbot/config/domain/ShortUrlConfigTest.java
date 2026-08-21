@@ -8,6 +8,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShortUrlConfigTest {
     @Test
@@ -93,5 +94,36 @@ class ShortUrlConfigTest {
         ShortUrlConfig config = new ShortUrlConfig(parsed);
         assertEquals("data/new-active", config.getImage().getStoragePath());
         assertEquals("data/old-active", config.getLegacyImageStoragePath());
+    }
+
+    @Test
+    void mapsCreationAbuseProtectionAndClampsUnsafeValues() {
+        BotConfig.ShortUrl parsed = BotConfig.ShortUrl.fromMap(Map.of(
+                "abuseProtection", Map.of(
+                        "creation", Map.of(
+                                "enabled", true,
+                                "anonymous", Map.of(
+                                        "maxRequestsPerMinute", -10,
+                                        "maxRequestsPer10Minutes", 2,
+                                        "maxCreatesPerDay", 20
+                                ),
+                                "authenticated", Map.of(
+                                        "maxRequestsPerMinute", 40,
+                                        "maxRequestsPer10Minutes", 200,
+                                        "maxCreatesPerDay", 600
+                                )
+                        )
+                )
+        ), BotConfig.ShortUrl.defaultValues());
+
+        var options = new ShortUrlConfig(parsed).getCreationGuardOptions();
+
+        assertTrue(options.enabled());
+        assertEquals(1, options.anonymousPerMinute());
+        assertEquals(2, options.anonymousPerTenMinutes());
+        assertEquals(20, options.anonymousDailyCreates());
+        assertEquals(40, options.authenticatedPerMinute());
+        assertEquals(200, options.authenticatedPerTenMinutes());
+        assertEquals(600, options.authenticatedDailyCreates());
     }
 }

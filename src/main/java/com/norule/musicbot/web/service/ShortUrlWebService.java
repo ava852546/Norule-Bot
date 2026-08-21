@@ -1,14 +1,16 @@
 package com.norule.musicbot.web.service;
 
 import com.norule.musicbot.domain.shorturl.ShortUrl;
+import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
 import com.norule.musicbot.web.infra.WebControlServer;
 import com.norule.musicbot.web.ops.ShortUrlOps;
+import com.norule.musicbot.web.security.ClientAddressResolver;
+import com.norule.musicbot.web.security.HttpRequestBodyReader;
 import com.sun.net.httpserver.HttpExchange;
 import net.dv8tion.jda.api.utils.data.DataObject;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Map;
@@ -35,7 +37,23 @@ public final class ShortUrlWebService {
             return;
         }
 
-        String body = owner.readBody(exchange);
+        String body;
+        try {
+            body = owner.readBody(exchange, HttpRequestBodyReader.MAX_SHORT_URL_REQUEST_BODY_BYTES);
+        } catch (HttpRequestBodyReader.RequestBodyTooLargeException ignored) {
+            owner.sendJson(exchange, 413, DataObject.empty()
+                    .put("error", "Request body too large")
+                    .put("errorCode", "REQUEST_BODY_TOO_LARGE"));
+            return;
+        }
+        String ownerUserId = owner.authenticatedUserId(exchange);
+        String address = clientAddress(exchange);
+        ShortUrlCreationGuard.Decision requestDecision = owner.shortUrlService()
+                .checkCreationRequest(ownerUserId, address);
+        if (!requestDecision.allowed()) {
+            sendCreationGuardFailure(exchange, requestDecision.status(), requestDecision.retryAfterSeconds());
+            return;
+        }
         String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
         Map<String, String> form = parseRequestBody(body, contentType);
         String target = form.getOrDefault("url", "").trim();
@@ -47,20 +65,31 @@ public final class ShortUrlWebService {
             return;
         }
 
-        ShortUrl created = shortUrlOps.createFromWeb(
-                target, customCode, owner.authenticatedUserId(exchange), clientAddress(exchange));
-        if (created == null) {
-            owner.sendJson(exchange, 400, DataObject.empty()
-                    .put("error", "Invalid url or code")
-                    .put("errorCode", "INVALID_URL_OR_CODE"));
-            return;
-        }
+        try (ShortUrlCreationGuard.CreationPermit permit = owner.shortUrlService()
+                .beginShortUrlCreation(ownerUserId, address)) {
+            if (!permit.allowed()) {
+                sendCreationGuardFailure(exchange, permit.status(), permit.retryAfterSeconds());
+                return;
+            }
+            ShortUrlOps.CreationResult result = shortUrlOps.createFromWebWithOutcome(
+                    target, customCode, ownerUserId, address);
+            ShortUrl created = result.shortUrl();
+            if (created == null) {
+                owner.sendJson(exchange, 400, DataObject.empty()
+                        .put("error", "Invalid url or code")
+                        .put("errorCode", "INVALID_URL_OR_CODE"));
+                return;
+            }
+            if (result.newlyCreated()) {
+                permit.commitSuccessfulCreation();
+            }
 
-        owner.sendJson(exchange, 200, DataObject.empty()
-                .put("code", created.code())
-                .put("shortUrl", owner.shortUrlService().toPublicUrl(created.code()))
-                .put("targetUrl", created.target())
-                .put("viewCount", created.viewCount()));
+            owner.sendJson(exchange, 200, DataObject.empty()
+                    .put("code", created.code())
+                    .put("shortUrl", owner.shortUrlService().toPublicUrl(created.code()))
+                    .put("targetUrl", created.target())
+                    .put("viewCount", created.viewCount()));
+        }
     }
 
     public void handleResolveShortUrl(HttpExchange exchange) throws IOException {
@@ -167,14 +196,22 @@ public final class ShortUrlWebService {
     }
 
     private String clientAddress(HttpExchange exchange) {
-        String forwarded = exchange.getRequestHeaders().getFirst("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",", 2)[0].trim();
-        }
-        InetSocketAddress remoteAddress = exchange.getRemoteAddress();
-        return remoteAddress == null || remoteAddress.getAddress() == null
-                ? "unknown"
-                : remoteAddress.getAddress().getHostAddress();
+        return ClientAddressResolver.resolve(exchange);
+    }
+
+    private void sendCreationGuardFailure(HttpExchange exchange,
+                                          ShortUrlCreationGuard.Status status,
+                                          long retryAfterSeconds) throws IOException {
+        boolean dailyQuota = status == ShortUrlCreationGuard.Status.DAILY_QUOTA_EXCEEDED;
+        exchange.getResponseHeaders().set("Retry-After", String.valueOf(Math.max(1L, retryAfterSeconds)));
+        owner.sendJson(exchange, 429, DataObject.empty()
+                .put("error", dailyQuota
+                        ? "Daily short URL creation quota exceeded"
+                        : "Too many short URL requests")
+                .put("errorCode", dailyQuota
+                        ? "SHORT_URL_DAILY_QUOTA_EXCEEDED"
+                        : "SHORT_URL_RATE_LIMITED")
+                .put("retryAfterSeconds", Math.max(1L, retryAfterSeconds)));
     }
 
     private String userAgent(HttpExchange exchange) {

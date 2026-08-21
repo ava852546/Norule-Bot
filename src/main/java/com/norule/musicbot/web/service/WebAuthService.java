@@ -2,11 +2,11 @@ package com.norule.musicbot.web.service;
 
 import com.norule.musicbot.web.infra.WebControlServer;
 import com.norule.musicbot.web.infra.WebSettings;
+import com.norule.musicbot.web.security.ClientAddressResolver;
 import com.norule.musicbot.web.session.WebSessionManager;
 import com.sun.net.httpserver.HttpExchange;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.Map;
 import java.util.UUID;
@@ -136,6 +136,7 @@ public final class WebAuthService {
     }
 
     public void handleApiMe(HttpExchange exchange) throws IOException {
+        exchange.getResponseHeaders().set("Cache-Control", "private, no-store");
         if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
             owner.sendJson(exchange, 405, net.dv8tion.jda.api.utils.data.DataObject.empty().put("error", "Method Not Allowed"));
             return;
@@ -148,7 +149,8 @@ public final class WebAuthService {
         owner.sendJson(exchange, 200, net.dv8tion.jda.api.utils.data.DataObject.empty()
                 .put("id", session.userId)
                 .put("username", session.username)
-                .put("avatarUrl", session.avatarUrl));
+                .put("avatarUrl", session.avatarUrl)
+                .put("csrfToken", session.csrfToken));
     }
 
     private String readCookie(HttpExchange exchange, String name) {
@@ -166,16 +168,7 @@ public final class WebAuthService {
     }
 
     private String clientAddress(HttpExchange exchange) {
-        InetSocketAddress remoteAddress = exchange.getRemoteAddress();
-        String forwarded = exchange.getRequestHeaders().getFirst("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank() && remoteAddress != null
-                && remoteAddress.getAddress() != null
-                && (remoteAddress.getAddress().isLoopbackAddress()
-                || remoteAddress.getAddress().isSiteLocalAddress())) {
-            return forwarded.split(",", 2)[0].trim();
-        }
-        return remoteAddress == null || remoteAddress.getAddress() == null
-                ? "unknown" : remoteAddress.getAddress().getHostAddress();
+        return ClientAddressResolver.resolve(exchange);
     }
 
     static String sanitizeReturnTo(String requested, String dashboardBaseUrl, String shortUrlBaseUrl) {

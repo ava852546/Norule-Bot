@@ -4,6 +4,7 @@ import com.norule.musicbot.ModerationService;
 import com.norule.musicbot.config.GuildSettingsService;
 import com.norule.musicbot.domain.music.*;
 import com.norule.musicbot.web.infra.WebControlServer;
+import com.norule.musicbot.web.security.CsrfProtectionService;
 import com.norule.musicbot.web.session.WebSessionManager;
 
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
@@ -25,6 +26,7 @@ import java.util.Objects;
 public final class GuildSettingsWebService {
     private final WebControlServer owner;
     private final TicketTranscriptWebService ticketTranscriptWebService;
+    private final CsrfProtectionService csrfProtectionService = new CsrfProtectionService();
 
     public GuildSettingsWebService(WebControlServer owner) {
         this.owner = owner;
@@ -35,6 +37,12 @@ public final class GuildSettingsWebService {
         WebSessionManager.WebSession session = owner.sessionManager().requireSession(exchange);
         if (session == null) {
             owner.sendJson(exchange, 401, DataObject.empty().put("error", "Unauthorized"));
+            return;
+        }
+        if (!csrfProtectionService.validate(exchange, session)) {
+            owner.sendJson(exchange, 403, DataObject.empty()
+                    .put("error", "Invalid CSRF token")
+                    .put("errorCode", "INVALID_CSRF_TOKEN"));
             return;
         }
 

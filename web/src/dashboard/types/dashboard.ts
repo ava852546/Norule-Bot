@@ -12,6 +12,7 @@ export interface UserProfile {
   id: string
   username: string
   avatarUrl: string
+  csrfToken: string
 }
 
 export interface BotProfile {

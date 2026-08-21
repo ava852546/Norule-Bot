@@ -3,6 +3,9 @@ package com.norule.musicbot.service.shorturl;
 import com.norule.musicbot.domain.shorturl.ShortUrl;
 
 public final class ShortUrlService {
+    public record CreateResult(ShortUrl shortUrl, boolean newlyCreated) {
+    }
+
     private final com.norule.musicbot.ShortUrlService coreService;
 
     public ShortUrlService(com.norule.musicbot.ShortUrlService coreService) {
@@ -22,13 +25,20 @@ public final class ShortUrlService {
     }
 
     public ShortUrl create(String url, String customCode, String creatorDiscordUserId, String clientAddress) {
-        com.norule.musicbot.ShortUrlService.ShortUrlEntry created = coreService.create(
+        return createWithOutcome(url, customCode, creatorDiscordUserId, clientAddress).shortUrl();
+    }
+
+    public CreateResult createWithOutcome(String url,
+                                          String customCode,
+                                          String creatorDiscordUserId,
+                                          String clientAddress) {
+        com.norule.musicbot.ShortUrlService.CreationOutcome outcome = coreService.createWithOutcome(
                 url,
                 customCode,
                 creatorDiscordUserId,
                 clientAddress
         );
-        return map(created);
+        return new CreateResult(map(outcome.entry()), outcome.newlyCreated());
     }
 
     public ShortUrl resolve(String code) {

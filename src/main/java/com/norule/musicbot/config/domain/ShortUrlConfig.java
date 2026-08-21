@@ -6,6 +6,7 @@ import com.norule.musicbot.service.shorturl.ImageShareService;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
 import com.norule.musicbot.service.shorturl.MediaQuotaService;
+import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
 import java.util.Locale;
 
 public final class ShortUrlConfig {
@@ -93,6 +94,7 @@ public final class ShortUrlConfig {
     private final MediaPasswordAttemptGuard.Options passwordProtectionOptions;
     private final AnonymousDeviceIdentityService.Options identityContinuityOptions;
     private final MediaQuotaService.Options mediaQuotaOptions;
+    private final ShortUrlCreationGuard.Options creationGuardOptions;
     private final String legacyImageStoragePath;
     private final String temporaryStoragePath;
     private final String expiredArchivePath;
@@ -153,6 +155,7 @@ public final class ShortUrlConfig {
         this.passwordProtectionOptions = MediaPasswordAttemptGuard.Options.defaults();
         this.identityContinuityOptions = AnonymousDeviceIdentityService.Options.defaults();
         this.mediaQuotaOptions = MediaQuotaService.Options.defaults();
+        this.creationGuardOptions = ShortUrlCreationGuard.Options.defaults();
         this.legacyImageStoragePath = this.image.getStoragePath();
         this.temporaryStoragePath = "data/tmp/uploads";
         this.expiredArchivePath = "data/short-url-expired";
@@ -217,6 +220,16 @@ public final class ShortUrlConfig {
         MediaQuotaService.Options defaults = MediaQuotaService.Options.defaults();
         this.mediaQuotaOptions = new MediaQuotaService.Options(true, defaults.anonymous(),
                 defaults.authenticated(), mediaStorage.getMaxTotalStorageGb() * 1024L * 1024L * 1024L);
+        BotConfig.ShortUrl.CreationAbuseProtection creation = source.getCreationAbuseProtection();
+        this.creationGuardOptions = new ShortUrlCreationGuard.Options(
+                creation.isEnabled(),
+                creation.getAnonymous().getMaxRequestsPerMinute(),
+                creation.getAnonymous().getMaxRequestsPer10Minutes(),
+                creation.getAnonymous().getMaxCreatesPerDay(),
+                creation.getAuthenticated().getMaxRequestsPerMinute(),
+                creation.getAuthenticated().getMaxRequestsPer10Minutes(),
+                creation.getAuthenticated().getMaxCreatesPerDay()
+        );
         this.legacyImageStoragePath = source.getImage().getStoragePath();
         this.temporaryStoragePath = mediaStorage.getTempPath();
         this.expiredArchivePath = mediaStorage.getExpiredArchivePath();
@@ -274,6 +287,7 @@ public final class ShortUrlConfig {
     public MediaPasswordAttemptGuard.Options getPasswordProtectionOptions() { return passwordProtectionOptions; }
     public AnonymousDeviceIdentityService.Options getIdentityContinuityOptions() { return identityContinuityOptions; }
     public MediaQuotaService.Options getMediaQuotaOptions() { return mediaQuotaOptions; }
+    public ShortUrlCreationGuard.Options getCreationGuardOptions() { return creationGuardOptions; }
     public String getLegacyImageStoragePath() { return legacyImageStoragePath; }
     public String getTemporaryStoragePath() { return temporaryStoragePath; }
     public String getExpiredArchivePath() { return expiredArchivePath; }

@@ -19,6 +19,7 @@ import com.norule.musicbot.web.service.MinecraftStatusWebService;
 import com.norule.musicbot.web.service.WebLanguageService;
 import com.norule.musicbot.web.service.WebSessionService;
 import com.norule.musicbot.web.service.WelcomePreviewService;
+import com.norule.musicbot.web.security.HttpRequestBodyReader;
 import com.norule.musicbot.web.session.WebSessionManager;
 
 import com.sun.net.httpserver.HttpExchange;
@@ -308,7 +309,10 @@ import java.util.function.Supplier;
         return baseUrl != null && baseUrl.toLowerCase().startsWith("https://");
     }
     public String readBody(HttpExchange exchange) throws IOException {
-        return new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        return readBody(exchange, HttpRequestBodyReader.MAX_DASHBOARD_REQUEST_BODY_BYTES);
+    }
+    public String readBody(HttpExchange exchange, long maxBytes) throws IOException {
+        return HttpRequestBodyReader.readUtf8BodyLimited(exchange, maxBytes);
     }
     public Map<String, String> parseUrlEncoded(String raw) {
         Map<String, String> map = new HashMap<>();
