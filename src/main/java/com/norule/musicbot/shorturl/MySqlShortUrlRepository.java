@@ -11,6 +11,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCloseable {
     private static final String CREATE_TABLE = """
@@ -24,7 +26,8 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
                 last_accessed_at BIGINT NOT NULL DEFAULT 0,
                 PRIMARY KEY (code),
                 KEY idx_short_urls_target_expires (target(255), expires_at),
-                KEY idx_short_urls_expires_at (expires_at)
+                KEY idx_short_urls_expires_at (expires_at),
+                KEY idx_short_urls_owner_created (owner_user_id, created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """;
     private static final String CREATE_SETTINGS_TABLE = """
@@ -106,6 +109,64 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to query short url by target", e);
+        }
+    }
+
+    @Override
+    public List<ShortUrlService.ShortUrlEntry> findByOwnerUserId(String ownerUserId, int offset, int limit) {
+        return findByOwnerUserId(ownerUserId, null, 0L, offset, limit);
+    }
+
+    @Override
+    public List<ShortUrlService.ShortUrlEntry> findByOwnerUserId(String ownerUserId,
+                                                                 Boolean active,
+                                                                 long nowMillis,
+                                                                 int offset,
+                                                                 int limit) {
+        List<ShortUrlService.ShortUrlEntry> entries = new ArrayList<>();
+        String sql = "SELECT " + SELECT_FIELDS + " FROM short_urls WHERE owner_user_id = ?"
+                + (active == null ? "" : active ? " AND expires_at > ?" : " AND expires_at <= ?")
+                + " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            int index = 1;
+            statement.setString(index++, ownerUserId);
+            if (active != null) {
+                statement.setLong(index++, nowMillis);
+            }
+            statement.setInt(index++, Math.max(1, limit));
+            statement.setInt(index, Math.max(0, offset));
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    entries.add(mapRow(rows));
+                }
+            }
+            return entries;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to query short urls by owner", e);
+        }
+    }
+
+    @Override
+    public long countByOwnerUserId(String ownerUserId) {
+        return countByOwnerUserId(ownerUserId, null, 0L);
+    }
+
+    @Override
+    public long countByOwnerUserId(String ownerUserId, Boolean active, long nowMillis) {
+        String sql = "SELECT COUNT(*) FROM short_urls WHERE owner_user_id = ?"
+                + (active == null ? "" : active ? " AND expires_at > ?" : " AND expires_at <= ?");
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, ownerUserId);
+            if (active != null) {
+                statement.setLong(2, nowMillis);
+            }
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next() ? row.getLong(1) : 0L;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to count short urls by owner", e);
         }
     }
 
@@ -229,6 +290,7 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
             ensureViewCountColumn(connection, statement);
             ensureColumn(connection, statement, "owner_user_id", "VARCHAR(64) NOT NULL DEFAULT ''");
             ensureColumn(connection, statement, "last_accessed_at", "BIGINT NOT NULL DEFAULT 0");
+            ensureOwnerIndex(connection, statement);
             statement.execute(CREATE_SETTINGS_TABLE);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to initialize short url mysql schema", e);
@@ -260,5 +322,18 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
             }
         }
         statement.execute("ALTER TABLE short_urls ADD COLUMN " + name + " " + definition);
+    }
+
+    private static void ensureOwnerIndex(Connection connection, Statement statement) throws SQLException {
+        DatabaseMetaData metadata = connection.getMetaData();
+        try (ResultSet indexes = metadata.getIndexInfo(
+                connection.getCatalog(), null, "short_urls", false, false)) {
+            while (indexes.next()) {
+                if ("idx_short_urls_owner_created".equalsIgnoreCase(indexes.getString("INDEX_NAME"))) {
+                    return;
+                }
+            }
+        }
+        statement.execute("CREATE INDEX idx_short_urls_owner_created ON short_urls(owner_user_id, created_at)");
     }
 }

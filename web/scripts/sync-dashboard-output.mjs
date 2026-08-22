@@ -54,7 +54,7 @@ await writeFile(path.resolve(outputRoot, 'app.css'), `${legacyStyles.join('\n\n'
 await rm(path.resolve(outputRoot, 'app.js'), { force: true })
 await rm(path.resolve(outputRoot, 'chunks'), { recursive: true, force: true })
 
-for (const fileName of ['image-view.html', 'image-password.html', 'share-expired.html']) {
+for (const fileName of ['share-expired.html']) {
   await copyFile(path.resolve(templateRoot, fileName), path.resolve(outputRoot, fileName))
 }
 

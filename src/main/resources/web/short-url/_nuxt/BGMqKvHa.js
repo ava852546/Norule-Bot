@@ -1,0 +1,1 @@
+function e(e){return Object.prototype.hasOwnProperty.call(e,`stats`)}function t(e=``){return e?`/api/short/session/login?returnTo=${encodeURIComponent(e)}`:`/api/short/session/login`}export{t as n,e as t};

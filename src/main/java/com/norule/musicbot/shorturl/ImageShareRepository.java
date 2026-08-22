@@ -11,6 +11,26 @@ public interface ImageShareRepository {
 
     List<ImageShare> findActiveByContentHash(String contentHash, long nowMillis);
 
+    default List<ImageShare> findByOwnerUserId(String ownerUserId, int offset, int limit) {
+        return List.of();
+    }
+
+    default List<ImageShare> findByOwnerUserId(String ownerUserId,
+                                               Boolean active,
+                                               long nowMillis,
+                                               int offset,
+                                               int limit) {
+        return findByOwnerUserId(ownerUserId, offset, limit);
+    }
+
+    default long countByOwnerUserId(String ownerUserId) {
+        return 0L;
+    }
+
+    default long countByOwnerUserId(String ownerUserId, Boolean active, long nowMillis) {
+        return countByOwnerUserId(ownerUserId);
+    }
+
     void save(ImageShare imageShare);
 
     default void update(ImageShare imageShare) {

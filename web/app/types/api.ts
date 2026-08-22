@@ -44,3 +44,40 @@ export interface MediaUploadInput {
   passwordProtected: boolean
   password?: string
 }
+
+export interface PublicMediaContent {
+  code: string
+  type: 'MEDIA_SHARE'
+  mediaType: 'IMAGE' | 'VIDEO'
+  contentUrl: string
+  passwordRequired: boolean
+}
+
+export interface OwnerContentStats {
+  code: string
+  shareType: 'SHORT_URL' | 'MEDIA_SHARE'
+  viewCount: number
+  createdAt: number
+  lastAccessedAt: number
+  expiresAt: number
+  active: boolean
+  targetUrl?: string
+  mediaType?: 'IMAGE' | 'VIDEO'
+  contentType?: string
+  fileSize?: number
+  passwordProtected?: boolean
+  contentUrl?: string
+}
+
+export interface OwnedContentItem extends OwnerContentStats {
+  publicUrl: string
+  statsUrl: string
+}
+
+export interface OwnedContentPage {
+  items: OwnedContentItem[]
+  page: number
+  size: number
+  totalItems: number
+  totalPages: number
+}

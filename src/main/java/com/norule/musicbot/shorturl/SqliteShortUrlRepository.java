@@ -10,6 +10,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class SqliteShortUrlRepository implements ShortUrlRepository {
     private static final String CREATE_TABLE = """
@@ -31,6 +33,7 @@ public final class SqliteShortUrlRepository implements ShortUrlRepository {
             """;
     private static final String LOG_CHANNEL_SETTING = "discord_log_channel_id";
     private static final String CREATE_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_urls_target_expires ON short_urls(target, expires_at)";
+    private static final String CREATE_OWNER_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_urls_owner_created ON short_urls(owner_user_id, created_at DESC)";
     private static final String SELECT_FIELDS = "code, target, created_at, expires_at, view_count, owner_user_id, last_accessed_at";
     private static final String SELECT_BY_CODE = "SELECT " + SELECT_FIELDS + " FROM short_urls WHERE code = ?";
     private static final String SELECT_ACTIVE_BY_TARGET = """
@@ -103,6 +106,64 @@ public final class SqliteShortUrlRepository implements ShortUrlRepository {
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to query short url by target", e);
+        }
+    }
+
+    @Override
+    public List<ShortUrlService.ShortUrlEntry> findByOwnerUserId(String ownerUserId, int offset, int limit) {
+        return findByOwnerUserId(ownerUserId, null, 0L, offset, limit);
+    }
+
+    @Override
+    public List<ShortUrlService.ShortUrlEntry> findByOwnerUserId(String ownerUserId,
+                                                                 Boolean active,
+                                                                 long nowMillis,
+                                                                 int offset,
+                                                                 int limit) {
+        List<ShortUrlService.ShortUrlEntry> entries = new ArrayList<>();
+        String sql = "SELECT " + SELECT_FIELDS + " FROM short_urls WHERE owner_user_id = ?"
+                + (active == null ? "" : active ? " AND expires_at > ?" : " AND expires_at <= ?")
+                + " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            int index = 1;
+            statement.setString(index++, ownerUserId);
+            if (active != null) {
+                statement.setLong(index++, nowMillis);
+            }
+            statement.setInt(index++, Math.max(1, limit));
+            statement.setInt(index, Math.max(0, offset));
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    entries.add(mapRow(rows));
+                }
+            }
+            return entries;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to query short urls by owner", e);
+        }
+    }
+
+    @Override
+    public long countByOwnerUserId(String ownerUserId) {
+        return countByOwnerUserId(ownerUserId, null, 0L);
+    }
+
+    @Override
+    public long countByOwnerUserId(String ownerUserId, Boolean active, long nowMillis) {
+        String sql = "SELECT COUNT(*) FROM short_urls WHERE owner_user_id = ?"
+                + (active == null ? "" : active ? " AND expires_at > ?" : " AND expires_at <= ?");
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, ownerUserId);
+            if (active != null) {
+                statement.setLong(2, nowMillis);
+            }
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next() ? row.getLong(1) : 0L;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to count short urls by owner", e);
         }
     }
 
@@ -222,6 +283,7 @@ public final class SqliteShortUrlRepository implements ShortUrlRepository {
             ensureColumn(connection, statement, "owner_user_id", "TEXT NOT NULL DEFAULT ''");
             ensureColumn(connection, statement, "last_accessed_at", "INTEGER NOT NULL DEFAULT 0");
             statement.execute(CREATE_INDEX);
+            statement.execute(CREATE_OWNER_INDEX);
             statement.execute(CREATE_SETTINGS_TABLE);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to initialize short url sqlite schema", e);

@@ -4,6 +4,7 @@ import com.norule.musicbot.domain.shorturl.ShortUrlDomainService;
 import com.norule.musicbot.domain.shorturl.ImageShare;
 import com.norule.musicbot.domain.shorturl.ShortUrlAccessEvent;
 import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
+import com.norule.musicbot.domain.shorturl.OwnedShortUrlContent;
 import com.norule.musicbot.service.shorturl.ImageShareService;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
@@ -14,6 +15,9 @@ import com.norule.musicbot.shorturl.ShortUrlRepository;
 
 import java.net.URI;
 import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class ShortUrlService {
@@ -74,6 +78,28 @@ public final class ShortUrlService {
     }
 
     public record CreationOutcome(ShortUrlEntry entry, boolean newlyCreated) {
+    }
+
+    public enum OwnedContentType {
+        ALL,
+        SHORT_URL,
+        MEDIA_SHARE
+    }
+
+    public enum OwnedContentStatus {
+        ALL,
+        ACTIVE,
+        EXPIRED
+    }
+
+    public record OwnedContentPage(List<OwnedShortUrlContent> items,
+                                   int page,
+                                   int size,
+                                   long totalItems,
+                                   int totalPages) {
+        public OwnedContentPage {
+            items = items == null ? List.of() : List.copyOf(items);
+        }
     }
 
     private static final long DEFAULT_TTL_MILLIS = 7L * 24L * 60L * 60L * 1000L;
@@ -390,7 +416,9 @@ public final class ShortUrlService {
         }
         String normalizedCode = code.trim();
         String normalizedOwner = ownerUserId.trim();
-        ImageShare imageShare = resolveImageShare(normalizedCode);
+        long now = System.currentTimeMillis();
+        ImageShare imageShare = imageShareService == null
+                ? null : imageShareService.findByCodeForOwner(normalizedCode);
         if (imageShare != null && normalizedOwner.equals(imageShare.ownerUserId())) {
             return new ShortUrlStatistics(
                     ShortUrlStatistics.ResourceType.MEDIA_SHARE,
@@ -398,10 +426,15 @@ public final class ShortUrlService {
                     imageShare.viewCount(),
                     imageShare.createdAt(),
                     imageShare.lastAccessedAt(),
-                    imageShare.expiresAt()
+                    imageShare.expiresAt(),
+                    "",
+                    imageShare.contentType(),
+                    imageShare.sizeBytes(),
+                    imageShare.isPasswordProtected(),
+                    imageShare.isPubliclyAvailable(now)
             );
         }
-        ShortUrlEntry entry = resolve(normalizedCode);
+        ShortUrlEntry entry = repository.findByCode(normalizedCode);
         if (entry == null || !normalizedOwner.equals(entry.ownerUserId())) {
             return null;
         }
@@ -411,7 +444,126 @@ public final class ShortUrlService {
                 entry.viewCount(),
                 entry.createdAt(),
                 entry.lastAccessedAt(),
-                entry.expiresAt()
+                entry.expiresAt(),
+                entry.target(),
+                "",
+                0L,
+                false,
+                entry.expiresAt() > now
+        );
+    }
+
+    public boolean resourceExists(String code) {
+        if (code == null || code.isBlank()) {
+            return false;
+        }
+        String normalized = code.trim();
+        if (imageShareService != null && imageShareService.findByCodeForOwner(normalized) != null) {
+            return true;
+        }
+        return repository.findByCode(normalized) != null;
+    }
+
+    public ImageShare findImageShareForOwner(String code, String ownerUserId) {
+        if (imageShareService == null || code == null || code.isBlank()
+                || ownerUserId == null || ownerUserId.isBlank()) {
+            return null;
+        }
+        ImageShare imageShare = imageShareService.findByCodeForOwner(code.trim());
+        return imageShare != null && ownerUserId.trim().equals(imageShare.ownerUserId())
+                ? imageShare : null;
+    }
+
+    public OwnedContentPage findOwnedContent(String ownerUserId,
+                                             OwnedContentType type,
+                                             int requestedPage,
+                                             int requestedSize) {
+        return findOwnedContent(ownerUserId, type, OwnedContentStatus.ALL, requestedPage, requestedSize);
+    }
+
+    public OwnedContentPage findOwnedContent(String ownerUserId,
+                                             OwnedContentType type,
+                                             OwnedContentStatus status,
+                                             int requestedPage,
+                                             int requestedSize) {
+        String normalizedOwner = ownerUserId == null ? "" : ownerUserId.trim();
+        int page = Math.max(0, requestedPage);
+        int size = Math.max(1, Math.min(100, requestedSize));
+        if (normalizedOwner.isBlank()) {
+            return new OwnedContentPage(List.of(), page, size, 0L, 0);
+        }
+        OwnedContentType contentType = type == null ? OwnedContentType.ALL : type;
+        OwnedContentStatus contentStatus = status == null ? OwnedContentStatus.ALL : status;
+        Boolean active = switch (contentStatus) {
+            case ALL -> null;
+            case ACTIVE -> true;
+            case EXPIRED -> false;
+        };
+        long now = System.currentTimeMillis();
+        int offset = page * size;
+        long shortUrlCount = contentType == OwnedContentType.MEDIA_SHARE
+                ? 0L : repository.countByOwnerUserId(normalizedOwner, active, now);
+        long mediaCount = contentType == OwnedContentType.SHORT_URL || imageShareService == null
+                ? 0L : imageShareService.countByOwnerUserId(normalizedOwner, active, now);
+        long total = shortUrlCount + mediaCount;
+
+        List<OwnedShortUrlContent> items = new ArrayList<>();
+        if (contentType == OwnedContentType.SHORT_URL) {
+            repository.findByOwnerUserId(normalizedOwner, active, now, offset, size).stream()
+                    .map(this::toOwnedContent)
+                    .forEach(items::add);
+        } else if (contentType == OwnedContentType.MEDIA_SHARE) {
+            imageShareService.findByOwnerUserId(normalizedOwner, active, now, offset, size).stream()
+                    .map(this::toOwnedContent)
+                    .forEach(items::add);
+        } else {
+            int mergeLimit = Math.min(Integer.MAX_VALUE - offset, offset + size);
+            repository.findByOwnerUserId(normalizedOwner, active, now, 0, mergeLimit).stream()
+                    .map(this::toOwnedContent)
+                    .forEach(items::add);
+            if (imageShareService != null) {
+                imageShareService.findByOwnerUserId(normalizedOwner, active, now, 0, mergeLimit).stream()
+                        .map(this::toOwnedContent)
+                        .forEach(items::add);
+            }
+            items.sort(Comparator.comparingLong(OwnedShortUrlContent::createdAt).reversed());
+            items = offset >= items.size()
+                    ? new ArrayList<>()
+                    : new ArrayList<>(items.subList(offset, Math.min(items.size(), offset + size)));
+        }
+        int totalPages = total == 0L ? 0 : (int) Math.min(Integer.MAX_VALUE, (total + size - 1L) / size);
+        return new OwnedContentPage(items, page, size, total, totalPages);
+    }
+
+    private OwnedShortUrlContent toOwnedContent(ShortUrlEntry entry) {
+        return new OwnedShortUrlContent(
+                ShortUrlStatistics.ResourceType.SHORT_URL,
+                entry.code(),
+                entry.target(),
+                "",
+                0L,
+                entry.createdAt(),
+                entry.expiresAt(),
+                entry.viewCount(),
+                entry.lastAccessedAt(),
+                false,
+                entry.expiresAt() > System.currentTimeMillis()
+        );
+    }
+
+    private OwnedShortUrlContent toOwnedContent(ImageShare imageShare) {
+        return new OwnedShortUrlContent(
+                ShortUrlStatistics.ResourceType.MEDIA_SHARE,
+                imageShare.code(),
+                "",
+                imageShare.contentType(),
+                imageShare.sizeBytes(),
+                imageShare.createdAt(),
+                imageShare.expiresAt(),
+                imageShare.viewCount(),
+                imageShare.lastAccessedAt(),
+                imageShare.isPasswordProtected(),
+                imageShare.isPubliclyAvailable(System.currentTimeMillis())
         );
     }
 

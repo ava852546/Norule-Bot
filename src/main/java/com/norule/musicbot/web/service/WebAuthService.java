@@ -216,7 +216,7 @@ public final class WebAuthService {
         if (uri.getRawFragment() != null) {
             return false;
         }
-        if ("/".equals(path) && uri.getRawQuery() == null) {
+        if (("/".equals(path) || "/my-content".equals(path)) && uri.getRawQuery() == null) {
             return true;
         }
         return path != null && path.matches("/[^/]+") && "stats".equals(uri.getRawQuery());

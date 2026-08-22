@@ -371,6 +371,39 @@ public final class ImageShareService {
         return imageShare != null && !imageShare.isPubliclyAvailable(now) ? imageShare : null;
     }
 
+    public ImageShare findByCodeForOwner(String code) {
+        if (code == null || code.isBlank()) {
+            return null;
+        }
+        return imageRepository.findByCode(code.trim());
+    }
+
+    public List<ImageShare> findByOwnerUserId(String ownerUserId, int offset, int limit) {
+        return findByOwnerUserId(ownerUserId, null, 0L, offset, limit);
+    }
+
+    public List<ImageShare> findByOwnerUserId(String ownerUserId,
+                                              Boolean active,
+                                              long nowMillis,
+                                              int offset,
+                                              int limit) {
+        if (ownerUserId == null || ownerUserId.isBlank()) {
+            return List.of();
+        }
+        return imageRepository.findByOwnerUserId(ownerUserId.trim(), active, nowMillis, offset, limit);
+    }
+
+    public long countByOwnerUserId(String ownerUserId) {
+        return countByOwnerUserId(ownerUserId, null, 0L);
+    }
+
+    public long countByOwnerUserId(String ownerUserId, Boolean active, long nowMillis) {
+        if (ownerUserId == null || ownerUserId.isBlank()) {
+            return 0L;
+        }
+        return imageRepository.countByOwnerUserId(ownerUserId.trim(), active, nowMillis);
+    }
+
     public InputStream open(ImageShare imageShare) {
         if (imageShare == null || !imageShare.isPubliclyAvailable(clock.millis())) {
             return null;

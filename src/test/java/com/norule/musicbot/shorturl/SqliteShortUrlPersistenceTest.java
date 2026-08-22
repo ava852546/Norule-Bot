@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -44,6 +45,19 @@ class SqliteShortUrlPersistenceTest {
         assertEquals(1L, images.findByCode("image12").viewCount());
         assertEquals("owner-123", images.findByCode("image12").ownerUserId());
         assertEquals(now + 3_000L, images.findByCode("image12").lastAccessedAt());
+        assertEquals(List.of("link123"), shortUrls.findByOwnerUserId("owner-123", 0, 20).stream()
+                .map(ShortUrlService.ShortUrlEntry::code)
+                .toList());
+        assertEquals(1L, shortUrls.countByOwnerUserId("owner-123"));
+        assertEquals(1L, shortUrls.countByOwnerUserId("owner-123", true, now));
+        assertEquals(0L, shortUrls.countByOwnerUserId("owner-123", false, now));
+        assertEquals(List.of("image12"), images.findByOwnerUserId("owner-123", 0, 20).stream()
+                .map(ImageShare::code)
+                .toList());
+        assertEquals(1L, images.countByOwnerUserId("owner-123"));
+        assertEquals(1L, images.countByOwnerUserId("owner-123", true, now));
+        assertEquals(0L, images.countByOwnerUserId("owner-123", false, now));
+        assertEquals(0L, images.countByOwnerUserId("other-owner"));
         assertEquals("", shortUrls.findByCode("legacy").getOwnerUserId());
         assertEquals(0L, shortUrls.findByCode("legacy").getLastAccessedAt());
 

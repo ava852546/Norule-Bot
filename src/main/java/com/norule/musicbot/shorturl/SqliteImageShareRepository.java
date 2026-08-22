@@ -41,6 +41,7 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
             """;
     private static final String CREATE_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_url_images_expires ON short_url_images(expires_at)";
     private static final String CREATE_CONTENT_HASH_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_url_images_content_hash_expires ON short_url_images(content_hash, expires_at)";
+    private static final String CREATE_OWNER_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_url_images_owner_created ON short_url_images(owner_type, owner_id, created_at DESC)";
     private static final String SELECT_FIELDS = "code, storage_name, content_type, size_bytes, created_at, expires_at, password_hash, content_hash, view_count, storage_state, archive_storage_name, archived_at, owner_type, owner_id, quota_group_id, created_device_id_hash, created_ip_hash, last_accessed_at";
     private static final String SELECT_BY_CODE = "SELECT " + SELECT_FIELDS + " FROM short_url_images WHERE code = ?";
     private static final String SELECT_ACTIVE_BY_CONTENT_HASH = """
@@ -108,6 +109,70 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
             return matches;
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to query image share by content hash", e);
+        }
+    }
+
+    @Override
+    public List<ImageShare> findByOwnerUserId(String ownerUserId, int offset, int limit) {
+        return findByOwnerUserId(ownerUserId, null, 0L, offset, limit);
+    }
+
+    @Override
+    public List<ImageShare> findByOwnerUserId(String ownerUserId,
+                                              Boolean active,
+                                              long nowMillis,
+                                              int offset,
+                                              int limit) {
+        List<ImageShare> shares = new ArrayList<>();
+        String statusClause = active == null ? ""
+                : active ? " AND expires_at > ? AND storage_state = 'ACTIVE'"
+                : " AND (expires_at <= ? OR storage_state <> 'ACTIVE')";
+        String sql = "SELECT " + SELECT_FIELDS
+                + " FROM short_url_images WHERE owner_type = 'DISCORD_USER' AND owner_id = ?"
+                + statusClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            int index = 1;
+            statement.setString(index++, ownerUserId);
+            if (active != null) {
+                statement.setLong(index++, nowMillis);
+            }
+            statement.setInt(index++, Math.max(1, limit));
+            statement.setInt(index, Math.max(0, offset));
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    shares.add(mapRow(rows));
+                }
+            }
+            return shares;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to query image shares by owner", e);
+        }
+    }
+
+    @Override
+    public long countByOwnerUserId(String ownerUserId) {
+        return countByOwnerUserId(ownerUserId, null, 0L);
+    }
+
+    @Override
+    public long countByOwnerUserId(String ownerUserId, Boolean active, long nowMillis) {
+        String statusClause = active == null ? ""
+                : active ? " AND expires_at > ? AND storage_state = 'ACTIVE'"
+                : " AND (expires_at <= ? OR storage_state <> 'ACTIVE')";
+        String sql = "SELECT COUNT(*) FROM short_url_images"
+                + " WHERE owner_type = 'DISCORD_USER' AND owner_id = ?" + statusClause;
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, ownerUserId);
+            if (active != null) {
+                statement.setLong(2, nowMillis);
+            }
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next() ? row.getLong(1) : 0L;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to count image shares by owner", e);
         }
     }
 
@@ -231,6 +296,7 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
             ensureColumn(connection, statement, "last_accessed_at", "INTEGER NOT NULL DEFAULT 0");
             statement.execute(CREATE_INDEX);
             statement.execute(CREATE_CONTENT_HASH_INDEX);
+            statement.execute(CREATE_OWNER_INDEX);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to initialize image-share sqlite schema", e);
         }

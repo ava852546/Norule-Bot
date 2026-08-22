@@ -3,6 +3,7 @@ package com.norule.musicbot.shorturl.infra;
 import com.norule.musicbot.ShortUrlService;
 import com.norule.musicbot.config.BotConfig;
 import com.norule.musicbot.domain.shorturl.ImageShare;
+import com.norule.musicbot.domain.shorturl.OwnedShortUrlContent;
 import com.norule.musicbot.domain.shorturl.QuotaSubject;
 import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
 import com.norule.musicbot.service.shorturl.ImageShareService;
@@ -14,15 +15,14 @@ import com.norule.musicbot.web.security.HttpRequestBodyReader;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import net.dv8tion.jda.api.utils.data.DataObject;
+import net.dv8tion.jda.api.utils.data.DataArray;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -50,13 +50,10 @@ public final class ShortUrlGatewayServer {
     private static final String IMAGE_ACCESS_COOKIE = "nr_image_access";
     private static final String ANONYMOUS_DEVICE_COOKIE = "nr_anon_device";
     private static final SecureRandom IMAGE_ACCESS_RANDOM = new SecureRandom();
-    private static final DateTimeFormatter IMAGE_DATE_FORMAT = DateTimeFormatter
-            .ofPattern("yyyy/MM/dd HH:mm:ss")
-            .withZone(ZoneId.systemDefault());
     private static final Pattern MULTIPART_BOUNDARY = Pattern.compile("boundary=(?:\\\"([^\\\"]+)\\\"|([^;\\s]+))", Pattern.CASE_INSENSITIVE);
     private static final Pattern CONTENT_DISPOSITION_NAME = Pattern.compile("(?:^|;)\\s*name=\\\"([^\\\"]*)\\\"", Pattern.CASE_INSENSITIVE);
     private static final Set<String> RESERVED_PATHS = Set.of(
-            "api", "assets", "static", "web", "dashboard", "short-url", "index", "404"
+            "api", "assets", "static", "web", "dashboard", "my-content", "short-url", "index", "404"
     );
 
     private final ShortUrlService shortUrlService;
@@ -209,6 +206,10 @@ public final class ShortUrlGatewayServer {
             sendHtml(exchange, 200, loadTemplate("web/short-url.html"));
             return;
         }
+        if ("/my-content".equals(rawPath)) {
+            handleMyContentPage(exchange);
+            return;
+        }
         if (rawPath.startsWith("/api/")) {
             sendHtml(exchange, 404, buildShortUrlNotFoundPage());
             return;
@@ -256,6 +257,22 @@ public final class ShortUrlGatewayServer {
         exchange.close();
     }
 
+    private void handleMyContentPage(HttpExchange exchange) throws IOException {
+        if (!isGetOrHead(exchange)) {
+            sendText(exchange, 405, "Method Not Allowed");
+            return;
+        }
+        Map<String, String> query = parseUrlEncoded(exchange.getRequestURI().getRawQuery());
+        if (query.containsKey("__nr_auth")) {
+            String transferredUserId = resolveAuthenticationHandoff(exchange);
+            if (!transferredUserId.isBlank()) {
+                redirect(exchange, shortUrlService.publicBaseUrl() + "/my-content");
+                return;
+            }
+        }
+        sendAppShell(exchange, 200);
+    }
+
     private void handleShortUrlApi(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         if ("/api/short/session".equals(path)) {
@@ -288,8 +305,22 @@ public final class ShortUrlGatewayServer {
             handleCreateImageShare(exchange);
             return;
         }
+        if ("/api/short/mine".equals(path)) {
+            handleOwnedContent(exchange);
+            return;
+        }
         if ("/api/short".equals(path)) {
             handleCreateShortUrl(exchange);
+            return;
+        }
+        String ownerStatsCode = extractOwnerStatsCode(path);
+        if (ownerStatsCode != null) {
+            handleOwnerStatisticsApi(exchange, ownerStatsCode);
+            return;
+        }
+        String publicContentCode = extractPublicContentCode(path);
+        if (publicContentCode != null) {
+            handlePublicContentMetadata(exchange, publicContentCode);
             return;
         }
         sendJson(exchange, 404, DataObject.empty()
@@ -317,7 +348,8 @@ public final class ShortUrlGatewayServer {
             sendText(exchange, 405, "Method Not Allowed");
             return;
         }
-        String homeUrl = shortUrlService.publicBaseUrl() + "/";
+        Map<String, String> query = parseUrlEncoded(exchange.getRequestURI().getRawQuery());
+        String homeUrl = resolveSessionReturnTo(query.getOrDefault("returnTo", ""));
         if (!authenticatedUserId(exchange).isBlank()) {
             redirect(exchange, homeUrl);
             return;
@@ -344,6 +376,165 @@ public final class ShortUrlGatewayServer {
         authenticationLogoutHandler.accept(exchange);
         exchange.getResponseHeaders().set("Cache-Control", "private, no-store");
         sendJson(exchange, 200, DataObject.empty().put("authenticated", false).toString());
+    }
+
+    private void handlePublicContentMetadata(HttpExchange exchange, String code) throws IOException {
+        if (!isGetOrHead(exchange)) {
+            sendJson(exchange, 405, DataObject.empty()
+                    .put("error", "Method Not Allowed")
+                    .put("errorCode", "METHOD_NOT_ALLOWED")
+                    .toString());
+            return;
+        }
+        ImageShare imageShare = shortUrlService.resolveImageShare(code);
+        if (imageShare == null) {
+            sendJson(exchange, 404, DataObject.empty()
+                    .put("error", "Not Found")
+                    .put("errorCode", "NOT_FOUND")
+                    .toString());
+            return;
+        }
+        boolean passwordRequired = imageShare.isPasswordProtected() && !hasImageAccess(exchange, imageShare);
+        sendJson(exchange, 200, DataObject.empty()
+                .put("code", imageShare.code())
+                .put("type", "MEDIA_SHARE")
+                .put("mediaType", imageShare.isVideo() ? "VIDEO" : "IMAGE")
+                .put("contentUrl", "/api/short/image/content/" + imageShare.code())
+                .put("passwordRequired", passwordRequired)
+                .toString());
+    }
+
+    private void handleOwnerStatisticsApi(HttpExchange exchange, String code) throws IOException {
+        if (!isGetOrHead(exchange)) {
+            sendJson(exchange, 405, DataObject.empty()
+                    .put("error", "Method Not Allowed")
+                    .put("errorCode", "METHOD_NOT_ALLOWED")
+                    .toString());
+            return;
+        }
+        exchange.getResponseHeaders().set("Cache-Control", "private, no-store");
+        String userId = authenticatedUserId(exchange);
+        if (userId.isBlank()) {
+            sendJson(exchange, 401, DataObject.empty()
+                    .put("error", "Unauthorized")
+                    .put("errorCode", "UNAUTHORIZED")
+                    .toString());
+            return;
+        }
+        ShortUrlStatistics statistics = shortUrlService.findStatisticsForOwner(code, userId);
+        if (statistics == null) {
+            boolean exists = shortUrlService.resourceExists(code);
+            sendJson(exchange, exists ? 403 : 404, DataObject.empty()
+                    .put("error", exists ? "Forbidden" : "Not Found")
+                    .put("errorCode", exists ? "FORBIDDEN" : "NOT_FOUND")
+                    .toString());
+            return;
+        }
+        DataObject response = DataObject.empty()
+                .put("code", statistics.code())
+                .put("shareType", statistics.resourceType().name())
+                .put("viewCount", statistics.viewCount())
+                .put("createdAt", statistics.createdAt())
+                .put("lastAccessedAt", statistics.lastAccessedAt())
+                .put("expiresAt", statistics.expiresAt())
+                .put("active", statistics.active());
+        if (statistics.resourceType() == ShortUrlStatistics.ResourceType.MEDIA_SHARE) {
+            response.put("mediaType", statistics.contentType().startsWith("video/") ? "VIDEO" : "IMAGE")
+                    .put("contentType", statistics.contentType())
+                    .put("fileSize", statistics.sizeBytes())
+                    .put("passwordProtected", statistics.passwordProtected())
+                    .put("contentUrl", "/api/short/image/content/" + statistics.code());
+        } else {
+            response.put("targetUrl", statistics.targetUrl());
+        }
+        sendJson(exchange, 200, response.toString());
+    }
+
+    private void handleOwnedContent(HttpExchange exchange) throws IOException {
+        if (!isGetOrHead(exchange)) {
+            sendJson(exchange, 405, DataObject.empty()
+                    .put("error", "Method Not Allowed")
+                    .put("errorCode", "METHOD_NOT_ALLOWED")
+                    .toString());
+            return;
+        }
+        exchange.getResponseHeaders().set("Cache-Control", "private, no-store");
+        String userId = authenticatedUserId(exchange);
+        if (userId.isBlank()) {
+            sendJson(exchange, 401, DataObject.empty()
+                    .put("error", "Unauthorized")
+                    .put("errorCode", "UNAUTHORIZED")
+                    .toString());
+            return;
+        }
+        Map<String, String> query = parseUrlEncoded(exchange.getRequestURI().getRawQuery());
+        ShortUrlService.OwnedContentType type;
+        String rawType = query.getOrDefault("type", "ALL").trim().toUpperCase(Locale.ROOT);
+        type = switch (rawType) {
+            case "ALL", "" -> ShortUrlService.OwnedContentType.ALL;
+            case "SHORT_URL", "SHORT", "LINK", "URL" -> ShortUrlService.OwnedContentType.SHORT_URL;
+            case "MEDIA_SHARE", "MEDIA" -> ShortUrlService.OwnedContentType.MEDIA_SHARE;
+            default -> null;
+        };
+        if (type == null) {
+            sendJson(exchange, 400, DataObject.empty()
+                    .put("error", "Invalid content type")
+                    .put("errorCode", "INVALID_CONTENT_TYPE")
+                    .toString());
+            return;
+        }
+        ShortUrlService.OwnedContentStatus status;
+        try {
+            status = ShortUrlService.OwnedContentStatus.valueOf(
+                    query.getOrDefault("status", "ALL").trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            sendJson(exchange, 400, DataObject.empty()
+                    .put("error", "Invalid content status")
+                    .put("errorCode", "INVALID_CONTENT_STATUS")
+                    .toString());
+            return;
+        }
+        String sort = query.getOrDefault("sort", "createdAt,desc").trim().toLowerCase(Locale.ROOT);
+        if (!Set.of("createdat,desc", "created_at,desc", "newest").contains(sort)) {
+            sendJson(exchange, 400, DataObject.empty()
+                    .put("error", "Only newest-first sorting is supported")
+                    .put("errorCode", "INVALID_CONTENT_SORT")
+                    .toString());
+            return;
+        }
+        int page = parseBoundedInt(query.get("page"), 0, 0, 1_000_000);
+        int size = parseBoundedInt(query.get("size"), 20, 1, 100);
+        ShortUrlService.OwnedContentPage result = shortUrlService.findOwnedContent(
+                userId, type, status, page, size);
+        DataArray items = DataArray.empty();
+        for (OwnedShortUrlContent item : result.items()) {
+            DataObject row = DataObject.empty()
+                    .put("code", item.code())
+                    .put("shareType", item.resourceType().name())
+                    .put("createdAt", item.createdAt())
+                    .put("expiresAt", item.expiresAt())
+                    .put("viewCount", item.viewCount())
+                    .put("lastAccessedAt", item.lastAccessedAt())
+                    .put("active", item.active())
+                    .put("publicUrl", shortUrlService.toPublicUrl(item.code()))
+                    .put("statsUrl", shortUrlService.toPublicUrl(item.code()) + "?stats");
+            if (item.resourceType() == ShortUrlStatistics.ResourceType.MEDIA_SHARE) {
+                row.put("mediaType", item.contentType().startsWith("video/") ? "VIDEO" : "IMAGE")
+                        .put("contentType", item.contentType())
+                        .put("fileSize", item.sizeBytes())
+                        .put("passwordProtected", item.passwordProtected());
+            } else {
+                row.put("targetUrl", item.targetUrl());
+            }
+            items.add(row);
+        }
+        sendJson(exchange, 200, DataObject.empty()
+                .put("items", items)
+                .put("page", result.page())
+                .put("size", result.size())
+                .put("totalItems", result.totalItems())
+                .put("totalPages", result.totalPages())
+                .toString());
     }
 
     private void handleCreateShortUrl(HttpExchange exchange) throws IOException {
@@ -527,7 +718,7 @@ public final class ShortUrlGatewayServer {
             return;
         }
         if (imageShare.isPasswordProtected() && !hasImageAccess(exchange, imageShare)) {
-            sendImagePasswordPage(exchange, imageShare.code());
+            sendAppShell(exchange, 200);
             return;
         }
         ImageShare viewed = imageShare;
@@ -544,7 +735,7 @@ public final class ShortUrlGatewayServer {
                 }
             }
         }
-        sendHtml(exchange, 200, buildImageViewPage(viewed));
+        sendAppShell(exchange, 200);
     }
 
     private void handleStatistics(HttpExchange exchange, String code) throws IOException {
@@ -574,12 +765,16 @@ public final class ShortUrlGatewayServer {
         }
         ShortUrlStatistics statistics = shortUrlService.findStatisticsForOwner(code, userId);
         if (statistics == null) {
-            sendHtml(exchange, 404, buildShortUrlNotFoundPage());
+            if (shortUrlService.resourceExists(code)) {
+                sendAppShell(exchange, 403);
+            } else {
+                sendHtml(exchange, 404, buildShortUrlNotFoundPage());
+            }
             return;
         }
         exchange.getResponseHeaders().set("Cache-Control", "private, no-store");
         exchange.getResponseHeaders().set("Referrer-Policy", "no-referrer");
-        sendHtml(exchange, 200, buildStatisticsPage(statistics));
+        sendAppShell(exchange, 200);
     }
 
     static boolean isStatisticsQuery(String rawQuery) {
@@ -595,22 +790,28 @@ public final class ShortUrlGatewayServer {
         return false;
     }
 
-    static String buildStatisticsPage(ShortUrlStatistics statistics) {
-        String resourceName = statistics.resourceType() == ShortUrlStatistics.ResourceType.MEDIA_SHARE
-                ? "媒體分享" : "短網址";
-        String lastAccessed = statistics.lastAccessedAt() <= 0L
-                ? "尚無存取紀錄"
-                : IMAGE_DATE_FORMAT.format(Instant.ofEpochMilli(statistics.lastAccessedAt()));
-        return renderTemplateString(loadTemplateResource("web/short-url-stats.html"), Map.ofEntries(
-                Map.entry("__RESOURCE_NAME__", resourceName),
-                Map.entry("__RESOURCE_CODE__", htmlEscape(statistics.code())),
-                Map.entry("__RESOURCE_VIEWS__", String.format(Locale.ROOT, "%,d", statistics.viewCount())),
-                Map.entry("__RESOURCE_CREATED__", IMAGE_DATE_FORMAT.format(
-                        Instant.ofEpochMilli(statistics.createdAt()))),
-                Map.entry("__RESOURCE_LAST_ACCESSED__", lastAccessed),
-                Map.entry("__RESOURCE_EXPIRES__", IMAGE_DATE_FORMAT.format(
-                        Instant.ofEpochMilli(statistics.expiresAt())))
-        ));
+    private String extractOwnerStatsCode(String path) {
+        String prefix = "/api/short/";
+        String suffix = "/stats";
+        if (path == null || !path.startsWith(prefix) || !path.endsWith(suffix)) {
+            return null;
+        }
+        String code = path.substring(prefix.length(), path.length() - suffix.length());
+        return isValidApiCode(code) ? code : null;
+    }
+
+    private String extractPublicContentCode(String path) {
+        String prefix = "/api/short/";
+        if (path == null || !path.startsWith(prefix)) {
+            return null;
+        }
+        String code = path.substring(prefix.length());
+        return isValidApiCode(code) ? code : null;
+    }
+
+    private boolean isValidApiCode(String code) {
+        return code != null && !code.isBlank() && !code.contains("/")
+                && !RESERVED_PATHS.contains(code.toLowerCase(Locale.ROOT));
     }
 
     private String authenticatedUserId(HttpExchange exchange) {
@@ -620,6 +821,54 @@ public final class ShortUrlGatewayServer {
         } catch (RuntimeException ignored) {
             return "";
         }
+    }
+
+    private String resolveSessionReturnTo(String requestedReturnTo) {
+        String baseUrl = shortUrlService.publicBaseUrl();
+        String fallback = baseUrl + "/";
+        if (requestedReturnTo == null || requestedReturnTo.isBlank()
+                || requestedReturnTo.contains("\r") || requestedReturnTo.contains("\n")) {
+            return fallback;
+        }
+        try {
+            URI requested = URI.create(requestedReturnTo.trim());
+            URI base = URI.create(baseUrl);
+            URI resolved = requested.isAbsolute() ? requested : base.resolve(requested);
+            if (!sameOrigin(resolved, base) || !isAllowedSessionReturn(resolved)) {
+                return fallback;
+            }
+            return resolved.toString();
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
+    }
+
+    private boolean isAllowedSessionReturn(URI uri) {
+        String path = uri.getRawPath();
+        if (uri.getRawFragment() != null) {
+            return false;
+        }
+        if (("/".equals(path) || "/my-content".equals(path)) && uri.getRawQuery() == null) {
+            return true;
+        }
+        return path != null && path.matches("/[^/]+") && "stats".equals(uri.getRawQuery());
+    }
+
+    private boolean sameOrigin(URI left, URI right) {
+        if (left.getScheme() == null || right.getScheme() == null
+                || left.getHost() == null || right.getHost() == null) {
+            return false;
+        }
+        return left.getScheme().equalsIgnoreCase(right.getScheme())
+                && left.getHost().equalsIgnoreCase(right.getHost())
+                && effectivePort(left) == effectivePort(right);
+    }
+
+    private int effectivePort(URI uri) {
+        if (uri.getPort() >= 0) {
+            return uri.getPort();
+        }
+        return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
     }
 
     private String resolveAuthenticationHandoff(HttpExchange exchange) {
@@ -652,7 +901,9 @@ public final class ShortUrlGatewayServer {
             sendImageError(exchange, 404, "IMAGE_NOT_FOUND", "Image share not found");
             return;
         }
-        if (imageShare.isPasswordProtected() && !hasImageAccess(exchange, imageShare)) {
+        if (imageShare.isPasswordProtected()
+                && !hasImageAccess(exchange, imageShare)
+                && !hasOwnerAccess(exchange, imageShare)) {
             sendImageError(exchange, 403, "IMAGE_ACCESS_REQUIRED", "Image password access is required");
             return;
         }
@@ -697,38 +948,6 @@ public final class ShortUrlGatewayServer {
         }
     }
 
-    private void sendImagePasswordPage(HttpExchange exchange, String code) throws IOException {
-        sendHtml(exchange, 200, buildImagePasswordPage(code));
-    }
-
-    static String buildImagePasswordPage(String code) {
-        return loadTemplateResource("web/image-password.html")
-                .replace("__IMAGE_CODE__", htmlEscape(code));
-    }
-
-    static String buildImageViewPage(ImageShare imageShare) {
-        String status = imageShare.isPasswordProtected() ? "密碼保護" : "公開分享";
-        boolean video = imageShare.isVideo();
-        String mediaName = video ? "影片" : "圖片";
-        String contentUrl = "/api/short/image/content/" + htmlEscape(imageShare.code());
-        String mediaElement = video
-                ? "<video controls preload=\"metadata\" playsinline>"
-                + "<source src=\"" + contentUrl + "\" type=\"" + htmlEscape(imageShare.contentType()) + "\" />"
-                + "您的瀏覽器不支援影片播放。</video>"
-                : "<img src=\"" + contentUrl + "\" alt=\"分享圖片 " + htmlEscape(imageShare.code()) + "\" />";
-        return renderTemplateString(loadTemplateResource("web/image-view.html"), Map.ofEntries(
-                Map.entry("__MEDIA_NAME__", mediaName),
-                Map.entry("__MEDIA_EYEBROW__", video ? "SHARED VIDEO" : "SHARED IMAGE"),
-                Map.entry("__MEDIA_ELEMENT__", mediaElement),
-                Map.entry("__IMAGE_CODE__", htmlEscape(imageShare.code())),
-                Map.entry("__IMAGE_STATUS__", status),
-                Map.entry("__IMAGE_VIEWS__", String.format(Locale.ROOT, "%,d", imageShare.viewCount())),
-                Map.entry("__IMAGE_EXPIRES__", IMAGE_DATE_FORMAT.format(Instant.ofEpochMilli(imageShare.expiresAt()))),
-                Map.entry("__IMAGE_TYPE__", htmlEscape(imageShare.contentType())),
-                Map.entry("__IMAGE_SIZE__", formatFileSize(imageShare.sizeBytes()))
-        ));
-    }
-
     static String buildImageExpiredPage() {
         return loadTemplateResource("web/share-expired.html");
     }
@@ -743,6 +962,11 @@ public final class ShortUrlGatewayServer {
         return grant != null
                 && grant.code().equals(imageShare.code())
                 && grant.expiresAt() > System.currentTimeMillis();
+    }
+
+    private boolean hasOwnerAccess(HttpExchange exchange, ImageShare imageShare) {
+        String userId = authenticatedUserId(exchange);
+        return !userId.isBlank() && userId.equals(imageShare.ownerUserId());
     }
 
     private void issueImageAccess(HttpExchange exchange, ImageShare imageShare) {
@@ -1225,16 +1449,6 @@ public final class ShortUrlGatewayServer {
                 .replace("'", "&#39;");
     }
 
-    private static String formatFileSize(long sizeBytes) {
-        if (sizeBytes >= 1024L * 1024L) {
-            return String.format(Locale.ROOT, "%.2f MB", sizeBytes / (1024.0 * 1024.0));
-        }
-        if (sizeBytes >= 1024L) {
-            return String.format(Locale.ROOT, "%.1f KB", sizeBytes / 1024.0);
-        }
-        return Math.max(0L, sizeBytes) + " B";
-    }
-
     private String clientAddress(HttpExchange exchange) {
         return ClientAddressResolver.resolve(exchange);
     }
@@ -1284,6 +1498,17 @@ public final class ShortUrlGatewayServer {
 
     private String urlDecode(String value) {
         return java.net.URLDecoder.decode(value == null ? "" : value, StandardCharsets.UTF_8);
+    }
+
+    private int parseBoundedInt(String value, int fallback, int minimum, int maximum) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Math.max(minimum, Math.min(maximum, Integer.parseInt(value.trim())));
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
     }
 
     private String webAssetContentType(String resourcePath) {
@@ -1339,6 +1564,11 @@ public final class ShortUrlGatewayServer {
         exchange.sendResponseHeaders(statusCode, body.length);
         exchange.getResponseBody().write(body);
         exchange.close();
+    }
+
+    private void sendAppShell(HttpExchange exchange, int statusCode) throws IOException {
+        exchange.getResponseHeaders().set("Cache-Control", "private, no-store");
+        sendHtml(exchange, statusCode, loadTemplate("web/short-url.html"));
     }
 
     private record MultipartPart(String name, byte[] content) {
