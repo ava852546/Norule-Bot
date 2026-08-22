@@ -71,6 +71,11 @@ public final class MusicCommandChannelProvisioner {
         return queueProvisioning(guild, 0L, onProvisioned);
     }
 
+    public boolean queueGuildJoinProvisioning(Guild guild,
+                                               BiConsumer<Guild, TextChannel> onProvisioned) {
+        return queueProvisioning(guild, startupIntervalMs, onProvisioned, false);
+    }
+
     public CompletableFuture<TextChannel> ensureCommandChannel(Guild guild) {
         if (guild == null) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("guild cannot be null"));
@@ -129,11 +134,18 @@ public final class MusicCommandChannelProvisioner {
     private boolean queueProvisioning(Guild guild,
                                       long delayMs,
                                       BiConsumer<Guild, TextChannel> onProvisioned) {
+        return queueProvisioning(guild, delayMs, onProvisioned, true);
+    }
+
+    private boolean queueProvisioning(Guild guild,
+                                      long delayMs,
+                                      BiConsumer<Guild, TextChannel> onProvisioned,
+                                      boolean checkPermissionBeforeQueueing) {
         if (guild == null) {
             return false;
         }
         long guildId = guild.getIdLong();
-        if (!hasManageChannelPermission(guild)) {
+        if (checkPermissionBeforeQueueing && !hasManageChannelPermission(guild)) {
             logSkipped(guildId, "Missing permission: Manage Channels");
             return false;
         }

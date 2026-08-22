@@ -70,6 +70,24 @@ class MusicCommandChannelProvisionerTest {
     }
 
     @Test
+    void rechecksPermissionAfterGuildJoinBeforeProvisioning() throws InterruptedException {
+        TestChannelState state = new TestChannelState();
+        GuildFixture fixture = new GuildFixture(251L, false, true);
+        MusicCommandChannelProvisioner provisioner = provisioner(state, 80L);
+        CountDownLatch completed = new CountDownLatch(1);
+
+        assertTrue(provisioner.queueGuildJoinProvisioning(
+                fixture.guild(),
+                (guild, channel) -> completed.countDown()
+        ));
+        fixture.setManageChannels(true);
+
+        assertTrue(completed.await(1, TimeUnit.SECONDS));
+        assertEquals(1, fixture.createCalls());
+        assertEquals(fixture.createdChannel().getIdLong(), state.configuredChannelId(251L));
+    }
+
+    @Test
     void usesConfiguredChannelFromJdaCacheWithoutCreating() throws Exception {
         TestChannelState state = new TestChannelState();
         GuildFixture fixture = new GuildFixture(301L, true, true);

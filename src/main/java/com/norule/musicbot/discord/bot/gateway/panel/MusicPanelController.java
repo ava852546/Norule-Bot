@@ -44,7 +44,7 @@ public final class MusicPanelController {
         if (guild == null) {
             return;
         }
-        commandChannelProvisioner.queueProvisioning(guild, this::initializePanel);
+        commandChannelProvisioner.queueGuildJoinProvisioning(guild, this::initializePanel);
     }
 
     public void initializeGuilds(List<Guild> guilds) {
