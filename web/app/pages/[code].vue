@@ -74,7 +74,7 @@ async function unlock(password: string) {
         </section>
       </NrPageContainer>
     </main>
-    <NrFooter brand="NoRule URL" description="公開分享與 Owner 管理使用相同內容介面。" />
+    <NrFooter brand="NoRule URL" />
   </div>
 </template>
 
