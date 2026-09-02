@@ -53,4 +53,6 @@ AGENTS.md
 /web/dashboard/.nuxt/
 /web/dashboard/dist/
 /web/dashboard/node_modules/
+/src/main/resources/web/dashboard/_nuxt/
+/src/main/resources/web/short-url/_nuxt/
 .claude/settings.local.json
