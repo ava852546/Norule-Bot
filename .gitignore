@@ -21,7 +21,6 @@ target/
 /logs/
 /certs/
 /guild/
-/docs/
 /ticket/
 .m2/
 .m2-clean/
@@ -38,7 +37,6 @@ Thumbs.db
 
 # ignore
 index.md
-AGENTS.md
 
 # Local stats database
 /stats/*.db
@@ -55,4 +53,3 @@ AGENTS.md
 /web/dashboard/node_modules/
 /src/main/resources/web/dashboard/_nuxt/
 /src/main/resources/web/short-url/_nuxt/
-.claude/settings.local.json
