@@ -8,8 +8,8 @@ NoRule Bot 是以 Java 21 LTS + JDA 製作的 Discord 多功能社群機器人�
 
 - 專案版本：`1.7`
 - Java：`21 LTS`
-- Discord 函式庫：`JDA 6.3.1`
-- 音樂核心：`Lavaplayer 2.2.6`、`youtube-source 1.18.1`、`lavasrc 4.8.1`、`bilibili-common 1.0.4`
+- Discord 函式庫：`JDA 6.5.0`
+- 音樂核心：`Lavaplayer 2.2.7`、`youtube-source 1.18.2`、`lavasrc 4.8.3`、`bilibili-common 1.0.4`
 - Web 前端：`Nuxt 4 + Vue 3 + TypeScript`（NoRule URL 與 Dashboard）
 - 資料儲存：檔案、SQLite、MySQL / HikariCP，依模組設定使用
 - 授權：GPL-3.0
@@ -213,7 +213,7 @@ web/
 
 NoRule Bot 採用分層式 Discord gateway 架構，各層職責明確分離：
 
-- **`MusicCommandService`** 作為 JDA Listener / gateway composition root，只負責接收 JDA 事件並轉發給各子系統，不包含指令邏輯本體。
+- **`MusicCommandService`** 作為 Discord runtime / composition root，整合事件處理所需服務與 handler；實際事件由 gateway listener、flow 與 ops / command handler 分層處理。
 - **Discord 指令 handler**（slash、button、select、modal）統一放在 `discord.bot.gateway.command.*`，依功能分為 music、settings、moderation、privateroom 等子套件。
 - **Settings menu handler** 放在 `discord.bot.gateway.command.settings.menu`，各 menu 互相獨立。
 - **音樂控制面板**（panel runtime、renderer、state store、refresh service）放在 `discord.bot.gateway.panel`。
@@ -224,7 +224,6 @@ NoRule Bot 採用分層式 Discord gateway 架構，各層職責明確分離：
   - ZH↔EN 名稱對應與 route 解析 → `DiscordCommandRouteMapper`
 - **Service / Domain 層不依賴 JDA event**，保持純業務邏輯與可測試性。
 
-詳細開發規範與新功能新增規則請參考 [AGENTS.md](AGENTS.md)。
 
 ---
 
@@ -232,7 +231,7 @@ NoRule Bot 採用分層式 Discord gateway 架構，各層職責明確分離：
 
 ### 需求
 
-- Java 17 或更新版本。
+- Java 21 LTS 或更新版本。
 - Maven 3.9 或更新版本。
 - Discord Bot Token。
 - 建置 Web UI 需 Node.js 22.19+（或 24.11+）與 npm；正式執行不需要 Node.js。
@@ -340,8 +339,18 @@ music:
       # Companion player API 與 playback proxy 讀取逾時（毫秒）。
       requestTimeoutMillis: 10000
     strictPrecheck:
+      # 可選的嚴格播放預檢；需搭配安裝 youtube-plugin 的 Lavalink。
       enabled: false
+      # 舊版相容的整體 cache TTL。
       cacheTtlHours: 24
+      cache:
+        # 可播放結果快取時間。
+        playableTtlHours: 24
+        # 暫時性失敗（例如上游短暫異常）快取時間。
+        temporaryFailureTtlMinutes: 10
+        # 永久性失敗／不可播放結果快取時間。
+        permanentFailureTtlHours: 24
+      # 呼叫 Lavalink 預檢 API 的逾時時間。
       timeoutMillis: 5000
       lavalinkBaseUrl: ""
       lavalinkPassword: ""
@@ -359,7 +368,7 @@ music:
 
 ### Bilibili 風控保護
 
-Bilibili metadata 使用 12 小時、最多 1000 筆的 bounded cache；實際播放 CDN URL 不會放入長期 cache。同一 BVID 的同時請求會共用一次 metadata resolution。全域 token bucket 預設每秒補充 1 個 token、burst 3；60 秒內發生 3 次 HTTP 412 或 429 時，circuit breaker 會開啟 5 分鐘，之後以單次 half-open probe 判斷是否恢復。
+Bilibili metadata 使用 12 小時、最多 1000 筆的 bounded cache；實際播放 CDN URL 不會放入長期 cache。同一 BVID 的同時請求會共用一次 metadata resolution。全域 token bucket 預設每秒補充 1 個 token、burst 3；HTTP `412` 會分類為 Bilibili risk control，`429` 會分類為 rate limited。60 秒內累積 3 次 412 或 429 時，circuit breaker 會開啟 5 分鐘，之後以單次 half-open probe 判斷是否恢復。
 
 以下環境變數會覆寫 YAML：
 
@@ -408,8 +417,15 @@ YOUTUBE_COMPANION_FALLBACK_TO_SOURCE=true
 music:
   youtube:
     strictPrecheck:
+      # 啟用前需確認 Lavalink 已安裝 youtube-plugin。
       enabled: true
+      # 舊版相容的整體 cache TTL。
       cacheTtlHours: 24
+      cache:
+        playableTtlHours: 24
+        temporaryFailureTtlMinutes: 10
+        permanentFailureTtlHours: 24
+      # 單次預檢逾時（毫秒）。
       timeoutMillis: 5000
       lavalinkBaseUrl: "http://localhost:2333"
       lavalinkPassword: "youshallnotpass"
@@ -466,11 +482,65 @@ shortUrl:
   enabled: true
   bindPort: 60001
   publicBaseUrl: "https://s.norule.me"
+
+  # 隨機短碼預設長度；自訂短碼不使用此值。
   codeLength: 7
+
+  # false 時阻擋 localhost、私有網段與其他非公開目標。
   allowPrivateTargets: false
+
+  # 相同目標網址可重用既有短網址。
   dedupe: true
+
+  # 短網址預設有效天數與背景清理週期。
   ttlDays: 7
   cleanupIntervalMinutes: 10
+
+  abuseProtection:
+    rateLimit:
+      enabled: true
+
+      # 匿名媒體上傳：每個來源 IP 每分鐘最多 10 個 HTTP 請求。
+      mediaRequestsPerMinutePerIp: 10
+
+      # 已登入媒體上傳仍受共用 IP abuse ceiling 保護。
+      mediaAuthenticatedRequestsPerMinutePerIp: 60
+
+      # 已登入使用者媒體上傳：每位使用者每分鐘最多 20 個 HTTP 請求。
+      mediaRequestsPerMinutePerUser: 20
+
+      # 每位登入使用者每日最多 200 個媒體上傳 HTTP 請求；
+      # 包含去重命中與既有媒體分享重用。
+      mediaRequestsPerDayPerUser: 200
+
+      # 建立短網址的 IP / 使用者每分鐘限制。
+      shortUrlRequestsPerMinutePerIp: 30
+      shortUrlRequestsPerMinutePerUser: 60
+
+      # 同時進行中的媒體上傳數量限制。
+      mediaConcurrencyPerIp: 2
+      mediaConcurrencyPerUser: 3
+
+      # 只有從這些可信任代理進入的請求，才會採信 X-Forwarded-For。
+      # 若 Nginx / Cloudflare Tunnel 與 Java 不在 loopback 上，
+      # 請加入實際反向代理的來源 CIDR；不要直接信任所有來源。
+      trustedProxyCidrs:
+        - "127.0.0.1/32"
+        - "::1/128"
+
+    creation:
+      enabled: true
+
+      # 舊有的短網址建立防濫用限制，與上方 API rate limit 共同生效。
+      anonymous:
+        maxRequestsPerMinute: 10
+        maxRequestsPer10Minutes: 50
+        maxCreatesPerDay: 200
+
+      authenticated:
+        maxRequestsPerMinute: 30
+        maxRequestsPer10Minutes: 150
+        maxCreatesPerDay: 500
 ```
 
 使用方式：
@@ -487,6 +557,14 @@ curl -X POST "https://s.norule.me/api/short" \
   -H "Content-Type: application/json" \
   -d '{"url":"https://example.com","customCode":"example"}'
 ```
+
+自訂短碼規則：
+
+- 長度為 `3-32` 個字元。
+- 僅允許英文字母、數字、`-` 與 `_`。
+- 建立時會正規化為小寫；大小寫視為同一代碼。
+- 系統保留路徑不可使用。
+- 若自訂代碼已存在，API 會回傳 `409 Conflict`。
 
 ## Minecraft 狀態查詢設定
 
@@ -525,6 +603,8 @@ database:
 ## HTTPS 設定
 
 Java Web Server 僅提供 HTTP。請使用 Nginx、Caddy、Cloudflare Tunnel 或其他反向代理終止 HTTPS，並將請求轉送至 `web.bind.port`。
+
+若反向代理需要傳遞真實用戶端 IP，請同步設定 `shortUrl.abuseProtection.rateLimit.trustedProxyCidrs`。只有來自可信任代理的 `X-Forwarded-For` 才會被接受，避免外部直接偽造來源 IP。
 
 ## Web UI 前端開發
 
