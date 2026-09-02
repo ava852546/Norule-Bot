@@ -5,11 +5,21 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public final class ShortUrlDomainService {
+    public static final int MIN_CUSTOM_CODE_LENGTH = 3;
+    public static final int MAX_CUSTOM_CODE_LENGTH = 32;
+
     private static final char[] BASE62 = "23456789abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ".toCharArray();
+    private static final Pattern CUSTOM_CODE_PATTERN = Pattern.compile(
+            "^[a-z0-9_-]{" + MIN_CUSTOM_CODE_LENGTH + "," + MAX_CUSTOM_CODE_LENGTH + "}$"
+    );
     private static final Set<String> RESERVED_CODES = Set.of(
-            "api", "assets", "static", "web", "dashboard", "short-url", "index", "404"
+            "admin", "api", "auth", "login", "logout", "dashboard", "stats", "oauth", "callback",
+            "privacy", "terms", "privacy-policy", "terms-of-service", "robots.txt", "sitemap.xml",
+            "favicon.ico", "health", "status", "assets", "static", "media", "images",
+            "web", "short-url", "my-content", "session", "_nuxt", "share-expired", "index", "404"
     );
 
     public String normalizeTarget(String raw) {
@@ -44,21 +54,11 @@ public final class ShortUrlDomainService {
         if (raw == null) {
             return "";
         }
-        String trimmed = raw.trim();
-        while (trimmed.startsWith("/")) {
-            trimmed = trimmed.substring(1);
-        }
-        while (trimmed.endsWith("/")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1);
-        }
-        return trimmed;
+        return raw.trim().toLowerCase(Locale.ROOT);
     }
 
     public boolean isValidSlug(String slug) {
-        if (slug == null || slug.isBlank()) {
-            return false;
-        }
-        return slug.matches("[A-Za-z0-9_-]{1,63}");
+        return slug != null && CUSTOM_CODE_PATTERN.matcher(slug).matches();
     }
 
     public boolean isReservedCode(String slug) {

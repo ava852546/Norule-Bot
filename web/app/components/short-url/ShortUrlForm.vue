@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { CUSTOM_SHORT_CODE_MAX_LENGTH, normalizeCustomShortCode, validateCustomShortCode } from '~/utils/shortCode'
 
 const targetUrl = ref('')
 const customCode = ref('')
@@ -11,9 +12,14 @@ const clipboard = useClipboard()
 const shownStatus = computed(() => clientError.value ? 'idle' : status.value)
 const shownError = computed(() => error.value)
 const codePrefix = computed(() => `${host.value}/`)
+const normalizedCustomCode = computed(() => normalizeCustomShortCode(customCode.value))
+const customCodeError = computed(() => validateCustomShortCode(customCode.value) || '')
+const customCodeHint = computed(() => normalizedCustomCode.value
+  ? `建立後：${codePrefix.value}${normalizedCustomCode.value}。3～32 字元，可使用英文、數字、-、_`
+  : '3～32 字元，可使用英文、數字、-、_')
 
 onMounted(() => { host.value = window.location.host })
-watch([targetUrl, customCode], () => { clientError.value = '' })
+watch(targetUrl, () => { clientError.value = '' })
 
 async function submit() {
   clientError.value = ''
@@ -29,7 +35,8 @@ async function submit() {
     clientError.value = '請輸入完整的 http:// 或 https:// 網址。'
     return
   }
-  await create(value, customCode.value)
+  if (customCodeError.value) return
+  await create(value, normalizedCustomCode.value)
 }
 </script>
 
@@ -38,9 +45,9 @@ async function submit() {
     <form novalidate @submit.prevent="submit">
       <div class="short-form-card__primary">
         <NrInput id="target-url" v-model="targetUrl" label="要縮短的網址" type="url" placeholder="https://example.com/very/long/url" autocomplete="url" required :error="clientError" />
-        <NrButton type="submit" :loading="status === 'loading'" :disabled="!targetUrl.trim()">縮短</NrButton>
+        <NrButton type="submit" :loading="status === 'loading'" :disabled="!targetUrl.trim() || Boolean(customCodeError)">縮短</NrButton>
       </div>
-      <NrInput id="custom-code" v-model="customCode" label="自訂短碼" placeholder="好記的短碼">
+      <NrInput id="custom-code" v-model="customCode" label="自訂短碼" placeholder="好記的短碼" :maxlength="CUSTOM_SHORT_CODE_MAX_LENGTH" :hint="customCodeHint" :error="customCodeError">
         <template #prefix>{{ codePrefix }}</template>
       </NrInput>
     </form>

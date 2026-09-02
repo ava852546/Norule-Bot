@@ -13,7 +13,9 @@ import java.sql.Statement;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SqliteShortUrlPersistenceTest {
     @TempDir
@@ -65,6 +67,21 @@ class SqliteShortUrlPersistenceTest {
         assertEquals(987654321L, shortUrls.findLogChannelId());
         shortUrls.saveLogChannelId(null);
         assertNull(shortUrls.findLogChannelId());
+    }
+
+    @Test
+    void enforcesUniqueCodesAndFindsLegacyCodesIgnoringAsciiCase() {
+        Path database = tempDir.resolve("short-url-uniqueness.db");
+        SqliteShortUrlRepository shortUrls = new SqliteShortUrlRepository(database);
+        long now = System.currentTimeMillis();
+        ShortUrlService.ShortUrlEntry legacy = new ShortUrlService.ShortUrlEntry(
+                "LegacyCode", "https://example.com/legacy", now, now + 60_000L);
+        ShortUrlService.ShortUrlEntry duplicate = new ShortUrlService.ShortUrlEntry(
+                "LegacyCode", "https://example.com/duplicate", now, now + 60_000L);
+
+        assertTrue(shortUrls.saveIfAbsent(legacy));
+        assertFalse(shortUrls.saveIfAbsent(duplicate));
+        assertEquals("LegacyCode", shortUrls.findByCodeIgnoreCase("legacycode").getCode());
     }
 
     private void createLegacySchema(Path database) throws Exception {

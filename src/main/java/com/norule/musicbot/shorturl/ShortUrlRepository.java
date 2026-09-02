@@ -7,6 +7,10 @@ import java.util.List;
 public interface ShortUrlRepository {
     ShortUrlService.ShortUrlEntry findByCode(String code);
 
+    default ShortUrlService.ShortUrlEntry findByCodeIgnoreCase(String code) {
+        return findByCode(code);
+    }
+
     ShortUrlService.ShortUrlEntry findActiveByTarget(String target, long nowMillis);
 
     default List<ShortUrlService.ShortUrlEntry> findByOwnerUserId(String ownerUserId,
@@ -32,6 +36,14 @@ public interface ShortUrlRepository {
     }
 
     void save(ShortUrlService.ShortUrlEntry entry);
+
+    default boolean saveIfAbsent(ShortUrlService.ShortUrlEntry entry) {
+        if (findByCode(entry.getCode()) != null) {
+            return false;
+        }
+        save(entry);
+        return true;
+    }
 
     void deleteByCode(String code);
 

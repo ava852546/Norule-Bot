@@ -14,7 +14,8 @@ const props = withDefaults(defineProps<{
   autocomplete?: string
   min?: string
   max?: string
-}>(), { type: 'text', placeholder: '', hint: '', error: '', required: false, disabled: false, autocomplete: 'off', min: undefined, max: undefined })
+  maxlength?: number
+}>(), { type: 'text', placeholder: '', hint: '', error: '', required: false, disabled: false, autocomplete: 'off', min: undefined, max: undefined, maxlength: undefined })
 const generatedId = useId()
 const inputId = computed(() => props.id || generatedId)
 const describedBy = computed(() => [props.hint && `${inputId.value}-hint`, props.error && `${inputId.value}-error`].filter(Boolean).join(' ') || undefined)
@@ -25,7 +26,7 @@ const describedBy = computed(() => [props.hint && `${inputId.value}-hint`, props
     <label class="nr-field__label" :for="inputId">{{ label }}<span v-if="!required" class="nr-field__optional" aria-hidden="true">選填</span></label>
     <span class="nr-field__control" :class="{ 'nr-field__control--error': error }">
       <span v-if="$slots.prefix" class="nr-field__prefix"><slot name="prefix" /></span>
-      <input :id="inputId" v-model="value" :type="type" :placeholder="placeholder" :required="required" :disabled="disabled" :autocomplete="autocomplete" :min="min" :max="max" :aria-invalid="Boolean(error)" :aria-describedby="describedBy">
+      <input :id="inputId" v-model="value" :type="type" :placeholder="placeholder" :required="required" :disabled="disabled" :autocomplete="autocomplete" :min="min" :max="max" :maxlength="maxlength" :aria-invalid="Boolean(error)" :aria-describedby="describedBy">
       <span v-if="$slots.suffix" class="nr-field__suffix"><slot name="suffix" /></span>
     </span>
     <span v-if="hint" :id="`${inputId}-hint`" class="nr-field__hint">{{ hint }}</span>

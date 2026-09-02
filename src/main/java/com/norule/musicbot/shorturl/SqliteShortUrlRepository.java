@@ -32,10 +32,14 @@ public final class SqliteShortUrlRepository implements ShortUrlRepository {
             )
             """;
     private static final String LOG_CHANNEL_SETTING = "discord_log_channel_id";
+    private static final String CREATE_CODE_NOCASE_INDEX =
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_short_urls_code_nocase ON short_urls(code COLLATE NOCASE)";
     private static final String CREATE_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_urls_target_expires ON short_urls(target, expires_at)";
     private static final String CREATE_OWNER_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_urls_owner_created ON short_urls(owner_user_id, created_at DESC)";
     private static final String SELECT_FIELDS = "code, target, created_at, expires_at, view_count, owner_user_id, last_accessed_at";
     private static final String SELECT_BY_CODE = "SELECT " + SELECT_FIELDS + " FROM short_urls WHERE code = ?";
+    private static final String SELECT_BY_CODE_IGNORE_CASE = "SELECT " + SELECT_FIELDS
+            + " FROM short_urls WHERE code = ? COLLATE NOCASE LIMIT 1";
     private static final String SELECT_ACTIVE_BY_TARGET = """
             SELECT %s
             FROM short_urls
@@ -78,8 +82,17 @@ public final class SqliteShortUrlRepository implements ShortUrlRepository {
 
     @Override
     public ShortUrlService.ShortUrlEntry findByCode(String code) {
+        return findByCode(code, SELECT_BY_CODE);
+    }
+
+    @Override
+    public ShortUrlService.ShortUrlEntry findByCodeIgnoreCase(String code) {
+        return findByCode(code, SELECT_BY_CODE_IGNORE_CASE);
+    }
+
+    private ShortUrlService.ShortUrlEntry findByCode(String code, String sql) {
         try (Connection connection = DriverManager.getConnection(jdbcUrl);
-             PreparedStatement statement = connection.prepareStatement(SELECT_BY_CODE)) {
+             PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, code);
             try (ResultSet rs = statement.executeQuery()) {
                 if (!rs.next()) {
@@ -169,6 +182,17 @@ public final class SqliteShortUrlRepository implements ShortUrlRepository {
 
     @Override
     public void save(ShortUrlService.ShortUrlEntry entry) {
+        if (!insert(entry, false)) {
+            throw new IllegalStateException("Short URL code already exists: " + entry.getCode());
+        }
+    }
+
+    @Override
+    public boolean saveIfAbsent(ShortUrlService.ShortUrlEntry entry) {
+        return insert(entry, true);
+    }
+
+    private boolean insert(ShortUrlService.ShortUrlEntry entry, boolean returnFalseOnDuplicate) {
         try (Connection connection = DriverManager.getConnection(jdbcUrl);
              PreparedStatement statement = connection.prepareStatement(INSERT)) {
             statement.setString(1, entry.getCode());
@@ -179,9 +203,20 @@ public final class SqliteShortUrlRepository implements ShortUrlRepository {
             statement.setString(6, entry.getOwnerUserId());
             statement.setLong(7, entry.getLastAccessedAt());
             statement.executeUpdate();
+            return true;
         } catch (SQLException e) {
+            if (returnFalseOnDuplicate && isDuplicateCode(e)) {
+                return false;
+            }
             throw new IllegalStateException("Failed to save short url", e);
         }
+    }
+
+    private boolean isDuplicateCode(SQLException exception) {
+        return exception.getErrorCode() == 19
+                || exception.getErrorCode() == 1555
+                || exception.getErrorCode() == 2067
+                || "23000".equals(exception.getSQLState());
     }
 
     @Override
@@ -282,6 +317,7 @@ public final class SqliteShortUrlRepository implements ShortUrlRepository {
             ensureViewCountColumn(connection, statement);
             ensureColumn(connection, statement, "owner_user_id", "TEXT NOT NULL DEFAULT ''");
             ensureColumn(connection, statement, "last_accessed_at", "INTEGER NOT NULL DEFAULT 0");
+            statement.execute(CREATE_CODE_NOCASE_INDEX);
             statement.execute(CREATE_INDEX);
             statement.execute(CREATE_OWNER_INDEX);
             statement.execute(CREATE_SETTINGS_TABLE);

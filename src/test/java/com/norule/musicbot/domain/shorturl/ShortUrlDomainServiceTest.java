@@ -3,6 +3,7 @@ package com.norule.musicbot.domain.shorturl;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShortUrlDomainServiceTest {
@@ -22,11 +23,24 @@ class ShortUrlDomainServiceTest {
 
     @Test
     void validatesSlugCharsetAndReservedCodes() {
-        assertTrue(domain.isValidSlug("Abc_123-x"));
+        assertEquals("abc_123-x", domain.normalizeSlug("  AbC_123-X  "));
+        assertTrue(domain.isValidSlug("abc_123-x"));
+        assertTrue(domain.isValidSlug("123"));
+        assertTrue(domain.isValidSlug("a".repeat(32)));
+        assertFalse(domain.isValidSlug("ab"));
+        assertFalse(domain.isValidSlug("a".repeat(33)));
+        assertFalse(domain.isValidSlug("Abc_123-x"));
         assertFalse(domain.isValidSlug("bad/code"));
         assertFalse(domain.isValidSlug("bad code"));
+        assertFalse(domain.isValidSlug("hello.test"));
+        assertFalse(domain.isValidSlug("中文"));
+        assertFalse(domain.isValidSlug("emoji-😀"));
         assertTrue(domain.isReservedCode("api"));
         assertTrue(domain.isReservedCode("INDEX"));
+        assertTrue(domain.isReservedCode("ADMIN"));
+        assertTrue(domain.isReservedCode("Stats"));
+        assertTrue(domain.isReservedCode("LOGIN"));
+        assertTrue(domain.isReservedCode("robots.txt"));
         assertFalse(domain.isReservedCode("custom-page"));
     }
 

@@ -5,6 +5,7 @@ import com.norule.musicbot.config.BotConfig;
 import com.norule.musicbot.domain.shorturl.ImageShare;
 import com.norule.musicbot.domain.shorturl.OwnedShortUrlContent;
 import com.norule.musicbot.domain.shorturl.QuotaSubject;
+import com.norule.musicbot.domain.shorturl.ShortUrlCreationError;
 import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
 import com.norule.musicbot.service.shorturl.ImageShareService;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
@@ -587,10 +588,7 @@ public final class ShortUrlGatewayServer {
                     target, customCode, ownerUserId, address);
             ShortUrlService.ShortUrlEntry created = outcome.entry();
             if (created == null) {
-                sendJson(exchange, 400, DataObject.empty()
-                        .put("error", "Invalid url or code")
-                        .put("errorCode", "INVALID_URL_OR_CODE")
-                        .toString());
+                sendCreationFailure(exchange, outcome.error());
                 return;
             }
             if (outcome.newlyCreated()) {
@@ -1451,6 +1449,28 @@ public final class ShortUrlGatewayServer {
 
     private String clientAddress(HttpExchange exchange) {
         return ClientAddressResolver.resolve(exchange);
+    }
+
+    private void sendCreationFailure(HttpExchange exchange,
+                                     ShortUrlCreationError error) throws IOException {
+        ShortUrlCreationError resolved = error == null ? ShortUrlCreationError.INVALID_TARGET : error;
+        int status = resolved == ShortUrlCreationError.CUSTOM_CODE_ALREADY_EXISTS ? 409 : 400;
+        String errorCode = switch (resolved) {
+            case INVALID_CUSTOM_CODE -> "INVALID_CUSTOM_CODE";
+            case RESERVED_CUSTOM_CODE -> "RESERVED_CUSTOM_CODE";
+            case CUSTOM_CODE_ALREADY_EXISTS -> "CUSTOM_CODE_ALREADY_EXISTS";
+            case NONE, INVALID_TARGET -> "INVALID_URL_OR_CODE";
+        };
+        String message = switch (resolved) {
+            case INVALID_CUSTOM_CODE -> "Custom code must be 3-32 characters using only a-z, 0-9, - and _";
+            case RESERVED_CUSTOM_CODE -> "This custom code is reserved by the system";
+            case CUSTOM_CODE_ALREADY_EXISTS -> "This custom code is already in use";
+            case NONE, INVALID_TARGET -> "Invalid URL or custom code";
+        };
+        sendJson(exchange, status, DataObject.empty()
+                .put("error", message)
+                .put("errorCode", errorCode)
+                .toString());
     }
 
     private String userAgent(HttpExchange exchange) {

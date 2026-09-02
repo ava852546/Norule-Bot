@@ -93,6 +93,9 @@ export function shortUrlErrorMessage(payload: ApiErrorResponse): string {
   const messages: Record<string, string> = {
     MISSING_URL: '請輸入要縮短的網址。',
     INVALID_URL_OR_CODE: '網址或自訂短碼無效，請確認後再試。',
+    INVALID_CUSTOM_CODE: '自訂代碼只能使用英文字母、數字、-、_，長度需為 3～32 個字元。',
+    RESERVED_CUSTOM_CODE: '此名稱由系統保留，請使用其他代碼。',
+    CUSTOM_CODE_ALREADY_EXISTS: '此自訂代碼已被使用。',
     METHOD_NOT_ALLOWED: '不支援這個請求方式。',
   }
   return messages[code] || payload.error?.trim() || '建立短網址失敗，請稍後再試。'

@@ -1,6 +1,7 @@
 package com.norule.musicbot;
 
 import com.norule.musicbot.domain.shorturl.ShortUrlAccessEvent;
+import com.norule.musicbot.domain.shorturl.ShortUrlCreationError;
 import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
 import com.norule.musicbot.shorturl.ShortUrlRepository;
 import org.junit.jupiter.api.Test;
@@ -71,6 +72,45 @@ class ShortUrlServiceTest {
 
         assertNull(service.create("https://example.com", "api"));
         assertNull(service.create("https://example.com", "bad/code"));
+    }
+
+    @Test
+    void normalizesAndValidatesNewCustomCodes() {
+        InMemoryRepository repository = new InMemoryRepository();
+        ShortUrlService service = new ShortUrlService(repository);
+
+        assertEquals("abc", service.create("https://example.com/abc", "  AbC  ").getCode());
+        assertNotNull(service.create("https://example.com/dash", "hello-world"));
+        assertNotNull(service.create("https://example.com/underscore", "hello_world"));
+        assertNotNull(service.create("https://example.com/max", "a".repeat(32)));
+
+        for (String invalid : List.of("a", "ab", "a".repeat(33), "hello world", "hello!",
+                "hello.test", "hello/test", "中文", "emoji-😀")) {
+            ShortUrlService.CreationOutcome outcome = service.createWithOutcome(
+                    "https://example.com/invalid/" + invalid.hashCode(), invalid, "", "");
+            assertNull(outcome.entry());
+            assertEquals(ShortUrlCreationError.INVALID_CUSTOM_CODE, outcome.error());
+        }
+    }
+
+    @Test
+    void rejectsReservedAndCaseInsensitiveDuplicateCustomCodes() {
+        InMemoryRepository repository = new InMemoryRepository();
+        ShortUrlService service = new ShortUrlService(repository);
+
+        for (String reserved : List.of("admin", "ADMIN", "Stats", "LOGIN", "api")) {
+            ShortUrlService.CreationOutcome outcome = service.createWithOutcome(
+                    "https://example.com/reserved/" + reserved, reserved, "", "");
+            assertNull(outcome.entry());
+            assertEquals(ShortUrlCreationError.RESERVED_CUSTOM_CODE, outcome.error());
+        }
+
+        assertNotNull(service.create("https://example.com/first", "NoRule"));
+        ShortUrlService.CreationOutcome duplicate = service.createWithOutcome(
+                "https://example.com/second", "NORULE", "", "");
+        assertNull(duplicate.entry());
+        assertEquals(ShortUrlCreationError.CUSTOM_CODE_ALREADY_EXISTS, duplicate.error());
+        assertEquals(1, repository.store.size());
     }
 
     @Test
@@ -179,6 +219,14 @@ class ShortUrlServiceTest {
         @Override
         public ShortUrlService.ShortUrlEntry findByCode(String code) {
             return store.get(code);
+        }
+
+        @Override
+        public ShortUrlService.ShortUrlEntry findByCodeIgnoreCase(String code) {
+            return store.values().stream()
+                    .filter(entry -> entry.code().equalsIgnoreCase(code))
+                    .findFirst()
+                    .orElse(null);
         }
 
         @Override

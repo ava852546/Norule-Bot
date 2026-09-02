@@ -1,9 +1,12 @@
 package com.norule.musicbot.service.shorturl;
 
 import com.norule.musicbot.domain.shorturl.ShortUrl;
+import com.norule.musicbot.domain.shorturl.ShortUrlCreationError;
 
 public final class ShortUrlService {
-    public record CreateResult(ShortUrl shortUrl, boolean newlyCreated) {
+    public record CreateResult(ShortUrl shortUrl,
+                               boolean newlyCreated,
+                               ShortUrlCreationError error) {
     }
 
     private final com.norule.musicbot.ShortUrlService coreService;
@@ -38,7 +41,7 @@ public final class ShortUrlService {
                 creatorDiscordUserId,
                 clientAddress
         );
-        return new CreateResult(map(outcome.entry()), outcome.newlyCreated());
+        return new CreateResult(map(outcome.entry()), outcome.newlyCreated(), outcome.error());
     }
 
     public ShortUrl resolve(String code) {

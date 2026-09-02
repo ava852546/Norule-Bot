@@ -15,7 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCloseable {
-    private static final String CREATE_TABLE = """
+    static final String CREATE_TABLE = """
             CREATE TABLE IF NOT EXISTS short_urls (
                 code VARCHAR(64) NOT NULL,
                 target TEXT NOT NULL,
@@ -40,6 +40,8 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
     private static final String LOG_CHANNEL_SETTING = "discord_log_channel_id";
     private static final String SELECT_FIELDS = "code, target, created_at, expires_at, view_count, owner_user_id, last_accessed_at";
     private static final String SELECT_BY_CODE = "SELECT " + SELECT_FIELDS + " FROM short_urls WHERE code = ?";
+    private static final String SELECT_BY_CODE_IGNORE_CASE = "SELECT " + SELECT_FIELDS
+            + " FROM short_urls WHERE LOWER(code) = LOWER(?) LIMIT 1";
     private static final String SELECT_ACTIVE_BY_TARGET = """
             SELECT %s
             FROM short_urls
@@ -60,7 +62,8 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
             """;
     private static final String DELETE_SETTING = "DELETE FROM short_url_settings WHERE setting_key = ?";
 
-    private final HikariDataSource dataSource;
+    private final DataSource dataSource;
+    private final HikariDataSource managedDataSource;
 
     public MySqlShortUrlRepository(String jdbcUrl, String username, String password, int poolSize) {
         HikariConfig config = new HikariConfig();
@@ -75,14 +78,29 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
         config.addDataSourceProperty("cachePrepStmts", "true");
         config.addDataSourceProperty("prepStmtCacheSize", "250");
         config.addDataSourceProperty("prepStmtCacheSqlLimit", "2048");
-        this.dataSource = new HikariDataSource(config);
+        this.managedDataSource = new HikariDataSource(config);
+        this.dataSource = managedDataSource;
         initializeSchema(this.dataSource);
+    }
+
+    MySqlShortUrlRepository(DataSource dataSource) {
+        this.dataSource = java.util.Objects.requireNonNull(dataSource, "dataSource");
+        this.managedDataSource = null;
     }
 
     @Override
     public ShortUrlService.ShortUrlEntry findByCode(String code) {
+        return findByCode(code, SELECT_BY_CODE);
+    }
+
+    @Override
+    public ShortUrlService.ShortUrlEntry findByCodeIgnoreCase(String code) {
+        return findByCode(code, SELECT_BY_CODE_IGNORE_CASE);
+    }
+
+    private ShortUrlService.ShortUrlEntry findByCode(String code, String sql) {
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(SELECT_BY_CODE)) {
+             PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, code);
             try (ResultSet rs = statement.executeQuery()) {
                 if (!rs.next()) {
@@ -172,6 +190,17 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
 
     @Override
     public void save(ShortUrlService.ShortUrlEntry entry) {
+        if (!insert(entry, false)) {
+            throw new IllegalStateException("Short URL code already exists: " + entry.getCode());
+        }
+    }
+
+    @Override
+    public boolean saveIfAbsent(ShortUrlService.ShortUrlEntry entry) {
+        return insert(entry, true);
+    }
+
+    private boolean insert(ShortUrlService.ShortUrlEntry entry, boolean returnFalseOnDuplicate) {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(INSERT)) {
             statement.setString(1, entry.getCode());
@@ -182,7 +211,11 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
             statement.setString(6, entry.getOwnerUserId());
             statement.setLong(7, entry.getLastAccessedAt());
             statement.executeUpdate();
+            return true;
         } catch (SQLException e) {
+            if (returnFalseOnDuplicate && (e.getErrorCode() == 1062 || "23000".equals(e.getSQLState()))) {
+                return false;
+            }
             throw new IllegalStateException("Failed to save short url", e);
         }
     }
@@ -280,7 +313,9 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
 
     @Override
     public void close() {
-        dataSource.close();
+        if (managedDataSource != null) {
+            managedDataSource.close();
+        }
     }
 
     private static void initializeSchema(DataSource dataSource) {

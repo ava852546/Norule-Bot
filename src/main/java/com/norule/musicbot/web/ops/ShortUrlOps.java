@@ -1,10 +1,13 @@
 package com.norule.musicbot.web.ops;
 
 import com.norule.musicbot.domain.shorturl.ShortUrl;
+import com.norule.musicbot.domain.shorturl.ShortUrlCreationError;
 import com.norule.musicbot.service.shorturl.ShortUrlService;
 
 public final class ShortUrlOps {
-    public record CreationResult(ShortUrl shortUrl, boolean newlyCreated) {
+    public record CreationResult(ShortUrl shortUrl,
+                                 boolean newlyCreated,
+                                 ShortUrlCreationError error) {
     }
 
     private final ShortUrlService shortUrlService;
@@ -37,7 +40,7 @@ public final class ShortUrlOps {
                                                    String clientAddress) {
         ShortUrlService.CreateResult result = shortUrlService.createWithOutcome(
                 url, customCode, ownerUserId, clientAddress);
-        return new CreationResult(result.shortUrl(), result.newlyCreated());
+        return new CreationResult(result.shortUrl(), result.newlyCreated(), result.error());
     }
 
     public ShortUrl resolve(String code) {

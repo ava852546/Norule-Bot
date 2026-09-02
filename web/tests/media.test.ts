@@ -28,6 +28,9 @@ describe('媒體分享驗證', () => {
 describe('後端錯誤映射', () => {
   it('映射短網址與媒體 errorCode', () => {
     expect(shortUrlErrorMessage({ errorCode: 'INVALID_URL_OR_CODE' })).toContain('網址')
+    expect(shortUrlErrorMessage({ errorCode: 'INVALID_CUSTOM_CODE' })).toContain('3～32')
+    expect(shortUrlErrorMessage({ errorCode: 'RESERVED_CUSTOM_CODE' })).toContain('系統保留')
+    expect(shortUrlErrorMessage({ errorCode: 'CUSTOM_CODE_ALREADY_EXISTS' })).toContain('已被使用')
     expect(mediaErrorMessage({ errorCode: 'VIDEO_TOO_LONG' }, DEFAULT_MEDIA_CONFIG)).toContain('5 分鐘')
     expect(mediaErrorMessage({ errorCode: 'MEDIA_GATEWAY_FAILED', status: 503 })).toContain('503')
   })

@@ -2,6 +2,7 @@ import { readonly, ref } from 'vue'
 import type { ApiErrorResponse, RequestStatus, ShortUrlResponse } from '~/types/api'
 import { readJson } from '~/utils/api'
 import { shortUrlErrorMessage } from '~/utils/media'
+import { normalizeCustomShortCode } from '~/utils/shortCode'
 
 export function useShortUrl() {
   const status = ref<RequestStatus>('idle')
@@ -14,7 +15,8 @@ export function useShortUrl() {
     error.value = ''
     try {
       const body: { url: string; customCode?: string } = { url: targetUrl.trim() }
-      if (customCode.trim()) body.customCode = customCode.trim()
+      const normalizedCustomCode = normalizeCustomShortCode(customCode)
+      if (normalizedCustomCode) body.customCode = normalizedCustomCode
       const response = await fetch('/api/short', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -3,6 +3,7 @@ package com.norule.musicbot;
 import com.norule.musicbot.domain.shorturl.ShortUrlDomainService;
 import com.norule.musicbot.domain.shorturl.ImageShare;
 import com.norule.musicbot.domain.shorturl.ShortUrlAccessEvent;
+import com.norule.musicbot.domain.shorturl.ShortUrlCreationError;
 import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
 import com.norule.musicbot.domain.shorturl.OwnedShortUrlContent;
 import com.norule.musicbot.service.shorturl.ImageShareService;
@@ -77,7 +78,19 @@ public final class ShortUrlService {
         }
     }
 
-    public record CreationOutcome(ShortUrlEntry entry, boolean newlyCreated) {
+    public record CreationOutcome(ShortUrlEntry entry,
+                                  boolean newlyCreated,
+                                  ShortUrlCreationError error) {
+        public CreationOutcome {
+            error = error == null ? ShortUrlCreationError.NONE : error;
+        }
+
+        public CreationOutcome(ShortUrlEntry entry, boolean newlyCreated) {
+            this(entry, newlyCreated, ShortUrlCreationError.NONE);
+        }
+    }
+
+    private record CodeResolution(String code, ShortUrlCreationError error) {
     }
 
     public enum OwnedContentType {
@@ -199,14 +212,14 @@ public final class ShortUrlService {
                                           String clientAddress) {
         String target = domainService.normalizeTarget(rawTarget);
         if (!domainService.isValidTarget(target)) {
-            return new CreationOutcome(null, false);
+            return new CreationOutcome(null, false, ShortUrlCreationError.INVALID_TARGET);
         }
         Options currentOptions = options.get();
         if (!currentOptions.allowPrivateTargets() && domainService.isPrivateOrLocalTarget(target)) {
-            return new CreationOutcome(null, false);
+            return new CreationOutcome(null, false, ShortUrlCreationError.INVALID_TARGET);
         }
         if (isSelfDomainTarget(target)) {
-            return new CreationOutcome(null, false);
+            return new CreationOutcome(null, false, ShortUrlCreationError.INVALID_TARGET);
         }
 
         long now = System.currentTimeMillis();
@@ -223,16 +236,23 @@ public final class ShortUrlService {
             }
         }
 
-        String code = resolveCodeForCreate(customSlug, now);
-        if (code == null) {
-            return new CreationOutcome(null, false);
+        if (requestedSlug.isBlank()) {
+            ShortUrlEntry created = createWithGeneratedCode(
+                    target, now, safeTtl, normalizedOwnerUserId);
+            publishCreated(created, creatorDiscordUserId, clientAddress);
+            return new CreationOutcome(created, true);
         }
+        CodeResolution resolution = resolveCustomCodeForCreate(requestedSlug, now);
+        if (resolution.error() != ShortUrlCreationError.NONE) {
+            return new CreationOutcome(null, false, resolution.error());
+        }
+        String code = resolution.code();
         ShortUrlEntry created = new ShortUrlEntry(
                 code, target, now, now + safeTtl, 0L, normalizedOwnerUserId, 0L);
-        repository.save(created);
-        publishAccess(ShortUrlAccessEvent.Action.CREATED, ShortUrlAccessEvent.ResourceType.URL,
-                created.code(), created.target(), created.viewCount(), created.expiresAt(), false, 0L,
-                creatorDiscordUserId, clientAddress, "");
+        if (!repository.saveIfAbsent(created)) {
+            return new CreationOutcome(null, false, ShortUrlCreationError.CUSTOM_CODE_ALREADY_EXISTS);
+        }
+        publishCreated(created, creatorDiscordUserId, clientAddress);
         return new CreationOutcome(created, true);
     }
 
@@ -622,11 +642,19 @@ public final class ShortUrlService {
         }
     }
 
-    private String nextAvailableCode(int length) {
+    private ShortUrlEntry createWithGeneratedCode(String target,
+                                                   long now,
+                                                   long safeTtl,
+                                                   String ownerUserId) {
         for (int i = 0; i < 10_000; i++) {
-            String code = randomCode(length);
-            if (repository.findByCode(code) == null && !isImageCodeInUse(code)) {
-                return code;
+            String code = randomCode(options.get().codeLength());
+            if (domainService.isReservedCode(code) || isImageCodeInUse(code)) {
+                continue;
+            }
+            ShortUrlEntry created = new ShortUrlEntry(
+                    code, target, now, now + safeTtl, 0L, ownerUserId, 0L);
+            if (repository.saveIfAbsent(created)) {
+                return created;
             }
         }
         throw new IllegalStateException("Unable to allocate short url code");
@@ -640,26 +668,33 @@ public final class ShortUrlService {
         return new String(chars);
     }
 
-    private String resolveCodeForCreate(String customSlug, long nowMillis) {
-        String slug = domainService.normalizeSlug(customSlug);
-        if (slug.isBlank()) {
-            return nextAvailableCode(options.get().codeLength());
+    private CodeResolution resolveCustomCodeForCreate(String slug, long nowMillis) {
+        if (!domainService.isValidSlug(slug)) {
+            return new CodeResolution(null, ShortUrlCreationError.INVALID_CUSTOM_CODE);
         }
-        if (!domainService.isValidSlug(slug) || domainService.isReservedCode(slug)) {
-            return null;
+        if (domainService.isReservedCode(slug)) {
+            return new CodeResolution(null, ShortUrlCreationError.RESERVED_CUSTOM_CODE);
         }
         if (isImageCodeInUse(slug)) {
-            return null;
+            return new CodeResolution(null, ShortUrlCreationError.CUSTOM_CODE_ALREADY_EXISTS);
         }
-        ShortUrlEntry existing = repository.findByCode(slug);
+        ShortUrlEntry existing = repository.findByCodeIgnoreCase(slug);
         if (existing == null) {
-            return slug;
+            return new CodeResolution(slug, ShortUrlCreationError.NONE);
         }
         if (domainService.isExpired(existing.getExpiresAt(), nowMillis)) {
-            repository.deleteByCode(slug);
-            return slug;
+            repository.deleteByCode(existing.getCode());
+            return new CodeResolution(slug, ShortUrlCreationError.NONE);
         }
-        return null;
+        return new CodeResolution(null, ShortUrlCreationError.CUSTOM_CODE_ALREADY_EXISTS);
+    }
+
+    private void publishCreated(ShortUrlEntry created,
+                                String creatorDiscordUserId,
+                                String clientAddress) {
+        publishAccess(ShortUrlAccessEvent.Action.CREATED, ShortUrlAccessEvent.ResourceType.URL,
+                created.code(), created.target(), created.viewCount(), created.expiresAt(), false, 0L,
+                creatorDiscordUserId, clientAddress, "");
     }
 
     private boolean isSelfDomainTarget(String target) {
