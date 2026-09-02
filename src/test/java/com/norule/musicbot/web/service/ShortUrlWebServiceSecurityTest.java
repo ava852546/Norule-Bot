@@ -1,7 +1,9 @@
 package com.norule.musicbot.web.service;
 
 import com.norule.musicbot.ShortUrlService;
+import com.norule.musicbot.shorturl.InMemoryRateLimitStore;
 import com.norule.musicbot.shorturl.ShortUrlRepository;
+import com.norule.musicbot.service.shorturl.RateLimitService;
 import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
 import com.norule.musicbot.web.TestHttpExchange;
 import com.norule.musicbot.web.infra.WebControlServer;
@@ -42,6 +44,39 @@ class ShortUrlWebServiceSecurityTest {
             assertEquals(200, json.responseCode());
             assertEquals(200, form.responseCode());
             assertEquals(2, repository.entries.size());
+        } finally {
+            owner.shutdown();
+        }
+    }
+
+    @Test
+    void returnsSpecificCustomCodeErrorsAndNormalizesSuccessfulCodes() throws Exception {
+        InMemoryRepository repository = new InMemoryRepository();
+        WebControlServer owner = newOwner(repository);
+        try {
+            ShortUrlWebService service = new ShortUrlWebService(owner);
+            TestHttpExchange invalid = jsonRequest(
+                    "{\"url\":\"https://example.com/invalid\",\"customCode\":\"bad/code\"}");
+            TestHttpExchange reserved = jsonRequest(
+                    "{\"url\":\"https://example.com/reserved\",\"customCode\":\"ADMIN\"}");
+            TestHttpExchange created = jsonRequest(
+                    "{\"url\":\"https://example.com/created\",\"customCode\":\"My-Code\"}");
+            TestHttpExchange duplicate = jsonRequest(
+                    "{\"url\":\"https://example.com/duplicate\",\"customCode\":\"MY-CODE\"}");
+
+            service.handleCreateShortUrl(invalid);
+            service.handleCreateShortUrl(reserved);
+            service.handleCreateShortUrl(created);
+            service.handleCreateShortUrl(duplicate);
+
+            assertEquals(400, invalid.responseCode());
+            assertTrue(invalid.responseBodyUtf8().contains("INVALID_CUSTOM_CODE"));
+            assertEquals(400, reserved.responseCode());
+            assertTrue(reserved.responseBodyUtf8().contains("RESERVED_CUSTOM_CODE"));
+            assertEquals(200, created.responseCode());
+            assertTrue(created.responseBodyUtf8().contains("\"code\":\"my-code\""));
+            assertEquals(409, duplicate.responseCode());
+            assertTrue(duplicate.responseBodyUtf8().contains("CUSTOM_CODE_ALREADY_EXISTS"));
         } finally {
             owner.shutdown();
         }
@@ -115,19 +150,59 @@ class ShortUrlWebServiceSecurityTest {
         }
     }
 
+    @Test
+    void apiRateLimitRunsBeforeRequestBodyIsReadAndUsesUnifiedResponse() throws Exception {
+        InMemoryRepository repository = new InMemoryRepository();
+        RateLimitService rateLimitService = new RateLimitService(
+                new InMemoryRateLimitStore(),
+                new RateLimitService.Options(true, 100, 100, 200, 1, 100, 2, 3));
+        ShortUrlService shortUrlService = new ShortUrlService(
+                repository,
+                new ShortUrlService.Options(true, 60_000L, 60_000L,
+                        "https://s.norule.me", 7, false),
+                null,
+                null,
+                rateLimitService);
+        WebControlServer owner = newOwner(repository, shortUrlService);
+        try {
+            ShortUrlWebService service = new ShortUrlWebService(owner);
+            TestHttpExchange first = jsonRequest("{\"url\":\"not-a-url\"}");
+            TestHttpExchange deniedBeforeBody = jsonRequest("{}").header(
+                    "Content-Length",
+                    String.valueOf(HttpRequestBodyReader.MAX_SHORT_URL_REQUEST_BODY_BYTES + 1L));
+
+            service.handleCreateShortUrl(first);
+            service.handleCreateShortUrl(deniedBeforeBody);
+
+            assertEquals(400, first.responseCode());
+            assertEquals(429, deniedBeforeBody.responseCode());
+            assertTrue(deniedBeforeBody.responseBodyUtf8().contains("\"error\":\"RATE_LIMITED\""));
+            assertTrue(deniedBeforeBody.responseBodyUtf8().contains("\"retryAfter\":"));
+            assertTrue(Long.parseLong(
+                    deniedBeforeBody.getResponseHeaders().getFirst("Retry-After")) > 0L);
+            assertTrue(repository.entries.isEmpty());
+        } finally {
+            owner.shutdown();
+        }
+    }
+
     private TestHttpExchange jsonRequest(String json) {
         return new TestHttpExchange("POST", "/api/short", json.getBytes(StandardCharsets.UTF_8))
                 .header("Content-Type", "application/json");
     }
 
     private WebControlServer newOwner(InMemoryRepository repository) {
+        return newOwner(repository, new ShortUrlService(repository));
+    }
+
+    private WebControlServer newOwner(InMemoryRepository repository, ShortUrlService shortUrlService) {
         return new WebControlServer(
                 null,
                 null,
                 null,
                 null,
                 null,
-                new ShortUrlService(repository),
+                shortUrlService,
                 () -> new WebSettings(false, 60_000, "https://dash.example.com", 60, "", "", ""),
                 null,
                 () -> "lang",
@@ -141,6 +216,14 @@ class ShortUrlWebServiceSecurityTest {
         @Override
         public ShortUrlService.ShortUrlEntry findByCode(String code) {
             return entries.get(code);
+        }
+
+        @Override
+        public ShortUrlService.ShortUrlEntry findByCodeIgnoreCase(String code) {
+            return entries.values().stream()
+                    .filter(entry -> entry.code().equalsIgnoreCase(code))
+                    .findFirst()
+                    .orElse(null);
         }
 
         @Override

@@ -32,7 +32,22 @@ public interface MediaSecurityRepository extends AutoCloseable {
 
     long countSuccessfulUploads(String quotaGroupId, long sinceMillis);
 
+    /** Records one newly-created MediaShare. Reused shares must not call this method. */
+    default void recordCreatedShare(String quotaGroupId, String ipHash, long createdAt,
+                                    long logicalSizeBytes) {
+        recordUploadEvent(quotaGroupId, ipHash, createdAt, logicalSizeBytes, true);
+    }
+
+    /** Counts newly-created MediaShare records, not HTTP upload requests. */
+    default long countCreatedShares(String quotaGroupId, long sinceMillis) {
+        return countSuccessfulUploads(quotaGroupId, sinceMillis);
+    }
+
     long activeStorageBytes(String quotaGroupId);
+
+    default long activeStorageBytes(String quotaGroupId, long nowMillis) {
+        return activeStorageBytes(quotaGroupId);
+    }
 
     long globalManagedStorageBytes();
 

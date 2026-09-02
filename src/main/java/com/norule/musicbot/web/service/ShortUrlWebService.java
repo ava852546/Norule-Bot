@@ -2,6 +2,7 @@ package com.norule.musicbot.web.service;
 
 import com.norule.musicbot.domain.shorturl.ShortUrl;
 import com.norule.musicbot.domain.shorturl.ShortUrlCreationError;
+import com.norule.musicbot.service.shorturl.RateLimitService;
 import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
 import com.norule.musicbot.web.infra.WebControlServer;
 import com.norule.musicbot.web.ops.ShortUrlOps;
@@ -38,6 +39,21 @@ public final class ShortUrlWebService {
             return;
         }
 
+        String ownerUserId = owner.authenticatedUserId(exchange);
+        String address = clientAddress(exchange);
+        RateLimitService.Result rateLimit = owner.shortUrlService()
+                .checkShortUrlRate(address, ownerUserId);
+        if (!rateLimit.allowed()) {
+            sendRateLimited(exchange, rateLimit.retryAfterSeconds());
+            return;
+        }
+        ShortUrlCreationGuard.Decision requestDecision = owner.shortUrlService()
+                .checkCreationRequest(ownerUserId, address);
+        if (!requestDecision.allowed()) {
+            sendCreationGuardFailure(exchange, requestDecision.status(), requestDecision.retryAfterSeconds());
+            return;
+        }
+
         String body;
         try {
             body = owner.readBody(exchange, HttpRequestBodyReader.MAX_SHORT_URL_REQUEST_BODY_BYTES);
@@ -45,14 +61,6 @@ public final class ShortUrlWebService {
             owner.sendJson(exchange, 413, DataObject.empty()
                     .put("error", "Request body too large")
                     .put("errorCode", "REQUEST_BODY_TOO_LARGE"));
-            return;
-        }
-        String ownerUserId = owner.authenticatedUserId(exchange);
-        String address = clientAddress(exchange);
-        ShortUrlCreationGuard.Decision requestDecision = owner.shortUrlService()
-                .checkCreationRequest(ownerUserId, address);
-        if (!requestDecision.allowed()) {
-            sendCreationGuardFailure(exchange, requestDecision.status(), requestDecision.retryAfterSeconds());
             return;
         }
         String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
@@ -195,7 +203,18 @@ public final class ShortUrlWebService {
     }
 
     private String clientAddress(HttpExchange exchange) {
-        return ClientAddressResolver.resolve(exchange);
+        return ClientAddressResolver.resolve(exchange, owner.webSettings().getTrustedProxyCidrs());
+    }
+
+    private void sendRateLimited(HttpExchange exchange, long retryAfterSeconds) throws IOException {
+        long retryAfter = Math.max(1L, retryAfterSeconds);
+        exchange.getResponseHeaders().set("Retry-After", String.valueOf(retryAfter));
+        owner.sendJson(exchange, 429, DataObject.empty()
+                .put("error", "RATE_LIMITED")
+                .put("errorCode", "RATE_LIMITED")
+                .put("message", "\u8acb\u6c42\u904e\u65bc\u983b\u7e41\uff0c\u8acb\u7a0d\u5f8c\u518d\u8a66\u3002")
+                .put("retryAfter", retryAfter)
+                .put("retryAfterSeconds", retryAfter));
     }
 
     private void sendCreationGuardFailure(HttpExchange exchange,

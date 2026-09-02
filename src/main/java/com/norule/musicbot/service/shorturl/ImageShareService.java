@@ -3,16 +3,21 @@ package com.norule.musicbot.service.shorturl;
 import com.norule.musicbot.domain.shorturl.ImageShare;
 import com.norule.musicbot.domain.shorturl.ImageShareDomainService;
 import com.norule.musicbot.domain.shorturl.MediaOwnerType;
+import com.norule.musicbot.domain.shorturl.MediaBlob;
 import com.norule.musicbot.domain.shorturl.MediaStorageState;
 import com.norule.musicbot.domain.shorturl.QuotaSubject;
 import com.norule.musicbot.shorturl.InMemoryMediaSecurityRepository;
+import com.norule.musicbot.shorturl.InMemoryMediaBlobRepository;
 import com.norule.musicbot.shorturl.ImageShareRepository;
 import com.norule.musicbot.shorturl.ImageShareStorage;
+import com.norule.musicbot.shorturl.MediaBlobRepository;
 import com.norule.musicbot.shorturl.ShortUrlRepository;
 
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import java.io.InputStream;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -147,10 +152,12 @@ public final class ImageShareService {
     private static final char[] RANDOM_CODE_ALPHABET = "23456789abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ".toCharArray();
     private static final int PASSWORD_ITERATIONS = 120_000;
     private static final int PASSWORD_KEY_LENGTH_BITS = 256;
+    private static final long ORPHAN_BLOB_GRACE_MILLIS = 5L * 60L * 1000L;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final ImageShareDomainService domainService = new ImageShareDomainService();
     private final ImageShareRepository imageRepository;
+    private final MediaBlobRepository blobRepository;
     private final ShortUrlRepository shortUrlRepository;
     private final ImageShareStorage storage;
     private final Clock clock;
@@ -180,10 +187,22 @@ public final class ImageShareService {
                              Options options,
                              Clock clock,
                              SecurityDependencies securityDependencies) {
+        this(imageRepository, new InMemoryMediaBlobRepository(), shortUrlRepository, storage,
+                options, clock, securityDependencies);
+    }
+
+    public ImageShareService(ImageShareRepository imageRepository,
+                             MediaBlobRepository blobRepository,
+                             ShortUrlRepository shortUrlRepository,
+                             ImageShareStorage storage,
+                             Options options,
+                             Clock clock,
+                             SecurityDependencies securityDependencies) {
         if (imageRepository == null || shortUrlRepository == null || storage == null) {
             throw new IllegalArgumentException("image share dependencies cannot be null");
         }
         this.imageRepository = imageRepository;
+        this.blobRepository = blobRepository == null ? new InMemoryMediaBlobRepository() : blobRepository;
         this.shortUrlRepository = shortUrlRepository;
         this.storage = storage;
         this.clock = clock == null ? Clock.systemDefaultZone() : clock;
@@ -203,6 +222,7 @@ public final class ImageShareService {
             this.passwordAttemptGuard = securityDependencies.passwordAttemptGuard();
             this.quotaService = securityDependencies.quotaService();
         }
+        migrateLegacyMedia();
     }
 
     public synchronized UploadResult create(Upload upload) {
@@ -247,18 +267,6 @@ public final class ImageShareService {
         }
         long expiresAt = customExpiration ? upload.requestedExpiresAtMillis() : now + retention;
 
-        if (storage.filesystemUsagePercent() >= currentOptions.filesystemStopPercent()) {
-            return new UploadResult(null, UploadError.FILESYSTEM_FULL);
-        }
-        if (quotaService != null && quotaSubject != null) {
-            MediaQuotaService.Rejection rejection = quotaService.checkUpload(
-                    quotaSubject, upload.content().length, retention);
-            UploadError quotaError = mapQuotaRejection(rejection);
-            if (quotaError != null) {
-                return new UploadResult(null, quotaError);
-            }
-        }
-
         String effectivePassword = "";
         if (upload.passwordProtected()) {
             effectivePassword = domainService.normalizePassword(upload.password());
@@ -276,61 +284,86 @@ public final class ImageShareService {
 
         maybeCleanup(now);
         String contentHash = contentHash(upload.content());
-        for (ImageShare existing : imageRepository.findActiveByContentHash(contentHash, now)) {
-            if (!hasSameAccessAndExpiration(existing, upload.passwordProtected(), effectivePassword,
-                    customExpiration, retention, expiresAt, quotaSubject)) {
-                continue;
-            }
-            if (storage.exists(existing)) {
-                if (quotaService != null && quotaSubject != null) {
-                    quotaService.recordSuccessfulUpload(quotaSubject, existing.sizeBytes());
-                }
-                return new UploadResult(existing, null);
-            }
-            delete(existing);
+        MediaBlob existingBlob = blobRepository.findBySha256(contentHash);
+        ImageShare existingReusable = existingBlob == null ? null : findReusableShare(
+                existingBlob, now, upload.passwordProtected(), effectivePassword,
+                customExpiration, retention, expiresAt, quotaSubject);
+        boolean createsShare = existingReusable == null;
+        long logicalAdditionalBytes = createsShare ? upload.content().length : 0L;
+        long physicalAdditionalBytes = addsManagedStorage(existingBlob)
+                ? upload.content().length : 0L;
+        if (storage.filesystemUsagePercent() >= currentOptions.filesystemStopPercent()) {
+            return new UploadResult(null, UploadError.FILESYSTEM_FULL);
         }
-        String passwordHash = upload.passwordProtected() ? hashPassword(effectivePassword) : "";
-        String code = nextAvailableCode(currentOptions.codeLength());
-        if (code == null) {
-            return new UploadResult(null, UploadError.CREATE_FAILED);
+        if (quotaService != null && quotaSubject != null) {
+            MediaQuotaService.Rejection rejection = quotaService.checkUpload(
+                    quotaSubject, logicalAdditionalBytes, physicalAdditionalBytes,
+                    retention, createsShare);
+            UploadError quotaError = mapQuotaRejection(rejection);
+            if (quotaError != null) {
+                return new UploadResult(null, quotaError);
+            }
         }
-        ImageShare imageShare = new ImageShare(
-                code,
-                code + "." + mediaType.extension(),
-                mediaType.contentType(),
-                upload.content().length,
-                now,
-                expiresAt,
-                passwordHash,
-                contentHash,
-                0L,
-                MediaStorageState.ACTIVE,
-                "",
-                0L,
-                quotaSubject == null ? MediaOwnerType.ANONYMOUS_DEVICE : quotaSubject.ownerType(),
-                quotaSubject == null ? "" : quotaSubject.ownerId(),
-                quotaSubject == null ? "" : quotaSubject.quotaGroupId(),
-                quotaSubject == null ? "" : quotaSubject.deviceIdHash(),
-                quotaSubject == null ? "" : quotaSubject.ipHash(),
-                0L
-        );
+        MediaBlob blob;
         try {
-            storage.save(imageShare, upload.content());
+            blob = findOrCreateBlob(contentHash, upload.content(), mediaType, now);
         } catch (Exception e) {
             logUploadFailure("store", e);
             return new UploadResult(null, UploadError.STORAGE_FAILED);
         }
-        try {
-            imageRepository.save(imageShare);
-            if (quotaService != null && quotaSubject != null) {
-                quotaService.recordSuccessfulUpload(quotaSubject, imageShare.sizeBytes());
-            }
-            return new UploadResult(imageShare, null);
-        } catch (RuntimeException e) {
-            deleteStoredImage(imageShare);
-            logUploadFailure("save metadata for", e);
-            return new UploadResult(null, UploadError.PERSISTENCE_FAILED);
+
+        ImageShare reusable = findReusableShare(blob, now, upload.passwordProtected(), effectivePassword,
+                customExpiration, retention, expiresAt, quotaSubject);
+        if (reusable != null) {
+            return new UploadResult(hydrate(reusable), null);
         }
+        String passwordHash = upload.passwordProtected() ? hashPassword(effectivePassword) : "";
+        imageRepository.releaseExpiredReuseKeys(now);
+        for (int attempt = 0; attempt < 10_000; attempt++) {
+            String code = nextAvailableCode(currentOptions.codeLength());
+            if (code == null) {
+                break;
+            }
+            ImageShare imageShare = new ImageShare(
+                    code,
+                    blob.storageName(),
+                    blob.contentType(),
+                    blob.sizeBytes(),
+                    now,
+                    expiresAt,
+                    passwordHash,
+                    blob.sha256(),
+                    0L,
+                    blob.storageState(),
+                    blob.archiveStorageName(),
+                    blob.archivedAt(),
+                    quotaSubject == null ? MediaOwnerType.ANONYMOUS_DEVICE : quotaSubject.ownerType(),
+                    quotaSubject == null ? "" : quotaSubject.ownerId(),
+                    quotaSubject == null ? "" : quotaSubject.quotaGroupId(),
+                    quotaSubject == null ? "" : quotaSubject.deviceIdHash(),
+                    quotaSubject == null ? "" : quotaSubject.ipHash(),
+                    0L,
+                    blob.id()
+            );
+            try {
+                if (!imageRepository.saveIfAbsent(imageShare)) {
+                    ImageShare concurrent = findReusableShare(blob, now, upload.passwordProtected(),
+                            effectivePassword, customExpiration, retention, expiresAt, quotaSubject);
+                    if (concurrent != null) {
+                        return new UploadResult(hydrate(concurrent), null);
+                    }
+                    continue;
+                }
+                if (quotaService != null && quotaSubject != null) {
+                    quotaService.recordCreatedShare(quotaSubject, imageShare.sizeBytes());
+                }
+                return new UploadResult(imageShare, null);
+            } catch (RuntimeException e) {
+                logUploadFailure("save metadata for", e);
+                return new UploadResult(null, UploadError.PERSISTENCE_FAILED);
+            }
+        }
+        return new UploadResult(null, UploadError.CREATE_FAILED);
     }
 
     public ImageShare resolve(String code) {
@@ -339,7 +372,7 @@ public final class ImageShareService {
         }
         long now = clock.millis();
         maybeCleanup(now);
-        ImageShare imageShare = imageRepository.findByCode(code.trim());
+        ImageShare imageShare = hydrate(imageRepository.findByCode(code.trim()));
         if (imageShare == null) {
             return null;
         }
@@ -351,7 +384,7 @@ public final class ImageShareService {
             return null;
         }
         if (!storage.exists(imageShare)) {
-            delete(imageShare);
+            markBlobMissing(imageShare);
             return null;
         }
         return imageShare;
@@ -367,7 +400,7 @@ public final class ImageShareService {
         }
         long now = clock.millis();
         maybeCleanup(now);
-        ImageShare imageShare = imageRepository.findByCode(code.trim());
+        ImageShare imageShare = hydrate(imageRepository.findByCode(code.trim()));
         return imageShare != null && !imageShare.isPubliclyAvailable(now) ? imageShare : null;
     }
 
@@ -375,7 +408,7 @@ public final class ImageShareService {
         if (code == null || code.isBlank()) {
             return null;
         }
-        return imageRepository.findByCode(code.trim());
+        return hydrate(imageRepository.findByCode(code.trim()));
     }
 
     public List<ImageShare> findByOwnerUserId(String ownerUserId, int offset, int limit) {
@@ -390,7 +423,8 @@ public final class ImageShareService {
         if (ownerUserId == null || ownerUserId.isBlank()) {
             return List.of();
         }
-        return imageRepository.findByOwnerUserId(ownerUserId.trim(), active, nowMillis, offset, limit);
+        return imageRepository.findByOwnerUserId(ownerUserId.trim(), active, nowMillis, offset, limit)
+                .stream().map(this::hydrate).toList();
     }
 
     public long countByOwnerUserId(String ownerUserId) {
@@ -405,13 +439,14 @@ public final class ImageShareService {
     }
 
     public InputStream open(ImageShare imageShare) {
-        if (imageShare == null || !imageShare.isPubliclyAvailable(clock.millis())) {
+        ImageShare hydrated = hydrate(imageShare);
+        if (hydrated == null || !hydrated.isPubliclyAvailable(clock.millis())) {
             return null;
         }
         try {
-            return storage.open(imageShare);
+            return storage.open(hydrated);
         } catch (Exception ignored) {
-            delete(imageShare);
+            markBlobMissing(hydrated);
             return null;
         }
     }
@@ -446,11 +481,19 @@ public final class ImageShareService {
         }
         long accessedAt = clock.millis();
         long viewCount = imageRepository.incrementViewCount(imageShare.code(), accessedAt);
-        return imageShare.withViewMetrics(viewCount, accessedAt);
+        return hydrate(imageShare.withViewMetrics(viewCount, accessedAt));
     }
 
     public Options options() {
         return options.get();
+    }
+
+    public Path createTemporaryUpload() throws IOException {
+        return storage.createTemporaryUpload();
+    }
+
+    public void deleteTemporaryUpload(Path path) throws IOException {
+        storage.deleteTemporaryUpload(path);
     }
 
     public boolean isCodeInUse(String code) {
@@ -465,14 +508,19 @@ public final class ImageShareService {
 
     public synchronized void cleanupExpired() {
         long now = clock.millis();
-        List<ImageShare> expired = imageRepository.findExpired(now);
-        for (ImageShare imageShare : expired) {
-            if (imageShare.storageState() == MediaStorageState.ACTIVE) {
-                markArchivePending(imageShare, now);
+        migrateLegacyMedia();
+        imageRepository.releaseExpiredReuseKeys(now);
+        for (MediaBlob blob : blobRepository.findByStorageStates(Set.of(MediaStorageState.ACTIVE))) {
+            if (!hasActiveShare(blob, now)) {
+                MediaBlob pending = blob.withStorageState(
+                        MediaStorageState.ARCHIVE_PENDING, blob.archiveStorageName(), blob.archivedAt());
+                updateBlobState(pending);
+                archivePendingBlob(pending, now);
             }
         }
-        retryPendingArchives(now);
-        reconcileArchivedMedia(now);
+        retryPendingBlobArchives(now);
+        reconcileArchivedBlobs(now);
+        cleanupOrphanBlobs();
         lastCleanupAt = now;
     }
 
@@ -513,6 +561,349 @@ public final class ImageShareService {
         }
     }
 
+    private MediaBlob findOrCreateBlob(String sha256, byte[] content,
+                                       ImageShareDomainService.MediaType mediaType,
+                                       long now) throws Exception {
+        MediaBlob existing = blobRepository.findBySha256(sha256);
+        if (existing != null) {
+            return ensureActiveBlob(existing, content);
+        }
+
+        MediaBlob candidate = new MediaBlob(
+                0L,
+                sha256,
+                sha256 + "." + mediaType.extension(),
+                content.length,
+                mediaType.contentType(),
+                mediaType.extension(),
+                now,
+                MediaStorageState.ACTIVE,
+                "",
+                0L
+        );
+        ImageShare candidateFile = storageView(candidate);
+        storage.save(candidateFile, content);
+        MediaBlob persisted;
+        try {
+            persisted = blobRepository.saveIfAbsent(candidate);
+        } catch (RuntimeException exception) {
+            storage.delete(candidateFile);
+            throw exception;
+        }
+        if (!persisted.storageName().equals(candidate.storageName())) {
+            storage.delete(candidateFile);
+        }
+        return ensureActiveBlob(persisted, content);
+    }
+
+    private MediaBlob ensureActiveBlob(MediaBlob blob, byte[] content) throws Exception {
+        ImageShare file = storageView(blob);
+        if (blob.storageState() == MediaStorageState.ACTIVE && storage.exists(file)) {
+            return blob;
+        }
+        storage.save(file.withStorageState(MediaStorageState.ACTIVE, "", 0L), content);
+        if (storage.existsArchived(file)) {
+            storage.deleteArchived(file);
+        }
+        MediaBlob active = blob.withStorageState(MediaStorageState.ACTIVE, "", 0L);
+        updateBlobState(active);
+        return active;
+    }
+
+    private boolean addsManagedStorage(MediaBlob blob) {
+        return blob == null || (blob.storageState() != MediaStorageState.ACTIVE
+                && blob.storageState() != MediaStorageState.ARCHIVE_PENDING
+                && blob.storageState() != MediaStorageState.ARCHIVED);
+    }
+
+    private ImageShare findReusableShare(MediaBlob blob,
+                                         long now,
+                                         boolean passwordProtected,
+                                         String password,
+                                         boolean customExpiration,
+                                         long retention,
+                                         long expiresAt,
+                                         QuotaSubject quotaSubject) {
+        if (quotaSubject != null && !quotaSubject.ownerId().isBlank()) {
+            ImageShare reusable = imageRepository.findActiveByOwnerAndBlob(
+                    quotaSubject.ownerType(), quotaSubject.ownerId(), blob.id(), now);
+            if (reusable != null) {
+                return reusable;
+            }
+            return imageRepository.findActiveByContentHash(blob.sha256(), now).stream()
+                    .filter(existing -> existing.blobId() == blob.id()
+                            && existing.ownerType() == quotaSubject.ownerType()
+                            && quotaSubject.ownerId().equals(existing.ownerId()))
+                    .findFirst()
+                    .orElse(null);
+        }
+        for (ImageShare existing : imageRepository.findActiveByContentHash(blob.sha256(), now)) {
+            if (hasSameAccessAndExpiration(existing, passwordProtected, password,
+                    customExpiration, retention, expiresAt, quotaSubject)) {
+                return existing;
+            }
+        }
+        return null;
+    }
+
+    private ImageShare hydrate(ImageShare imageShare) {
+        if (imageShare == null || imageShare.blobId() <= 0L) {
+            return imageShare;
+        }
+        MediaBlob blob = blobRepository.findById(imageShare.blobId());
+        return blob == null ? imageShare : imageShare.withBlob(blob);
+    }
+
+    private ImageShare storageView(MediaBlob blob) {
+        return new ImageShare(
+                "blob-" + Math.max(0L, blob.id()), blob.storageName(), blob.contentType(),
+                blob.sizeBytes(), blob.createdAt(), Long.MAX_VALUE, "", blob.sha256(), 0L,
+                blob.storageState(), blob.archiveStorageName(), blob.archivedAt(),
+                MediaOwnerType.ANONYMOUS_DEVICE, "", "", "", "", 0L, blob.id());
+    }
+
+    private void markBlobMissing(ImageShare imageShare) {
+        if (imageShare == null || imageShare.blobId() <= 0L) {
+            return;
+        }
+        MediaBlob blob = blobRepository.findById(imageShare.blobId());
+        if (blob != null) {
+            updateBlobState(blob.withStorageState(MediaStorageState.MISSING, "", 0L));
+        }
+    }
+
+    private void updateBlobState(MediaBlob blob) {
+        blobRepository.update(blob);
+        imageRepository.updateStorageStateForBlob(blob.id(), blob.storageState(),
+                blob.archiveStorageName(), blob.archivedAt());
+    }
+
+    private void retryPendingBlobArchives(long now) {
+        for (MediaBlob pending : blobRepository.findByStorageStates(
+                Set.of(MediaStorageState.ARCHIVE_PENDING))) {
+            if (!hasActiveShare(pending, now)) {
+                archivePendingBlob(pending, now);
+            }
+        }
+    }
+
+    private void archivePendingBlob(MediaBlob pending, long now) {
+        if (hasActiveShare(pending, now)) {
+            updateBlobState(pending.withStorageState(MediaStorageState.ACTIVE, "", 0L));
+            return;
+        }
+        ImageShare file = storageView(pending);
+        try {
+            ImageShareStorage.ArchiveResult result = storage.archiveOrReconcile(file);
+            if (result.status() == ImageShareStorage.ArchiveStatus.MISSING) {
+                MediaBlob missing = pending.withStorageState(MediaStorageState.MISSING, "", 0L);
+                updateBlobState(missing);
+                logMissingMedia(file, MediaStorageState.MISSING);
+                return;
+            }
+            long archivedAt = pending.archivedAt() > 0L ? pending.archivedAt() : now;
+            MediaBlob archived = pending.withStorageState(
+                    MediaStorageState.ARCHIVED, result.archiveStorageName(), archivedAt);
+            updateBlobState(archived);
+            logArchiveReconciliation(file, result.status());
+        } catch (Exception exception) {
+            logArchiveFailure(file, exception);
+        }
+    }
+
+    private void reconcileArchivedBlobs(long now) {
+        for (MediaBlob archived : blobRepository.findByStorageStates(Set.of(MediaStorageState.ARCHIVED))) {
+            ImageShare file = storageView(archived);
+            try {
+                ImageShareStorage.ArchiveResult result = storage.archiveOrReconcile(file);
+                if (result.status() == ImageShareStorage.ArchiveStatus.MISSING) {
+                    updateBlobState(archived.withStorageState(
+                            MediaStorageState.ARCHIVE_DELETED,
+                            archived.archiveStorageName(), archived.archivedAt()));
+                    logMissingMedia(file, MediaStorageState.ARCHIVE_DELETED);
+                    continue;
+                }
+                long archivedAt = archived.archivedAt() > 0L ? archived.archivedAt() : now;
+                if (!result.archiveStorageName().equals(archived.archiveStorageName())
+                        || archived.archivedAt() <= 0L) {
+                    updateBlobState(archived.withStorageState(
+                            MediaStorageState.ARCHIVED, result.archiveStorageName(), archivedAt));
+                }
+            } catch (Exception exception) {
+                logArchiveFailure(file, exception);
+            }
+        }
+    }
+
+    private void cleanupOrphanBlobs() {
+        long cutoff = clock.millis() - ORPHAN_BLOB_GRACE_MILLIS;
+        for (MediaBlob orphan : blobRepository.findOrphans(cutoff)) {
+            cleanupOrphanBlob(orphan);
+        }
+    }
+
+    private boolean hasActiveShare(MediaBlob blob, long now) {
+        if (blob == null || blob.id() <= 0L) {
+            return false;
+        }
+        if (imageRepository.hasActiveShareForBlob(blob.id(), now)) {
+            return true;
+        }
+        return imageRepository.findActiveByContentHash(blob.sha256(), now).stream()
+                .anyMatch(share -> share.blobId() == blob.id()
+                        || blob.sha256().equals(share.contentHash()));
+    }
+
+    private void cleanupOrphanBlob(MediaBlob blob) {
+        if (blob == null || blob.id() <= 0L || imageRepository.countByBlobId(blob.id()) > 0L) {
+            return;
+        }
+        ImageShare file = storageView(blob);
+        try {
+            storage.delete(file);
+            storage.deleteArchived(file);
+            blobRepository.deleteById(blob.id());
+        } catch (Exception exception) {
+            logUploadFailure("clean orphan", exception);
+        }
+    }
+
+    private void migrateLegacyMedia() {
+        for (ImageShare legacy : imageRepository.findWithoutBlob(10_000)) {
+            try {
+                HashAndSize actual = hashStoredMedia(legacy);
+                if (actual == null) {
+                    continue;
+                }
+                String extension = extensionOf(legacy.storageName());
+                MediaBlob candidate = new MediaBlob(0L, actual.sha256(), legacy.storageName(),
+                        actual.sizeBytes(), legacy.contentType(), extension, legacy.createdAt(),
+                        actual.storageState(), actual.archiveStorageName(), actual.archivedAt());
+                MediaBlob blob = blobRepository.saveIfAbsent(candidate);
+                imageRepository.attachBlob(legacy.code(), blob.id(), actual.sha256());
+                deleteMigratedDuplicate(legacy, blob);
+                imageRepository.alignStorageWithBlob(legacy.code(), blob);
+            } catch (Exception exception) {
+                logUploadFailure("migrate legacy", exception);
+            }
+        }
+        for (ImageShare legacy : imageRepository.findLinkedStorageMismatches(10_000)) {
+            MediaBlob blob = blobRepository.findById(legacy.blobId());
+            if (blob == null) {
+                continue;
+            }
+            try {
+                deleteMigratedDuplicate(legacy, blob);
+                imageRepository.alignStorageWithBlob(legacy.code(), blob);
+            } catch (Exception exception) {
+                logUploadFailure("clean migrated duplicate", exception);
+            }
+        }
+    }
+
+    private HashAndSize hashStoredMedia(ImageShare legacy) throws Exception {
+        if (legacy.storageState() == MediaStorageState.MISSING
+                || legacy.storageState() == MediaStorageState.ARCHIVE_DELETED) {
+            return null;
+        }
+        if (storage.exists(legacy)) {
+            return hashStream(storage.open(legacy), MediaStorageState.ACTIVE, "", 0L);
+        }
+        if (storage.existsArchived(legacy)) {
+            return hashArchivedLegacy(legacy, legacy.archiveStorageName().isBlank()
+                    ? legacy.storageName() : legacy.archiveStorageName());
+        }
+        InputStream legacyInput = storage.openLegacy(legacy);
+        if (legacyInput != null) {
+            if (legacy.expiresAt() > clock.millis()) {
+                byte[] content;
+                try (InputStream input = legacyInput) {
+                    content = input.readAllBytes();
+                }
+                storage.save(legacy.withStorageState(MediaStorageState.ACTIVE, "", 0L), content);
+                storage.deleteLegacy(legacy);
+                return new HashAndSize(contentHash(content), content.length,
+                        MediaStorageState.ACTIVE, "", 0L);
+            }
+            return hashStream(legacyInput, MediaStorageState.ACTIVE, "", 0L);
+        }
+
+        ImageShareStorage.ArchiveResult result;
+        try {
+            result = storage.archiveOrReconcile(legacy);
+        } catch (Exception exception) {
+            imageRepository.update(legacy.withStorageState(
+                    MediaStorageState.ARCHIVE_PENDING,
+                    legacy.archiveStorageName(), legacy.archivedAt()));
+            throw exception;
+        }
+        if (result.status() == ImageShareStorage.ArchiveStatus.MISSING) {
+            imageRepository.update(legacy.withStorageState(MediaStorageState.MISSING, "", 0L));
+            logMissingMedia(legacy, MediaStorageState.MISSING);
+            return null;
+        }
+        return hashArchivedLegacy(legacy, result.archiveStorageName());
+    }
+
+    private HashAndSize hashArchivedLegacy(ImageShare legacy, String archiveStorageName) throws Exception {
+        long archivedAt = legacy.archivedAt() > 0L ? legacy.archivedAt() : clock.millis();
+        ImageShare archived = legacy.withStorageState(
+                MediaStorageState.ARCHIVED, archiveStorageName, archivedAt);
+        if (legacy.expiresAt() > clock.millis()) {
+            byte[] content;
+            try (InputStream input = storage.openArchived(archived)) {
+                content = input.readAllBytes();
+            }
+            ImageShare active = legacy.withStorageState(MediaStorageState.ACTIVE, "", 0L);
+            storage.save(active, content);
+            storage.deleteArchived(archived);
+            return new HashAndSize(contentHash(content), content.length,
+                    MediaStorageState.ACTIVE, "", 0L);
+        }
+        return hashStream(storage.openArchived(archived), MediaStorageState.ARCHIVED,
+                archiveStorageName, archivedAt);
+    }
+
+    private HashAndSize hashStream(InputStream input, MediaStorageState storageState,
+                                   String archiveStorageName, long archivedAt) throws Exception {
+        try (InputStream content = input) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            long size = 0L;
+            int read;
+            while ((read = content.read(buffer)) >= 0) {
+                if (read > 0) {
+                    digest.update(buffer, 0, read);
+                    size += read;
+                }
+            }
+            return new HashAndSize(HexFormat.of().formatHex(digest.digest()), size,
+                    storageState, archiveStorageName, archivedAt);
+        }
+    }
+
+    private void deleteMigratedDuplicate(ImageShare legacy, MediaBlob blob) throws Exception {
+        if (legacy.storageName().equals(blob.storageName())) {
+            return;
+        }
+        ImageShare activeLegacy = legacy.withStorageState(MediaStorageState.ACTIVE, "", 0L);
+        ImageShare archivedLegacy = legacy.withStorageState(
+                MediaStorageState.ARCHIVED, legacy.storageName(), legacy.archivedAt());
+        storage.delete(activeLegacy);
+        storage.deleteArchived(archivedLegacy);
+    }
+
+    private String extensionOf(String storageName) {
+        int dot = storageName == null ? -1 : storageName.lastIndexOf('.');
+        return dot < 0 || dot == storageName.length() - 1 ? "bin" : storageName.substring(dot + 1);
+    }
+
+    private record HashAndSize(String sha256, long sizeBytes,
+                               MediaStorageState storageState,
+                               String archiveStorageName,
+                               long archivedAt) {
+    }
+
     private boolean hasSameAccessAndExpiration(ImageShare existing,
                                                boolean passwordProtected,
                                                String password,
@@ -536,95 +927,18 @@ public final class ImageShareService {
         return existing.expiresAt() - existing.createdAt() == retention;
     }
 
-    private void delete(ImageShare imageShare) {
-        try {
-            storage.delete(imageShare);
-        } catch (Exception ignored) {
-            // The metadata must still be removed so an unavailable or expired image cannot be served.
-        }
-        imageRepository.deleteByCode(imageShare.code());
-    }
-
     private void retireExpiredShare(ImageShare imageShare, long now) {
-        ImageShare pending = markArchivePending(imageShare, now);
-        if (pending != null) {
-            archivePendingShare(pending, now);
+        ImageShare hydrated = hydrate(imageShare);
+        if (hydrated == null || hydrated.blobId() <= 0L
+                || hasActiveShare(blobRepository.findById(hydrated.blobId()), now)) {
+            return;
         }
-    }
-
-    private ImageShare markArchivePending(ImageShare imageShare, long now) {
-        if (imageShare == null || imageShare.expiresAt() > now
-                || imageShare.storageState() == MediaStorageState.ARCHIVED
-                || imageShare.storageState() == MediaStorageState.ARCHIVE_DELETED
-                || imageShare.storageState() == MediaStorageState.MISSING) {
-            return null;
-        }
-        ImageShare pending = imageShare.storageState() == MediaStorageState.ARCHIVE_PENDING
-                ? imageShare
-                : imageShare.withStorageState(MediaStorageState.ARCHIVE_PENDING,
-                imageShare.archiveStorageName(), imageShare.archivedAt());
-        if (pending != imageShare) {
-            imageRepository.update(pending);
-        }
-        return pending;
-    }
-
-    private void retryPendingArchives(long now) {
-        for (ImageShare pending : imageRepository.findByStorageStates(
-                Set.of(MediaStorageState.ARCHIVE_PENDING))) {
-            archivePendingShare(pending, now);
-        }
-    }
-
-    private void archivePendingShare(ImageShare pending, long now) {
-        try {
-            ImageShareStorage.ArchiveResult result = storage.archiveOrReconcile(pending);
-            if (result.status() == ImageShareStorage.ArchiveStatus.MISSING) {
-                imageRepository.update(pending.withStorageState(MediaStorageState.MISSING, "", 0L));
-                logMissingMedia(pending, MediaStorageState.MISSING);
-                return;
-            }
-            long archivedAt = pending.archivedAt() > 0L ? pending.archivedAt() : now;
-            imageRepository.update(pending.withStorageState(
-                    MediaStorageState.ARCHIVED, result.archiveStorageName(), archivedAt));
-            logArchiveReconciliation(pending, result.status());
-        } catch (Exception exception) {
-            logArchiveFailure(pending, exception);
-        }
-    }
-
-    private void reconcileArchivedMedia(long now) {
-        for (ImageShare archived : imageRepository.findByStorageStates(
-                Set.of(MediaStorageState.ARCHIVED))) {
-            try {
-                ImageShareStorage.ArchiveResult result = storage.archiveOrReconcile(archived);
-                if (result.status() == ImageShareStorage.ArchiveStatus.MISSING) {
-                    imageRepository.update(archived.withStorageState(
-                            MediaStorageState.ARCHIVE_DELETED,
-                            archived.archiveStorageName(), archived.archivedAt()));
-                    logMissingMedia(archived, MediaStorageState.ARCHIVE_DELETED);
-                    continue;
-                }
-                long archivedAt = archived.archivedAt() > 0L ? archived.archivedAt() : now;
-                if (!result.archiveStorageName().equals(archived.archiveStorageName())
-                        || archived.archivedAt() <= 0L) {
-                    imageRepository.update(archived.withStorageState(
-                            MediaStorageState.ARCHIVED, result.archiveStorageName(), archivedAt));
-                }
-                if (result.status() == ImageShareStorage.ArchiveStatus.LEGACY_MIGRATED) {
-                    logArchiveReconciliation(archived, result.status());
-                }
-            } catch (Exception exception) {
-                logArchiveFailure(archived, exception);
-            }
-        }
-    }
-
-    private void deleteStoredImage(ImageShare imageShare) {
-        try {
-            storage.delete(imageShare);
-        } catch (Exception ignored) {
-            // The failed upload has no metadata and cannot be served; leave cleanup to the operator if deletion also fails.
+        MediaBlob blob = blobRepository.findById(hydrated.blobId());
+        if (blob != null && blob.storageState() == MediaStorageState.ACTIVE) {
+            MediaBlob pending = blob.withStorageState(
+                    MediaStorageState.ARCHIVE_PENDING, blob.archiveStorageName(), blob.archivedAt());
+            updateBlobState(pending);
+            archivePendingBlob(pending, now);
         }
     }
 

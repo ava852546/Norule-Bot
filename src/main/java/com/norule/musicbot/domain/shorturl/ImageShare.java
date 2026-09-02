@@ -18,7 +18,8 @@ public record ImageShare(
         String quotaGroupId,
         String createdDeviceIdHash,
         String createdIpHash,
-        long lastAccessedAt
+        long lastAccessedAt,
+        long blobId
 ) {
     public ImageShare {
         storageState = storageState == null ? MediaStorageState.ACTIVE : storageState;
@@ -28,6 +29,7 @@ public record ImageShare(
         quotaGroupId = quotaGroupId == null ? "" : quotaGroupId;
         createdDeviceIdHash = createdDeviceIdHash == null ? "" : createdDeviceIdHash;
         createdIpHash = createdIpHash == null ? "" : createdIpHash;
+        blobId = Math.max(0L, blobId);
     }
 
     public ImageShare(String code,
@@ -52,7 +54,7 @@ public record ImageShare(
                       long viewCount) {
         this(code, storageName, contentType, sizeBytes, createdAt, expiresAt, passwordHash, contentHash,
                 viewCount, MediaStorageState.ACTIVE, "", 0L, MediaOwnerType.ANONYMOUS_DEVICE,
-                "", "", "", "", 0L);
+                "", "", "", "", 0L, 0L);
     }
 
     public ImageShare(String code,
@@ -74,7 +76,30 @@ public record ImageShare(
                       String createdIpHash) {
         this(code, storageName, contentType, sizeBytes, createdAt, expiresAt, passwordHash, contentHash,
                 viewCount, storageState, archiveStorageName, archivedAt, ownerType, ownerId,
-                quotaGroupId, createdDeviceIdHash, createdIpHash, 0L);
+                quotaGroupId, createdDeviceIdHash, createdIpHash, 0L, 0L);
+    }
+
+    public ImageShare(String code,
+                      String storageName,
+                      String contentType,
+                      long sizeBytes,
+                      long createdAt,
+                      long expiresAt,
+                      String passwordHash,
+                      String contentHash,
+                      long viewCount,
+                      MediaStorageState storageState,
+                      String archiveStorageName,
+                      long archivedAt,
+                      MediaOwnerType ownerType,
+                      String ownerId,
+                      String quotaGroupId,
+                      String createdDeviceIdHash,
+                      String createdIpHash,
+                      long lastAccessedAt) {
+        this(code, storageName, contentType, sizeBytes, createdAt, expiresAt, passwordHash,
+                contentHash, viewCount, storageState, archiveStorageName, archivedAt, ownerType,
+                ownerId, quotaGroupId, createdDeviceIdHash, createdIpHash, lastAccessedAt, 0L);
     }
 
     public boolean isPasswordProtected() {
@@ -93,7 +118,7 @@ public record ImageShare(
         return new ImageShare(code, storageName, contentType, sizeBytes, createdAt, expiresAt,
                 passwordHash, contentHash, Math.max(0L, updatedViewCount), storageState,
                 archiveStorageName, archivedAt, ownerType, ownerId, quotaGroupId,
-                createdDeviceIdHash, createdIpHash, Math.max(0L, updatedLastAccessedAt));
+                createdDeviceIdHash, createdIpHash, Math.max(0L, updatedLastAccessedAt), blobId);
     }
 
     public ImageShare withStorageState(MediaStorageState updatedState, String updatedArchiveStorageName,
@@ -101,7 +126,7 @@ public record ImageShare(
         return new ImageShare(code, storageName, contentType, sizeBytes, createdAt, expiresAt,
                 passwordHash, contentHash, viewCount, updatedState, updatedArchiveStorageName,
                 updatedArchivedAt, ownerType, ownerId, quotaGroupId, createdDeviceIdHash, createdIpHash,
-                lastAccessedAt);
+                lastAccessedAt, blobId);
     }
 
     public ImageShare withOwnership(MediaOwnerType updatedOwnerType, String updatedOwnerId,
@@ -109,7 +134,17 @@ public record ImageShare(
         return new ImageShare(code, storageName, contentType, sizeBytes, createdAt, expiresAt,
                 passwordHash, contentHash, viewCount, storageState, archiveStorageName, archivedAt,
                 updatedOwnerType, updatedOwnerId, updatedQuotaGroupId, createdDeviceIdHash, createdIpHash,
-                lastAccessedAt);
+                lastAccessedAt, blobId);
+    }
+
+    public ImageShare withBlob(MediaBlob blob) {
+        if (blob == null) {
+            return this;
+        }
+        return new ImageShare(code, blob.storageName(), blob.contentType(), blob.sizeBytes(), createdAt,
+                expiresAt, passwordHash, blob.sha256(), viewCount, blob.storageState(),
+                blob.archiveStorageName(), blob.archivedAt(), ownerType, ownerId, quotaGroupId,
+                createdDeviceIdHash, createdIpHash, lastAccessedAt, blob.id());
     }
 
     public String ownerUserId() {

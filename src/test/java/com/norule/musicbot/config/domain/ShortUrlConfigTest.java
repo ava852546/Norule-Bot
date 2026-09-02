@@ -126,4 +126,39 @@ class ShortUrlConfigTest {
         assertEquals(200, options.authenticatedPerTenMinutes());
         assertEquals(600, options.authenticatedDailyCreates());
     }
+
+    @Test
+    void mapsApiRateLimitsConcurrencyAndTrustedProxies() {
+        BotConfig.ShortUrl parsed = BotConfig.ShortUrl.fromMap(Map.of(
+                "abuseProtection", Map.of(
+                        "rateLimit", Map.of(
+                                "enabled", true,
+                                "mediaRequestsPerMinutePerIp", 11,
+                                "mediaAuthenticatedRequestsPerMinutePerIp", 71,
+                                "mediaRequestsPerMinutePerUser", 21,
+                                "mediaRequestsPerDayPerUser", 201,
+                                "shortUrlRequestsPerMinutePerIp", 31,
+                                "shortUrlRequestsPerMinutePerUser", 61,
+                                "mediaConcurrencyPerIp", 2,
+                                "mediaConcurrencyPerUser", 3,
+                                "trustedProxyCidrs", java.util.List.of("127.0.0.1/32", "10.0.0.0/8")
+                        )
+                )
+        ), BotConfig.ShortUrl.defaultValues());
+
+        ShortUrlConfig config = new ShortUrlConfig(parsed);
+        var options = config.getRateLimitOptions();
+
+        assertTrue(options.enabled());
+        assertEquals(11, options.mediaPerMinutePerIp());
+        assertEquals(71, options.mediaAuthenticatedPerMinutePerIp());
+        assertEquals(21, options.mediaPerMinutePerUser());
+        assertEquals(201, options.mediaPerDayPerUser());
+        assertEquals(31, options.shortUrlPerMinutePerIp());
+        assertEquals(61, options.shortUrlPerMinutePerUser());
+        assertEquals(2, options.mediaConcurrencyPerIp());
+        assertEquals(3, options.mediaConcurrencyPerUser());
+        assertEquals(java.util.List.of("127.0.0.1/32", "10.0.0.0/8"),
+                config.getTrustedProxyCidrs());
+    }
 }

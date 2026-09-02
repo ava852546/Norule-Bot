@@ -11,6 +11,7 @@ import com.norule.musicbot.service.shorturl.ImageShareService;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
 import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
+import com.norule.musicbot.service.shorturl.RateLimitService;
 import com.norule.musicbot.web.security.ClientAddressResolver;
 import com.norule.musicbot.web.security.HttpRequestBodyReader;
 import com.sun.net.httpserver.HttpExchange;
@@ -20,12 +21,16 @@ import net.dv8tion.jda.api.utils.data.DataArray;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -547,6 +552,14 @@ public final class ShortUrlGatewayServer {
             return;
         }
 
+        String ownerUserId = authenticatedUserId(exchange);
+        String address = clientAddress(exchange);
+        RateLimitService.Result rateLimit = shortUrlService.checkShortUrlRate(address, ownerUserId);
+        if (!rateLimit.allowed()) {
+            sendRateLimited(exchange, rateLimit.retryAfterSeconds());
+            return;
+        }
+
         String body;
         try {
             body = HttpRequestBodyReader.readUtf8BodyLimited(
@@ -556,14 +569,6 @@ public final class ShortUrlGatewayServer {
                     .put("error", "Request body too large")
                     .put("errorCode", "REQUEST_BODY_TOO_LARGE")
                     .toString());
-            return;
-        }
-        String ownerUserId = authenticatedUserId(exchange);
-        String address = clientAddress(exchange);
-        ShortUrlCreationGuard.Decision requestDecision = shortUrlService
-                .checkCreationRequest(ownerUserId, address);
-        if (!requestDecision.allowed()) {
-            sendCreationGuardFailure(exchange, requestDecision.status(), requestDecision.retryAfterSeconds());
             return;
         }
         String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
@@ -658,50 +663,62 @@ public final class ShortUrlGatewayServer {
             sendImageError(exchange, 405, "METHOD_NOT_ALLOWED", "Method Not Allowed");
             return;
         }
-        QuotaSubject quotaSubject = resolveUploadQuotaSubject(exchange);
+        String address = clientAddress(exchange);
+        String rateLimitOwner = authenticatedUserId(exchange);
+        RateLimitService.Result rateLimit = shortUrlService.checkMediaUploadRate(address, rateLimitOwner);
+        if (!rateLimit.allowed()) {
+            sendRateLimited(exchange, rateLimit.retryAfterSeconds());
+            return;
+        }
         ImageShareService.Options options = shortUrlService.imageShareOptions();
         if (options == null || !options.enabled()) {
             sendImageError(exchange, 503, "IMAGE_SHARING_DISABLED", "Image sharing is disabled");
             return;
         }
+        QuotaSubject quotaSubject = resolveUploadQuotaSubject(exchange, rateLimitOwner);
 
-        try {
-            MultipartForm form = parseMultipartForm(exchange, options.maxUploadSizeBytes());
-            byte[] media = form.firstFile("image");
-            if (media == null) {
-                sendImageError(exchange, 400, "IMAGE_REQUIRED", "An image or video file is required");
+        try (RateLimitService.UploadPermit permit = shortUrlService.beginMediaUpload(address, rateLimitOwner)) {
+            if (!permit.allowed()) {
+                sendRateLimited(exchange, permit.retryAfterSeconds());
                 return;
             }
-            ExpirationRequest expiration = parseExpirationRequest(form, options);
-            if (expiration == null) {
-                sendImageError(exchange, 400, "RETENTION_TOO_LONG", "The requested retention is outside the allowed range");
-                return;
+            try (MultipartForm form = parseMultipartForm(exchange, options.maxUploadSizeBytes())) {
+                byte[] media = form.firstFile("image");
+                if (media == null) {
+                    sendImageError(exchange, 400, "IMAGE_REQUIRED", "An image or video file is required");
+                    return;
+                }
+                ExpirationRequest expiration = parseExpirationRequest(form, options);
+                if (expiration == null) {
+                    sendImageError(exchange, 400, "RETENTION_TOO_LONG", "The requested retention is outside the allowed range");
+                    return;
+                }
+                boolean passwordProtected = Boolean.parseBoolean(form.value("passwordProtected"));
+                ImageShareService.UploadResult result = shortUrlService.createImageShare(
+                        new ImageShareService.Upload(
+                                media,
+                                passwordProtected,
+                                form.value("password"),
+                                expiration.retentionMillis(),
+                                expiration.expiresAtMillis()
+                        ),
+                        address,
+                        userAgent(exchange),
+                        quotaSubject
+                );
+                if (!result.isSuccess()) {
+                    sendImageUploadFailure(exchange, result.error());
+                    return;
+                }
+                ImageShare created = result.imageShare();
+                sendJson(exchange, 200, DataObject.empty()
+                        .put("code", created.code())
+                        .put("shortUrl", shortUrlService.toPublicUrl(created.code()))
+                        .put("expiresAt", created.expiresAt())
+                        .put("passwordProtected", created.isPasswordProtected())
+                        .put("viewCount", created.viewCount())
+                        .toString());
             }
-            boolean passwordProtected = Boolean.parseBoolean(form.value("passwordProtected"));
-            ImageShareService.UploadResult result = shortUrlService.createImageShare(
-                    new ImageShareService.Upload(
-                            media,
-                            passwordProtected,
-                            form.value("password"),
-                            expiration.retentionMillis(),
-                            expiration.expiresAtMillis()
-                    ),
-                    clientAddress(exchange),
-                    userAgent(exchange),
-                    quotaSubject
-            );
-            if (!result.isSuccess()) {
-                sendImageUploadFailure(exchange, result.error());
-                return;
-            }
-            ImageShare created = result.imageShare();
-            sendJson(exchange, 200, DataObject.empty()
-                    .put("code", created.code())
-                    .put("shortUrl", shortUrlService.toPublicUrl(created.code()))
-                    .put("expiresAt", created.expiresAt())
-                    .put("passwordProtected", created.isPasswordProtected())
-                    .put("viewCount", created.viewCount())
-                    .toString());
         } catch (HttpRequestBodyReader.RequestBodyTooLargeException e) {
             sendImageError(exchange, 413, "MEDIA_TOO_LARGE", "The uploaded file exceeds the configured size limit");
         } catch (InvalidMultipartException e) {
@@ -1035,13 +1052,12 @@ public final class ShortUrlGatewayServer {
     }
 
     private QuotaSubject resolveUploadQuotaSubject(HttpExchange exchange) {
+        return resolveUploadQuotaSubject(exchange, authenticatedUserId(exchange));
+    }
+
+    private QuotaSubject resolveUploadQuotaSubject(HttpExchange exchange, String authenticatedUserId) {
         AnonymousDeviceIdentityService.DeviceIdentity device = ensureAnonymousDevice(exchange);
-        String discordUserId;
-        try {
-            discordUserId = authenticatedUserResolver.apply(exchange);
-        } catch (RuntimeException ignored) {
-            discordUserId = "";
-        }
+        String discordUserId = authenticatedUserId == null ? "" : authenticatedUserId.trim();
         if (discordUserId == null || discordUserId.isBlank()) {
             return device == null ? null : device.quotaSubject();
         }
@@ -1199,8 +1215,8 @@ public final class ShortUrlGatewayServer {
             case RETENTION_TOO_LONG -> sendImageError(exchange, 400, "RETENTION_TOO_LONG", "The requested retention is outside the allowed range");
             case PASSWORD_REQUIRED -> sendImageError(exchange, 400, "MEDIA_PASSWORD_REQUIRED", "啟用密碼保護時必須設定密碼。");
             case INVALID_PASSWORD -> sendImageError(exchange, 400, "INVALID_PASSWORD", "Password length is outside the configured range");
-            case UPLOAD_RATE_LIMITED -> sendImageError(exchange, 429, "MEDIA_UPLOAD_RATE_LIMITED", "Upload rate limit exceeded");
-            case DAILY_QUOTA_EXCEEDED -> sendImageError(exchange, 429, "MEDIA_DAILY_QUOTA_EXCEEDED", "Daily upload quota exceeded");
+            case UPLOAD_RATE_LIMITED -> sendRateLimited(exchange, 60L);
+            case DAILY_QUOTA_EXCEEDED -> sendRateLimited(exchange, 24L * 60L * 60L);
             case ACTIVE_STORAGE_QUOTA_EXCEEDED -> sendImageError(exchange, 413, "MEDIA_ACTIVE_STORAGE_QUOTA_EXCEEDED", "Active storage quota exceeded");
             case GLOBAL_STORAGE_FULL -> sendImageError(exchange, 503, "MEDIA_MANAGED_STORAGE_FULL", "Managed media storage is full");
             case FILESYSTEM_FULL -> sendImageError(exchange, 503, "MEDIA_FILESYSTEM_FULL", "Media uploads are paused because filesystem usage is too high");
@@ -1212,6 +1228,18 @@ public final class ShortUrlGatewayServer {
 
     private void sendImageError(HttpExchange exchange, int status, String errorCode, String error) throws IOException {
         sendJson(exchange, status, DataObject.empty().put("error", error).put("errorCode", errorCode).toString());
+    }
+
+    private void sendRateLimited(HttpExchange exchange, long retryAfterSeconds) throws IOException {
+        long retryAfter = Math.max(1L, retryAfterSeconds);
+        exchange.getResponseHeaders().set("Retry-After", String.valueOf(retryAfter));
+        sendJson(exchange, 429, DataObject.empty()
+                .put("error", "RATE_LIMITED")
+                .put("errorCode", "RATE_LIMITED")
+                .put("message", "\u8acb\u6c42\u904e\u65bc\u983b\u7e41\uff0c\u8acb\u7a0d\u5f8c\u518d\u8a66\u3002")
+                .put("retryAfter", retryAfter)
+                .put("retryAfterSeconds", retryAfter)
+                .toString());
     }
 
     private void handleWebAsset(HttpExchange exchange) throws IOException {
@@ -1307,48 +1335,116 @@ public final class ShortUrlGatewayServer {
         } catch (ArithmeticException e) {
             throw new HttpRequestBodyReader.RequestBodyTooLargeException(maxFileSizeBytes);
         }
-        byte[] body = HttpRequestBodyReader.readBodyLimited(exchange, requestLimit);
-        byte[] boundaryBytes = ("--" + boundary).getBytes(StandardCharsets.US_ASCII);
-        byte[] lineBreak = "\r\n".getBytes(StandardCharsets.US_ASCII);
-        byte[] headersEndMarker = "\r\n\r\n".getBytes(StandardCharsets.US_ASCII);
-        byte[] nextBoundaryMarker = ("\r\n--" + boundary).getBytes(StandardCharsets.US_ASCII);
-        if (!matchesAt(body, boundaryBytes, 0)) {
-            throw new InvalidMultipartException();
+        HttpRequestBodyReader.validateDeclaredLength(exchange, requestLimit);
+        Path temporary = shortUrlService.createMediaUploadTemporaryFile();
+        boolean completed = false;
+        try {
+            try (OutputStream output = Files.newOutputStream(
+                    temporary, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+                HttpRequestBodyReader.copyBodyLimited(exchange, output, requestLimit);
+            }
+            MultipartForm form = indexMultipartFile(temporary, boundary);
+            completed = true;
+            return form;
+        } finally {
+            if (!completed) {
+                shortUrlService.deleteMediaUploadTemporaryFile(temporary);
+            }
         }
+    }
 
+    private MultipartForm indexMultipartFile(Path path, String boundary)
+            throws IOException, InvalidMultipartException {
+        String delimiter = "--" + boundary;
+        byte[] nextBoundary = ("\r\n" + delimiter).getBytes(StandardCharsets.US_ASCII);
         List<MultipartPart> parts = new ArrayList<>();
-        int position = 0;
-        while (position < body.length) {
-            if (!matchesAt(body, boundaryBytes, position)) {
+        try (RandomAccessFile input = new RandomAccessFile(path.toFile(), "r")) {
+            if (!delimiter.equals(readAsciiLine(input, 1024))) {
                 throw new InvalidMultipartException();
             }
-            position += boundaryBytes.length;
-            if (matchesAt(body, "--".getBytes(StandardCharsets.US_ASCII), position)) {
-                return new MultipartForm(parts);
+            while (true) {
+                StringBuilder headers = new StringBuilder();
+                while (true) {
+                    String line = readAsciiLine(input, 16 * 1024);
+                    if (line == null) {
+                        throw new InvalidMultipartException();
+                    }
+                    if (line.isEmpty()) {
+                        break;
+                    }
+                    if (!headers.isEmpty()) {
+                        headers.append("\r\n");
+                    }
+                    headers.append(line);
+                }
+                String name = extractPartName(headers.toString());
+                if (name == null || name.isBlank()) {
+                    throw new InvalidMultipartException();
+                }
+                long contentStart = input.getFilePointer();
+                long boundaryStart = findPattern(input, nextBoundary);
+                if (boundaryStart < contentStart) {
+                    throw new InvalidMultipartException();
+                }
+                parts.add(new MultipartPart(name, contentStart, boundaryStart - contentStart));
+                input.seek(boundaryStart + 2L);
+                String boundaryLine = readAsciiLine(input, 1024);
+                if ((delimiter + "--").equals(boundaryLine)) {
+                    return new MultipartForm(path, parts);
+                }
+                if (!delimiter.equals(boundaryLine)) {
+                    throw new InvalidMultipartException();
+                }
             }
-            if (!matchesAt(body, lineBreak, position)) {
-                throw new InvalidMultipartException();
-            }
-            position += lineBreak.length;
-
-            int headersEnd = indexOf(body, headersEndMarker, position);
-            if (headersEnd < 0) {
-                throw new InvalidMultipartException();
-            }
-            String headers = new String(body, position, headersEnd - position, StandardCharsets.ISO_8859_1);
-            String name = extractPartName(headers);
-            if (name == null || name.isBlank()) {
-                throw new InvalidMultipartException();
-            }
-            int contentStart = headersEnd + headersEndMarker.length;
-            int nextBoundary = findNextBoundary(body, nextBoundaryMarker, contentStart);
-            if (nextBoundary < 0) {
-                throw new InvalidMultipartException();
-            }
-            parts.add(new MultipartPart(name, Arrays.copyOfRange(body, contentStart, nextBoundary)));
-            position = nextBoundary + lineBreak.length;
         }
-        throw new InvalidMultipartException();
+    }
+
+    private long findPattern(RandomAccessFile input, byte[] pattern) throws IOException {
+        int[] prefix = new int[pattern.length];
+        for (int index = 1, matched = 0; index < pattern.length; index++) {
+            while (matched > 0 && pattern[index] != pattern[matched]) {
+                matched = prefix[matched - 1];
+            }
+            if (pattern[index] == pattern[matched]) {
+                matched++;
+            }
+            prefix[index] = matched;
+        }
+        int matched = 0;
+        long position = input.getFilePointer();
+        int value;
+        while ((value = input.read()) >= 0) {
+            byte current = (byte) value;
+            while (matched > 0 && current != pattern[matched]) {
+                matched = prefix[matched - 1];
+            }
+            if (current == pattern[matched]) {
+                matched++;
+                if (matched == pattern.length) {
+                    return position - pattern.length + 1L;
+                }
+            }
+            position++;
+        }
+        return -1L;
+    }
+
+    private String readAsciiLine(RandomAccessFile input, int maximumBytes) throws IOException {
+        java.io.ByteArrayOutputStream line = new java.io.ByteArrayOutputStream();
+        int value;
+        while ((value = input.read()) >= 0) {
+            if (value == '\n') {
+                byte[] bytes = line.toByteArray();
+                int length = bytes.length > 0 && bytes[bytes.length - 1] == '\r'
+                        ? bytes.length - 1 : bytes.length;
+                return new String(bytes, 0, length, StandardCharsets.ISO_8859_1);
+            }
+            if (line.size() >= maximumBytes) {
+                throw new IOException("Multipart line exceeds configured limit");
+            }
+            line.write(value);
+        }
+        return line.size() == 0 ? null : line.toString(StandardCharsets.ISO_8859_1);
     }
 
     private String extractMultipartBoundary(String contentType) {
@@ -1377,42 +1473,6 @@ public final class ShortUrlGatewayServer {
         return null;
     }
 
-    private int findNextBoundary(byte[] source, byte[] marker, int fromIndex) {
-        int candidate = indexOf(source, marker, fromIndex);
-        while (candidate >= 0) {
-            int suffix = candidate + marker.length;
-            if (matchesAt(source, "--".getBytes(StandardCharsets.US_ASCII), suffix)
-                    || matchesAt(source, "\r\n".getBytes(StandardCharsets.US_ASCII), suffix)) {
-                return candidate;
-            }
-            candidate = indexOf(source, marker, candidate + 1);
-        }
-        return -1;
-    }
-
-    private int indexOf(byte[] source, byte[] target, int fromIndex) {
-        if (target.length == 0 || source.length < target.length) {
-            return -1;
-        }
-        for (int index = Math.max(0, fromIndex); index <= source.length - target.length; index++) {
-            if (matchesAt(source, target, index)) {
-                return index;
-            }
-        }
-        return -1;
-    }
-
-    private boolean matchesAt(byte[] source, byte[] target, int index) {
-        if (index < 0 || index + target.length > source.length) {
-            return false;
-        }
-        for (int offset = 0; offset < target.length; offset++) {
-            if (source[index + offset] != target[offset]) {
-                return false;
-            }
-        }
-        return true;
-    }
 
     private String loadTemplate(String resourcePath) {
         return loadTemplateResource(resourcePath);
@@ -1448,7 +1508,8 @@ public final class ShortUrlGatewayServer {
     }
 
     private String clientAddress(HttpExchange exchange) {
-        return ClientAddressResolver.resolve(exchange);
+        return ClientAddressResolver.resolve(exchange,
+                config().getApiRateLimit().getTrustedProxyCidrs());
     }
 
     private void sendCreationFailure(HttpExchange exchange,
@@ -1591,7 +1652,7 @@ public final class ShortUrlGatewayServer {
         sendHtml(exchange, statusCode, loadTemplate("web/short-url.html"));
     }
 
-    private record MultipartPart(String name, byte[] content) {
+    private record MultipartPart(String name, long offset, long length) {
     }
 
     private record ExpirationRequest(long retentionMillis, long expiresAtMillis) {
@@ -1606,17 +1667,23 @@ public final class ShortUrlGatewayServer {
         }
     }
 
-    private static final class MultipartForm {
+    private final class MultipartForm implements AutoCloseable {
+        private final Path path;
         private final List<MultipartPart> parts;
 
-        private MultipartForm(List<MultipartPart> parts) {
+        private MultipartForm(Path path, List<MultipartPart> parts) {
+            this.path = path;
             this.parts = parts;
         }
 
         private String value(String name) {
             for (MultipartPart part : parts) {
                 if (name.equals(part.name())) {
-                    return new String(part.content(), StandardCharsets.UTF_8).trim();
+                    if (part.length() > 64L * 1024L) {
+                        return "";
+                    }
+                    byte[] content = readPart(part);
+                    return content == null ? "" : new String(content, StandardCharsets.UTF_8).trim();
                 }
             }
             return "";
@@ -1625,10 +1692,28 @@ public final class ShortUrlGatewayServer {
         private byte[] firstFile(String name) {
             for (MultipartPart part : parts) {
                 if (name.equals(part.name())) {
-                    return part.content();
+                    return readPart(part);
                 }
             }
             return null;
+        }
+
+        private byte[] readPart(MultipartPart part) {
+            if (part.length() < 0L || part.length() > Integer.MAX_VALUE) {
+                return null;
+            }
+            try (InputStream input = Files.newInputStream(path, StandardOpenOption.READ)) {
+                input.skipNBytes(part.offset());
+                byte[] content = input.readNBytes((int) part.length());
+                return content.length == part.length() ? content : null;
+            } catch (IOException ignored) {
+                return null;
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            shortUrlService.deleteMediaUploadTemporaryFile(path);
         }
     }
 

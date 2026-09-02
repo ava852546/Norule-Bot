@@ -72,6 +72,14 @@ public final class MediaQuotaService {
     }
 
     public Rejection checkUpload(QuotaSubject subject, long sizeBytes, long retentionMillis) {
+        return checkUpload(subject, sizeBytes, sizeBytes, retentionMillis, true);
+    }
+
+    public Rejection checkUpload(QuotaSubject subject,
+                                 long logicalAdditionalBytes,
+                                 long physicalAdditionalBytes,
+                                 long retentionMillis,
+                                 boolean createsShare) {
         if (!options.enabled() || subject == null || subject.quotaGroupId().isBlank()) {
             return Rejection.NONE;
         }
@@ -80,21 +88,24 @@ public final class MediaQuotaService {
         if (retentionMillis > limits.maxRetentionMillis()) {
             return Rejection.RETENTION_LIMIT;
         }
-        if (repository.countSuccessfulUploads(subject.quotaGroupId(), now - TEN_MINUTES_MILLIS)
-                >= limits.maxUploadsPerTenMinutes()) {
-            return Rejection.ROLLING_RATE_LIMIT;
+        if (createsShare) {
+            if (repository.countCreatedShares(subject.quotaGroupId(), now - TEN_MINUTES_MILLIS)
+                    >= limits.maxUploadsPerTenMinutes()) {
+                return Rejection.ROLLING_RATE_LIMIT;
+            }
+            long dayStart = Instant.ofEpochMilli(now).atZone(ZoneOffset.UTC).toLocalDate()
+                    .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
+            if (repository.countCreatedShares(subject.quotaGroupId(), dayStart)
+                    >= limits.maxUploadsPerDay()) {
+                return Rejection.DAILY_LIMIT;
+            }
         }
-        long dayStart = Instant.ofEpochMilli(now).atZone(ZoneOffset.UTC).toLocalDate()
-                .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
-        if (repository.countSuccessfulUploads(subject.quotaGroupId(), dayStart)
-                >= limits.maxUploadsPerDay()) {
-            return Rejection.DAILY_LIMIT;
-        }
-        if (wouldExceed(repository.activeStorageBytes(subject.quotaGroupId()), sizeBytes,
+        if (wouldExceed(repository.activeStorageBytes(subject.quotaGroupId(), now),
+                logicalAdditionalBytes,
                 limits.maxActiveStorageBytes())) {
             return Rejection.ACTIVE_STORAGE_LIMIT;
         }
-        if (wouldExceed(repository.globalManagedStorageBytes(), sizeBytes,
+        if (wouldExceed(repository.globalManagedStorageBytes(), physicalAdditionalBytes,
                 options.maxTotalManagedStorageBytes())) {
             return Rejection.GLOBAL_STORAGE_LIMIT;
         }
@@ -102,9 +113,13 @@ public final class MediaQuotaService {
     }
 
     public void recordSuccessfulUpload(QuotaSubject subject, long sizeBytes) {
+        recordCreatedShare(subject, sizeBytes);
+    }
+
+    public void recordCreatedShare(QuotaSubject subject, long logicalSizeBytes) {
         if (options.enabled() && subject != null && !subject.quotaGroupId().isBlank()) {
-            repository.recordUploadEvent(subject.quotaGroupId(), subject.ipHash(), clock.millis(),
-                    Math.max(0L, sizeBytes), true);
+            repository.recordCreatedShare(subject.quotaGroupId(), subject.ipHash(), clock.millis(),
+                    Math.max(0L, logicalSizeBytes));
         }
     }
 

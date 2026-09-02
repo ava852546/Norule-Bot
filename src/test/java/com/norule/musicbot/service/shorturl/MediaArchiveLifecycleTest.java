@@ -5,6 +5,7 @@ import com.norule.musicbot.domain.shorturl.MediaStorageState;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService.DeviceIdentity;
 import com.norule.musicbot.shorturl.ImageShareStorage;
 import com.norule.musicbot.shorturl.SqliteImageShareRepository;
+import com.norule.musicbot.shorturl.SqliteMediaBlobRepository;
 import com.norule.musicbot.shorturl.SqliteMediaSecurityRepository;
 import com.norule.musicbot.shorturl.SqliteShortUrlRepository;
 import com.norule.musicbot.shorturl.infra.FileSystemImageShareStorage;
@@ -236,7 +237,8 @@ class MediaArchiveLifecycleTest {
         MediaQuotaService quota = new MediaQuotaService(security,
                 new MediaQuotaService.Options(true, defaults.anonymous(), defaults.authenticated(),
                         1024L * 1024L), clock);
-        return new ImageShareService(images, new SqliteShortUrlRepository(database), storage,
+        return new ImageShareService(images, new SqliteMediaBlobRepository(database),
+                new SqliteShortUrlRepository(database), storage,
                 new ImageShareService.Options(true, 60_000L, 24L * 60L * 60L * 1000L,
                         20L * 1024L * 1024L, 100L * 1024L * 1024L, 5L * 60L * 1000L,
                         30L * 24L * 60L * 60L * 1000L, 60_000L, 7),

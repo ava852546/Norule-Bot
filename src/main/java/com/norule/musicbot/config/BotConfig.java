@@ -2716,6 +2716,89 @@ public String getToken() {
             public Limits getAuthenticated() { return authenticated; }
         }
 
+        public static final class ApiRateLimit {
+            private final boolean enabled;
+            private final int mediaRequestsPerMinutePerIp;
+            private final int mediaAuthenticatedRequestsPerMinutePerIp;
+            private final int mediaRequestsPerMinutePerUser;
+            private final int mediaRequestsPerDayPerUser;
+            private final int shortUrlRequestsPerMinutePerIp;
+            private final int shortUrlRequestsPerMinutePerUser;
+            private final int mediaConcurrencyPerIp;
+            private final int mediaConcurrencyPerUser;
+            private final List<String> trustedProxyCidrs;
+
+            private ApiRateLimit(boolean enabled,
+                                 int mediaRequestsPerMinutePerIp,
+                                 int mediaAuthenticatedRequestsPerMinutePerIp,
+                                 int mediaRequestsPerMinutePerUser,
+                                 int mediaRequestsPerDayPerUser,
+                                 int shortUrlRequestsPerMinutePerIp,
+                                 int shortUrlRequestsPerMinutePerUser,
+                                 int mediaConcurrencyPerIp,
+                                 int mediaConcurrencyPerUser,
+                                 List<String> trustedProxyCidrs) {
+                this.enabled = enabled;
+                this.mediaRequestsPerMinutePerIp = Math.max(1, mediaRequestsPerMinutePerIp);
+                this.mediaAuthenticatedRequestsPerMinutePerIp = Math.max(
+                        this.mediaRequestsPerMinutePerIp,
+                        mediaAuthenticatedRequestsPerMinutePerIp);
+                this.mediaRequestsPerMinutePerUser = Math.max(1, mediaRequestsPerMinutePerUser);
+                this.mediaRequestsPerDayPerUser = Math.max(
+                        this.mediaRequestsPerMinutePerUser, mediaRequestsPerDayPerUser);
+                this.shortUrlRequestsPerMinutePerIp = Math.max(1, shortUrlRequestsPerMinutePerIp);
+                this.shortUrlRequestsPerMinutePerUser = Math.max(1, shortUrlRequestsPerMinutePerUser);
+                this.mediaConcurrencyPerIp = Math.max(1, mediaConcurrencyPerIp);
+                this.mediaConcurrencyPerUser = Math.max(1, mediaConcurrencyPerUser);
+                this.trustedProxyCidrs = trustedProxyCidrs == null
+                        ? List.of() : List.copyOf(trustedProxyCidrs);
+            }
+
+            private static ApiRateLimit fromMap(Map<String, Object> map, ApiRateLimit fallback) {
+                ApiRateLimit defaults = fallback == null ? defaultValues() : fallback;
+                return new ApiRateLimit(
+                        getBoolean(map, "enabled", defaults.isEnabled()),
+                        getInt(map, "mediaRequestsPerMinutePerIp",
+                                defaults.getMediaRequestsPerMinutePerIp()),
+                        getInt(map, "mediaAuthenticatedRequestsPerMinutePerIp",
+                                defaults.getMediaAuthenticatedRequestsPerMinutePerIp()),
+                        getInt(map, "mediaRequestsPerMinutePerUser",
+                                defaults.getMediaRequestsPerMinutePerUser()),
+                        getInt(map, "mediaRequestsPerDayPerUser",
+                                getInt(map, "mediaUploadsPerDayPerUser",
+                                        defaults.getMediaRequestsPerDayPerUser())),
+                        getInt(map, "shortUrlRequestsPerMinutePerIp",
+                                defaults.getShortUrlRequestsPerMinutePerIp()),
+                        getInt(map, "shortUrlRequestsPerMinutePerUser",
+                                defaults.getShortUrlRequestsPerMinutePerUser()),
+                        getInt(map, "mediaConcurrencyPerIp", defaults.getMediaConcurrencyPerIp()),
+                        getInt(map, "mediaConcurrencyPerUser", defaults.getMediaConcurrencyPerUser()),
+                        getStringList(map, "trustedProxyCidrs", defaults.getTrustedProxyCidrs())
+                );
+            }
+
+            private static ApiRateLimit defaultValues() {
+                return new ApiRateLimit(true, 10, 60, 20, 200, 30, 60, 2, 3,
+                        List.of("127.0.0.1/32", "::1/128"));
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public int getMediaRequestsPerMinutePerIp() { return mediaRequestsPerMinutePerIp; }
+            public int getMediaAuthenticatedRequestsPerMinutePerIp() {
+                return mediaAuthenticatedRequestsPerMinutePerIp;
+            }
+            public int getMediaRequestsPerMinutePerUser() { return mediaRequestsPerMinutePerUser; }
+            public int getMediaRequestsPerDayPerUser() { return mediaRequestsPerDayPerUser; }
+            /** @deprecated Use {@link #getMediaRequestsPerDayPerUser()}; this counts HTTP requests. */
+            @Deprecated
+            public int getMediaUploadsPerDayPerUser() { return getMediaRequestsPerDayPerUser(); }
+            public int getShortUrlRequestsPerMinutePerIp() { return shortUrlRequestsPerMinutePerIp; }
+            public int getShortUrlRequestsPerMinutePerUser() { return shortUrlRequestsPerMinutePerUser; }
+            public int getMediaConcurrencyPerIp() { return mediaConcurrencyPerIp; }
+            public int getMediaConcurrencyPerUser() { return mediaConcurrencyPerUser; }
+            public List<String> getTrustedProxyCidrs() { return trustedProxyCidrs; }
+        }
+
         public static final class Public {
             private final String baseUrl;
 
@@ -3117,6 +3200,7 @@ public String getToken() {
         private final int ttlDays;
         private final int cleanupIntervalMinutes;
         private final CreationAbuseProtection creationAbuseProtection;
+        private final ApiRateLimit apiRateLimit;
         private final Image image;
         private final Mysql mysql;
         private final Sqlite sqlite;
@@ -3131,6 +3215,7 @@ public String getToken() {
                          int ttlDays,
                          int cleanupIntervalMinutes,
                          CreationAbuseProtection creationAbuseProtection,
+                         ApiRateLimit apiRateLimit,
                          Image image,
                          Mysql mysql,
                          Sqlite sqlite) {
@@ -3145,6 +3230,7 @@ public String getToken() {
             this.cleanupIntervalMinutes = Math.max(1, cleanupIntervalMinutes);
             this.creationAbuseProtection = creationAbuseProtection == null
                     ? CreationAbuseProtection.defaultValues() : creationAbuseProtection;
+            this.apiRateLimit = apiRateLimit == null ? ApiRateLimit.defaultValues() : apiRateLimit;
             this.image = image == null ? Image.defaultValues() : image;
             this.mysql = mysql == null ? Mysql.defaultValues() : mysql;
             this.sqlite = sqlite == null ? Sqlite.defaultValues() : sqlite;
@@ -3188,6 +3274,9 @@ public String getToken() {
                     CreationAbuseProtection.fromMap(
                             asMap(asMap(map.get("abuseProtection")).get("creation")),
                             defaults.getCreationAbuseProtection()),
+                    ApiRateLimit.fromMap(
+                            asMap(asMap(map.get("abuseProtection")).get("rateLimit")),
+                            defaults.getApiRateLimit()),
                     Image.fromMap(asMap(map.get("image")), defaults.getImage()),
                     Mysql.fromMap(asMap(map.get("mysql")), defaults.getMysql()),
                     Sqlite.fromMap(asMap(map.get("sqlite")), defaults.getSqlite())
@@ -3206,6 +3295,7 @@ public String getToken() {
                     7,
                     10,
                     CreationAbuseProtection.defaultValues(),
+                    ApiRateLimit.defaultValues(),
                     Image.defaultValues(),
                     Mysql.defaultValues(),
                     Sqlite.defaultValues()
@@ -3259,6 +3349,10 @@ public String getToken() {
 
         public CreationAbuseProtection getCreationAbuseProtection() {
             return creationAbuseProtection;
+        }
+
+        public ApiRateLimit getApiRateLimit() {
+            return apiRateLimit;
         }
 
         public Image getImage() {

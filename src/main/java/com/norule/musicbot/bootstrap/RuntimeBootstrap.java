@@ -36,8 +36,11 @@ import com.norule.musicbot.web.infra.WebSettings;
 import com.norule.musicbot.shorturl.MySqlShortUrlRepository;
 import com.norule.musicbot.shorturl.ImageShareRepository;
 import com.norule.musicbot.shorturl.MySqlImageShareRepository;
+import com.norule.musicbot.shorturl.MySqlMediaBlobRepository;
 import com.norule.musicbot.shorturl.ShortUrlRepository;
 import com.norule.musicbot.shorturl.SqliteImageShareRepository;
+import com.norule.musicbot.shorturl.SqliteMediaBlobRepository;
+import com.norule.musicbot.shorturl.MediaBlobRepository;
 import com.norule.musicbot.shorturl.SqliteShortUrlRepository;
 import com.norule.musicbot.shorturl.MediaSecurityRepository;
 import com.norule.musicbot.shorturl.MySqlMediaSecurityRepository;
@@ -48,6 +51,8 @@ import com.norule.musicbot.service.shorturl.ImageShareService;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
 import com.norule.musicbot.service.shorturl.MediaQuotaService;
+import com.norule.musicbot.service.shorturl.RateLimitService;
+import com.norule.musicbot.shorturl.InMemoryRateLimitStore;
 import com.norule.musicbot.storage.sqlite.GuildSettingsSqliteRepository;
 import com.norule.musicbot.storage.sqlite.HoneypotSqliteRepository;
 import com.norule.musicbot.storage.sqlite.ModerationSqliteRepository;
@@ -805,7 +810,8 @@ public final class RuntimeBootstrap {
                                 web.getSessionExpireMinutes(),
                                 web.getDiscordClientId(),
                                 web.getDiscordClientSecret(),
-                                web.getDiscordRedirectUri()
+                                web.getDiscordRedirectUri(),
+                                cfg.getShortUrl().getApiRateLimit().getTrustedProxyCidrs()
                         );
                     },
                     () -> {
@@ -1017,7 +1023,8 @@ public final class RuntimeBootstrap {
                 deviceHmacSecret
         );
         ShortUrlService service = new ShortUrlService(
-                repository, shortUrlConfig.toOptions(), imageShareService, identityService);
+                repository, shortUrlConfig.toOptions(), imageShareService, identityService,
+                new RateLimitService(new InMemoryRateLimitStore(), shortUrlConfig.getRateLimitOptions()));
         service.updateCreationGuardOptions(shortUrlConfig.getCreationGuardOptions());
         return service;
     }
@@ -1027,6 +1034,7 @@ public final class RuntimeBootstrap {
                                                               MediaSecurityRepository securityRepository,
                                                               String quotaHmacSecret,
                                                               Path baseDir) {
+        MediaBlobRepository blobRepository = createMediaBlobRepository(config, baseDir);
         ImageShareRepository imageRepository = createImageShareRepository(config, baseDir);
         FileSystemImageShareStorage storage = new FileSystemImageShareStorage(
                 resolveDataPath(baseDir, config.getImage().getStoragePath()),
@@ -1041,7 +1049,8 @@ public final class RuntimeBootstrap {
         );
         MediaQuotaService quotaService = new MediaQuotaService(
                 securityRepository, config.getMediaQuotaOptions());
-        ImageShareService service = new ImageShareService(imageRepository, shortUrlRepository, storage,
+        ImageShareService service = new ImageShareService(imageRepository, blobRepository,
+                shortUrlRepository, storage,
                 config.toImageShareOptions(), java.time.Clock.systemUTC(),
                 new ImageShareService.SecurityDependencies(passwordGuard, quotaService));
         service.cleanupExpired();
@@ -1076,6 +1085,17 @@ public final class RuntimeBootstrap {
         }
         Path dbPath = resolveDataPath(baseDir, config.getSqlite().getPath());
         return new SqliteImageShareRepository(dbPath);
+    }
+
+    private static MediaBlobRepository createMediaBlobRepository(ShortUrlConfig config, Path baseDir) {
+        String storage = config.getStorage() == null ? STORAGE_SQLITE
+                : config.getStorage().trim().toLowerCase(Locale.ROOT);
+        if ("mysql".equals(storage)) {
+            ShortUrlConfig.Mysql mysql = config.getMysql();
+            return new MySqlMediaBlobRepository(
+                    mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword(), mysql.getPoolSize());
+        }
+        return new SqliteMediaBlobRepository(resolveDataPath(baseDir, config.getSqlite().getPath()));
     }
 
     private static MediaSecurityRepository createMediaSecurityRepository(ShortUrlConfig config, Path baseDir) {

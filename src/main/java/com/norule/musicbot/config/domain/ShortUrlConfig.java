@@ -7,7 +7,9 @@ import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
 import com.norule.musicbot.service.shorturl.MediaQuotaService;
 import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
+import com.norule.musicbot.service.shorturl.RateLimitService;
 import java.util.Locale;
+import java.util.List;
 
 public final class ShortUrlConfig {
     public static final class Mysql {
@@ -95,6 +97,8 @@ public final class ShortUrlConfig {
     private final AnonymousDeviceIdentityService.Options identityContinuityOptions;
     private final MediaQuotaService.Options mediaQuotaOptions;
     private final ShortUrlCreationGuard.Options creationGuardOptions;
+    private final RateLimitService.Options rateLimitOptions;
+    private final List<String> trustedProxyCidrs;
     private final String legacyImageStoragePath;
     private final String temporaryStoragePath;
     private final String expiredArchivePath;
@@ -156,6 +160,8 @@ public final class ShortUrlConfig {
         this.identityContinuityOptions = AnonymousDeviceIdentityService.Options.defaults();
         this.mediaQuotaOptions = MediaQuotaService.Options.defaults();
         this.creationGuardOptions = ShortUrlCreationGuard.Options.defaults();
+        this.rateLimitOptions = RateLimitService.Options.defaults();
+        this.trustedProxyCidrs = List.of("127.0.0.1/32", "::1/128");
         this.legacyImageStoragePath = this.image.getStoragePath();
         this.temporaryStoragePath = "data/tmp/uploads";
         this.expiredArchivePath = "data/short-url-expired";
@@ -230,6 +236,18 @@ public final class ShortUrlConfig {
                 creation.getAuthenticated().getMaxRequestsPer10Minutes(),
                 creation.getAuthenticated().getMaxCreatesPerDay()
         );
+        BotConfig.ShortUrl.ApiRateLimit rateLimit = source.getApiRateLimit();
+        this.rateLimitOptions = new RateLimitService.Options(
+                rateLimit.isEnabled(),
+                rateLimit.getMediaRequestsPerMinutePerIp(),
+                rateLimit.getMediaAuthenticatedRequestsPerMinutePerIp(),
+                rateLimit.getMediaRequestsPerMinutePerUser(),
+                rateLimit.getMediaRequestsPerDayPerUser(),
+                rateLimit.getShortUrlRequestsPerMinutePerIp(),
+                rateLimit.getShortUrlRequestsPerMinutePerUser(),
+                rateLimit.getMediaConcurrencyPerIp(),
+                rateLimit.getMediaConcurrencyPerUser());
+        this.trustedProxyCidrs = rateLimit.getTrustedProxyCidrs();
         this.legacyImageStoragePath = source.getImage().getStoragePath();
         this.temporaryStoragePath = mediaStorage.getTempPath();
         this.expiredArchivePath = mediaStorage.getExpiredArchivePath();
@@ -288,6 +306,8 @@ public final class ShortUrlConfig {
     public AnonymousDeviceIdentityService.Options getIdentityContinuityOptions() { return identityContinuityOptions; }
     public MediaQuotaService.Options getMediaQuotaOptions() { return mediaQuotaOptions; }
     public ShortUrlCreationGuard.Options getCreationGuardOptions() { return creationGuardOptions; }
+    public RateLimitService.Options getRateLimitOptions() { return rateLimitOptions; }
+    public List<String> getTrustedProxyCidrs() { return trustedProxyCidrs; }
     public String getLegacyImageStoragePath() { return legacyImageStoragePath; }
     public String getTemporaryStoragePath() { return temporaryStoragePath; }
     public String getExpiredArchivePath() { return expiredArchivePath; }

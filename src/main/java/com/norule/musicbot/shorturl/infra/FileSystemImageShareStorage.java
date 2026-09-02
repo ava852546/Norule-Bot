@@ -56,7 +56,24 @@ public final class FileSystemImageShareStorage implements ImageShareStorage {
     @Override
     public void save(ImageShare imageShare, byte[] content) throws IOException {
         Files.createDirectories(storageDirectory);
-        Files.write(resolve(imageShare), content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        Files.createDirectories(temporaryDirectory);
+        Path target = resolve(imageShare);
+        Path temporary = Files.createTempFile(temporaryDirectory, ".media-", ".tmp");
+        try {
+            Files.write(temporary, content, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
+                channel.force(true);
+            }
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+                Files.move(temporary, target);
+            } catch (FileAlreadyExistsException existing) {
+                verifyExistingBlob(target, imageShare, content.length, existing);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     @Override
@@ -132,6 +149,27 @@ public final class FileSystemImageShareStorage implements ImageShareStorage {
     @Override
     public boolean existsArchived(ImageShare imageShare) {
         return Files.isRegularFile(resolveArchive(imageShare));
+    }
+
+    @Override
+    public InputStream openArchived(ImageShare imageShare) throws IOException {
+        return Files.newInputStream(resolveArchive(imageShare), StandardOpenOption.READ);
+    }
+
+    @Override
+    public InputStream openLegacy(ImageShare imageShare) throws IOException {
+        String storageName = validateStorageName(imageShare == null ? null : imageShare.storageName());
+        Path legacy = findLegacySource(storageName);
+        return legacy == null ? null : Files.newInputStream(legacy, StandardOpenOption.READ);
+    }
+
+    @Override
+    public void deleteLegacy(ImageShare imageShare) throws IOException {
+        String storageName = validateStorageName(imageShare == null ? null : imageShare.storageName());
+        Path legacy = findLegacySource(storageName);
+        if (legacy != null) {
+            Files.deleteIfExists(legacy);
+        }
     }
 
     @Override
@@ -288,6 +326,33 @@ public final class FileSystemImageShareStorage implements ImageShareStorage {
             return HexFormat.of().formatHex(digest.digest());
         } catch (java.security.NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+    }
+
+    @Override
+    public Path createTemporaryUpload() throws IOException {
+        Files.createDirectories(temporaryDirectory);
+        return Files.createTempFile(temporaryDirectory, ".request-", ".tmp");
+    }
+
+    @Override
+    public void deleteTemporaryUpload(Path path) throws IOException {
+        if (path == null) {
+            return;
+        }
+        Path normalized = path.toAbsolutePath().normalize();
+        if (!normalized.startsWith(temporaryDirectory)) {
+            throw new IOException("Upload temporary path escapes configured directory");
+        }
+        Files.deleteIfExists(normalized);
+    }
+
+    private void verifyExistingBlob(Path target, ImageShare imageShare, long expectedSize,
+                                    FileAlreadyExistsException original) throws IOException {
+        String expectedHash = imageShare == null ? "" : imageShare.contentHash();
+        if (!Files.isRegularFile(target) || Files.size(target) != expectedSize
+                || expectedHash.isBlank() || !expectedHash.equalsIgnoreCase(sha256(target))) {
+            throw original;
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.norule.musicbot.shorturl;
 
 import com.norule.musicbot.domain.shorturl.ImageShare;
+import com.norule.musicbot.domain.shorturl.MediaBlob;
 import com.norule.musicbot.domain.shorturl.MediaOwnerType;
 import com.norule.musicbot.domain.shorturl.MediaStorageState;
 
@@ -36,13 +37,19 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
                 quota_group_id TEXT NOT NULL DEFAULT '',
                 created_device_id_hash TEXT NOT NULL DEFAULT '',
                 created_ip_hash TEXT NOT NULL DEFAULT '',
-                last_accessed_at INTEGER NOT NULL DEFAULT 0
+                last_accessed_at INTEGER NOT NULL DEFAULT 0,
+                blob_id INTEGER,
+                active_reuse_key TEXT,
+                FOREIGN KEY (blob_id) REFERENCES media_blobs(id) ON DELETE RESTRICT ON UPDATE RESTRICT
             )
             """;
     private static final String CREATE_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_url_images_expires ON short_url_images(expires_at)";
     private static final String CREATE_CONTENT_HASH_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_url_images_content_hash_expires ON short_url_images(content_hash, expires_at)";
     private static final String CREATE_OWNER_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_url_images_owner_created ON short_url_images(owner_type, owner_id, created_at DESC)";
-    private static final String SELECT_FIELDS = "code, storage_name, content_type, size_bytes, created_at, expires_at, password_hash, content_hash, view_count, storage_state, archive_storage_name, archived_at, owner_type, owner_id, quota_group_id, created_device_id_hash, created_ip_hash, last_accessed_at";
+    private static final String CREATE_BLOB_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_url_images_blob ON short_url_images(blob_id)";
+    private static final String CREATE_QUOTA_ACTIVE_INDEX = "CREATE INDEX IF NOT EXISTS idx_short_url_images_quota_active ON short_url_images(quota_group_id, storage_state, expires_at)";
+    private static final String CREATE_ACTIVE_REUSE_INDEX = "CREATE UNIQUE INDEX IF NOT EXISTS uq_short_url_images_active_reuse ON short_url_images(active_reuse_key) WHERE active_reuse_key IS NOT NULL";
+    private static final String SELECT_FIELDS = "code, storage_name, content_type, size_bytes, created_at, expires_at, password_hash, content_hash, view_count, storage_state, archive_storage_name, archived_at, owner_type, owner_id, quota_group_id, created_device_id_hash, created_ip_hash, last_accessed_at, blob_id";
     private static final String SELECT_BY_CODE = "SELECT " + SELECT_FIELDS + " FROM short_url_images WHERE code = ?";
     private static final String SELECT_ACTIVE_BY_CONTENT_HASH = """
             SELECT %s
@@ -50,8 +57,8 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
             WHERE content_hash = ? AND expires_at > ? AND storage_state = 'ACTIVE'
             ORDER BY created_at DESC
             """.formatted(SELECT_FIELDS);
-    private static final String INSERT = "INSERT INTO short_url_images (code, storage_name, content_type, size_bytes, created_at, expires_at, password_hash, content_hash, view_count, storage_state, archive_storage_name, archived_at, owner_type, owner_id, quota_group_id, created_device_id_hash, created_ip_hash, last_accessed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    private static final String UPDATE = "UPDATE short_url_images SET storage_name = ?, content_type = ?, size_bytes = ?, created_at = ?, expires_at = ?, password_hash = ?, content_hash = ?, view_count = ?, storage_state = ?, archive_storage_name = ?, archived_at = ?, owner_type = ?, owner_id = ?, quota_group_id = ?, created_device_id_hash = ?, created_ip_hash = ?, last_accessed_at = ? WHERE code = ?";
+    private static final String INSERT = "INSERT INTO short_url_images (code, storage_name, content_type, size_bytes, created_at, expires_at, password_hash, content_hash, view_count, storage_state, archive_storage_name, archived_at, owner_type, owner_id, quota_group_id, created_device_id_hash, created_ip_hash, last_accessed_at, blob_id, active_reuse_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    private static final String UPDATE = "UPDATE short_url_images SET storage_name = ?, content_type = ?, size_bytes = ?, created_at = ?, expires_at = ?, password_hash = ?, content_hash = ?, view_count = ?, storage_state = ?, archive_storage_name = ?, archived_at = ?, owner_type = ?, owner_id = ?, quota_group_id = ?, created_device_id_hash = ?, created_ip_hash = ?, last_accessed_at = ?, blob_id = ? WHERE code = ?";
     private static final String DELETE_BY_CODE = "DELETE FROM short_url_images WHERE code = ?";
     private static final String SELECT_EXPIRED = "SELECT " + SELECT_FIELDS + " FROM short_url_images WHERE expires_at <= ? AND storage_state = 'ACTIVE'";
     private static final String INCREMENT_VIEW_COUNT = "UPDATE short_url_images SET view_count = view_count + 1 WHERE code = ?";
@@ -74,7 +81,7 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
         } catch (Exception e) {
             throw new IllegalStateException("Failed to prepare image-share sqlite directory", e);
         }
-        this.jdbcUrl = "jdbc:sqlite:" + dbFilePath.toAbsolutePath().normalize();
+        this.jdbcUrl = "jdbc:sqlite:" + dbFilePath.toAbsolutePath().normalize() + "?foreign_keys=on";
         initializeSchema();
     }
 
@@ -109,6 +116,26 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
             return matches;
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to query image share by content hash", e);
+        }
+    }
+
+    @Override
+    public ImageShare findActiveByOwnerAndBlob(MediaOwnerType ownerType, String ownerId,
+                                                long blobId, long nowMillis) {
+        String sql = "SELECT " + SELECT_FIELDS + " FROM short_url_images"
+                + " WHERE owner_type = ? AND owner_id = ? AND blob_id = ?"
+                + " AND expires_at > ? AND storage_state = 'ACTIVE' ORDER BY created_at DESC LIMIT 1";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, (ownerType == null ? MediaOwnerType.ANONYMOUS_DEVICE : ownerType).name());
+            statement.setString(2, ownerId == null ? "" : ownerId);
+            statement.setLong(3, blobId);
+            statement.setLong(4, nowMillis);
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next() ? mapRow(row) : null;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to query active image share by owner and blob", e);
         }
     }
 
@@ -188,6 +215,20 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
     }
 
     @Override
+    public boolean saveIfAbsent(ImageShare imageShare) {
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(INSERT)) {
+            bindInsert(statement, imageShare);
+            return statement.executeUpdate() == 1;
+        } catch (SQLException e) {
+            if (e.getErrorCode() == 19 || "23000".equals(e.getSQLState())) {
+                return false;
+            }
+            throw new IllegalStateException("Failed to save image share", e);
+        }
+    }
+
+    @Override
     public void update(ImageShare imageShare) {
         try (Connection connection = DriverManager.getConnection(jdbcUrl);
              PreparedStatement statement = connection.prepareStatement(UPDATE)) {
@@ -206,6 +247,146 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
             statement.executeUpdate();
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to delete image share", e);
+        }
+    }
+
+    @Override
+    public List<ImageShare> findWithoutBlob(int limit) {
+        List<ImageShare> shares = new ArrayList<>();
+        String sql = "SELECT " + SELECT_FIELDS + " FROM short_url_images"
+                + " WHERE blob_id IS NULL OR blob_id = 0"
+                + " ORDER BY CASE WHEN storage_state = 'ACTIVE' THEN 0 ELSE 1 END, created_at DESC LIMIT ?";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, Math.max(1, limit));
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    shares.add(mapRow(rows));
+                }
+            }
+            return shares;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to query legacy image shares", e);
+        }
+    }
+
+    @Override
+    public List<ImageShare> findLinkedStorageMismatches(int limit) {
+        List<ImageShare> shares = new ArrayList<>();
+        String qualifiedFields = "s." + SELECT_FIELDS.replace(", ", ", s.");
+        String sql = "SELECT " + qualifiedFields + " FROM short_url_images s"
+                + " JOIN media_blobs b ON b.id = s.blob_id"
+                + " WHERE s.storage_name <> b.storage_name LIMIT ?";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, Math.max(1, limit));
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    shares.add(mapRow(rows));
+                }
+            }
+            return shares;
+        } catch (SQLException e) {
+            if (e.getMessage() != null && e.getMessage().contains("no such table: media_blobs")) {
+                return List.of();
+            }
+            throw new IllegalStateException("Failed to query migrated media storage mismatches", e);
+        }
+    }
+
+    @Override
+    public void attachBlob(String code, long blobId, String sha256) {
+        String sql = "UPDATE short_url_images SET blob_id = ?, content_hash = ? WHERE code = ?"
+                + " AND (blob_id IS NULL OR blob_id = 0)";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, blobId);
+            statement.setString(2, sha256 == null ? "" : sha256);
+            statement.setString(3, code);
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to attach media blob to image share", e);
+        }
+    }
+
+    @Override
+    public void alignStorageWithBlob(String code, MediaBlob blob) {
+        String sql = "UPDATE short_url_images SET storage_name = ?, content_type = ?, size_bytes = ?,"
+                + " storage_state = ?, archive_storage_name = ?, archived_at = ?"
+                + " WHERE code = ? AND blob_id = ?";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, blob.storageName());
+            statement.setString(2, blob.contentType());
+            statement.setLong(3, blob.sizeBytes());
+            statement.setString(4, blob.storageState().name());
+            statement.setString(5, blob.archiveStorageName());
+            statement.setLong(6, blob.archivedAt());
+            statement.setString(7, code);
+            statement.setLong(8, blob.id());
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to align migrated media storage metadata", e);
+        }
+    }
+
+    @Override
+    public boolean hasActiveShareForBlob(long blobId, long nowMillis) {
+        String sql = "SELECT 1 FROM short_url_images WHERE blob_id = ?"
+                + " AND expires_at > ? AND storage_state = 'ACTIVE' LIMIT 1";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, blobId);
+            statement.setLong(2, nowMillis);
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to query active media blob references", e);
+        }
+    }
+
+    @Override
+    public long countByBlobId(long blobId) {
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT COUNT(*) FROM short_url_images WHERE blob_id = ?")) {
+            statement.setLong(1, blobId);
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next() ? row.getLong(1) : 0L;
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to count media blob references", e);
+        }
+    }
+
+    @Override
+    public void releaseExpiredReuseKeys(long nowMillis) {
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(
+                     "UPDATE short_url_images SET active_reuse_key = NULL"
+                             + " WHERE expires_at <= ? OR storage_state <> 'ACTIVE'")) {
+            statement.setLong(1, nowMillis);
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to release expired media share reuse keys", e);
+        }
+    }
+
+    @Override
+    public void updateStorageStateForBlob(long blobId, MediaStorageState state,
+                                          String archiveStorageName, long archivedAt) {
+        String sql = "UPDATE short_url_images SET storage_state = ?, archive_storage_name = ?,"
+                + " archived_at = ? WHERE blob_id = ?";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, state.name());
+            statement.setString(2, archiveStorageName == null ? "" : archiveStorageName);
+            statement.setLong(3, archivedAt);
+            statement.setLong(4, blobId);
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to mirror media blob storage state", e);
         }
     }
 
@@ -289,14 +470,21 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
     private void initializeSchema() {
         try (Connection connection = DriverManager.getConnection(jdbcUrl);
              Statement statement = connection.createStatement()) {
+            statement.execute(SqliteMediaBlobRepository.CREATE_TABLE_SQL);
             statement.execute(CREATE_TABLE);
             ensureContentHashColumn(connection, statement);
             ensureViewCountColumn(connection, statement);
             ensureLifecycleColumns(connection, statement);
             ensureColumn(connection, statement, "last_accessed_at", "INTEGER NOT NULL DEFAULT 0");
+            ensureColumn(connection, statement, "blob_id", "INTEGER");
+            ensureColumn(connection, statement, "active_reuse_key", "TEXT");
+            ensureBlobForeignKey(connection, statement);
             statement.execute(CREATE_INDEX);
             statement.execute(CREATE_CONTENT_HASH_INDEX);
             statement.execute(CREATE_OWNER_INDEX);
+            statement.execute(CREATE_BLOB_INDEX);
+            statement.execute(CREATE_QUOTA_ACTIVE_INDEX);
+            statement.execute(CREATE_ACTIVE_REUSE_INDEX);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to initialize image-share sqlite schema", e);
         }
@@ -321,18 +509,20 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
                 resultSet.getString("quota_group_id"),
                 resultSet.getString("created_device_id_hash"),
                 resultSet.getString("created_ip_hash"),
-                resultSet.getLong("last_accessed_at")
+                resultSet.getLong("last_accessed_at"),
+                resultSet.getLong("blob_id")
         );
     }
 
     private void bindInsert(PreparedStatement statement, ImageShare imageShare) throws SQLException {
         statement.setString(1, imageShare.code());
         bindCommon(statement, imageShare, 2);
+        statement.setString(20, activeReuseKey(imageShare));
     }
 
     private void bindUpdate(PreparedStatement statement, ImageShare imageShare) throws SQLException {
         bindCommon(statement, imageShare, 1);
-        statement.setString(18, imageShare.code());
+        statement.setString(19, imageShare.code());
     }
 
     private void bindCommon(PreparedStatement statement, ImageShare imageShare, int start) throws SQLException {
@@ -353,7 +543,26 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
         statement.setString(index++, imageShare.quotaGroupId());
         statement.setString(index++, imageShare.createdDeviceIdHash());
         statement.setString(index++, imageShare.createdIpHash());
-        statement.setLong(index, imageShare.lastAccessedAt());
+        statement.setLong(index++, imageShare.lastAccessedAt());
+        if (imageShare.blobId() > 0L) {
+            statement.setLong(index, imageShare.blobId());
+        } else {
+            statement.setNull(index, java.sql.Types.BIGINT);
+        }
+    }
+
+    private String activeReuseKey(ImageShare imageShare) {
+        if (imageShare.blobId() <= 0L || imageShare.ownerId().isBlank()) {
+            return null;
+        }
+        String value = imageShare.ownerType().name() + ':' + imageShare.ownerId() + ':' + imageShare.blobId();
+        try {
+            return java.util.HexFormat.of().formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256")
+                            .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
     }
 
     private MediaStorageState parseStorageState(String value) {
@@ -418,5 +627,50 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
             }
         }
         statement.execute("ALTER TABLE short_url_images ADD COLUMN " + name + " " + definition);
+    }
+
+    private void ensureBlobForeignKey(Connection connection, Statement statement) throws SQLException {
+        try (Statement foreignKeys = connection.createStatement();
+             ResultSet rows = foreignKeys.executeQuery("PRAGMA foreign_key_list(short_url_images)")) {
+            while (rows.next()) {
+                if ("blob_id".equalsIgnoreCase(rows.getString("from"))
+                        && "media_blobs".equalsIgnoreCase(rows.getString("table"))) {
+                    return;
+                }
+            }
+        }
+
+        boolean autoCommit = connection.getAutoCommit();
+        connection.setAutoCommit(false);
+        try {
+            statement.executeUpdate("""
+                    UPDATE short_url_images
+                    SET blob_id = NULL, active_reuse_key = NULL
+                    WHERE blob_id IS NOT NULL
+                      AND NOT EXISTS (SELECT 1 FROM media_blobs b WHERE b.id = short_url_images.blob_id)
+                    """);
+            statement.execute("ALTER TABLE short_url_images RENAME TO short_url_images_without_blob_fk");
+            statement.execute(CREATE_TABLE);
+            statement.executeUpdate("""
+                    INSERT INTO short_url_images (
+                        code, storage_name, content_type, size_bytes, created_at, expires_at,
+                        password_hash, content_hash, view_count, storage_state, archive_storage_name,
+                        archived_at, owner_type, owner_id, quota_group_id, created_device_id_hash,
+                        created_ip_hash, last_accessed_at, blob_id, active_reuse_key
+                    )
+                    SELECT code, storage_name, content_type, size_bytes, created_at, expires_at,
+                        password_hash, content_hash, view_count, storage_state, archive_storage_name,
+                        archived_at, owner_type, owner_id, quota_group_id, created_device_id_hash,
+                        created_ip_hash, last_accessed_at, blob_id, active_reuse_key
+                    FROM short_url_images_without_blob_fk
+                    """);
+            statement.execute("DROP TABLE short_url_images_without_blob_fk");
+            connection.commit();
+        } catch (SQLException e) {
+            connection.rollback();
+            throw e;
+        } finally {
+            connection.setAutoCommit(autoCommit);
+        }
     }
 }

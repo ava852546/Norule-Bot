@@ -5,17 +5,26 @@ import com.norule.musicbot.config.BotConfig;
 import com.norule.musicbot.domain.shorturl.ImageShare;
 import com.norule.musicbot.domain.shorturl.MediaOwnerType;
 import com.norule.musicbot.service.shorturl.ImageShareService;
+import com.norule.musicbot.service.shorturl.RateLimitService;
+import com.norule.musicbot.shorturl.InMemoryRateLimitStore;
 import com.norule.musicbot.shorturl.SqliteImageShareRepository;
+import com.norule.musicbot.shorturl.SqliteMediaBlobRepository;
 import com.norule.musicbot.shorturl.ShortUrlRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URI;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,6 +36,101 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShortUrlGatewayServerTest {
+    @Test
+    void mediaFailuresCleanTemporaryFilesReleasePermitsAndThenReturn429(@TempDir Path tempDir) throws Exception {
+        int port;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            port = socket.getLocalPort();
+        }
+        Path database = tempDir.resolve("gateway-media.db");
+        Path temporary = tempDir.resolve("uploads");
+        OwnerRepository shortUrls = new OwnerRepository();
+        FileSystemImageShareStorage storage = new FileSystemImageShareStorage(
+                tempDir.resolve("media"), temporary, tempDir.resolve("archive"));
+        ImageShareService imageService = new ImageShareService(
+                new SqliteImageShareRepository(database),
+                new SqliteMediaBlobRepository(database),
+                shortUrls,
+                storage,
+                new ImageShareService.Options(
+                        true, 60_000L, 86_400_000L, 1_048_576L,
+                        1_048_576L, 300_000L, 86_400_000L, 60_000L, 7),
+                null,
+                null);
+        RateLimitService rateLimits = new RateLimitService(
+                new InMemoryRateLimitStore(),
+                new RateLimitService.Options(true, 3, 100, 200, 100, 100, 1, 1));
+        ShortUrlService service = new ShortUrlService(
+                shortUrls,
+                new ShortUrlService.Options(true, 86_400_000L, 60_000L,
+                        "http://127.0.0.1:" + port, 7, false),
+                imageService, null, rateLimits);
+        BotConfig.ShortUrl config = BotConfig.ShortUrl.fromMap(Map.of(
+                "enabled", true,
+                "bindPort", port,
+                "publicBaseUrl", "http://127.0.0.1:" + port
+        ), BotConfig.ShortUrl.defaultValues());
+        ShortUrlGatewayServer gateway = new ShortUrlGatewayServer(service, () -> config);
+        try {
+            gateway.syncWithConfig();
+            assertEquals(413, postDeclaredOversizedMultipart(port, 20L * 1024L * 1024L));
+            assertFalse(Files.exists(temporary));
+            MultipartResponse first = postMultipart(port, "first.png", new byte[]{1, 2, 3});
+            MultipartResponse second = postMultipart(port, "second.png", new byte[]{1, 2, 3});
+            MultipartResponse limited = postMultipart(port, "third.png", new byte[]{1, 2, 3});
+
+            assertEquals(400, first.statusCode());
+            assertEquals(400, second.statusCode());
+            assertTrue(first.body().contains("UNSUPPORTED_MEDIA"));
+            assertTrue(second.body().contains("UNSUPPORTED_MEDIA"));
+            assertEquals(429, limited.statusCode());
+            assertFalse(limited.retryAfter().isBlank());
+            assertEquals(0L, regularFileCount(temporary));
+        } finally {
+            gateway.shutdown();
+        }
+    }
+
+    @Test
+    void returnsUnified429BeforeParsingAnotherShortUrlRequest() throws Exception {
+        int port;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            port = socket.getLocalPort();
+        }
+        RateLimitService rateLimits = new RateLimitService(
+                new InMemoryRateLimitStore(),
+                new RateLimitService.Options(true, 100, 100, 200, 2, 100, 2, 3));
+        ShortUrlService service = new ShortUrlService(
+                new OwnerRepository(),
+                new ShortUrlService.Options(true, 86_400_000L, 60_000L,
+                        "http://127.0.0.1:" + port, 7, false),
+                null, null, rateLimits);
+        BotConfig.ShortUrl config = BotConfig.ShortUrl.fromMap(Map.of(
+                "enabled", true,
+                "bindPort", port,
+                "publicBaseUrl", "http://127.0.0.1:" + port
+        ), BotConfig.ShortUrl.defaultValues());
+        ShortUrlGatewayServer gateway = new ShortUrlGatewayServer(service, () -> config);
+        HttpClient client = HttpClient.newHttpClient();
+        try {
+            gateway.syncWithConfig();
+            assertEquals(200, post(client, port,
+                    "{\"url\":\"https://example.com/one\"}").statusCode());
+            assertEquals(200, post(client, port,
+                    "{\"url\":\"https://example.com/two\"}").statusCode());
+            HttpResponse<String> limited = post(client, port,
+                    "{\"url\":\"https://example.com/three\"}");
+
+            assertEquals(429, limited.statusCode());
+            assertTrue(limited.headers().firstValue("Retry-After").isPresent());
+            assertTrue(limited.body().contains("\"error\":\"RATE_LIMITED\""));
+            assertTrue(limited.body().contains("\"retryAfter\":"));
+            assertFalse(limited.body().contains("bucket"));
+        } finally {
+            gateway.shutdown();
+        }
+    }
+
     @Test
     void rejectsOversizedShortUrlRequestAtTheGateway() throws Exception {
         int port;
@@ -53,6 +157,47 @@ class ShortUrlGatewayServerTest {
 
             assertEquals(413, response.statusCode());
             assertTrue(response.body().contains("REQUEST_BODY_TOO_LARGE"));
+        } finally {
+            gateway.shutdown();
+        }
+    }
+
+    @Test
+    void validatesAndNormalizesCustomCodesAtTheGateway() throws Exception {
+        int port;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            port = socket.getLocalPort();
+        }
+        OwnerRepository repository = new OwnerRepository();
+        ShortUrlService service = new ShortUrlService(repository);
+        BotConfig.ShortUrl config = BotConfig.ShortUrl.fromMap(Map.of(
+                "enabled", true,
+                "bindPort", port,
+                "publicBaseUrl", "http://127.0.0.1:" + port
+        ), BotConfig.ShortUrl.defaultValues());
+        ShortUrlGatewayServer gateway = new ShortUrlGatewayServer(service, () -> config);
+        HttpClient client = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .build();
+        try {
+            gateway.syncWithConfig();
+            HttpResponse<String> invalid = post(client, port,
+                    "{\"url\":\"https://example.com/invalid\",\"customCode\":\"bad/code\"}");
+            HttpResponse<String> reserved = post(client, port,
+                    "{\"url\":\"https://example.com/reserved\",\"customCode\":\"Stats\"}");
+            HttpResponse<String> created = post(client, port,
+                    "{\"url\":\"https://example.com/created\",\"customCode\":\"My-Code\"}");
+            HttpResponse<String> duplicate = post(client, port,
+                    "{\"url\":\"https://example.com/duplicate\",\"customCode\":\"MY-CODE\"}");
+
+            assertEquals(400, invalid.statusCode());
+            assertTrue(invalid.body().contains("INVALID_CUSTOM_CODE"));
+            assertEquals(400, reserved.statusCode());
+            assertTrue(reserved.body().contains("RESERVED_CUSTOM_CODE"));
+            assertEquals(200, created.statusCode());
+            assertTrue(created.body().contains("\"code\":\"my-code\""));
+            assertEquals(409, duplicate.statusCode());
+            assertTrue(duplicate.body().contains("CUSTOM_CODE_ALREADY_EXISTS"));
         } finally {
             gateway.shutdown();
         }
@@ -148,14 +293,18 @@ class ShortUrlGatewayServerTest {
             port = socket.getLocalPort();
         }
         OwnerRepository shortUrls = new OwnerRepository();
-        SqliteImageShareRepository images = new SqliteImageShareRepository(tempDir.resolve("short-url.db"));
+        Path database = tempDir.resolve("short-url.db");
+        SqliteImageShareRepository images = new SqliteImageShareRepository(database);
         FileSystemImageShareStorage storage = new FileSystemImageShareStorage(tempDir.resolve("media"));
         ImageShareService imageService = new ImageShareService(
                 images,
+                new SqliteMediaBlobRepository(database),
                 shortUrls,
                 storage,
                 new ImageShareService.Options(
-                        true, 60_000L, 86_400_000L, 1_048_576L, 60_000L, 7)
+                        true, 60_000L, 86_400_000L, 1_048_576L, 60_000L, 7),
+                null,
+                null
         );
         long now = System.currentTimeMillis();
         ImageShare media = new ImageShare(
@@ -205,7 +354,9 @@ class ShortUrlGatewayServerTest {
             HttpResponse<String> publicPage = get(client, port, "/media01", "");
             assertEquals(200, publicPage.statusCode());
             assertFalse(publicPage.body().contains("OWNER STATISTICS"));
-            assertFalse(publicPage.body().contains("media01"));
+            String applicationHtml = publicPage.body().replaceAll(
+                    "(?i)<script[^>]*local\\.adguard\\.org[^>]*></script>", "");
+            assertFalse(applicationHtml.contains("media01"));
             assertEquals(1L, images.findByCode("media01").viewCount());
         } finally {
             gateway.shutdown();
@@ -219,6 +370,80 @@ class ShortUrlGatewayServerTest {
             request.header("X-Test-User", userId);
         }
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> post(HttpClient client, int port, String json) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(
+                        URI.create("http://127.0.0.1:" + port + "/api/short"))
+                .timeout(Duration.ofSeconds(5))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private MultipartResponse postMultipart(int port, String filename, byte[] content) throws Exception {
+        String boundary = "NoRuleBoundary";
+        byte[] prefix = ("--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"image\"; filename=\"" + filename + "\"\r\n"
+                + "Content-Type: application/octet-stream\r\n\r\n")
+                .getBytes(StandardCharsets.US_ASCII);
+        byte[] suffix = ("\r\n--" + boundary + "--\r\n")
+                .getBytes(StandardCharsets.US_ASCII);
+        byte[] body = new byte[prefix.length + content.length + suffix.length];
+        System.arraycopy(prefix, 0, body, 0, prefix.length);
+        System.arraycopy(content, 0, body, prefix.length, content.length);
+        System.arraycopy(suffix, 0, body, prefix.length + content.length, suffix.length);
+        HttpURLConnection connection = (HttpURLConnection) new URL(
+                "http://127.0.0.1:" + port + "/api/short/image").openConnection();
+        connection.setRequestMethod("POST");
+        connection.setConnectTimeout(5_000);
+        connection.setReadTimeout(5_000);
+        connection.setDoOutput(true);
+        connection.setFixedLengthStreamingMode(body.length);
+        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+        try (var output = connection.getOutputStream()) {
+            output.write(body);
+        }
+        int status = connection.getResponseCode();
+        var responseStream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        String responseBody = responseStream == null
+                ? "" : new String(responseStream.readAllBytes(), StandardCharsets.UTF_8);
+        if (responseStream != null) {
+            responseStream.close();
+        }
+        String retryAfter = connection.getHeaderField("Retry-After");
+        connection.disconnect();
+        return new MultipartResponse(status, responseBody, retryAfter == null ? "" : retryAfter);
+    }
+
+    private int postDeclaredOversizedMultipart(int port, long declaredLength) throws Exception {
+        try (Socket socket = new Socket("127.0.0.1", port)) {
+            socket.setSoTimeout(5_000);
+            String headers = "POST /api/short/image HTTP/1.1\r\n"
+                    + "Host: 127.0.0.1:" + port + "\r\n"
+                    + "Content-Type: multipart/form-data; boundary=NoRuleBoundary\r\n"
+                    + "Content-Length: " + declaredLength + "\r\n"
+                    + "Connection: close\r\n\r\n";
+            socket.getOutputStream().write(headers.getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+            String statusLine = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    socket.getInputStream(), StandardCharsets.US_ASCII)).readLine();
+            assertTrue(statusLine != null && statusLine.startsWith("HTTP/1.1 "));
+            return Integer.parseInt(statusLine.split(" ", 3)[1]);
+        }
+    }
+
+    private long regularFileCount(Path directory) throws Exception {
+        if (!Files.isDirectory(directory)) {
+            return 0L;
+        }
+        try (var files = Files.list(directory)) {
+            return files.filter(Files::isRegularFile).count();
+        }
+    }
+
+    private record MultipartResponse(int statusCode, String body, String retryAfter) {
     }
 
     private static final class EmptyRepository implements ShortUrlRepository {

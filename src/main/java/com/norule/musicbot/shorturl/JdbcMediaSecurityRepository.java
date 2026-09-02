@@ -221,13 +221,37 @@ abstract class JdbcMediaSecurityRepository implements MediaSecurityRepository {
 
     @Override
     public long activeStorageBytes(String quotaGroupId) {
-        String sql = "SELECT COALESCE(SUM(size_bytes), 0) FROM short_url_images WHERE quota_group_id = ? AND storage_state = 'ACTIVE'";
-        return queryLong(sql, quotaGroupId, null);
+        return activeStorageBytesInternal(quotaGroupId, null);
+    }
+
+    @Override
+    public long activeStorageBytes(String quotaGroupId, long nowMillis) {
+        return activeStorageBytesInternal(quotaGroupId, Math.max(0L, nowMillis));
+    }
+
+    private long activeStorageBytesInternal(String quotaGroupId, Long nowMillis) {
+        String sql = "SELECT COALESCE(SUM(size_bytes), 0) FROM short_url_images"
+                + " WHERE quota_group_id = ? AND storage_state = 'ACTIVE'"
+                + (nowMillis == null ? "" : " AND expires_at > ?");
+        return queryLong(sql, quotaGroupId, nowMillis);
     }
 
     @Override
     public long globalManagedStorageBytes() {
-        String sql = "SELECT COALESCE(SUM(size_bytes), 0) FROM short_url_images WHERE storage_state IN ('ACTIVE', 'ARCHIVE_PENDING', 'ARCHIVED')";
+        String sql = "SELECT COALESCE(SUM(size_bytes), 0) FROM media_blobs"
+                + " WHERE storage_state IN ('ACTIVE', 'ARCHIVE_PENDING', 'ARCHIVED')";
+        try {
+            return queryGlobalStorageBytes(sql);
+        } catch (IllegalStateException exception) {
+            if (!isMissingTable(exception, "media_blobs")) {
+                throw exception;
+            }
+            return queryGlobalStorageBytes("SELECT COALESCE(SUM(size_bytes), 0) FROM short_url_images"
+                    + " WHERE storage_state IN ('ACTIVE', 'ARCHIVE_PENDING', 'ARCHIVED')");
+        }
+    }
+
+    private long queryGlobalStorageBytes(String sql) {
         try (Connection connection = connections.open();
              PreparedStatement statement = connection.prepareStatement(sql);
              ResultSet rows = statement.executeQuery()) {
@@ -235,6 +259,26 @@ abstract class JdbcMediaSecurityRepository implements MediaSecurityRepository {
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to query global managed media storage", e);
         }
+    }
+
+    private boolean isMissingTable(Throwable throwable, String tableName) {
+        String expected = tableName == null ? "" : tableName.toLowerCase();
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof SQLException sqlException) {
+                String message = sqlException.getMessage() == null
+                        ? ""
+                        : sqlException.getMessage().toLowerCase();
+                if ((sqlException.getErrorCode() == 1146
+                        || "42S02".equalsIgnoreCase(sqlException.getSQLState())
+                        || message.contains("no such table"))
+                        && message.contains(expected)) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private long queryLong(String sql, String quotaGroupId, Long sinceMillis) {

@@ -197,6 +197,23 @@ shortUrl:
   ttlDays: 7
   cleanupIntervalMinutes: 10
   abuseProtection:
+    rateLimit:
+      enabled: true
+      # Anonymous uploads use the strict IP bucket.
+      mediaRequestsPerMinutePerIp: 10
+      # Authenticated uploads still share an IP abuse ceiling, but the user bucket is authoritative.
+      mediaAuthenticatedRequestsPerMinutePerIp: 60
+      mediaRequestsPerMinutePerUser: 20
+      # Counts every authenticated HTTP upload request, including dedup/share reuse.
+      mediaRequestsPerDayPerUser: 200
+      shortUrlRequestsPerMinutePerIp: 30
+      shortUrlRequestsPerMinutePerUser: 60
+      mediaConcurrencyPerIp: 2
+      mediaConcurrencyPerUser: 3
+      # Only requests arriving from these proxies may supply X-Forwarded-For.
+      trustedProxyCidrs:
+        - "127.0.0.1/32"
+        - "::1/128"
     creation:
       enabled: true
       anonymous:

@@ -10,6 +10,8 @@ import com.norule.musicbot.service.shorturl.ImageShareService;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
 import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
+import com.norule.musicbot.service.shorturl.RateLimitService;
+import com.norule.musicbot.shorturl.InMemoryRateLimitStore;
 import com.norule.musicbot.domain.shorturl.QuotaSubject;
 import com.norule.musicbot.shorturl.ShortUrlAccessPublisher;
 import com.norule.musicbot.shorturl.ShortUrlRepository;
@@ -126,6 +128,7 @@ public final class ShortUrlService {
     private final ShortUrlRepository repository;
     private final ImageShareService imageShareService;
     private final AnonymousDeviceIdentityService anonymousDeviceIdentityService;
+    private final RateLimitService rateLimitService;
     private final ShortUrlCreationGuard creationGuard = new ShortUrlCreationGuard(
             ShortUrlCreationGuard.Options.defaults());
     private final AtomicReference<Options> options = new AtomicReference<>();
@@ -155,12 +158,22 @@ public final class ShortUrlService {
 
     public ShortUrlService(ShortUrlRepository repository, Options options, ImageShareService imageShareService,
                            AnonymousDeviceIdentityService anonymousDeviceIdentityService) {
+        this(repository, options, imageShareService, anonymousDeviceIdentityService,
+                new RateLimitService(new InMemoryRateLimitStore(), RateLimitService.Options.defaults()));
+    }
+
+    public ShortUrlService(ShortUrlRepository repository, Options options, ImageShareService imageShareService,
+                           AnonymousDeviceIdentityService anonymousDeviceIdentityService,
+                           RateLimitService rateLimitService) {
         if (repository == null) {
             throw new IllegalArgumentException("repository cannot be null");
         }
         this.repository = repository;
         this.imageShareService = imageShareService;
         this.anonymousDeviceIdentityService = anonymousDeviceIdentityService;
+        this.rateLimitService = rateLimitService == null
+                ? new RateLimitService(new InMemoryRateLimitStore(), RateLimitService.Options.defaults())
+                : rateLimitService;
         this.logChannelId = normalizeChannelId(repository.findLogChannelId());
         this.options.set(options == null
                 ? new Options(
@@ -332,6 +345,18 @@ public final class ShortUrlService {
         return creationGuard.beginCreation(creatorDiscordUserId, clientAddress);
     }
 
+    public RateLimitService.Result checkMediaUploadRate(String clientAddress, String ownerUserId) {
+        return rateLimitService.checkMediaUpload(clientAddress, ownerUserId);
+    }
+
+    public RateLimitService.Result checkShortUrlRate(String clientAddress, String ownerUserId) {
+        return rateLimitService.checkShortUrlCreation(clientAddress, ownerUserId);
+    }
+
+    public RateLimitService.UploadPermit beginMediaUpload(String clientAddress, String ownerUserId) {
+        return rateLimitService.beginMediaUpload(clientAddress, ownerUserId);
+    }
+
     public ImageShareService.UploadResult createImageShare(ImageShareService.Upload upload) {
         return createImageShare(upload, "", "");
     }
@@ -404,6 +429,19 @@ public final class ShortUrlService {
 
     public long mediaMaxRetentionMillis(QuotaSubject quotaSubject) {
         return imageShareService == null ? 0L : imageShareService.maxRetentionMillisFor(quotaSubject);
+    }
+
+    public java.nio.file.Path createMediaUploadTemporaryFile() throws java.io.IOException {
+        if (imageShareService == null) {
+            throw new java.io.IOException("Media upload storage is unavailable");
+        }
+        return imageShareService.createTemporaryUpload();
+    }
+
+    public void deleteMediaUploadTemporaryFile(java.nio.file.Path path) throws java.io.IOException {
+        if (imageShareService != null) {
+            imageShareService.deleteTemporaryUpload(path);
+        }
     }
 
     public ShortUrlEntry recordView(ShortUrlEntry entry, String clientAddress, String userAgent) {
