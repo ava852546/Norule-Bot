@@ -359,6 +359,124 @@ public final class MusicConfig {
         public int getPlaylistLoadCooldownSeconds() { return playlistLoadCooldownSeconds; }
     }
 
+    public static final class Bilibili {
+        private final boolean enabled;
+        private final String cookie;
+        private final MetadataCache metadataCache;
+        private final RateLimit rateLimit;
+        private final CircuitBreaker circuitBreaker;
+
+        public Bilibili(boolean enabled,
+                         String cookie,
+                         MetadataCache metadataCache,
+                         RateLimit rateLimit,
+                         CircuitBreaker circuitBreaker) {
+            this.enabled = enabled;
+            this.cookie = cookie == null ? "" : cookie;
+            this.metadataCache = metadataCache == null ? MetadataCache.defaultValues() : metadataCache;
+            this.rateLimit = rateLimit == null ? RateLimit.defaultValues() : rateLimit;
+            this.circuitBreaker = circuitBreaker == null ? CircuitBreaker.defaultValues() : circuitBreaker;
+        }
+
+        public static Bilibili fromLegacy(BotConfig.Music.Bilibili legacy) {
+            BotConfig.Music.Bilibili value = legacy == null
+                    ? BotConfig.Music.Bilibili.defaultValues()
+                    : legacy;
+            return new Bilibili(
+                    value.isEnabled(),
+                    value.getCookie(),
+                    new MetadataCache(
+                            value.getMetadataCache().isEnabled(),
+                            value.getMetadataCache().getTtlHours(),
+                            value.getMetadataCache().getMaxEntries()
+                    ),
+                    new RateLimit(
+                            value.getRateLimit().isEnabled(),
+                            value.getRateLimit().getRequestsPerSecond(),
+                            value.getRateLimit().getBurst()
+                    ),
+                    new CircuitBreaker(
+                            value.getCircuitBreaker().isEnabled(),
+                            value.getCircuitBreaker().getFailureThreshold(),
+                            value.getCircuitBreaker().getWindowSeconds(),
+                            value.getCircuitBreaker().getCooldownSeconds()
+                    )
+            );
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public String getCookie() { return cookie; }
+        public MetadataCache getMetadataCache() { return metadataCache; }
+        public RateLimit getRateLimit() { return rateLimit; }
+        public CircuitBreaker getCircuitBreaker() { return circuitBreaker; }
+
+        public static final class MetadataCache {
+            private final boolean enabled;
+            private final int ttlHours;
+            private final int maxEntries;
+
+            public MetadataCache(boolean enabled, int ttlHours, int maxEntries) {
+                this.enabled = enabled;
+                this.ttlHours = Math.max(1, ttlHours);
+                this.maxEntries = Math.max(1, maxEntries);
+            }
+
+            private static MetadataCache defaultValues() {
+                return new MetadataCache(true, 12, 1000);
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public int getTtlHours() { return ttlHours; }
+            public int getMaxEntries() { return maxEntries; }
+        }
+
+        public static final class RateLimit {
+            private final boolean enabled;
+            private final int requestsPerSecond;
+            private final int burst;
+
+            public RateLimit(boolean enabled, int requestsPerSecond, int burst) {
+                this.enabled = enabled;
+                this.requestsPerSecond = Math.max(1, requestsPerSecond);
+                this.burst = Math.max(1, burst);
+            }
+
+            private static RateLimit defaultValues() {
+                return new RateLimit(true, 1, 3);
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public int getRequestsPerSecond() { return requestsPerSecond; }
+            public int getBurst() { return burst; }
+        }
+
+        public static final class CircuitBreaker {
+            private final boolean enabled;
+            private final int failureThreshold;
+            private final int windowSeconds;
+            private final int cooldownSeconds;
+
+            public CircuitBreaker(boolean enabled,
+                                  int failureThreshold,
+                                  int windowSeconds,
+                                  int cooldownSeconds) {
+                this.enabled = enabled;
+                this.failureThreshold = Math.max(1, failureThreshold);
+                this.windowSeconds = Math.max(1, windowSeconds);
+                this.cooldownSeconds = Math.max(1, cooldownSeconds);
+            }
+
+            private static CircuitBreaker defaultValues() {
+                return new CircuitBreaker(true, 3, 60, 300);
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public int getFailureThreshold() { return failureThreshold; }
+            public int getWindowSeconds() { return windowSeconds; }
+            public int getCooldownSeconds() { return cooldownSeconds; }
+        }
+    }
+
     private final boolean autoLeaveEnabled;
     private final int autoLeaveMinutes;
     private final boolean autoplayEnabled;
@@ -372,6 +490,7 @@ public final class MusicConfig {
     private final Cipher cipher;
     private final Spotify spotify;
     private final Audio audio;
+    private final Bilibili bilibili;
 
     public MusicConfig(boolean autoLeaveEnabled,
                        int autoLeaveMinutes,
@@ -386,6 +505,25 @@ public final class MusicConfig {
                        Cipher cipher,
                        Spotify spotify,
                        Audio audio) {
+        this(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId,
+                historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio,
+                Bilibili.fromLegacy(null));
+    }
+
+    public MusicConfig(boolean autoLeaveEnabled,
+                       int autoLeaveMinutes,
+                       boolean autoplayEnabled,
+                       BotConfig.Music.RepeatMode defaultRepeatMode,
+                       Long commandChannelId,
+                       int historyLimit,
+                       int statsRetentionDays,
+                       int playlistTrackLimit,
+                       Youtube youtube,
+                       Oauth oauth,
+                       Cipher cipher,
+                       Spotify spotify,
+                       Audio audio,
+                       Bilibili bilibili) {
         this.autoLeaveEnabled = autoLeaveEnabled;
         this.autoLeaveMinutes = Math.max(0, autoLeaveMinutes);
         this.autoplayEnabled = autoplayEnabled;
@@ -399,6 +537,7 @@ public final class MusicConfig {
         this.cipher = cipher == null ? Cipher.fromLegacy(null) : cipher;
         this.spotify = spotify == null ? Spotify.fromLegacy(null) : spotify;
         this.audio = audio == null ? Audio.fromLegacy(null) : audio;
+        this.bilibili = bilibili == null ? Bilibili.fromLegacy(null) : bilibili;
     }
 
     public static MusicConfig defaultValues() {
@@ -423,7 +562,8 @@ public final class MusicConfig {
                 value.oauth,
                 value.cipher,
                 value.spotify,
-                value.audio
+                value.audio,
+                value.bilibili
         );
     }
 
@@ -443,7 +583,8 @@ public final class MusicConfig {
                 Oauth.fromLegacy(globalValue.getOauth()),
                 Cipher.fromLegacy(globalValue.getCipher()),
                 Spotify.fromLegacy(globalValue.getSpotify()),
-                Audio.fromLegacy(globalValue.getAudio())
+                Audio.fromLegacy(globalValue.getAudio()),
+                Bilibili.fromLegacy(globalValue.getBilibili())
         );
     }
 
@@ -460,4 +601,5 @@ public final class MusicConfig {
     public Cipher getCipher() { return cipher; }
     public Spotify getSpotify() { return spotify; }
     public Audio getAudio() { return audio; }
+    public Bilibili getBilibili() { return bilibili; }
 }

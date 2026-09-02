@@ -1365,6 +1365,7 @@ public String getToken() {
         private final int statsRetentionDays;
         private final int playlistTrackLimit;
         private final Youtube youtube;
+        private final Bilibili bilibili;
         private final Oauth oauth;
         private final Cipher cipher;
         private final Spotify spotify;
@@ -1379,6 +1380,7 @@ public String getToken() {
                        int statsRetentionDays,
                        int playlistTrackLimit,
                        Youtube youtube,
+                       Bilibili bilibili,
                        Oauth oauth,
                        Cipher cipher,
                        Spotify spotify,
@@ -1392,6 +1394,7 @@ public String getToken() {
             this.statsRetentionDays = Math.max(0, statsRetentionDays);
             this.playlistTrackLimit = Math.max(1, playlistTrackLimit);
             this.youtube = youtube == null ? Youtube.defaultValues() : youtube;
+            this.bilibili = bilibili == null ? Bilibili.defaultValues() : bilibili;
             this.oauth = oauth == null ? Oauth.defaultValues() : oauth;
             this.cipher = cipher == null ? Cipher.defaultValues() : cipher;
             this.spotify = spotify == null ? Spotify.defaultValues() : spotify;
@@ -1410,6 +1413,7 @@ public String getToken() {
                      getInt(map, "statsRetentionDays", defaults.getStatsRetentionDays()),
                      getInt(map, "playlistTrackLimit", defaults.getPlaylistTrackLimit()),
                      Youtube.fromMap(asMap(map.get("youtube")), defaults.getYoutube()),
+                     Bilibili.fromMap(asMap(map.get("bilibili")), defaults.getBilibili()),
                      Oauth.fromMap(asMap(map.get("oauth")), defaults.getOauth()),
                      Cipher.fromMap(asMap(map.get("cipher")), defaults.getCipher()),
                      Spotify.fromMap(asMap(map.get("spotify")), defaults.getSpotify()),
@@ -1419,40 +1423,40 @@ public String getToken() {
 
         public static Music defaultValues() {
             return new Music(true, 5, true, RepeatMode.OFF, null, 50, 0, 100,
-                    Youtube.defaultValues(), Oauth.defaultValues(), Cipher.defaultValues(),
+                    Youtube.defaultValues(), Bilibili.defaultValues(), Oauth.defaultValues(), Cipher.defaultValues(),
                     Spotify.defaultValues(), Audio.defaultValues());
         }
 
         public Music withAutoLeaveEnabled(boolean enabled) {
-            return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
+            return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withAutoLeaveMinutes(int minutes) {
-            return new Music(autoLeaveEnabled, Math.max(1, minutes), autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, Math.max(1, minutes), autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withAutoplayEnabled(boolean enabled) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, enabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, enabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withDefaultRepeatMode(RepeatMode mode) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, mode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, mode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withCommandChannelId(Long commandChannelId) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withHistoryLimit(int historyLimit) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withStatsRetentionDays(int statsRetentionDays) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withPlaylistTrackLimit(int playlistTrackLimit) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public boolean isAutoLeaveEnabled() {
@@ -1491,6 +1495,10 @@ public String getToken() {
             return youtube;
         }
 
+        public Bilibili getBilibili() {
+            return bilibili;
+        }
+
         public Oauth getOauth() {
             return oauth;
         }
@@ -1512,6 +1520,147 @@ public String getToken() {
                 return RepeatMode.valueOf(value.trim().toUpperCase());
             } catch (Exception ignored) {
                 return RepeatMode.OFF;
+            }
+        }
+
+        public static final class Bilibili {
+            private final boolean enabled;
+            private final String cookie;
+            private final MetadataCache metadataCache;
+            private final RateLimit rateLimit;
+            private final CircuitBreaker circuitBreaker;
+
+            private Bilibili(boolean enabled,
+                             String cookie,
+                             MetadataCache metadataCache,
+                             RateLimit rateLimit,
+                             CircuitBreaker circuitBreaker) {
+                this.enabled = enabled;
+                this.cookie = nullToEmpty(cookie);
+                this.metadataCache = metadataCache == null ? MetadataCache.defaultValues() : metadataCache;
+                this.rateLimit = rateLimit == null ? RateLimit.defaultValues() : rateLimit;
+                this.circuitBreaker = circuitBreaker == null ? CircuitBreaker.defaultValues() : circuitBreaker;
+            }
+
+            public static Bilibili fromMap(Map<String, Object> map, Bilibili fallback) {
+                Bilibili defaults = fallback == null ? defaultValues() : fallback;
+                return new Bilibili(
+                        getBoolean(map, "enabled", defaults.isEnabled()),
+                        getString(map, "cookie", defaults.getCookie()),
+                        MetadataCache.fromMap(asMap(map.get("metadataCache")), defaults.getMetadataCache()),
+                        RateLimit.fromMap(asMap(map.get("rateLimit")), defaults.getRateLimit()),
+                        CircuitBreaker.fromMap(asMap(map.get("circuitBreaker")), defaults.getCircuitBreaker())
+                );
+            }
+
+            public static Bilibili defaultValues() {
+                return new Bilibili(
+                        true,
+                        "",
+                        MetadataCache.defaultValues(),
+                        RateLimit.defaultValues(),
+                        CircuitBreaker.defaultValues()
+                );
+            }
+
+            public boolean isEnabled() { return enabled; }
+            public String getCookie() { return cookie; }
+            public MetadataCache getMetadataCache() { return metadataCache; }
+            public RateLimit getRateLimit() { return rateLimit; }
+            public CircuitBreaker getCircuitBreaker() { return circuitBreaker; }
+
+            public static final class MetadataCache {
+                private final boolean enabled;
+                private final int ttlHours;
+                private final int maxEntries;
+
+                private MetadataCache(boolean enabled, int ttlHours, int maxEntries) {
+                    this.enabled = enabled;
+                    this.ttlHours = Math.max(1, ttlHours);
+                    this.maxEntries = Math.max(1, maxEntries);
+                }
+
+                private static MetadataCache fromMap(Map<String, Object> map, MetadataCache fallback) {
+                    MetadataCache defaults = fallback == null ? defaultValues() : fallback;
+                    return new MetadataCache(
+                            getBoolean(map, "enabled", defaults.isEnabled()),
+                            getInt(map, "ttlHours", defaults.getTtlHours()),
+                            getInt(map, "maxEntries", defaults.getMaxEntries())
+                    );
+                }
+
+                private static MetadataCache defaultValues() {
+                    return new MetadataCache(true, 12, 1000);
+                }
+
+                public boolean isEnabled() { return enabled; }
+                public int getTtlHours() { return ttlHours; }
+                public int getMaxEntries() { return maxEntries; }
+            }
+
+            public static final class RateLimit {
+                private final boolean enabled;
+                private final int requestsPerSecond;
+                private final int burst;
+
+                private RateLimit(boolean enabled, int requestsPerSecond, int burst) {
+                    this.enabled = enabled;
+                    this.requestsPerSecond = Math.max(1, requestsPerSecond);
+                    this.burst = Math.max(1, burst);
+                }
+
+                private static RateLimit fromMap(Map<String, Object> map, RateLimit fallback) {
+                    RateLimit defaults = fallback == null ? defaultValues() : fallback;
+                    return new RateLimit(
+                            getBoolean(map, "enabled", defaults.isEnabled()),
+                            getInt(map, "requestsPerSecond", defaults.getRequestsPerSecond()),
+                            getInt(map, "burst", defaults.getBurst())
+                    );
+                }
+
+                private static RateLimit defaultValues() {
+                    return new RateLimit(true, 1, 3);
+                }
+
+                public boolean isEnabled() { return enabled; }
+                public int getRequestsPerSecond() { return requestsPerSecond; }
+                public int getBurst() { return burst; }
+            }
+
+            public static final class CircuitBreaker {
+                private final boolean enabled;
+                private final int failureThreshold;
+                private final int windowSeconds;
+                private final int cooldownSeconds;
+
+                private CircuitBreaker(boolean enabled,
+                                       int failureThreshold,
+                                       int windowSeconds,
+                                       int cooldownSeconds) {
+                    this.enabled = enabled;
+                    this.failureThreshold = Math.max(1, failureThreshold);
+                    this.windowSeconds = Math.max(1, windowSeconds);
+                    this.cooldownSeconds = Math.max(1, cooldownSeconds);
+                }
+
+                private static CircuitBreaker fromMap(Map<String, Object> map, CircuitBreaker fallback) {
+                    CircuitBreaker defaults = fallback == null ? defaultValues() : fallback;
+                    return new CircuitBreaker(
+                            getBoolean(map, "enabled", defaults.isEnabled()),
+                            getInt(map, "failureThreshold", defaults.getFailureThreshold()),
+                            getInt(map, "windowSeconds", defaults.getWindowSeconds()),
+                            getInt(map, "cooldownSeconds", defaults.getCooldownSeconds())
+                    );
+                }
+
+                private static CircuitBreaker defaultValues() {
+                    return new CircuitBreaker(true, 3, 60, 300);
+                }
+
+                public boolean isEnabled() { return enabled; }
+                public int getFailureThreshold() { return failureThreshold; }
+                public int getWindowSeconds() { return windowSeconds; }
+                public int getCooldownSeconds() { return cooldownSeconds; }
             }
         }
 

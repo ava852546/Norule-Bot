@@ -75,6 +75,23 @@ developers:
 # Music and audio integrations
 # =============================================================================
 music:
+  bilibili:
+    enabled: true
+    # Optional normal session Cookie. Environment: BILIBILI_COOKIE. Never commit a real account Cookie.
+    cookie: ""
+    metadataCache:
+      enabled: true
+      ttlHours: 12
+      maxEntries: 1000
+    rateLimit:
+      enabled: true
+      requestsPerSecond: 1
+      burst: 3
+    circuitBreaker:
+      enabled: true
+      failureThreshold: 3
+      windowSeconds: 60
+      cooldownSeconds: 300
   youtube:
     # Startup-only YouTube playback backend: YOUTUBE_SOURCE or COMPANION.
     # youtube_source, YOUTUBE_SOURCE, and youtube-source are accepted; invalid values fall back safely.

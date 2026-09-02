@@ -9,7 +9,7 @@ NoRule Bot 是以 Java 21 LTS + JDA 製作的 Discord 多功能社群機器人�
 - 專案版本：`1.7`
 - Java：`21 LTS`
 - Discord 函式庫：`JDA 6.3.1`
-- 音樂核心：`Lavaplayer 2.2.6`、`youtube-source 1.18.1`、`lavasrc 4.8.1`
+- 音樂核心：`Lavaplayer 2.2.6`、`youtube-source 1.18.1`、`lavasrc 4.8.1`、`bilibili-common 1.0.4`
 - Web 前端：`Nuxt 4 + Vue 3 + TypeScript`（NoRule URL 與 Dashboard）
 - 資料儲存：檔案、SQLite、MySQL / HikariCP，依模組設定使用
 - 授權：GPL-3.0
@@ -307,6 +307,22 @@ commandCooldownSeconds: 3
 numberChainReactionDelayMillis: 500
 
 music:
+  bilibili:
+    enabled: true
+    cookie: ""
+    metadataCache:
+      enabled: true
+      ttlHours: 12
+      maxEntries: 1000
+    rateLimit:
+      enabled: true
+      requestsPerSecond: 1
+      burst: 3
+    circuitBreaker:
+      enabled: true
+      failureThreshold: 3
+      windowSeconds: 60
+      cooldownSeconds: 300
   youtube:
     # 啟動時選擇播放後端：YOUTUBE_SOURCE 或 COMPANION。
     playbackBackend: YOUTUBE_SOURCE
@@ -340,6 +356,29 @@ music:
 ```
 
 `commandGuildId` 留空會註冊全域 Slash 指令；開發測試時可填單一伺服器 ID，加快指令更新速度。
+
+### Bilibili 風控保護
+
+Bilibili metadata 使用 12 小時、最多 1000 筆的 bounded cache；實際播放 CDN URL 不會放入長期 cache。同一 BVID 的同時請求會共用一次 metadata resolution。全域 token bucket 預設每秒補充 1 個 token、burst 3；60 秒內發生 3 次 HTTP 412 或 429 時，circuit breaker 會開啟 5 分鐘，之後以單次 half-open probe 判斷是否恢復。
+
+以下環境變數會覆寫 YAML：
+
+```text
+BILIBILI_ENABLED=true
+BILIBILI_COOKIE=
+BILIBILI_METADATA_CACHE_ENABLED=true
+BILIBILI_METADATA_CACHE_TTL_HOURS=12
+BILIBILI_METADATA_CACHE_MAX_ENTRIES=1000
+BILIBILI_RATE_LIMIT_ENABLED=true
+BILIBILI_RATE_LIMIT_RPS=1
+BILIBILI_RATE_LIMIT_BURST=3
+BILIBILI_CIRCUIT_BREAKER_ENABLED=true
+BILIBILI_CIRCUIT_BREAKER_FAILURE_THRESHOLD=3
+BILIBILI_CIRCUIT_BREAKER_WINDOW_SECONDS=60
+BILIBILI_CIRCUIT_BREAKER_COOLDOWN_SECONDS=300
+```
+
+`BILIBILI_COOKIE` 是可選設定，只供需要正常 session 的請求使用；請勿將真實 Cookie 寫入 `config.yml`、測試或提交到 repository。Cookie 無法保證解除 Bilibili 風控，Bot 也不會嘗試繞過安全驗證。
 
 ### YouTube 播放後端
 

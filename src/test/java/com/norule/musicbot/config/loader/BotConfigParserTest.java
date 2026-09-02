@@ -124,6 +124,52 @@ class BotConfigParserTest {
         assertEquals(20, retry.getMaxDelaySeconds());
     }
 
+    @Test
+    void bilibiliEnvironmentOverridesConfigWithoutExposingCookie() throws IOException {
+        BotConfig.Music.Bilibili bilibili = parse("""
+                music:
+                  bilibili:
+                    enabled: false
+                    cookie: "config-cookie"
+                    metadataCache:
+                      ttlHours: 12
+                      maxEntries: 1000
+                    rateLimit:
+                      requestsPerSecond: 1
+                      burst: 3
+                    circuitBreaker:
+                      failureThreshold: 3
+                      windowSeconds: 60
+                      cooldownSeconds: 300
+                """, Map.ofEntries(
+                Map.entry("BILIBILI_ENABLED", "true"),
+                Map.entry("BILIBILI_COOKIE", "environment-cookie"),
+                Map.entry("BILIBILI_METADATA_CACHE_ENABLED", "false"),
+                Map.entry("BILIBILI_METADATA_CACHE_TTL_HOURS", "6"),
+                Map.entry("BILIBILI_METADATA_CACHE_MAX_ENTRIES", "500"),
+                Map.entry("BILIBILI_RATE_LIMIT_ENABLED", "false"),
+                Map.entry("BILIBILI_RATE_LIMIT_RPS", "2"),
+                Map.entry("BILIBILI_RATE_LIMIT_BURST", "4"),
+                Map.entry("BILIBILI_CIRCUIT_BREAKER_ENABLED", "false"),
+                Map.entry("BILIBILI_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5"),
+                Map.entry("BILIBILI_CIRCUIT_BREAKER_WINDOW_SECONDS", "90"),
+                Map.entry("BILIBILI_CIRCUIT_BREAKER_COOLDOWN_SECONDS", "600")
+        )).getMusic().getBilibili();
+
+        assertTrue(bilibili.isEnabled());
+        assertEquals("environment-cookie", bilibili.getCookie());
+        assertFalse(bilibili.getMetadataCache().isEnabled());
+        assertEquals(6, bilibili.getMetadataCache().getTtlHours());
+        assertEquals(500, bilibili.getMetadataCache().getMaxEntries());
+        assertFalse(bilibili.getRateLimit().isEnabled());
+        assertEquals(2, bilibili.getRateLimit().getRequestsPerSecond());
+        assertEquals(4, bilibili.getRateLimit().getBurst());
+        assertFalse(bilibili.getCircuitBreaker().isEnabled());
+        assertEquals(5, bilibili.getCircuitBreaker().getFailureThreshold());
+        assertEquals(90, bilibili.getCircuitBreaker().getWindowSeconds());
+        assertEquals(600, bilibili.getCircuitBreaker().getCooldownSeconds());
+    }
+
     private BotConfig parse(String extraYaml, Map<String, String> environment) throws IOException {
         Path configPath = tempDir.resolve("config-" + System.nanoTime() + ".yml");
         Files.writeString(

@@ -128,6 +128,7 @@ public final class ConfigInitializer {
         Map<String, Object> music = asMap(config.get("music"));
         if (!music.isEmpty()) {
             Map<String, Object> youtube = asMap(music.get("youtube"));
+            Map<String, Object> bilibili = asMap(music.get("bilibili"));
             Map<String, Object> oauth = asMap(music.get("oauth"));
             Map<String, Object> cipher = asMap(music.get("cipher"));
             Map<String, Object> spotify = asMap(music.get("spotify"));
@@ -135,6 +136,9 @@ public final class ConfigInitializer {
             Map<String, Object> globalMusic = new LinkedHashMap<>();
             if (!youtube.isEmpty()) {
                 globalMusic.put("youtube", youtube);
+            }
+            if (!bilibili.isEmpty()) {
+                globalMusic.put("bilibili", bilibili);
             }
             if (!oauth.isEmpty()) {
                 globalMusic.put("oauth", oauth);

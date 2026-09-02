@@ -85,6 +85,9 @@ public final class MusicPlaybackText {
         if ("YOUTUBE_PRECHECK_UNKNOWN".equalsIgnoreCase(rawError)) {
             return i18n().t(lang, "music.youtube_precheck_unknown");
         }
+        if (rawError != null && rawError.regionMatches(true, 0, "BILIBILI_", 0, "BILIBILI_".length())) {
+            return bilibiliFailureText(lang, rawError);
+        }
         if (isCompanionFailure(rawError)) {
             return youtubeAudioSourceUnavailable(lang);
         }
@@ -176,6 +179,25 @@ public final class MusicPlaybackText {
                 "\u8fd9\u662f Spotify \u52a8\u6001\u751f\u6210\u6216\u4e2a\u6027\u5316\u7684\u64ad\u653e\u5217\u8868\uff0c"
                         + "\u76ee\u524d\u65e0\u6cd5\u83b7\u53d6\u5176\u4e2d\u7684\u6b4c\u66f2\u3002"
                         + "\u8bf7\u5c06\u6b4c\u66f2\u590d\u5236\u5230\u4f60\u81ea\u5df1\u521b\u5efa\u7684\u516c\u5f00\u64ad\u653e\u5217\u8868\u540e\u91cd\u8bd5\u3002"
+        );
+    }
+
+    private String bilibiliFailureText(String lang, String rawError) {
+        String normalized = rawError.toUpperCase(java.util.Locale.ROOT);
+        String key = switch (normalized) {
+            case "BILIBILI_RISK_CONTROL" -> "music.bilibili_risk_control";
+            case "BILIBILI_ACCESS_DENIED" -> "music.bilibili_access_denied";
+            case "BILIBILI_RATE_LIMITED" -> "music.bilibili_rate_limited";
+            case "BILIBILI_METADATA_FAILED" -> "music.bilibili_metadata_failed";
+            case "BILIBILI_PLAYBACK_FAILED" -> "music.bilibili_playback_failed";
+            default -> "music.load_failed_generic";
+        };
+        return translatedOrFallback(
+                lang,
+                key,
+                "Bilibili temporarily rejected the playback request. Please try again later.",
+                "Bilibili \u66ab\u6642\u62d2\u7d55\u64ad\u653e\u8acb\u6c42\uff0c\u8acb\u7a0d\u5f8c\u518d\u8a66\u3002",
+                "Bilibili \u6682\u65f6\u62d2\u7edd\u64ad\u653e\u8bf7\u6c42\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002"
         );
     }
 

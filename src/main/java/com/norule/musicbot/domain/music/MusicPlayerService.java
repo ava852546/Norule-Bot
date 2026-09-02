@@ -1,6 +1,11 @@
 package com.norule.musicbot.domain.music;
 
 import com.norule.musicbot.config.domain.MusicConfig;
+import com.norule.musicbot.domain.music.bilibili.BilibiliFailureClassifier;
+import com.norule.musicbot.domain.music.bilibili.BilibiliFailureReport;
+import com.norule.musicbot.domain.music.bilibili.BilibiliFailureStage;
+import com.norule.musicbot.domain.music.bilibili.BilibiliSourceLifecycle;
+import com.norule.musicbot.domain.music.bilibili.BilibiliVideoIdentifier;
 
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
@@ -90,6 +95,7 @@ public class MusicPlayerService {
     private static final String TRACK_RECOVERY_FAILED_ERROR_KEY = "AUDIO_TRACK_RECOVERY_FAILED";
     private static final AudioLoadFailureClassifier FAILURE_CLASSIFIER = new AudioLoadFailureClassifier();
     private static final YoutubeFailureClassifier YOUTUBE_FAILURE_CLASSIFIER = new YoutubeFailureClassifier();
+    private static final BilibiliFailureClassifier BILIBILI_FAILURE_CLASSIFIER = new BilibiliFailureClassifier();
     private static final Pattern SPOTIFY_URL_START_PATTERN = Pattern.compile(
             "(?i)https?://(?:www\\.)?open\\.spotify\\.com/"
     );
@@ -107,7 +113,8 @@ public class MusicPlayerService {
     private static final int YOUTUBE_PLAYLIST_BATCH_SIZE = 25;
 
     private final AudioPlayerManager playerManager;
-    private final BilibiliAudioSourceManager bilibiliSourceManager;
+    private final AudioSourceManager bilibiliSourceManager;
+    private final BilibiliSourceLifecycle bilibiliSourceLifecycle;
     private final MusicDataService musicDataService;
     private final SpotifyPlaylistInspector spotifyPlaylistInspector;
     private final YouTubePlaybackTrackFactory youtubePlaybackTrackFactory;
@@ -204,6 +211,29 @@ public class MusicPlayerService {
                               Path sqliteDbPath,
                               SpotifyPlaylistInspector spotifyPlaylistInspector,
                               YouTubePlaybackTrackFactory youtubePlaybackTrackFactory) {
+        this(
+                dataDir,
+                historyLimitProvider,
+                statsRetentionDaysProvider,
+                playlistTrackLimitProvider,
+                globalMusicConfig,
+                sqliteDbPath,
+                spotifyPlaylistInspector,
+                youtubePlaybackTrackFactory,
+                new BilibiliAudioSourceManager()
+        );
+    }
+
+    @SuppressWarnings("deprecation")
+    public MusicPlayerService(Path dataDir,
+                              LongToIntFunction historyLimitProvider,
+                              LongToIntFunction statsRetentionDaysProvider,
+                              LongToIntFunction playlistTrackLimitProvider,
+                              MusicConfig globalMusicConfig,
+                              Path sqliteDbPath,
+                              SpotifyPlaylistInspector spotifyPlaylistInspector,
+                              YouTubePlaybackTrackFactory youtubePlaybackTrackFactory,
+                              AudioSourceManager bilibiliSourceManager) {
         this.musicDataService = new MusicDataService(
                 dataDir,
                 historyLimitProvider,
@@ -217,6 +247,12 @@ public class MusicPlayerService {
         this.youtubePlaybackTrackFactory = youtubePlaybackTrackFactory == null
                 ? YouTubePlaybackTrackFactory.youtubeSource()
                 : youtubePlaybackTrackFactory;
+        this.bilibiliSourceManager = bilibiliSourceManager == null
+                ? new BilibiliAudioSourceManager()
+                : bilibiliSourceManager;
+        this.bilibiliSourceLifecycle = this.bilibiliSourceManager instanceof BilibiliSourceLifecycle lifecycle
+                ? lifecycle
+                : null;
         applyGlobalMusicConfig(globalMusicConfig == null ? MusicConfig.defaultValues() : globalMusicConfig);
         MusicConfig.Audio.Recovery recoveryConfig = audioConfig.getRecovery();
         this.trackRecoveryService = new TrackRecoveryService(
@@ -226,7 +262,6 @@ public class MusicPlayerService {
         );
         playerManager = new DefaultAudioPlayerManager();
         playerManager.setTrackStuckThreshold(recoveryConfig.getStuckThresholdMillis());
-        this.bilibiliSourceManager = new BilibiliAudioSourceManager();
         updateBilibiliPlaylistLimit();
         playerManager.registerSourceManager(bilibiliSourceManager);
         LOGGER.info("[NoRule] Bilibili audio source registered.");
@@ -262,7 +297,12 @@ public class MusicPlayerService {
     }
 
     private void updateBilibiliPlaylistLimit() {
-        bilibiliSourceManager.setPlaylistPageCount(Math.max(1, Math.ceilDiv(playlistTrackLimit, 100)));
+        int pageCount = Math.max(1, Math.ceilDiv(playlistTrackLimit, 100));
+        if (bilibiliSourceLifecycle != null) {
+            bilibiliSourceLifecycle.setPlaylistPageCount(pageCount);
+        } else if (bilibiliSourceManager instanceof BilibiliAudioSourceManager sourceManager) {
+            sourceManager.setPlaylistPageCount(pageCount);
+        }
     }
 
     public void cleanupTransientCaches(long nowMillis) {
@@ -272,6 +312,9 @@ public class MusicPlayerService {
         spotifyPlaylistCooldownByGuild.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= now);
         youtubePlaylistCache.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue().expiresAtMs <= now);
         youtubePrecheckService.cleanupExpired(Instant.ofEpochMilli(now));
+        if (bilibiliSourceLifecycle != null) {
+            bilibiliSourceLifecycle.cleanupExpiredMetadata();
+        }
         musicDataService.cleanupTransientCaches();
     }
 
@@ -281,6 +324,9 @@ public class MusicPlayerService {
         this.cipherConfig = config.getCipher();
         this.spotifyConfig = config.getSpotify();
         this.audioConfig = config.getAudio();
+        if (bilibiliSourceLifecycle != null) {
+            bilibiliSourceLifecycle.updateConfig(config.getBilibili());
+        }
         this.directHttpValidator = new AudioUrlSafetyValidator(
                 Set.copyOf(this.audioConfig.getDirectHttp().getAllowedHosts()),
                 AudioUrlSafetyValidator.systemResolver()
@@ -971,6 +1017,20 @@ public class MusicPlayerService {
 
             @Override
             public void loadFailed(FriendlyException exception) {
+                if (isBilibiliLoadAttempt(userInput, identifier, sourceLabel, exception)) {
+                    BilibiliFailureReport bilibiliFailure = BILIBILI_FAILURE_CLASSIFIER.classify(
+                            exception,
+                            BilibiliFailureStage.METADATA
+                    );
+                    logBilibiliFailure(
+                            guildId,
+                            firstNonBlank(userInput, identifier),
+                            bilibiliFailure,
+                            exception
+                    );
+                    messageSender.accept("LOAD_FAILED:" + bilibiliFailure.errorKey());
+                    return;
+                }
                 if (isYoutubeLoadAttempt(userInput, identifier, sourceLabel, exception)) {
                     YoutubeFailureReport youtubeFailure = YOUTUBE_FAILURE_CLASSIFIER.classify(exception);
                     logYoutubeFailure(
@@ -1264,6 +1324,7 @@ public class MusicPlayerService {
             return "-";
         }
         String sanitized = input.trim()
+                .replaceAll("(?i)(cookie|set-cookie)\\s*[:=]\\s*[^\\r\\n]*", "$1=<redacted>")
                 .replaceAll("(?i)(access_token|token|key|signature|sig|auth|authorization)=([^&\\s]*)", "$1=<redacted>")
                 .replaceAll("(?i)([?&])(si|utm_source)=([^&\\s]*)", "$1$2=<removed>");
         return sanitized.length() <= 300 ? sanitized : sanitized.substring(0, 300);
@@ -1878,6 +1939,30 @@ public class MusicPlayerService {
     }
 
     private void handleTrackException(long guildId, AudioTrack track, Throwable exception) {
+        if (isBilibiliTrack(track) || BILIBILI_FAILURE_CLASSIFIER.isBilibiliSourceFailure(exception)) {
+            BilibiliFailureReport bilibiliFailure = BILIBILI_FAILURE_CLASSIFIER.classify(
+                    exception,
+                    BilibiliFailureStage.PLAYBACK
+            );
+            logBilibiliFailure(guildId, bilibiliVideoId(track), bilibiliFailure, exception);
+            if (bilibiliFailure.retryable()) {
+                TrackRecoveryService.StartResult recovery = recoverTrack(
+                        guildId,
+                        track,
+                        bilibiliFailure.category().name(),
+                        bilibiliFailure.errorKey()
+                );
+                if (recovery == TrackRecoveryService.StartResult.STARTED
+                        || recovery == TrackRecoveryService.StartResult.ALREADY_IN_PROGRESS
+                        || recovery == TrackRecoveryService.StartResult.EXHAUSTED
+                        || recovery == TrackRecoveryService.StartResult.STALE) {
+                    return;
+                }
+            }
+            notifyPlaybackFailure(guildId, trackTitle(track), bilibiliFailure.errorKey());
+            skipFailedTrack(guildId, track);
+            return;
+        }
         if (isYoutubeTrack(track) || YOUTUBE_FAILURE_CLASSIFIER.isYoutubeSourceFailure(exception)) {
             YoutubeFailureReport youtubeFailure = YOUTUBE_FAILURE_CLASSIFIER.classify(exception);
             recordYoutubePlaybackFailure(youtubeFailure);
@@ -2003,6 +2088,16 @@ public class MusicPlayerService {
 
                     @Override
                     public void recoveryFailed(Throwable failure) {
+                        if (isBilibiliTrack(track)
+                                || BILIBILI_FAILURE_CLASSIFIER.isBilibiliSourceFailure(failure)) {
+                            BilibiliFailureReport bilibiliFailure = BILIBILI_FAILURE_CLASSIFIER.classify(
+                                    failure,
+                                    BilibiliFailureStage.METADATA
+                            );
+                            logBilibiliFailure(guildId, bilibiliVideoId(track), bilibiliFailure, failure);
+                            notifyPlaybackFailure(guildId, title, bilibiliFailure.errorKey());
+                            return;
+                        }
                         if (isYoutubeTrack(track) || YOUTUBE_FAILURE_CLASSIFIER.isYoutubeSourceFailure(failure)) {
                             YoutubeFailureReport youtubeFailure = YOUTUBE_FAILURE_CLASSIFIER.classify(failure);
                             recordYoutubePlaybackFailure(youtubeFailure);
@@ -2168,6 +2263,60 @@ public class MusicPlayerService {
         String resolved = identifier == null ? "" : identifier.trim();
         return resolved.regionMatches(true, 0, YT_SEARCH_PREFIX, 0, YT_SEARCH_PREFIX.length())
                 || "youtube".equalsIgnoreCase(normalizeSourceLabel(sourceLabel));
+    }
+
+    private boolean isBilibiliLoadAttempt(String userInput,
+                                          String identifier,
+                                          String sourceLabel,
+                                          Throwable failure) {
+        return BILIBILI_FAILURE_CLASSIFIER.isBilibiliSourceFailure(failure)
+                || BilibiliVideoIdentifier.isBilibiliInput(userInput)
+                || BilibiliVideoIdentifier.isBilibiliInput(identifier)
+                || "bilibili".equalsIgnoreCase(normalizeSourceLabel(sourceLabel));
+    }
+
+    private boolean isBilibiliTrack(AudioTrack track) {
+        AudioSourceManager sourceManager = track == null ? null : track.getSourceManager();
+        return sourceManager != null && "bilibili".equalsIgnoreCase(sourceManager.getSourceName());
+    }
+
+    private String bilibiliVideoId(AudioTrack track) {
+        if (track == null) {
+            return "-";
+        }
+        String identifier = track.getIdentifier();
+        if (identifier != null && identifier.regionMatches(true, 0, "BV", 0, 2)) {
+            return identifier;
+        }
+        AudioTrackInfo info = track.getInfo();
+        return BilibiliVideoIdentifier.from(info == null ? null : info.uri)
+                .map(BilibiliVideoIdentifier.VideoRequest::bvid)
+                .orElse("-");
+    }
+
+    private void logBilibiliFailure(long guildId,
+                                    String input,
+                                    BilibiliFailureReport failure,
+                                    Throwable exception) {
+        String videoId = BilibiliVideoIdentifier.from(input)
+                .map(BilibiliVideoIdentifier.VideoRequest::bvid)
+                .orElseGet(() -> input != null && input.regionMatches(true, 0, "BV", 0, 2)
+                        ? input
+                        : "-");
+        String breakerState = bilibiliSourceLifecycle == null ? "UNKNOWN" : bilibiliSourceLifecycle.breakerState();
+        String summary = "[NoRule] Bilibili request rejected: guildId=" + guildId
+                + " videoId=" + sanitizeInputForLog(videoId)
+                + " stage=" + failure.stage()
+                + " httpStatus=" + failure.httpStatus()
+                + " category=" + failure.category()
+                + " breakerState=" + breakerState
+                + " retryable=" + failure.retryable()
+                + " message=" + safeExceptionMessage(exception);
+        if (failure.retryable()) {
+            LOGGER.error(summary, exception);
+        } else {
+            LOGGER.warn(summary);
+        }
     }
 
     private boolean isYoutubeTrack(AudioTrack track) {

@@ -3,6 +3,7 @@ package com.norule.musicbot.bootstrap;
 import com.norule.musicbot.config.*;
 import com.norule.musicbot.config.domain.GuildDomainConfigAdapter;
 import com.norule.musicbot.config.domain.MusicConfig;
+import com.norule.musicbot.gateway.bilibili.BilibiliAudioSourceAdapter;
 import com.norule.musicbot.config.domain.MinecraftStatusConfig;
 import com.norule.musicbot.config.domain.RuntimeConfigSnapshot;
 import com.norule.musicbot.config.domain.ShortUrlConfig;
@@ -197,7 +198,8 @@ public final class RuntimeBootstrap {
                 globalMusicConfig,
                 musicSqlitePath,
                 new SpotifyWebApiPlaylistInspector(),
-                YouTubePlaybackRuntimeFactory.create(globalMusicConfig.getYoutube())
+                YouTubePlaybackRuntimeFactory.create(globalMusicConfig.getYoutube()),
+                new BilibiliAudioSourceAdapter(globalMusicConfig.getBilibili())
         );
         Path moderationDataPath = resolveDataPath(baseDir, config.getModerationDataDir());
         ModerationSqliteRepository moderationSqliteRepository = sharedSqliteDatabase == null ? null : new ModerationSqliteRepository(sharedSqliteDatabase);

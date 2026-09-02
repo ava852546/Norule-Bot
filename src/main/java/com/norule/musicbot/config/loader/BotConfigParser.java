@@ -56,7 +56,10 @@ final class BotConfigParser {
             BotConfig.Notifications notifications = BotConfig.Notifications.fromMap(asMap(root.get("notifications")), null);
             BotConfig.Welcome welcome = BotConfig.Welcome.fromMap(asMap(root.get("welcome")), null);
             BotConfig.MessageLogs messageLogs = BotConfig.MessageLogs.fromMap(asMap(root.get("messageLogs")), null);
-            BotConfig.Music music = BotConfig.Music.fromMap(asMap(root.get("music")), null);
+            BotConfig.Music music = BotConfig.Music.fromMap(
+                    withBilibiliEnvironment(asMap(root.get("music"))),
+                    null
+            );
             BotConfig.PrivateRoom privateRoom = BotConfig.PrivateRoom.fromMap(asMap(root.get("privateRoom")), null);
             BotConfig.Ticket ticket = BotConfig.Ticket.fromMap(asMap(root.get("ticket")), null);
             Map<String, Object> sharedDatabase = asMap(root.get("database"));
@@ -167,6 +170,54 @@ final class BotConfigParser {
 
     private static String nullToEmpty(String text) {
         return text == null ? "" : text.trim();
+    }
+
+    private Map<String, Object> withBilibiliEnvironment(Map<String, Object> music) {
+        Map<String, Object> resolvedMusic = new LinkedHashMap<>(music);
+        Map<String, Object> bilibili = new LinkedHashMap<>(asMap(resolvedMusic.get("bilibili")));
+        Map<String, Object> metadataCache = new LinkedHashMap<>(asMap(bilibili.get("metadataCache")));
+        Map<String, Object> rateLimit = new LinkedHashMap<>(asMap(bilibili.get("rateLimit")));
+        Map<String, Object> circuitBreaker = new LinkedHashMap<>(asMap(bilibili.get("circuitBreaker")));
+
+        boolean changed = putEnvironmentValue(bilibili, "enabled", "BILIBILI_ENABLED", false);
+        changed |= putEnvironmentValue(bilibili, "cookie", "BILIBILI_COOKIE", true);
+        changed |= putEnvironmentValue(
+                metadataCache, "enabled", "BILIBILI_METADATA_CACHE_ENABLED", false);
+        changed |= putEnvironmentValue(
+                metadataCache, "ttlHours", "BILIBILI_METADATA_CACHE_TTL_HOURS", false);
+        changed |= putEnvironmentValue(
+                metadataCache, "maxEntries", "BILIBILI_METADATA_CACHE_MAX_ENTRIES", false);
+        changed |= putEnvironmentValue(rateLimit, "enabled", "BILIBILI_RATE_LIMIT_ENABLED", false);
+        changed |= putEnvironmentValue(rateLimit, "requestsPerSecond", "BILIBILI_RATE_LIMIT_RPS", false);
+        changed |= putEnvironmentValue(rateLimit, "burst", "BILIBILI_RATE_LIMIT_BURST", false);
+        changed |= putEnvironmentValue(
+                circuitBreaker, "enabled", "BILIBILI_CIRCUIT_BREAKER_ENABLED", false);
+        changed |= putEnvironmentValue(
+                circuitBreaker, "failureThreshold", "BILIBILI_CIRCUIT_BREAKER_FAILURE_THRESHOLD", false);
+        changed |= putEnvironmentValue(
+                circuitBreaker, "windowSeconds", "BILIBILI_CIRCUIT_BREAKER_WINDOW_SECONDS", false);
+        changed |= putEnvironmentValue(
+                circuitBreaker, "cooldownSeconds", "BILIBILI_CIRCUIT_BREAKER_COOLDOWN_SECONDS", false);
+        if (!changed) {
+            return music;
+        }
+        bilibili.put("metadataCache", metadataCache);
+        bilibili.put("rateLimit", rateLimit);
+        bilibili.put("circuitBreaker", circuitBreaker);
+        resolvedMusic.put("bilibili", bilibili);
+        return resolvedMusic;
+    }
+
+    private boolean putEnvironmentValue(Map<String, Object> target,
+                                        String configKey,
+                                        String environmentKey,
+                                        boolean allowEmpty) {
+        String value = environment.apply(environmentKey);
+        if (value == null || (!allowEmpty && value.isBlank())) {
+            return false;
+        }
+        target.put(configKey, value.trim());
+        return true;
     }
 
     private static Map<String, Object> withMerriamWebsterEnvironmentKey(
