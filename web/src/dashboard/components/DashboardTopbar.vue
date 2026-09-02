@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useDashboard } from '../composables/useDashboard'
+import FontSizeSelector from '../../shared/components/FontSizeSelector.vue'
 
 const dashboard = useDashboard()
 </script>
@@ -10,6 +11,12 @@ const dashboard = useDashboard()
     <DashboardGuildSelect />
 
     <div class="nr-topbar-actions">
+      <FontSizeSelector
+        :group-label="dashboard.i18n.t('dashboard_font_size', '字體大小')"
+        :small-label="dashboard.i18n.t('dashboard_font_size_small', '小')"
+        :medium-label="dashboard.i18n.t('dashboard_font_size_medium', '中')"
+        :large-label="dashboard.i18n.t('dashboard_font_size_large', '大')"
+      />
       <div class="nr-language-switch" :aria-label="dashboard.i18n.t('langLabel', '介面語言')">
         <button
           v-for="language in dashboard.i18n.state.uiLanguages"
