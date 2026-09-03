@@ -13,6 +13,7 @@ public record BilibiliMetadata(
         String playlistName,
         boolean playlist,
         boolean searchResult,
+        boolean degraded,
         Integer selectedPage,
         List<Page> pages
 ) {

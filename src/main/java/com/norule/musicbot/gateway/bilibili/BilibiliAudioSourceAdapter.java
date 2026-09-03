@@ -3,6 +3,8 @@ package com.norule.musicbot.gateway.bilibili;
 import com.norule.musicbot.config.domain.MusicConfig;
 import com.norule.musicbot.domain.music.bilibili.BilibiliCircuitBreaker;
 import com.norule.musicbot.domain.music.bilibili.BilibiliFailureCategory;
+import com.norule.musicbot.domain.music.bilibili.BilibiliFailureClassifier;
+import com.norule.musicbot.domain.music.bilibili.BilibiliFailureReport;
 import com.norule.musicbot.domain.music.bilibili.BilibiliFailureStage;
 import com.norule.musicbot.domain.music.bilibili.BilibiliMetadata;
 import com.norule.musicbot.domain.music.bilibili.BilibiliMetadataCache;
@@ -49,7 +51,10 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
     private static final int REQUEST_TIMEOUT_MILLIS = 10_000;
 
     private final BilibiliAudioSourceManager delegate;
+    private final PrimaryMetadataLoader primaryMetadataLoader;
+    private final BilibiliPagelistMetadataResolver pagelistMetadataResolver;
     private final BilibiliCircuitBreaker circuitBreaker;
+    private final BilibiliFailureClassifier failureClassifier = new BilibiliFailureClassifier();
     private final BilibiliRequestRateLimiter rateLimiter;
     private final BilibiliMetadataCache metadataCache;
     private final BilibiliSingleFlight<AudioItem> singleFlight = new BilibiliSingleFlight<>();
@@ -60,6 +65,12 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
     private volatile int cooldownSeconds = 300;
 
     public BilibiliAudioSourceAdapter(MusicConfig.Bilibili config) {
+        this(config, null, null);
+    }
+
+    BilibiliAudioSourceAdapter(MusicConfig.Bilibili config,
+                               PrimaryMetadataLoader primaryMetadataLoader,
+                               BilibiliPagelistMetadataResolver pagelistMetadataResolver) {
         MusicConfig.Bilibili resolved = config == null
                 ? MusicConfig.defaultValues().getBilibili()
                 : config;
@@ -83,7 +94,13 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
                 cacheConfig.getMaxEntries()
         );
         this.delegate = new BilibiliAudioSourceManager();
-        configureHttpRuntime();
+        HttpInterfaceManager httpInterfaceManager = configureHttpRuntime();
+        this.primaryMetadataLoader = primaryMetadataLoader == null
+                ? delegate::loadItem
+                : primaryMetadataLoader;
+        this.pagelistMetadataResolver = pagelistMetadataResolver == null
+                ? new BilibiliPagelistMetadataResolver(httpInterfaceManager)
+                : pagelistMetadataResolver;
         updateConfig(resolved);
     }
 
@@ -195,47 +212,121 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
         return metadataCache.statistics();
     }
 
+    int breakerFailureCount() {
+        return circuitBreaker.failureCount();
+    }
+
+    int singleFlightParticipantCount() {
+        return singleFlight.activeParticipantCount();
+    }
+
     private AudioItem loadAndCache(AudioPlayerManager manager,
                                    AudioReference reference,
                                    BilibiliVideoIdentifier.VideoRequest request) {
-        AudioItem item = loadGuarded(manager, reference);
-        if (request.page() == null) {
-            toMetadata(item, request.bvid()).ifPresent(metadataCache::put);
+        acquireMetadataPermission();
+        try {
+            AudioItem item = primaryMetadataLoader.load(manager, reference);
+            if (request.page() == null) {
+                toMetadata(item, request.bvid()).ifPresent(metadataCache::put);
+            }
+            logCircuitTransition(circuitBreaker.recordSuccess(), 0);
+            return item;
+        } catch (Throwable primaryFailure) {
+            if (isPrimaryRiskControlFailure(primaryFailure)) {
+                return loadPagelistFallback(request);
+            }
+            circuitBreaker.releaseHalfOpenProbe();
+            throw asRuntime(primaryFailure, "Bilibili metadata request failed");
         }
-        return item;
     }
 
     private AudioItem loadGuarded(AudioPlayerManager manager, AudioReference reference) {
+        acquireMetadataPermission();
+        try {
+            AudioItem item = primaryMetadataLoader.load(manager, reference);
+            logCircuitTransition(circuitBreaker.recordSuccess(), 0);
+            return item;
+        } catch (Throwable failure) {
+            circuitBreaker.releaseHalfOpenProbe();
+            throw asRuntime(failure, "Bilibili metadata request failed");
+        }
+    }
+
+    private void acquireMetadataPermission() {
         if (!circuitBreaker.tryAcquirePermission()) {
             throw circuitOpenFailure(BilibiliFailureStage.METADATA);
         }
         if (!rateLimiter.tryAcquire()) {
             circuitBreaker.releaseHalfOpenProbe();
-            throw new BilibiliRequestException(
-                    BilibiliFailureCategory.BILIBILI_RATE_LIMITED,
-                    BilibiliFailureStage.METADATA,
-                    0,
-                    "Bilibili metadata request was throttled by the local rate limiter"
-            );
+            throw localRateLimitFailure();
+        }
+    }
+
+    private AudioItem loadPagelistFallback(BilibiliVideoIdentifier.VideoRequest request) {
+        if (!rateLimiter.tryAcquire()) {
+            circuitBreaker.releaseHalfOpenProbe();
+            throw localRateLimitFailure();
         }
         try {
-            AudioItem item = delegate.loadItem(manager, reference);
+            BilibiliMetadata metadata = pagelistMetadataResolver.resolve(request.bvid(), request.page());
+            metadataCache.put(metadata);
+            AudioItem item = toAudioItem(metadata, request.page());
             logCircuitTransition(circuitBreaker.recordSuccess(), 0);
-            return item;
-        } catch (Throwable failure) {
-            circuitBreaker.releaseHalfOpenProbe();
-            if (failure instanceof RuntimeException runtimeFailure) {
-                throw runtimeFailure;
-            }
-            if (failure instanceof Error error) {
-                throw error;
-            }
-            throw new FriendlyException(
-                    "Bilibili metadata request failed",
-                    FriendlyException.Severity.SUSPICIOUS,
-                    failure
+            LOGGER.info(
+                    "[NoRule] Bilibili metadata fallback succeeded: videoId={} primaryStatus=412 "
+                            + "fallback=PAGELIST cid={} page={} degradedMetadata={}",
+                    request.bvid(),
+                    metadata.cid(),
+                    metadata.selectedPage(),
+                    metadata.degraded()
             );
+            return item;
+        } catch (Throwable fallbackFailure) {
+            BilibiliFailureReport report = failureClassifier.classify(
+                    fallbackFailure,
+                    BilibiliFailureStage.METADATA
+            );
+            if (report.breakerFailure()) {
+                logCircuitTransition(circuitBreaker.recordFailure(report.httpStatus()), report.httpStatus());
+            } else {
+                circuitBreaker.releaseHalfOpenProbe();
+            }
+            LOGGER.info(
+                    "[NoRule] Bilibili request rejected: videoId={} stage=METADATA primaryStatus=412 "
+                            + "fallback=PAGELIST fallbackStatus={} category={} breakerState={} retryable={}",
+                    request.bvid(),
+                    report.httpStatus(),
+                    report.category(),
+                    circuitBreaker.state(),
+                    report.retryable()
+            );
+            throw asRuntime(fallbackFailure, "Bilibili pagelist metadata request failed");
         }
+    }
+
+    private boolean isPrimaryRiskControlFailure(Throwable failure) {
+        BilibiliFailureReport report = failureClassifier.classify(failure, BilibiliFailureStage.METADATA);
+        return report.category() == BilibiliFailureCategory.BILIBILI_RISK_CONTROL
+                && report.httpStatus() == 412;
+    }
+
+    private BilibiliRequestException localRateLimitFailure() {
+        return new BilibiliRequestException(
+                BilibiliFailureCategory.BILIBILI_RATE_LIMITED,
+                BilibiliFailureStage.METADATA,
+                0,
+                "Bilibili metadata request was throttled by the local rate limiter"
+        );
+    }
+
+    private RuntimeException asRuntime(Throwable failure, String message) {
+        if (failure instanceof RuntimeException runtimeFailure) {
+            return runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        return new FriendlyException(message, FriendlyException.Severity.SUSPICIOUS, failure);
     }
 
     private BilibiliRequestException circuitOpenFailure(BilibiliFailureStage stage) {
@@ -251,7 +342,7 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
         );
     }
 
-    private void configureHttpRuntime() {
+    private HttpInterfaceManager configureHttpRuntime() {
         try {
             HttpInterfaceManager manager = findHttpInterfaceManager();
             manager.configureRequests(existing -> RequestConfig.copy(existing)
@@ -260,6 +351,7 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
                     .setSocketTimeout(REQUEST_TIMEOUT_MILLIS)
                     .build());
             manager.setHttpContextFilter(new GuardedHttpContextFilter());
+            return manager;
         } catch (ReflectiveOperationException failure) {
             delegate.shutdown();
             throw new IllegalStateException(
@@ -299,6 +391,7 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
                     page.title(),
                     false,
                     false,
+                    false,
                     1,
                     List.of(page)
             ));
@@ -332,6 +425,7 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
                 playlist.getName(),
                 true,
                 playlist.isSearchResult(),
+                false,
                 selectedPage,
                 pages
         ));
@@ -379,9 +473,16 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
             return tracks.get(0);
         }
         AudioTrack selected = null;
-        if (metadata.selectedPage() != null) {
+        Integer selectedPage = metadata.degraded()
+                ? metadata.pages().stream()
+                        .filter(page -> page.number() == 1)
+                        .findFirst()
+                        .orElse(metadata.pages().get(0))
+                        .number()
+                : metadata.selectedPage();
+        if (selectedPage != null) {
             for (int index = 0; index < metadata.pages().size(); index++) {
-                if (metadata.pages().get(index).number() == metadata.selectedPage()) {
+                if (metadata.pages().get(index).number() == selectedPage) {
                     selected = tracks.get(index);
                     break;
                 }
@@ -436,6 +537,12 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
         if (status == 412 || status == 429) {
             logCircuitTransition(circuitBreaker.recordFailure(status), status);
         }
+    }
+
+    boolean defersMetadataFailure(HttpUriRequest request) {
+        URI uri = request == null ? null : request.getURI();
+        String path = uri == null ? null : uri.getPath();
+        return "/x/web-interface/view".equals(path) || "/x/player/pagelist".equals(path);
     }
 
     private void logCircuitTransition(BilibiliCircuitBreaker.Transition transition, int status) {
@@ -496,7 +603,10 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
                                          HttpUriRequest request,
                                          HttpResponse response) {
             boolean repeat = vendorHttpFilter.onRequestResponse(context, request, response);
-            if (isControlPlaneRequest(request) && response != null && response.getStatusLine() != null) {
+            if (isControlPlaneRequest(request)
+                    && !defersMetadataFailure(request)
+                    && response != null
+                    && response.getStatusLine() != null) {
                 recordHttpResponse(response.getStatusLine().getStatusCode());
             }
             return repeat;
@@ -512,5 +622,10 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
             }
             return repeat;
         }
+    }
+
+    @FunctionalInterface
+    interface PrimaryMetadataLoader {
+        AudioItem load(AudioPlayerManager manager, AudioReference reference);
     }
 }

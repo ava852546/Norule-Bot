@@ -56,6 +56,6 @@ class BilibiliMetadataCacheTest {
                 false, "", "VIDEO", bvid);
         return new BilibiliMetadata(
                 bvid, 123L, title, "author", 60_000L, "thumbnail", "https://example.test/", title,
-                false, false, 1, List.of(page));
+                false, false, false, 1, List.of(page));
     }
 }
