@@ -9,12 +9,8 @@ class PrefixCommandRouterTest {
     private static final String BILIBILI_URL = "https://www.bilibili.com/video/BV1wZMy6DE31/";
 
     @Test
-    void acceptsDollarPAsQuickPlayRegardlessOfConfiguredPrefix() {
-        PrefixCommandRouter.PrefixInvocation invocation =
-                PrefixCommandRouter.parseInvocation("$p " + BILIBILI_URL, "&&");
-
-        assertEquals("play", invocation.command());
-        assertEquals(BILIBILI_URL, invocation.argument());
+    void rejectsDollarPWhenConfiguredPrefixDiffers() {
+        assertNull(PrefixCommandRouter.parseInvocation("$p " + BILIBILI_URL, "&&"));
     }
 
     @Test
@@ -49,7 +45,7 @@ class PrefixCommandRouterTest {
     }
 
     @Test
-    void doesNotTreatOtherDollarCommandsOrMissingBoundaryAsQuickPlay() {
+    void doesNotTreatDollarCommandsOrMissingBoundaryAsQuickPlay() {
         assertNull(PrefixCommandRouter.parseInvocation("$playlist demo", "&&"));
         assertNull(PrefixCommandRouter.parseInvocation("$phttps://example.com/audio.mp3", "&&"));
     }

@@ -1,669 +1,462 @@
 # NoRule Bot
 
-NoRule Bot 是以 Java 21 LTS + JDA 製作的 Discord 多功能社群機器人，整合音樂播放、歌單管理、伺服器設定、管理工具、客服單、私人包廂、日誌、Web UI、短網址服務與 Minecraft 伺服器狀態查詢。
+NoRule Bot 是以 Java 21 開發的 Discord 多功能機器人，整合音樂播放、歌單、伺服器管理、客服單、私人語音包廂、接龍遊戲、短網址、媒體分享、Minecraft 狀態查詢，以及兩套 Nuxt 4 Web UI。
 
-本專案採用單一 Java 後端為核心。NoRule URL 首頁與 Dashboard 都使用 Nuxt 4、Vue 3 與 TypeScript；正式部署仍由 Java Web Server 提供 API、OAuth、Session 與靜態資源，不需要 Node runtime。
+本文件以目前 repository 的 Java 註冊程式、`pom.xml`、預設設定檔與 `web/` workspace 為準。部署前請先閱讀[設定範本](src/main/resources/defaults/config.yml)，不要把 token、OAuth secret、Cookie、資料庫密碼或 HMAC secret 提交到版本控制。
 
-## 目前版本
+## 版本與技術棧
 
 - 專案版本：`1.7`
-- Java：`21 LTS`
-- Discord 函式庫：`JDA 6.5.0`
-- 音樂核心：`Lavaplayer 2.2.7`、`youtube-source 1.18.2`、`lavasrc 4.8.3`、`bilibili-common 1.0.4`
-- Web 前端：`Nuxt 4 + Vue 3 + TypeScript`（NoRule URL 與 Dashboard）
-- 資料儲存：檔案、SQLite、MySQL / HikariCP，依模組設定使用
-- 授權：GPL-3.0
+- Java：21
+- Discord：JDA `6.5.0`
+- 音訊：Lavaplayer `2.2.7`、youtube-source `1.18.2`、LavaSrc `4.8.3`、bilibili-common `1.0.4`
+- 後端：JDK `HttpServer`、SQLite / MySQL、SnakeYAML、Jackson
+- 前端：Nuxt `4.5.2`、Vue `3.5.41`、TypeScript `6.0.3`、Vite `8.x`
+- 授權：GPL-3.0，詳見 [LICENSE](LICENSE)
 
-## 功能介紹
+## 主要功能
 
-### 音樂播放
+- YouTube、Bilibili、Spotify 資源解析與播放；可選 Companion 播放後端、YouTube 驗證與 Lavalink 嚴格預檢。
+- 音樂控制面板、搜尋選擇、佇列控制、循環、自動推薦、音量、歷史與統計。
+- 伺服器歌單的儲存、載入、新增歌曲、刪除、查看、單曲移除，以及六位數代碼匯出／匯入。
+- 互動式伺服器設定、歡迎訊息、日誌、私人語音包廂、客服單、警告、訊息刪除、防洗頻與 honeypot 頻道。
+- 數字接龍、英文單字接龍、使用者／身分組／伺服器資訊、訊息與語音統計、排行榜、問題回報。
+- 獨立 Dashboard 與 NoRule URL 前端；正式環境由 Java 提供 API、OAuth、Session、媒體內容與靜態檔案，不需要 Nuxt server。
+- 短網址、自訂短碼、登入後內容管理、媒體分享、密碼保護、去重、配額、速率限制與可信任代理 IP 解析。
 
-- 支援 YouTube 關鍵字 / URL、Bilibili 影片與 `b23.tv` 短網址、Spotify 連結轉搜尋、SoundCloud 與一般 URL。
-- 支援加入語音、播放、跳過、停止、離開、音量、循環模式與播放佇列。
-- 支援播放歷史、熱門歌曲、熱門點歌者、今日播放時間與統計資料。
-- 支援互動式音樂控制面板。
-- 支援佇列結束後自動推薦歌曲，並避開最近播放過的歌曲。
+## Discord 指令
 
-### 歌單管理
+下表直接對應 `DiscordCommandCatalog`。每個英文頂層指令都有一個獨立註冊的繁中別名；`<...>` 表示必填，`[...]` 表示選填。表中的權限是 Discord 註冊時的預設權限，伺服器管理員仍可在 Discord 內調整指令權限。
 
-- 可儲存目前歌曲與佇列。
-- 可載入、刪除、列出、查看歌單。
-- 可移除歌單中的指定歌曲。
-- 可產生 6 位數匯出代碼，支援跨伺服器匯入歌單。
+### 一般、資訊與服務
 
-### 伺服器設定
-
-- 可透過 Discord 指令與 Web UI 管理伺服器設定。
-- 支援語言切換、模組開關、日誌設定、音樂設定、數字接龍與訊息模板。
-- 支援全域設定重載與伺服器設定重設。
-
-### 管理與安全
-
-- 刪除指定頻道或指定使用者的訊息。
-- 使用者警告新增、減少、查看與清除。
-- 防重複訊息偵測。
-- 數字接龍遊戲。
-- 密罐頻道：建立「請勿發送訊息」頻道，使用者誤發後可自動刪除訊息、清理 24 小時內發言並踢出伺服器。
-
-### 客服單
-
-- 支援客服單開關、狀態查看與開單面板。
-- 支援開單前表單、分類選項、關閉、重開、刪除。
-- 支援 HTML Transcript 紀錄。
-- 支援黑名單與每人同時開單上限。
-
-### 私人包廂
-
-- 使用者進入指定語音頻道後，自動建立私人語音房。
-- 支援改名、限制人數、轉移擁有者與自動刪除。
-
-### Web UI
-
-- 支援 Discord OAuth2 登入。
-- 可管理伺服器設定、語言、歡迎訊息、音樂、日誌、客服單等模組。
-- 支援 HTTP 或 HTTPS。
-- Java 後端負責 `/api/**`、Session、OAuth Callback 與靜態資源。
-- `web/` 是共用前端 workspace；NoRule URL 與 Dashboard 都使用獨立的 Nuxt SPA/static build 設定。
-
-### 短網址服務
-
-- 可使用獨立短網址網域，例如 `https://s.norule.me`。
-- 首頁 `/` 提供長網址輸入與短網址建立頁面。
-- `POST /api/short` 可建立短網址。
-- `/{code}` 會轉址到原始網址。
-- 支援自訂代碼、隨機代碼、重複網址去重、過期時間與過期清理。
-- 會阻擋無效網址、保留路徑、短網址自我指向與私有 / 本機目標，除非設定允許。
-- 短網址不存在或過期時會顯示統一風格的 404 頁面。
-
-### Minecraft 伺服器狀態
-
-- Web 後端整合 Minecraft 伺服器狀態查詢流程。
-- 可設定查詢 User-Agent、請求逾時與內部快取時間。
-- 適合用於 Web UI 或 API 顯示 Minecraft Server 狀態。
-
-## 指令
-
-### 一般
-
-- `/help`、`/說明`：顯示互動式說明。
-- `/ping`、`/延遲`：查看 Bot 延遲。
-- `/welcome`、`/歡迎訊息`：設定成員加入歡迎訊息與頻道，需要管理伺服器權限。
+| 指令與繁中別名 | 參數 | 功能 | 預設權限 |
+|---|---|---|---|
+| `/help`、`/說明` | 無 | 開啟互動式說明 | 所有人 |
+| `/ping`、`/延遲` | 無 | 顯示 Discord 延遲 | 所有人 |
+| `/url`、`/短網址` | `<url>` `[slug]` | 建立 HTTP/HTTPS 短網址；`slug` 是選填自訂短碼 | 所有人 |
+| `/mcstatus`、`/mc狀態` | `<address>` `[type:JAVA\|BEDROCK]` | 查詢 Minecraft 伺服器狀態 | 所有人 |
+| `/user-info`、`/使用者資訊` | `[user]` | 顯示自己或指定使用者資訊 | 所有人 |
+| `/role-info`、`/身分組資訊` | `<role>` | 顯示身分組資訊 | 所有人 |
+| `/server-info`、`/伺服器資訊` | 無 | 顯示目前伺服器資訊 | 所有人 |
+| `/stats`、`/統計` | `[user]` | 顯示自己或指定使用者的訊息與語音統計 | 所有人 |
+| `/top`、`/排行榜` | 無 | 開啟排行榜選單 | 所有人 |
+| `/report`、`/回報` | `<type:bug\|feedback>` | 開啟回報表單；送出需設定 `developers.developerChannelId` | 所有人 |
 
 ### 音樂
 
-- `/join`、`/加入`：加入你的語音頻道。
-- `/play query:<關鍵字或URL>`、`/播放 query:<關鍵字或URL>`：播放歌曲。
-- `/skip`、`/跳過`：跳過目前歌曲。
-- `/stop`、`/停止`：停止播放並清空佇列。
-- `/leave`、`/離開`：離開語音頻道。
-- `/repeat mode:<OFF|SINGLE|ALL>`、`/循環 mode:<OFF|SINGLE|ALL>`：設定循環模式。
-- `/volume value:<1-100>`、`/音量 音量:<1-100>`：設定播放音量。
-- `/history`、`/播放歷史`：查看最近播放紀錄。
-- `/music stats`、`/音樂 統計`：查看熱門歌曲、熱門點歌者、今日播放時間與歷史筆數。
-- `/music-panel`、`/音樂面板`：建立互動式音樂控制面板。
+| 指令與繁中別名 | 參數 | 功能 |
+|---|---|---|
+| `/join`、`/加入` | 無 | 加入使用者所在語音頻道 |
+| `/play`、`/播放` | `<query>` | 播放關鍵字、支援的 URL 或 Spotify URL |
+| `/skip`、`/跳過` | 無 | 跳過目前歌曲 |
+| `/stop`、`/停止` | 無 | 停止播放並清空佇列 |
+| `/leave`、`/離開` | 無 | 離開語音頻道 |
+| `/music-panel`、`/音樂面板` | 無 | 建立或移動互動式音樂控制面板 |
+| `/repeat`、`/循環` | `<mode:OFF\|SINGLE\|ALL>` | 設定循環模式 |
+| `/volume`、`/音量` | `<value:1-100>` | 設定播放音量 |
+| `/history`、`/播放歷史` | 無 | 顯示最近播放記錄 |
+| `/music stats`、`/音樂 統計` | 無 | 顯示伺服器音樂統計 |
+
+以上指令的 Discord 預設權限皆為所有人；實際播放仍會檢查語音頻道與音樂指令頻道等執行條件。
 
 ### 歌單
 
-- `/playlist save name:<名稱>`、`/歌單 儲存 name:<名稱>`：儲存目前歌曲與佇列。
-- `/playlist load name:<名稱>`、`/歌單 載入 name:<名稱>`：載入歌單。
-- `/playlist delete name:<名稱>`、`/歌單 刪除 name:<名稱>`：刪除歌單。
-- `/playlist list scope:<mine|all>`、`/歌單 列表 scope:<mine|all>`：列出歌單。
-- `/playlist view name:<名稱>`、`/歌單 查看 name:<名稱>`：查看歌單內容。
-- `/playlist remove-track name:<名稱> index:<編號>`、`/歌單 刪除歌曲 name:<名稱> index:<編號>`：移除歌單內指定歌曲。
-- `/playlist export name:<名稱>`、`/歌單 匯出 name:<名稱>`：產生 6 位數匯出代碼。
-- `/playlist import code:<代碼> name:<名稱>`、`/歌單 匯入 code:<代碼> name:<名稱>`：匯入歌單。
+英文入口為 `/playlist`，繁中入口為 `/歌單`；繁中子指令依序為 `儲存`、`載入`、`新增歌曲`、`刪除`、`列表`、`查看`、`刪除歌曲`、`匯出`、`匯入`。
 
-### 設定
+| 子指令 | 參數 | 功能 |
+|---|---|---|
+| `/playlist save` | `<name>` | 將目前佇列儲存為歌單 |
+| `/playlist load` | `<name>` | 載入歌單到播放佇列 |
+| `/playlist add` | `<name>` `<url>` | 將 URL 加入既有歌單 |
+| `/playlist delete` | `<name>` | 刪除自己的歌單 |
+| `/playlist list` | `[scope:mine\|all]` | 列出自己的或全部歌單；預設為全部 |
+| `/playlist view` | `<name>` | 查看歌單內容 |
+| `/playlist remove-track` | `<name>` `<index:1-10000>` | 依索引移除歌單內歌曲 |
+| `/playlist export` | `<name>` | 產生六位數跨伺服器匯入代碼 |
+| `/playlist import` | `<code>` `[name]` | 以六位數代碼匯入，可另指定新名稱 |
 
-- `/settings action:info`、`/設定 選項:詳細資訊`：查看伺服器設定。
-- `/settings action:reload`、`/設定 選項:重載設定`：重新載入設定。
-- `/settings action:reset`、`/設定 選項:恢復預設`：重設指定設定區塊。
-- `/settings action:template`、`/設定 選項:模板編輯`：編輯訊息模板。
-- `/settings action:module`、`/設定 選項:模組開關`：管理模組啟用狀態。
-- `/settings action:logs`、`/設定 選項:日誌頻道`：設定日誌頻道。
-- `/settings action:log-settings`、`/設定 選項:日誌忽略`：設定日誌忽略成員、頻道或前綴。
-- `/settings action:music`、`/設定 選項:音樂設定`：設定音樂模組。
-- `/settings action:number-chain`、`/設定 選項:接龍遊戲`：開啟數字接龍設定面板。
-- `/settings action:language`、`/設定 選項:語言設置`：切換伺服器語言。
+### 設定、社群與遊戲
+
+| 指令與繁中別名 | 參數 | 功能 | 預設權限 |
+|---|---|---|---|
+| `/settings`、`/設定` | 無 | 開啟互動式設定選單；包含詳細資訊、重載、重設、模板、模組、日誌、音樂、數字接龍、英文接龍與語言 | 管理伺服器 |
+| `/welcome`、`/歡迎訊息` | `[action:enable\|status]` `[channel]` | 編輯、啟用或查看歡迎訊息與頻道 | 管理伺服器 |
+| `/private-room-settings`、`/包廂設定` | 無 | 管理使用者自己的私人語音包廂 | 所有人 |
+| `/number-chain`、`/數字接龍` | 無 | 顯示數字接龍狀態；管理設定請使用 `/settings` | 所有人 |
+| `/wordchain`、`/英文接龍` | 無 | 顯示英文單字接龍狀態；管理設定請使用 `/settings` | 所有人 |
+| `/ticket`、`/客服單` | 無 | 開啟客服單操作選單 | 所有人 |
+| `/honeypot-channel`、`/密罐頻道` | 無 | 建立 honeypot 文字頻道 | 管理伺服器 |
 
 ### 管理
 
-- `/delete-messages type:<channel|user> channel:<頻道> amount:<1-99>`、`/刪除訊息 type:<頻道|使用者> channel:<頻道> amount:<1-99>`：刪除指定頻道訊息。
-- `/delete-messages type:user user:<使用者> amount:<1-99>`、`/刪除訊息 type:使用者 user:<使用者> amount:<1-99>`：刪除指定使用者訊息；未指定頻道時會掃描全部文字頻道。
-- `/warnings action:add user:<使用者> amount:<數量>`、`/警告 action:增加 user:<使用者> amount:<數量>`：增加警告。
-- `/warnings action:remove user:<使用者> amount:<數量>`、`/警告 action:減少 user:<使用者> amount:<數量>`：減少警告。
-- `/warnings action:view user:<使用者>`、`/警告 action:查看 user:<使用者>`：查看警告。
-- `/warnings action:clear user:<使用者>`、`/警告 action:清除 user:<使用者>`：清除警告。
-- `/anti-duplicate action:enable value:<true|false>`、`/防洗頻 action:啟用 value:<true|false>`：開關重複訊息偵測。
-- `/anti-duplicate action:status`、`/防洗頻 action:狀態`：查看重複訊息偵測狀態。
-- `/honeypot-channel`、`/密罐頻道`：建立密罐文字頻道，需要管理伺服器權限。
-
-### 數字接龍
-
-- `/number-chain action:enable channel:<頻道>`、`/數字接龍 action:啟用 channel:<頻道>`：開關數字接龍，可同時設定頻道。
-- `/number-chain action:status`、`/數字接龍 action:狀態`：查看接龍狀態。
-- `/number-chain reset:true`、`/數字接龍 reset:true`：重置接龍進度。
-
-### 客服單
-
-- `/ticket action:enable`、`/客服單 action:啟用`：開關客服單。
-- `/ticket action:status`、`/客服單 action:狀態`：查看客服單狀態。
-- `/ticket action:panel`、`/客服單 action:面板`：發送客服單面板。
-- `/ticket action:close`、`/客服單 action:關閉`：關閉目前客服單。
-- `/ticket action:limit`、`/客服單 action:上限`：設定每位使用者可同時開啟的客服單數量。
-- `/ticket action:blacklist-add`、`/客服單 action:黑名單新增`：加入客服單黑名單。
-- `/ticket action:blacklist-remove`、`/客服單 action:黑名單移除`：移出客服單黑名單。
-- `/ticket action:blacklist-list`、`/客服單 action:黑名單列表`：查看客服單黑名單。
-
-### 私人包廂
-
-- `/private-room-settings`、`/包廂設定`：管理目前所在私人包廂。
+| 指令與繁中別名 | 參數 | 功能 | 預設權限 |
+|---|---|---|---|
+| `/delete-messages`、`/刪除訊息` | `<type:channel\|user>` `[channel]` `[user]` `[time]` `[amount:1-99]` | 依頻道或使用者刪除訊息；`time` 最長 14 天、預設 24 小時 | 管理訊息 |
+| `/warnings`、`/警告` | `<action:add\|remove\|view\|clear>` `[user]` `[amount:1-50]` | 新增、移除、查看或清除警告 | 管理成員 |
+| `/anti-duplicate`、`/防洗頻` | `<action:enable\|status>` `[value]` | 啟用或查看重複訊息偵測 | 管理伺服器 |
 
 ### Prefix 指令
 
-預設 prefix 是 `!`，可在 `config.yml` 修改。
+Prefix 由 `prefix` 設定，預設為 `!`。Prefix 指令只支援英文命令字；`p` 是 `play` 的別名，快速播放使用目前設定的 prefix（例如 `<prefix>p`）。
 
-- `!help`
-- `!join`
-- `!play <關鍵字或URL>`
-- `$p <Bilibili URL>`：快速播放 Bilibili 網址，不受 `prefix` 設定影響；也可使用 `<prefix>p <URL>`。
-- `!volume <1-100>`
-- `!history`
-- `!music`
-- `!playlist <save|load|delete|list|view|export> [name]`
-- `!playlist import <code> [name]`
-- `!skip`
-- `!stop`
-- `!leave`
-- `!repeat <off|single|all>`
+```text
+<prefix>help
+<prefix>join
+<prefix>play <關鍵字或 URL>
+<prefix>p <關鍵字或 URL>
+<prefix>p <Bilibili URL>       # 快速播放範例
+<prefix>volume <1-100>
+<prefix>history
+<prefix>music
+<prefix>playlist [list] [mine|all]
+<prefix>playlist save <名稱>
+<prefix>playlist load <名稱>
+<prefix>playlist add <名稱> <URL>
+<prefix>playlist delete <名稱>
+<prefix>playlist view <名稱>
+<prefix>playlist export <名稱>
+<prefix>playlist import <六位數代碼> [新名稱]
+<prefix>skip
+<prefix>stop
+<prefix>leave
+<prefix>repeat [off|single|all]
+```
+
+Prefix 歌單目前沒有 `remove-track` 動作；請使用 Slash 指令移除單曲。
 
 ### 控制台指令
 
-- `reload`：重新載入全域設定、伺服器設定、音樂資料、管理資料、客服單與密罐資料。
-- `stop`、`end`：安全關閉 Bot。
+| 指令 | 功能 |
+|---|---|
+| `help`、`?`、`h` | 顯示控制台指令說明 |
+| `reload` | 重新載入主要設定與語言檔 |
+| `stop`、`end` | 正常關閉 Bot |
+| `clear message_log [t:12d34m56s]` | 清除訊息日誌快取；未提供時間時預設 7 天 |
+| `clear message_log_cache [t:12d34m56s]` | 上一指令的相容別名 |
+| `clear play_history [t:12d34m56s]` | 清除播放歷史；未提供時間時預設 7 天 |
+| `clear guild_commands` | 清除目前註冊的 guild commands |
 
-## 專案結構
+## 專案結構與架構
+
+主要 Java 原始碼位於 `src/main/java/com/norule/musicbot/`：
 
 ```text
-src/main/java/com/norule/musicbot
-├─ bootstrap/             # 啟動入口
-├─ config/                # 全域設定、伺服器設定、DomainConfig
-├─ discord/               # Discord 指令與事件處理
-├─ domain/                # 純邏輯與領域模型
-├─ i18n/                  # 語言與翻譯服務
-├─ service/               # 業務服務
-├─ shorturl/              # 短網址資料儲存介面與實作
-├─ web/                   # Web Controller / Service / Ops / Session / Infra
-├─ HoneypotService.java
-├─ ModerationService.java
-├─ ShortUrlService.java
-└─ TicketService.java
-
-web/
-├─ app/                   # Nuxt 4 / Vue / TypeScript 與共用設計系統
-├─ dashboard/             # Dashboard Nuxt root 與設定
-├─ scripts/               # 兩個 Nuxt static output 安全同步
-├─ src/dashboard/         # Dashboard Vue 元件、composables、型別與樣式
-├─ src/templates/         # Java 特殊頁模板
-├─ nuxt.config.ts
-└─ package.json
+bootstrap/                    啟動、生命週期、runtime dependency bootstrap
+config/                       設定載入與各功能 DomainConfig
+discord/bot/app/              Discord composition root、handler registry、prefix router
+discord/bot/gateway/          JDA 入口、指令 handler、route、catalog、component、panel
+discord/bot/flow/             多步驟互動流程
+domain/                       不依賴 framework 或 I/O 的純領域邏輯
+gateway/                      外部音樂、字典等 adapter
+i18n/                         語言載入與翻譯服務
+ops/                          路由、協調與用例編排
+service/                      業務服務與 repository 協調
+shorturl/                     短網址 HTTP gateway 與 persistence adapter
+storage/                      共用儲存實作
+web/                          Dashboard HTTP controller、web service、session 與 infra
 ```
 
-## 架構設計
+依賴方向遵循：
 
-NoRule Bot 採用分層式 Discord gateway 架構，各層職責明確分離：
+```text
+gateway → flow → ops → service → domain
+web → service → ops → domain
+```
 
-- **`MusicCommandService`** 作為 Discord runtime / composition root，整合事件處理所需服務與 handler；實際事件由 gateway listener、flow 與 ops / command handler 分層處理。
-- **Discord 指令 handler**（slash、button、select、modal）統一放在 `discord.bot.gateway.command.*`，依功能分為 music、settings、moderation、privateroom 等子套件。
-- **Settings menu handler** 放在 `discord.bot.gateway.command.settings.menu`，各 menu 互相獨立。
-- **音樂控制面板**（panel runtime、renderer、state store、refresh service）放在 `discord.bot.gateway.panel`。
-- **指令名稱、Component ID、Route mapping** 集中管理：
-  - 指令與選項名稱 → `CommandNames` / `CommandOptions`
-  - Component ID → `ComponentIds`
-  - Slash 指令結構 → `DiscordCommandCatalog`
-  - ZH↔EN 名稱對應與 route 解析 → `DiscordCommandRouteMapper`
-- **Service / Domain 層不依賴 JDA event**，保持純業務邏輯與可測試性。
+`MusicCommandService` 位於 `discord.bot.app`，是 JDA listener／組合根，不承載大型指令業務邏輯。Slash schema 由 `DiscordCommandCatalog` 管理，canonical route 由 `DiscordCommandRouteMapper` 管理，各類 handler 放在 `discord.bot.gateway.command.*`。
 
+前端來源與輸出責任：
 
----
+```text
+web/app/                       NoRule URL Nuxt 來源
+web/nuxt.config.ts             NoRule URL 設定
+web/src/dashboard/             Dashboard Vue 來源
+web/dashboard/nuxt.config.ts   Dashboard Nuxt 設定
+web/src/templates/             Java render 的特殊頁面模板
+web/scripts/                   static output 同步腳本
+src/main/resources/web/        建置同步產物，不是主要來源
+target/classes/web/            Maven 建置產物，不可直接修改
+```
 
-## 部署教學
+完整前端工作方式另見 [web/README.md](web/README.md)，設計變更需遵循 [DESIGN_GUIDELINES.md](docs/DESIGN_GUIDELINES.md)。
+
+## 建置與部署
 
 ### 需求
 
-- Java 21 LTS 或更新版本。
-- Maven 3.9 或更新版本。
-- Discord Bot Token。
-- 建置 Web UI 需 Node.js 22.19+（或 24.11+）與 npm；正式執行不需要 Node.js。
-- Bot 邀請到伺服器時需勾選 `bot` 與 `applications.commands` scope。
-- 常用權限：查看頻道、發送訊息、嵌入連結、管理訊息、讀取訊息歷史、連接語音、語音發話、管理頻道、踢出成員、管理伺服器。依功能啟用狀態可再縮減。
+- 執行環境：JDK 21。
+- Java 建置：Maven；建議使用 Maven 3.9 以上。本專案沒有 Maven Wrapper，也沒有在 POM 中硬性鎖定 Maven 版本。
+- 前端建置：Node.js `^20.19.0` 或 `>=22.12.0`。此範圍來自目前 `package-lock.json` 內的 Nuxt/Vite 工具鏈；正式執行已完成建置的 JAR 時不需要 Node.js 或 Nuxt server。
 
-### 建置
+Windows 本機可明確指定 JDK 21：
 
-一般 production 建置：
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot'
+$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+java -version
+mvn -version
+```
 
-```bash
+### 驗證與打包
+
+```powershell
+# 快速 Java 編譯
+mvn -q -DskipTests compile
+
+# Java 測試
+mvn test
+
+# 正式打包：會執行 Java 測試、npm ci、兩套 Nuxt generate 與靜態輸出同步
 mvn clean package
 ```
 
-普通 `mvn package` 會在 `prepare-package` 自動執行 `npm ci`、兩個 Nuxt 應用的 `nuxt generate` 與 static output 同步。若只需要快速檢查 Java 編譯，可使用 `mvn -q -DskipTests compile`，不會重建前端。
+只有在明確接受略過 Java 測試時才使用：
 
-建置完成後會產生：
-
-```text
-target/discord-music-bot-1.7.jar
-runtime-libs/
+```powershell
+mvn clean package -DskipTests
 ```
 
-目前專案採用「主程式 jar + 專用 runtime 依賴目錄」模式，Maven 會在打包時將 runtime 依賴複製到 `runtime-libs/`。啟動器會先依內建清單與 SHA-256 校驗碼同步這個目錄，完成後才建立包含 runtime 依賴的子 JVM classpath；其他用途的檔案請勿放入此目錄。
+Maven 的 `prepare-package` 階段會執行 `npm ci` 與 `npm run build`，並把兩套 Nuxt 靜態輸出同步至 `target/classes/web`。主要輸出為：
 
-可用 JVM property 調整同步行為：
+```text
+target/discord-music-bot-<version>.jar
+runtime-libs/
+target/classes/web/
+```
 
-- `-Dnorule.bootstrap.cleanup-obsolete=true|false`：是否刪除不在目前依賴清單內的 JAR，預設 `true`。
-- `-Dnorule.bootstrap.verify-checksums=true|false`：是否驗證 SHA-256，預設 `true`。
-- `-Dnorule.bootstrap.force-redownload=true|false`：是否強制重新下載所有 runtime JAR，預設 `false`。
+目前版本的 JAR 名稱範例是 `target/discord-music-bot-1.7.jar`；自動化腳本應使用版本變數或檔案比對，不要長期硬編碼這個名稱。
 
-衝突的 SLF4J Provider 與非目前版本的 Logback JAR 屬於啟動安全限制，即使關閉一般 obsolete 清理仍會移除；`runtime-libs/` 內的非 JAR 檔案不會被清理。
+### Runtime dependencies
+
+這不是 fat JAR。Maven 會把 runtime dependencies 複製到專案工作目錄的 `runtime-libs/`，並把 dependency URL 與 SHA-256 manifest 寫入 JAR 的 `bootstrap/` resources。直接執行主 JAR 時，bootstrap 會驗證目前工作目錄下的 `runtime-libs`、下載缺少或 checksum 不符的 JAR、清理 obsolete/conflicting logging JAR，然後用主 JAR 加 `runtime-libs/*` 重新啟動 JVM。
+
+```powershell
+java -jar target/discord-music-bot-1.7.jar
+```
+
+可用 `runtime-dependencies` 設定下載進度、timeout 與重試；JVM system properties 可覆寫：
+
+| Property | 用途 |
+|---|---|
+| `norule.bootstrap.cleanup-obsolete` | 是否清理 manifest 外的舊 runtime JAR，預設 `true` |
+| `norule.bootstrap.verify-checksums` | 是否驗證 SHA-256，預設 `true` |
+| `norule.bootstrap.force-redownload` | 是否強制重新下載，預設 `false` |
+| `norule.bootstrap.progress-enabled` | 是否顯示下載進度 |
+| `norule.bootstrap.progress-interval-ms` | 進度輸出間隔 |
+| `norule.bootstrap.connect-timeout-ms` | 連線逾時 |
+| `norule.bootstrap.read-timeout-ms` | 讀取逾時 |
+| `norule.bootstrap.stall-timeout-ms` | 無資料進度逾時 |
+| `norule.bootstrap.max-retries` | 最大重試次數 |
+
+若部署環境不能連外，請連同已驗證的 `runtime-libs/` 一起部署。
 
 ### 首次啟動
 
-```bash
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.7.jar
+1. 在預定工作目錄執行 JAR。若尚無設定，程式會建立 `config.yml`、`lang/` 與 `lang/web/` 的預設語言檔。
+2. 沒有 token 時程式會在依賴與設定初始化後停止；請在 `config.yml` 設定 `token`。只有 YAML token 空白時，程式才會改用 `DISCORD_TOKEN`。
+3. 再次啟動。其他 `data`、guild 設定、日誌、歌單、管理、客服單、honeypot 與 transcript 路徑會由對應服務在啟用／使用時建立。
+
+可用 `BOT_CONFIG_PATH` 指向另一份主要 YAML。相對資料路徑以程序的工作目錄解析，因此服務化部署時應固定 `WorkingDirectory`。
+
+### 更新
+
+```powershell
+git pull
+mvn clean package
+java -jar target/discord-music-bot-1.7.jar
 ```
 
-首次啟動會自動建立 `config.yml`、語言檔與必要資料夾。停止程式後，編輯 `config.yml`：
+更新前先備份 `config.yml`、`lang/`、資料庫、guild 資料與媒體儲存目錄，並先比較新版[預設設定](src/main/resources/defaults/config.yml)。不要直接以新版預設檔覆蓋現有 secret 或站台設定。
 
-```yml
-token: "YOUR_DISCORD_BOT_TOKEN"
-defaultLanguage: "zh-TW"
-```
+## 設定
 
-再重新啟動：
+完整、可解析的設定與所有預設值都在 [`src/main/resources/defaults/config.yml`](src/main/resources/defaults/config.yml)。README 只列啟動最常用的骨架，避免複製一份容易過期的完整 schema：
 
-```bash
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.7.jar
-```
-
-## 常用設定
-
-```yml
+```yaml
+token: ""
 prefix: "!"
-debug: false
-commandGuildId: ""
-
-data:
-  guildSettingsDir: "guild/configs"
-  languageDir: "lang"
-  musicDir: "guild/music"
-  moderationDir: "guild/moderation"
-  ticketDir: "guild/tickets"
-  ticketTranscriptDir: "ticket-transcripts"
-  honeypotDir: "guild/honeypot"
-  logDir: "logs"
-
 defaultLanguage: "zh-TW"
-commandCooldownSeconds: 3
-numberChainReactionDelayMillis: 500
+commandGuildId: ""       # 空白時註冊 global commands；開發時可填 guild ID
 
-music:
-  bilibili:
-    enabled: true
-    cookie: ""
-    metadataCache:
-      enabled: true
-      ttlHours: 12
-      maxEntries: 1000
-    rateLimit:
-      enabled: true
-      requestsPerSecond: 1
-      burst: 3
-    circuitBreaker:
-      enabled: true
-      failureThreshold: 3
-      windowSeconds: 60
-      cooldownSeconds: 300
-  youtube:
-    # 啟動時選擇播放後端：YOUTUBE_SOURCE 或 COMPANION。
-    playbackBackend: YOUTUBE_SOURCE
-    companion:
-      # 是否允許使用 Companion API；也可用 YOUTUBE_COMPANION_ENABLED 覆寫。
-      enabled: false
-      # Companion origin；未帶 path 時使用官方預設 /companion。
-      url: "http://127.0.0.1:8282"
-      # 對應 Companion SERVER_SECRET_KEY，必須是 16 位英數字元。
-      secret: ""
-      # Companion timeout、離線或 5xx 時，只 fallback youtube-source 一次。
-      fallbackToSource: true
-      # Companion TCP 連線逾時（毫秒）。
-      connectTimeoutMillis: 5000
-      # Companion player API 與 playback proxy 讀取逾時（毫秒）。
-      requestTimeoutMillis: 10000
-    strictPrecheck:
-      # 可選的嚴格播放預檢；需搭配安裝 youtube-plugin 的 Lavalink。
-      enabled: false
-      # 舊版相容的整體 cache TTL。
-      cacheTtlHours: 24
-      cache:
-        # 可播放結果快取時間。
-        playableTtlHours: 24
-        # 暫時性失敗（例如上游短暫異常）快取時間。
-        temporaryFailureTtlMinutes: 10
-        # 永久性失敗／不可播放結果快取時間。
-        permanentFailureTtlHours: 24
-      # 呼叫 Lavalink 預檢 API 的逾時時間。
-      timeoutMillis: 5000
-      lavalinkBaseUrl: ""
-      lavalinkPassword: ""
-  oauth:
-    enabled: false
-    refreshToken: ""
-  cipher:
-    enabled: false
-    server: "http://localhost:8001"
-    password: ""
-    userAgent: "norule-music-bot"
-```
-
-`commandGuildId` 留空會註冊全域 Slash 指令；開發測試時可填單一伺服器 ID，加快指令更新速度。
-
-### Bilibili 風控保護
-
-Bilibili metadata 使用 12 小時、最多 1000 筆的 bounded cache；實際播放 CDN URL 不會放入長期 cache。同一 BVID 的同時請求會共用一次 metadata resolution。全域 token bucket 預設每秒補充 1 個 token、burst 3；HTTP `412` 會分類為 Bilibili risk control，`429` 會分類為 rate limited。60 秒內累積 3 次 412 或 429 時，circuit breaker 會開啟 5 分鐘，之後以單次 half-open probe 判斷是否恢復。
-
-以下環境變數會覆寫 YAML：
-
-```text
-BILIBILI_ENABLED=true
-BILIBILI_COOKIE=
-BILIBILI_METADATA_CACHE_ENABLED=true
-BILIBILI_METADATA_CACHE_TTL_HOURS=12
-BILIBILI_METADATA_CACHE_MAX_ENTRIES=1000
-BILIBILI_RATE_LIMIT_ENABLED=true
-BILIBILI_RATE_LIMIT_RPS=1
-BILIBILI_RATE_LIMIT_BURST=3
-BILIBILI_CIRCUIT_BREAKER_ENABLED=true
-BILIBILI_CIRCUIT_BREAKER_FAILURE_THRESHOLD=3
-BILIBILI_CIRCUIT_BREAKER_WINDOW_SECONDS=60
-BILIBILI_CIRCUIT_BREAKER_COOLDOWN_SECONDS=300
-```
-
-`BILIBILI_COOKIE` 是可選設定，只供需要正常 session 的請求使用；請勿將真實 Cookie 寫入 `config.yml`、測試或提交到 repository。Cookie 無法保證解除 Bilibili 風控，Bot 也不會嘗試繞過安全驗證。
-
-### YouTube 播放後端
-
-預設 `playbackBackend: YOUTUBE_SOURCE`，完整保留 youtube-source、既有 clients 與 Remote Cipher。也可在啟動環境設定：
-
-```text
-YOUTUBE_PLAYBACK_BACKEND=YOUTUBE_SOURCE
-```
-
-若要讓 Invidious Companion 只負責實際 YouTube 音訊播放，請先部署 Companion，讓 `SERVER_SECRET_KEY` 使用 16 位英數字元，再設定：
-
-```text
-YOUTUBE_PLAYBACK_BACKEND=COMPANION
-YOUTUBE_COMPANION_ENABLED=true
-YOUTUBE_COMPANION_URL=http://127.0.0.1:8282
-YOUTUBE_COMPANION_SECRET=ChangeMe12345678
-YOUTUBE_COMPANION_FALLBACK_TO_SOURCE=true
-```
-
-`YOUTUBE_COMPANION_SECRET` 範例僅示意；實際值必須符合 Companion 的 16 位英數限制。Bot 仍以 youtube-source 處理 URL、搜尋、playlist 與 metadata；播放時才呼叫 `POST /companion/youtubei/v1/player` 並透過 Companion `/videoplayback` proxy 讀取音訊。Bot 不會因此開放任意 HTTP 音訊來源。
-
-### YouTube 嚴格播放預檢
-
-`youtube-source` 已更新到 `1.18.2`。如果另外部署 Lavalink 並安裝 `dev.lavalink.youtube:youtube-plugin:1.18.2`，可啟用：
-
-```yml
-music:
-  youtube:
-    strictPrecheck:
-      # 啟用前需確認 Lavalink 已安裝 youtube-plugin。
-      enabled: true
-      # 舊版相容的整體 cache TTL。
-      cacheTtlHours: 24
-      cache:
-        playableTtlHours: 24
-        temporaryFailureTtlMinutes: 10
-        permanentFailureTtlHours: 24
-      # 單次預檢逾時（毫秒）。
-      timeoutMillis: 5000
-      lavalinkBaseUrl: "http://localhost:2333"
-      lavalinkPassword: "youshallnotpass"
-```
-
-啟用後，單一 YouTube 影片加入佇列前會呼叫 `GET /youtube/stream/{videoId}`，並快取 OK / BLOCKED 結果 24 小時。此功能只能提高入隊前判斷準確率，不能保證 100% 避免播放階段失敗。若使用 Lavalink `application.yml`，請保持內建 YouTube source 關閉：
-
-```yml
-lavalink:
-  server:
-    sources:
-      youtube: false
-  plugins:
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
-      snapshot: false
-```
-
-## Web UI 設定
-
-在 Discord Developer Portal 建立 OAuth2 應用，Redirect URI 填入：
-
-```text
-https://dash.norule.me/auth/callback
-```
-
-設定 `config.yml`：
-
-```yml
 web:
-  enabled: true
+  enabled: false
   bind:
     port: 60000
   public:
-    baseUrl: "https://dash.norule.me"
-  discordClientId: "YOUR_CLIENT_ID"
-  discordClientSecret: "YOUR_CLIENT_SECRET"
-  discordRedirectUri: "https://dash.norule.me/auth/callback"
-```
+    baseUrl: "https://dash.example.com"
+  sessionExpireMinutes: 720
+  discordClientId: ""
+  discordClientSecret: ""
+  discordRedirectUri: "https://dash.example.com/auth/callback"
 
-Web Server 固定監聽 `0.0.0.0`；請使用防火牆限制來源，並由反向代理對外提供 HTTPS。
-
-啟動後開啟：
-
-```text
-https://dash.norule.me
-```
-
-## 短網址設定
-
-短網址服務可使用獨立網域，例如 `s.norule.me`。建議由 Nginx / Cloudflare 將該網域反向代理到短網址服務或同一個 Java Web Server 對應的連接埠。
-
-```yml
 shortUrl:
-  enabled: true
+  enabled: false
   bindPort: 60001
-  publicBaseUrl: "https://s.norule.me"
+  publicBaseUrl: "https://example.com/"
 
-  # 隨機短碼預設長度；自訂短碼不使用此值。
-  codeLength: 7
-
-  # false 時阻擋 localhost、私有網段與其他非公開目標。
-  allowPrivateTargets: false
-
-  # 相同目標網址可重用既有短網址。
-  dedupe: true
-
-  # 短網址預設有效天數與背景清理週期。
-  ttlDays: 7
-  cleanupIntervalMinutes: 10
-
-  abuseProtection:
-    rateLimit:
-      enabled: true
-
-      # 匿名媒體上傳：每個來源 IP 每分鐘最多 10 個 HTTP 請求。
-      mediaRequestsPerMinutePerIp: 10
-
-      # 已登入媒體上傳仍受共用 IP abuse ceiling 保護。
-      mediaAuthenticatedRequestsPerMinutePerIp: 60
-
-      # 已登入使用者媒體上傳：每位使用者每分鐘最多 20 個 HTTP 請求。
-      mediaRequestsPerMinutePerUser: 20
-
-      # 每位登入使用者每日最多 200 個媒體上傳 HTTP 請求；
-      # 包含去重命中與既有媒體分享重用。
-      mediaRequestsPerDayPerUser: 200
-
-      # 建立短網址的 IP / 使用者每分鐘限制。
-      shortUrlRequestsPerMinutePerIp: 30
-      shortUrlRequestsPerMinutePerUser: 60
-
-      # 同時進行中的媒體上傳數量限制。
-      mediaConcurrencyPerIp: 2
-      mediaConcurrencyPerUser: 3
-
-      # 只有從這些可信任代理進入的請求，才會採信 X-Forwarded-For。
-      # 若 Nginx / Cloudflare Tunnel 與 Java 不在 loopback 上，
-      # 請加入實際反向代理的來源 CIDR；不要直接信任所有來源。
-      trustedProxyCidrs:
-        - "127.0.0.1/32"
-        - "::1/128"
-
-    creation:
-      enabled: true
-
-      # 舊有的短網址建立防濫用限制，與上方 API rate limit 共同生效。
-      anonymous:
-        maxRequestsPerMinute: 10
-        maxRequestsPer10Minutes: 50
-        maxCreatesPerDay: 200
-
-      authenticated:
-        maxRequestsPerMinute: 30
-        maxRequestsPer10Minutes: 150
-        maxCreatesPerDay: 500
-```
-
-使用方式：
-
-```text
-https://s.norule.me/
-https://s.norule.me/abc1234
-```
-
-API 範例：
-
-```bash
-curl -X POST "https://s.norule.me/api/short" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com","customCode":"example"}'
-```
-
-自訂短碼規則：
-
-- 長度為 `3-32` 個字元。
-- 僅允許英文字母、數字、`-` 與 `_`。
-- 建立時會正規化為小寫；大小寫視為同一代碼。
-- 系統保留路徑不可使用。
-- 若自訂代碼已存在，API 會回傳 `409 Conflict`。
-
-## Minecraft 狀態查詢設定
-
-```yml
-minecraftStatus:
-  userAgent: "NoRuleBot/1.0 contact: admin@norule.me"
-  requestTimeoutMillis: 15000
-  internalCacheSeconds: 60
-```
-
-## 共用資料庫設定
-
-統計與短網址資料共用 `database` 設定，可依需求使用 SQLite 或 MySQL。
-
-SQLite 範例：
-
-```yml
 database:
-  storage: "sqlite"
+  storage: "sqlite"       # sqlite 或 mysql
   sqlite:
     path: "data/norule.db"
 ```
 
-MySQL 範例：
+設定檔包含憑證時應限制檔案權限；正式環境優先以 secret manager 或環境變數注入可覆寫的秘密。
 
-```yml
-database:
-  storage: "mysql"
-  mysql:
-    jdbcUrl: "jdbc:mysql://localhost:3306/data?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
-    username: "root"
-    password: ""
-    poolSize: 8
-```
+### 環境變數
 
-## HTTPS 設定
+下列名稱是目前 Java 與前端程式實際讀取的環境變數。未列出的 YAML 欄位不代表能以同名環境變數覆寫。
 
-Java Web Server 僅提供 HTTP。請使用 Nginx、Caddy、Cloudflare Tunnel 或其他反向代理終止 HTTPS，並將請求轉送至 `web.bind.port`。
+| 類別 | 環境變數 |
+|---|---|
+| 核心 | `BOT_CONFIG_PATH`、`DISCORD_TOKEN`、`MERRIAM_WEBSTER_API_KEY` |
+| MySQL statistics/cache | `MYSQL_JDBC_URL`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_POOL_SIZE` |
+| Spotify | `SPOTIFY_ENABLED`、`SPOTIFY_CLIENT_ID`、`SPOTIFY_CLIENT_SECRET`、`SPOTIFY_SP_DC`、`SPOTIFY_COUNTRY_CODE`、`SPOTIFY_PREFER_ANONYMOUS_TOKEN`、`SPOTIFY_CUSTOM_TOKEN_ENDPOINT` |
+| Bilibili | `BILIBILI_ENABLED`、`BILIBILI_COOKIE`、`BILIBILI_METADATA_CACHE_ENABLED`、`BILIBILI_METADATA_CACHE_TTL_HOURS`、`BILIBILI_METADATA_CACHE_MAX_ENTRIES`、`BILIBILI_RATE_LIMIT_ENABLED`、`BILIBILI_RATE_LIMIT_RPS`、`BILIBILI_RATE_LIMIT_BURST`、`BILIBILI_CIRCUIT_BREAKER_ENABLED`、`BILIBILI_CIRCUIT_BREAKER_FAILURE_THRESHOLD`、`BILIBILI_CIRCUIT_BREAKER_WINDOW_SECONDS`、`BILIBILI_CIRCUIT_BREAKER_COOLDOWN_SECONDS` |
+| YouTube Companion | `YOUTUBE_PLAYBACK_BACKEND`、`YOUTUBE_COMPANION_ENABLED`、`YOUTUBE_COMPANION_FALLBACK_TO_SOURCE`、`YOUTUBE_COMPANION_URL`、`YOUTUBE_COMPANION_SECRET`、`YOUTUBE_COMPANION_CONNECT_TIMEOUT_MILLIS`、`YOUTUBE_COMPANION_REQUEST_TIMEOUT_MILLIS` |
+| YouTube cipher/auth | `YOUTUBE_CIPHER_ENABLED`、`YOUTUBE_CIPHER_SERVER`、`YOUTUBE_CIPHER_PASSWORD`、`YOUTUBE_CIPHER_USER_AGENT`、`YOUTUBE_AUTH_MODE`、`YOUTUBE_OAUTH_ENABLED`、`YOUTUBE_STRICT_AUTH_CONFIG`、`YOUTUBE_PO_TOKEN`、`YOUTUBE_VISITOR_DATA`、`YOUTUBE_OAUTH_REFRESH_TOKEN` |
+| YouTube 預檢 | `LAVALINK_BASE_URL`、`LAVALINK_PASSWORD` |
+| 短網址／媒體 | `SHORT_URL_QUOTA_HMAC_SECRET`、`SHORT_URL_DEVICE_HMAC_SECRET` |
+| 前端建置／開發 | `NUXT_DEV_API_TARGET`、`NUXT_DASHBOARD_API_TARGET`、`NORULE_WEB_OUTPUT_DIR` |
 
-若反向代理需要傳遞真實用戶端 IP，請同步設定 `shortUrl.abuseProtection.rateLimit.trustedProxyCidrs`。只有來自可信任代理的 `X-Forwarded-For` 才會被接受，避免外部直接偽造來源 IP。
+YouTube 仍接受舊相容別名 `YOUTUBE_REMOTE_CIPHER_URL`、`YOUTUBE_REMOTE_CIPHER_PASSWORD`、`YOUTUBE_REMOTE_CIPHER_USER_AGENT`、`YOUTUBE_POTOKEN`、`YOUTUBE_VISITORDATA`、`YOUTUBE_REFRESH_TOKEN`；新部署請使用上表的主要名稱。
 
-## Web UI 前端開發
+## 音樂來源與播放後端
 
-安裝依賴：
+### Bilibili
 
-```bash
+Bilibili URL 由專用 adapter 處理。控制面 API 請求具備：
+
+- 選填 Cookie；只會附加到 `bilibili.com` 子網域與 `b23.tv`。
+- metadata TTL/LRU cache、single-flight、token-bucket rate limiter 與 circuit breaker。
+- 主 metadata API 遇到 HTTP 412 風控時，改以 `x/player/pagelist` 做降級 metadata 解析；降級成功會寫入 cache 並視為成功，不計入 breaker failure。
+- 403、412、429、metadata 與 playback failure 會分類成不同錯誤；Cookie 能降低部分限制，但無法保證避開地區、帳號或上游風控。
+
+核心參數位於 `music.bilibili`；若使用 `BILIBILI_COOKIE`，請視同敏感憑證管理。
+
+### YouTube、Companion 與嚴格預檢
+
+預設 `music.youtube.playbackBackend` 為 `YOUTUBE_SOURCE`。設為 `COMPANION` 且 `music.youtube.companion.enabled: true` 時，Companion 負責取得／代理播放串流，youtube-source 仍負責搜尋與 metadata。Companion secret 必須是 16 位英數字元；若啟用 `fallbackToSource`，Companion timeout、無法連線、5xx 或無串流時只會 fallback 到 youtube-source 一次。
+
+`music.youtube.strictPrecheck.enabled` 是選填的 Lavalink youtube-plugin 預檢。啟用時需提供 base URL 與 password，程式會呼叫 `/youtube/stream/{videoId}`，並依可播放、暫時失敗與永久失敗分別使用設定的 cache TTL；若 Lavalink 未安裝相容 plugin，請保持關閉。
+
+YouTube cipher server、PO token、visitor data 或 OAuth refresh token 都是進階選項，可能受上游政策影響。不要把憑證提交到 repository；修改後應以實際 `/play` 測試，不要只以啟動成功判定可播放。
+
+### Spotify 與直接 HTTP
+
+Spotify 整合預設關閉。啟用並提供需要的 client credentials／`sp_dc` 後，Spotify track、album、playlist 與 artist 資源會解析成可播放搜尋結果；Jam、show 與 episode 不是一般播放入口。Spotify Web API 仍可能因私人、個人化、空歌單或 rate limit 拒絕解析。
+
+任意 HTTP 音訊預設由 `music.audio.direct-http.enabled: false` 關閉。若啟用，請同時維持 HTTPS、host allowlist、DNS rebinding／私有位址阻擋與 timeout 限制；不要用全域 allowlist 繞過 SSRF 防護。
+
+## Web Dashboard
+
+Dashboard 是 `web/src/dashboard/` 的獨立 Nuxt app，由 Java Web Server 在 `web.bind.port`（預設 `60000`）提供：
+
+- `/`：Dashboard shell。
+- `/auth/login`、`/auth/callback`、`/auth/logout`：Discord OAuth 與 session。
+- `/api/bot`、`/api/me`、`/api/guilds`、`/api/guild/...`：Dashboard 資料與 guild 設定 API。
+- `/api/web/i18n`、`/api/short`、`/api/minecraft/status`：前端使用的輔助 API。
+
+啟用前至少設定 `web.public.baseUrl`、`web.discordClientId`、`web.discordClientSecret` 與 `web.discordRedirectUri`。Discord Developer Portal 的 redirect URL 必須與設定完全一致，例如 `https://dash.example.com/auth/callback`。Java server 使用 HTTP；公開 HTTPS 應由 Nginx、Caddy、Cloudflare Tunnel 或同類反向代理終止 TLS。
+
+Dashboard 目前包含一般、通知、日誌、音樂、私人包廂、歡迎訊息、數字接龍與客服單設定。API 會檢查 session、CSRF 與 guild 權限；不要只靠前端隱藏控制項。
+
+## NoRule URL、短網址與媒體分享
+
+獨立 Short URL server 在 `shortUrl.bindPort`（預設 `60001`）提供 NoRule URL 靜態 app 與 API：
+
+- `/`：建立短網址／媒體分享頁面。
+- `/{code}`：網址 redirect 或媒體頁面；`/{code}?stats` 只允許登入後的擁有者查看。
+- `/my-content`：登入後管理自己的短網址與媒體。
+- `/api/short`、`/api/short/{code}`、`/api/short/{code}/stats`：建立、解析與統計。
+- `/api/short/session`、`/api/short/session/login`、`/api/short/session/logout`：登入狀態。
+- `/api/short/mine`：列出登入者擁有的內容。
+- `/api/short/image`、`/api/short/image/config`、`/api/short/image/content/{code}`、`/api/short/image/access/{code}`：媒體上傳、設定與內容存取。
+
+`shortUrl.publicBaseUrl` 是產生公開連結的唯一來源，不要在 handler 內硬編碼 production domain。
+
+### 自訂短碼
+
+- 長度 3–32，允許 `a-z`、`A-Z`、`0-9`、`-`、`_`。
+- 比對不分大小寫，儲存與回傳會正規化為小寫。
+- API、auth、login、dashboard、stats、privacy、terms、status、assets、media 等保留路徑會被拒絕。
+- 已有短碼忽略大小寫後相同時回傳 HTTP `409`。
+- 前端 `web/app/utils/shortCode.ts` 與後端 domain 規則必須保持一致；後端保留字集合是最終依據。
+
+### Rate limit 與來源 IP
+
+API admission 預設限制：匿名媒體上傳每 IP 每分鐘 10 次；已登入上傳另受 IP 每分鐘 60 次、每使用者每分鐘 20 次與每日 200 次限制；短網址建立為 IP 每分鐘 30 次、使用者每分鐘 60 次；同時媒體上傳為 IP 2、使用者 3。
+
+短網址建立另有 `shortUrl.abuseProtection.creation` 防護：匿名使用者預設為每分鐘 10 次、每 10 分鐘 50 次、每日建立 200 個；已登入使用者為每分鐘 30 次、每 10 分鐘 150 次、每日建立 500 個。請同時考量兩層限制；被限制時回傳 HTTP `429`、`Retry-After` 與統一 rate-limit payload。
+
+只有直接 peer 位於 `shortUrl.abuseProtection.rateLimit.trustedProxyCidrs` 時，程式才採信 `X-Forwarded-For`。部署在 Nginx、Cloudflare 或 Tunnel 後方時，請填入實際「直接上一跳」的 CIDR，並確認代理正確覆寫／附加 `X-Forwarded-For`；不要信任所有網段，也不要假設程式會讀取其他 vendor-specific IP header。
+
+### 媒體儲存與秘密
+
+媒體上傳先寫入暫存檔，再以 blob-level persistence 做去重與 ownership 管理，不會把大型 request body 全部留在記憶體。`SHORT_URL_QUOTA_HMAC_SECRET` 與 `SHORT_URL_DEVICE_HMAC_SECRET` 在對應功能啟用時必須使用高熵、固定且不公開的值；更換秘密可能影響既有 quota/device identity。
+
+`shortUrl.allowPrivateTargets` 預設為 `false`，不要在公開服務任意開啟。媒體預設上限為圖片 20 MB、影片 100 MB／300 秒；預設保留 1 小時、最長 365 天，過期 archive 保留 30 天。managed storage 預設上限為 50 GB，70% 警告、檔案系統使用率 80% 時停止上傳。
+
+密碼保護目前允許以 `MMdd` 作為空白密碼的預設值；若站台不接受這項取捨，請關閉 `shortUrl.image.abuseProtection.passwordProtection.allowDateDefaultPassword` 並要求明確密碼。匿名身份、密碼嘗試／退避、使用者 quota 與 cleanup 細節以預設設定檔為準。
+
+## 資料庫與資料路徑
+
+`database.storage` 支援 `sqlite` 與 `mysql`：
+
+- SQLite 預設為 `data/norule.db`，供統計、快取與多個 guild repository 共用；短網址／媒體 repository 也會依其設定使用 SQLite。
+- MySQL 可用於訊息統計、訊息日誌、重複訊息、私人包廂等 cache/repository，以及設定為 MySQL 的短網址／媒體 repository。
+- `MYSQL_*` 環境變數目前覆寫 Java runtime 建立的 statistics/cache MySQL 連線；其他 repository 應以 `config.yml` 的資料庫設定為準。
+- 歌單、客服單 transcript、媒體 blob 與部分 guild 資料另有各自的設定路徑；不要只備份單一資料庫就假設涵蓋全部狀態。
+
+切換 storage 前請自行規劃資料遷移；程式不承諾自動把既有 SQLite／檔案資料搬到 MySQL。
+
+## Minecraft 與英文接龍
+
+Minecraft 狀態查詢使用 `minecraftStatus` 的 timeout、cache、rate limit 與 `userAgent`。公開部署請把 User-Agent 聯絡資訊改成自己的有效維運信箱，不要照抄範例。
+
+英文接龍可使用 Free Dictionary API，並選填 Merriam-Webster fallback。若要啟用 Merriam-Webster，請設定 `MERRIAM_WEBSTER_API_KEY` 或對應 YAML 值；環境變數優先。
+
+## 前端開發
+
+```powershell
 cd web
 npm ci
-```
 
-建置一次：
-
-```bash
-npm run build
-```
-
-NoRule URL Nuxt dev server：
-
-```bash
+# NoRule URL：http://127.0.0.1:3000，/api 預設代理到 http://127.0.0.1:60001
 npm run dev
-```
 
-Dashboard Nuxt dev server：
-
-```bash
+# Dashboard：http://127.0.0.1:5173，/api 與 /auth 預設代理到 http://127.0.0.1:60000
 npm run dev:dashboard
 ```
 
-建議本地開發流程：
+需要其他 Java backend 時可設定：
 
-1. 啟動 Java 短網址後端（預設 `http://127.0.0.1:60001`）。
-2. 在 `web/` 執行 `npm run dev`。
-3. 開啟 Nuxt 顯示的開發網址；`/api` 會代理至 `NUXT_DEV_API_TARGET`，預設為短網址後端。
-4. 提交前執行 `npm run typecheck`、`npm test` 與 `npm run build`。
-
-Production build 流程：
-
-```text
-NoRule URL Nuxt source ─┐
-                        ├─→ nuxt generate → target/classes/web → Maven JAR
-Dashboard Nuxt source ──┘
+```powershell
+$env:NUXT_DEV_API_TARGET = 'http://127.0.0.1:60001'
+$env:NUXT_DASHBOARD_API_TARGET = 'http://127.0.0.1:60000'
 ```
 
-JAR 只包含最終 HTML、CSS、JavaScript 與 hashed assets，不包含 Node modules、Nuxt server、Vue SFC 或 TypeScript 原始碼。完整前端架構請參考 [web/README.md](web/README.md)。
+前端驗證：
 
-## 更新
-
-```bash
-git pull
-mvn clean package -DskipTests
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.7.jar
+```powershell
+cd web
+npm run typecheck
+npm test
+npm run build
 ```
 
-更新 Web UI 時不需要額外 Maven profile；普通 `mvn clean package` 已包含前端 build。
+`npm run build` 會 generate Dashboard、同步 Dashboard、generate NoRule URL、再同步 NoRule URL。未設定 `NORULE_WEB_OUTPUT_DIR` 時，腳本同步到 `src/main/resources/web`；Maven 正式建置會把它指定為 `target/classes/web`。不要手動修改 `_nuxt` hashed assets、generated HTML 或 `target/classes/web`。
 
-## 注意事項
+## 安全與維運注意事項
 
-- 請勿將 `config.yml`、Token、OAuth Secret、資料庫密碼提交到 Git。
-- 若使用短網址服務，建議只開放 HTTPS 對外入口，並由 Nginx 或 Cloudflare 代理。
-- 若使用 MySQL，請先建立資料庫並確認 Bot 主機可連線。
-- 若 Slash 指令更新較慢，可在測試階段設定 `commandGuildId` 為單一伺服器 ID。
-- 若 Discord 顯示亂碼，請確認啟動參數包含 `-Dfile.encoding=UTF-8`。
+- 不要提交 Discord token、OAuth secret、Spotify/Bilibili/YouTube 憑證、資料庫密碼、Companion secret 或短網址 HMAC secret。
+- 公開 Web／Short URL server 前，先完成 HTTPS、反向代理、可信任代理 CIDR、OAuth redirect、CSRF/session cookie 與檔案權限設定。
+- Web 與 Short URL 的 JDK `HttpServer` 目前都監聽 `0.0.0.0`；請用防火牆或容器網路限制來源，不要直接把內部 HTTP port 暴露到 Internet。
+- 保留短網址 SSRF 防護、媒體大小／配額／並行限制，以及上傳暫存檔與 blob cleanup 流程。
+- `commandGuildId` 適合開發期快速同步單一 guild；正式 global command 更新可能需要 Discord 傳播時間。
+- 音樂來源受上游 API、地區、Cookie、OAuth、限流與影音可用性影響；更新後至少實測 `help`、`play`、`playlist`、`settings`、短網址建立／redirect、ticket 與 private room flow。
+- 啟用 MySQL、Companion、Lavalink、OAuth 或 Cloudflare/Nginx 前，先用非正式環境驗證 timeout、fallback、header 與權限行為。
+
+## License
+
+本專案依 [GNU General Public License v3.0](LICENSE) 授權。

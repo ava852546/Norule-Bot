@@ -215,15 +215,15 @@ help:
     `/音量 value:<1-100>`, `/播放歷史`, `/音樂 統計`
 
     Playlists
-    `/playlist save|load|delete|list name:<playlist>`
-    `/歌單 儲存|載入|刪除|列表 name:<歌單名稱>`
+    `/playlist save|load|add|delete|list|view|remove-track|export|import`
+    `/歌單 儲存|載入|新增歌曲|刪除|列表|查看|刪除歌曲|匯出|匯入`
 
     Features
     The music panel supports playback controls, volume, repeat modes, autoplay, artwork, history, and server music stats.
   content_settings: |
     Server Settings
-    `/settings action:info|reload|reset|template|module|logs|music|number-chain|wordchain|language`
-    `/設定 選項:詳細資訊|重載設定|恢復預設|模板編輯|模組開關|日誌頻道|音樂設定|接龍遊戲|語言設置`
+    `/settings` or `/設定` opens the interactive settings menu.
+    Manage info, reload, reset, templates, modules, logs, music, both chain games, and language from that menu.
 
     Welcome Message
     `/welcome`
@@ -237,8 +237,8 @@ help:
     Manage modules, notification templates, log channels, music settings, number chain, word chain, language, and welcome messages.
   content_moderation: |
     Message Cleanup
-    `/delete-messages channel`, `/delete-messages user`
-    `/刪除訊息 type:頻道|使用者`
+    `/delete-messages type:<channel|user> [channel] [user] [time] [amount]`
+    `/刪除訊息 type:<channel|user> [頻道] [user] [time] [amount]`
 
     Warnings
     `/warnings action:add|remove|view|clear`
@@ -252,9 +252,7 @@ help:
     Quickly clean messages, manage warning counts, and check or enable duplicate-message protection.
   content_private_room: |
     Trigger Setup
-    Configure the trigger voice channel in:
-    `/settings action:music`
-    `/設定 選項:音樂設定`
+    Open `/settings` or `/設定`, then choose Music Settings to configure the trigger voice channel.
 
     Room Controls
     `/private-room-settings`
@@ -263,14 +261,12 @@ help:
     Actions
     Lock, unlock, set user limit, rename, and transfer ownership.
   content_game: |
-    Number Chain
-    Direct commands
-    `/number-chain action:enable|status channel:<text-channel> reset:<true|false>`
-    `/數字接龍 action:enable|status channel:<text-channel> reset:<true|false>`
+    Status Commands
+    `/number-chain`, `/數字接龍`
+    `/wordchain`, `/英文接龍`
 
-    Settings entry
-    `/settings action:number-chain`
-    `/設定 選項:接龍遊戲`
+    Settings
+    Open `/settings` or `/設定`, then choose Number Chain or Word Chain.
 
     Available actions
     - Set the text channel
@@ -283,16 +279,16 @@ help:
     - Wrong input resets progress to 1
   content_ticket: |
     Ticket Management
-    `/ticket action:enable|status|panel|close|limit|blacklist-add|blacklist-remove|blacklist-list`
+    `/ticket` or `/客服單` opens the interactive ticket menu.
 
     Features
     Send a ticket panel, close tickets, set open limits per user, manage blacklists, and use interactive menus or modals when needed.
   content_general: |
-    - `/help` and `/說明` open this help panel
-    - `/ping` and `/延遲` show current bot latency
-    - `/welcome` and `/歡迎訊息` edit the welcome message
-    - `/settings action:language` and `/設定 選項:語言設置` switch language
-    - The Web UI can manage welcome messages, tickets, music, private rooms, and number chain
+    - `/help`, `/說明`: help; `/ping`, `/延遲`: latency
+    - `/user-info`, `/role-info`, `/server-info`: Discord information
+    - `/stats`, `/top`: activity statistics and leaderboards
+    - `/url`, `/mcstatus`, `/report`: short URL, Minecraft status, and feedback
+    - Open `/settings` or `/設定` to change language and guild settings
   tip_title: "Quick Tip"
   tip_body: "Use the dropdown or the buttons below to switch between General, Music, Settings, Moderation, Private Room, Game, and Ticket."
 settings:

@@ -180,8 +180,6 @@ class PrefixCommandRouter {
         String commandBody;
         if (configuredPrefix != null && !configuredPrefix.isEmpty() && raw.startsWith(configuredPrefix)) {
             commandBody = raw.substring(configuredPrefix.length());
-        } else if (isDollarPlayInvocation(raw)) {
-            commandBody = raw.substring(1);
         } else {
             return null;
         }
@@ -192,13 +190,6 @@ class PrefixCommandRouter {
         }
         String argument = split.length > 1 ? split[1].trim() : "";
         return new PrefixInvocation(command, argument);
-    }
-
-    private static boolean isDollarPlayInvocation(String raw) {
-        return raw.length() >= 2
-                && raw.charAt(0) == '$'
-                && Character.toLowerCase(raw.charAt(1)) == 'p'
-                && (raw.length() == 2 || Character.isWhitespace(raw.charAt(2)));
     }
 
     record PrefixInvocation(String command, String argument) {

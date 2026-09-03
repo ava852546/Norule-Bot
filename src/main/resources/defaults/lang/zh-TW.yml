@@ -215,15 +215,15 @@ help:
     `/音量 value:<1-100>`、`/播放歷史`、`/音樂 統計`
 
     歌單
-    `/playlist save|load|delete|list name:<playlist>`
-    `/歌單 儲存|載入|刪除|列表 name:<歌單名稱>`
+    `/playlist save|load|add|delete|list|view|remove-track|export|import`
+    `/歌單 儲存|載入|新增歌曲|刪除|列表|查看|刪除歌曲|匯出|匯入`
 
     功能介紹
     音樂面板支援播放控制、音量調整、循環模式、自動推薦、封面顯示、播放歷史與音樂統計。
   content_settings: |
     伺服器設定
-    `/settings action:info|reload|reset|template|module|logs|music|number-chain|wordchain|language`
-    `/設定 選項:詳細資訊|重載設定|恢復預設|模板編輯|模組開關|日誌頻道|音樂設定|接龍遊戲|語言設置`
+    `/settings` 或 `/設定` 會開啟互動式設定選單。
+    可從選單管理資訊、重載、重設、模板、模組、日誌、音樂、兩種接龍遊戲與語言。
 
     歡迎訊息
     `/welcome`
@@ -237,8 +237,8 @@ help:
     可管理模組開關、通知模板、日誌頻道、音樂設定、數字接龍、語言與歡迎訊息內容。
   content_moderation: |
     訊息清理
-    `/delete-messages channel`、`/delete-messages user`
-    `/刪除訊息 type:頻道|使用者`
+    `/delete-messages type:<channel|user> [channel] [user] [time] [amount]`
+    `/刪除訊息 type:<channel|user> [頻道] [user] [time] [amount]`
 
     警告系統
     `/warnings action:add|remove|view|clear`
@@ -252,9 +252,7 @@ help:
     可快速清理訊息、管理警告紀錄，並檢查或啟用重複訊息偵測。
   content_private_room: |
     觸發設定
-    請從以下位置設定私人包廂觸發語音頻道：
-    `/settings action:music`
-    `/設定 選項:音樂設定`
+    開啟 `/settings` 或 `/設定`，再從音樂設定選擇私人包廂觸發語音頻道。
 
     包廂控制
     `/private-room-settings`
@@ -263,14 +261,12 @@ help:
     可用操作
     上鎖、解鎖、設定人數上限、重新命名、轉讓房主。
   content_game: |
-    數字接龍
-    直接指令
-    `/number-chain action:enable|status channel:<文字頻道> reset:<true|false>`
-    `/數字接龍 action:啟用|狀態 channel:<文字頻道> reset:<true|false>`
+    狀態指令
+    `/number-chain`、`/數字接龍`
+    `/wordchain`、`/英文接龍`
 
-    設定入口
-    `/settings action:number-chain`
-    `/設定 選項:接龍遊戲`
+    遊戲設定
+    開啟 `/settings` 或 `/設定`，再選擇數字接龍或英文接龍。
 
     可用操作
     - 設定文字頻道
@@ -283,17 +279,16 @@ help:
     - 輸入錯誤會將進度重設回 1
   content_ticket: |
     客服單管理
-    `/ticket action:enable|status|panel|close|limit|blacklist-add|blacklist-remove|blacklist-list`
-    `/客服單 action:啟用|狀態|面板|關閉|上限|黑名單新增|黑名單移除|黑名單列表`
+    `/ticket` 或 `/客服單` 會開啟互動式客服單選單。
 
     功能介紹
     可發送客服單面板、關閉客服單、設定每位使用者上限、管理黑名單，並支援互動選單與輸入視窗。
   content_general: |
-    - `/help` 與 `/說明` 可開啟此說明面板
-    - `/ping` 與 `/延遲` 可查看目前 Bot 延遲
-    - `/welcome` 與 `/歡迎訊息` 可編輯歡迎訊息
-    - `/settings action:language` 與 `/設定 選項:語言設置` 可切換語言
-    - Web UI 可管理歡迎訊息、客服單、音樂、私人包廂與數字接龍
+    - `/help`、`/說明`：說明；`/ping`、`/延遲`：延遲
+    - `/user-info`、`/role-info`、`/server-info`：Discord 資訊
+    - `/stats`、`/top`：活動統計與排行榜
+    - `/url`、`/mcstatus`、`/report`：短網址、Minecraft 狀態與回報
+    - 開啟 `/settings` 或 `/設定` 切換語言及管理伺服器設定
   tip_title: "快速提示"
   tip_body: "可使用下拉選單或下方按鈕，在一般、音樂、設定、管理、私人包廂、遊戲、客服單之間快速切換。"
 
