@@ -60,14 +60,58 @@ class BotConfigParserTest {
     void missingDictionarySectionUsesDefaults() throws IOException {
         BotConfig.Dictionary dictionary = parse("", Map.of()).getDictionary();
 
-        assertEquals(5, dictionary.getConnectTimeoutSeconds());
-        assertEquals(5, dictionary.getRequestTimeoutSeconds());
+        assertEquals(3, dictionary.getConnectTimeoutSeconds());
+        assertEquals(4, dictionary.getRequestTimeoutSeconds());
         assertTrue(dictionary.getFreeDictionary().isEnabled());
         assertEquals(
                 BotConfig.Dictionary.FreeDictionary.DEFAULT_ENDPOINT,
                 dictionary.getFreeDictionary().getEndpoint()
         );
         assertFalse(dictionary.getMerriamWebster().isAvailable());
+    }
+
+    @Test
+    void dictionaryResilienceSettingsAreLoaded() throws IOException {
+        BotConfig.Dictionary dictionary = parse("""
+                dictionary:
+                  connectTimeoutSeconds: 2
+                  requestTimeoutSeconds: 3
+                  cache:
+                    enabled: false
+                    foundTtlHours: 12
+                    notFoundTtlMinutes: 15
+                    temporaryFailureTtlSeconds: 7
+                    maxEntries: 321
+                  freeDictionary:
+                    retry:
+                      enabled: false
+                      maxAttempts: 4
+                      initialDelayMillis: 125
+                    circuitBreaker:
+                      enabled: false
+                      failureThreshold: 3
+                      cooldownSeconds: 45
+                """, Map.of()).getDictionary();
+
+        assertEquals(2, dictionary.getConnectTimeoutSeconds());
+        assertEquals(3, dictionary.getRequestTimeoutSeconds());
+        assertFalse(dictionary.getCache().isEnabled());
+        assertEquals(12, dictionary.getCache().getFoundTtlHours());
+        assertEquals(15, dictionary.getCache().getNotFoundTtlMinutes());
+        assertEquals(7, dictionary.getCache().getTemporaryFailureTtlSeconds());
+        assertEquals(321, dictionary.getCache().getMaxEntries());
+        assertFalse(dictionary.getFreeDictionary().getRetry().isEnabled());
+        assertEquals(4, dictionary.getFreeDictionary().getRetry().getMaxAttempts());
+        assertEquals(125, dictionary.getFreeDictionary().getRetry().getInitialDelayMillis());
+        assertFalse(dictionary.getFreeDictionary().getCircuitBreaker().isEnabled());
+        assertEquals(
+                3,
+                dictionary.getFreeDictionary().getCircuitBreaker().getFailureThreshold()
+        );
+        assertEquals(
+                45,
+                dictionary.getFreeDictionary().getCircuitBreaker().getCooldownSeconds()
+        );
     }
 
     @Test
@@ -93,8 +137,8 @@ class BotConfigParserTest {
                   requestTimeoutSeconds: "invalid"
                 """, Map.of()).getDictionary();
 
-        assertEquals(5, dictionary.getConnectTimeoutSeconds());
-        assertEquals(5, dictionary.getRequestTimeoutSeconds());
+        assertEquals(3, dictionary.getConnectTimeoutSeconds());
+        assertEquals(4, dictionary.getRequestTimeoutSeconds());
     }
 
     @Test

@@ -169,6 +169,14 @@ public final class WordChainOps {
                                 .build()).queue();
                         return;
                     }
+                    if (result.result() == WordChainValidationResult.DICTIONARY_API_ERROR) {
+                        event.getMessage().replyEmbeds(new EmbedBuilder()
+                                .setColor(new Color(241, 196, 15))
+                                .setDescription(errorText(result))
+                                .setTimestamp(Instant.now())
+                                .build()).queue();
+                        return;
+                    }
                     event.getMessage().addReaction(Emoji.fromUnicode(EMOJI_REJECTED)).queue(ignored -> {
                     }, error -> {
                     });

@@ -479,16 +479,18 @@ public String getToken() {
     }
 
     public static final class Dictionary {
-        public static final int DEFAULT_CONNECT_TIMEOUT_SECONDS = 5;
-        public static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 5;
+        public static final int DEFAULT_CONNECT_TIMEOUT_SECONDS = 3;
+        public static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 4;
 
         private final int connectTimeoutSeconds;
         private final int requestTimeoutSeconds;
+        private final Cache cache;
         private final FreeDictionary freeDictionary;
         private final MerriamWebster merriamWebster;
 
         private Dictionary(int connectTimeoutSeconds,
                            int requestTimeoutSeconds,
+                           Cache cache,
                            FreeDictionary freeDictionary,
                            MerriamWebster merriamWebster) {
             this.connectTimeoutSeconds = positiveOrDefault(
@@ -499,6 +501,7 @@ public String getToken() {
                     requestTimeoutSeconds,
                     DEFAULT_REQUEST_TIMEOUT_SECONDS
             );
+            this.cache = cache == null ? Cache.defaultValues() : cache;
             this.freeDictionary = freeDictionary == null ? FreeDictionary.defaultValues() : freeDictionary;
             this.merriamWebster = merriamWebster == null ? MerriamWebster.defaultValues() : merriamWebster;
         }
@@ -508,6 +511,7 @@ public String getToken() {
             return new Dictionary(
                     getInt(map, "connectTimeoutSeconds", defaults.getConnectTimeoutSeconds()),
                     getInt(map, "requestTimeoutSeconds", defaults.getRequestTimeoutSeconds()),
+                    Cache.fromMap(asMap(map.get("cache")), defaults.getCache()),
                     FreeDictionary.fromMap(asMap(map.get("freeDictionary")), defaults.getFreeDictionary()),
                     MerriamWebster.fromMap(asMap(map.get("merriamWebster")), defaults.getMerriamWebster())
             );
@@ -517,6 +521,7 @@ public String getToken() {
             return new Dictionary(
                     DEFAULT_CONNECT_TIMEOUT_SECONDS,
                     DEFAULT_REQUEST_TIMEOUT_SECONDS,
+                    Cache.defaultValues(),
                     FreeDictionary.defaultValues(),
                     MerriamWebster.defaultValues()
             );
@@ -530,6 +535,10 @@ public String getToken() {
             return requestTimeoutSeconds;
         }
 
+        public Cache getCache() {
+            return cache;
+        }
+
         public FreeDictionary getFreeDictionary() {
             return freeDictionary;
         }
@@ -538,28 +547,130 @@ public String getToken() {
             return merriamWebster;
         }
 
+        public static final class Cache {
+            public static final int DEFAULT_FOUND_TTL_HOURS = 24;
+            public static final int DEFAULT_NOT_FOUND_TTL_MINUTES = 30;
+            public static final int DEFAULT_TEMPORARY_FAILURE_TTL_SECONDS = 10;
+            public static final int DEFAULT_MAX_ENTRIES = 10_000;
+
+            private final boolean enabled;
+            private final int foundTtlHours;
+            private final int notFoundTtlMinutes;
+            private final int temporaryFailureTtlSeconds;
+            private final int maxEntries;
+
+            private Cache(
+                    boolean enabled,
+                    int foundTtlHours,
+                    int notFoundTtlMinutes,
+                    int temporaryFailureTtlSeconds,
+                    int maxEntries
+            ) {
+                this.enabled = enabled;
+                this.foundTtlHours = positiveOrDefault(
+                        foundTtlHours,
+                        DEFAULT_FOUND_TTL_HOURS
+                );
+                this.notFoundTtlMinutes = positiveOrDefault(
+                        notFoundTtlMinutes,
+                        DEFAULT_NOT_FOUND_TTL_MINUTES
+                );
+                this.temporaryFailureTtlSeconds = positiveOrDefault(
+                        temporaryFailureTtlSeconds,
+                        DEFAULT_TEMPORARY_FAILURE_TTL_SECONDS
+                );
+                this.maxEntries = positiveOrDefault(maxEntries, DEFAULT_MAX_ENTRIES);
+            }
+
+            public static Cache fromMap(Map<String, Object> map, Cache fallback) {
+                Cache defaults = fallback == null ? defaultValues() : fallback;
+                return new Cache(
+                        getBoolean(map, "enabled", defaults.isEnabled()),
+                        getInt(map, "foundTtlHours", defaults.getFoundTtlHours()),
+                        getInt(map, "notFoundTtlMinutes", defaults.getNotFoundTtlMinutes()),
+                        getInt(
+                                map,
+                                "temporaryFailureTtlSeconds",
+                                defaults.getTemporaryFailureTtlSeconds()
+                        ),
+                        getInt(map, "maxEntries", defaults.getMaxEntries())
+                );
+            }
+
+            public static Cache defaultValues() {
+                return new Cache(
+                        true,
+                        DEFAULT_FOUND_TTL_HOURS,
+                        DEFAULT_NOT_FOUND_TTL_MINUTES,
+                        DEFAULT_TEMPORARY_FAILURE_TTL_SECONDS,
+                        DEFAULT_MAX_ENTRIES
+                );
+            }
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public int getFoundTtlHours() {
+                return foundTtlHours;
+            }
+
+            public int getNotFoundTtlMinutes() {
+                return notFoundTtlMinutes;
+            }
+
+            public int getTemporaryFailureTtlSeconds() {
+                return temporaryFailureTtlSeconds;
+            }
+
+            public int getMaxEntries() {
+                return maxEntries;
+            }
+        }
+
         public static final class FreeDictionary {
             public static final String DEFAULT_ENDPOINT =
                     "https://api.dictionaryapi.dev/api/v2/entries/en/";
 
             private final boolean enabled;
             private final String endpoint;
+            private final Retry retry;
+            private final CircuitBreaker circuitBreaker;
 
-            private FreeDictionary(boolean enabled, String endpoint) {
+            private FreeDictionary(
+                    boolean enabled,
+                    String endpoint,
+                    Retry retry,
+                    CircuitBreaker circuitBreaker
+            ) {
                 this.enabled = enabled;
                 this.endpoint = normalizeEndpoint(endpoint, DEFAULT_ENDPOINT);
+                this.retry = retry == null ? Retry.defaultValues() : retry;
+                this.circuitBreaker = circuitBreaker == null
+                        ? CircuitBreaker.defaultValues()
+                        : circuitBreaker;
             }
 
             public static FreeDictionary fromMap(Map<String, Object> map, FreeDictionary fallback) {
                 FreeDictionary defaults = fallback == null ? defaultValues() : fallback;
                 return new FreeDictionary(
                         getBoolean(map, "enabled", defaults.isEnabled()),
-                        getString(map, "endpoint", defaults.getEndpoint())
+                        getString(map, "endpoint", defaults.getEndpoint()),
+                        Retry.fromMap(asMap(map.get("retry")), defaults.getRetry()),
+                        CircuitBreaker.fromMap(
+                                asMap(map.get("circuitBreaker")),
+                                defaults.getCircuitBreaker()
+                        )
                 );
             }
 
             public static FreeDictionary defaultValues() {
-                return new FreeDictionary(true, DEFAULT_ENDPOINT);
+                return new FreeDictionary(
+                        true,
+                        DEFAULT_ENDPOINT,
+                        Retry.defaultValues(),
+                        CircuitBreaker.defaultValues()
+                );
             }
 
             public boolean isEnabled() {
@@ -568,6 +679,130 @@ public String getToken() {
 
             public String getEndpoint() {
                 return endpoint;
+            }
+
+            public Retry getRetry() {
+                return retry;
+            }
+
+            public CircuitBreaker getCircuitBreaker() {
+                return circuitBreaker;
+            }
+
+            public static final class Retry {
+                public static final int DEFAULT_MAX_ATTEMPTS = 2;
+                public static final int DEFAULT_INITIAL_DELAY_MILLIS = 250;
+
+                private final boolean enabled;
+                private final int maxAttempts;
+                private final int initialDelayMillis;
+
+                private Retry(boolean enabled, int maxAttempts, int initialDelayMillis) {
+                    this.enabled = enabled;
+                    this.maxAttempts = positiveOrDefault(maxAttempts, DEFAULT_MAX_ATTEMPTS);
+                    this.initialDelayMillis = nonNegativeOrDefault(
+                            initialDelayMillis,
+                            DEFAULT_INITIAL_DELAY_MILLIS
+                    );
+                }
+
+                public static Retry fromMap(Map<String, Object> map, Retry fallback) {
+                    Retry defaults = fallback == null ? defaultValues() : fallback;
+                    return new Retry(
+                            getBoolean(map, "enabled", defaults.isEnabled()),
+                            getInt(map, "maxAttempts", defaults.getMaxAttempts()),
+                            getInt(
+                                    map,
+                                    "initialDelayMillis",
+                                    defaults.getInitialDelayMillis()
+                            )
+                    );
+                }
+
+                public static Retry defaultValues() {
+                    return new Retry(
+                            true,
+                            DEFAULT_MAX_ATTEMPTS,
+                            DEFAULT_INITIAL_DELAY_MILLIS
+                    );
+                }
+
+                public boolean isEnabled() {
+                    return enabled;
+                }
+
+                public int getMaxAttempts() {
+                    return maxAttempts;
+                }
+
+                public int getInitialDelayMillis() {
+                    return initialDelayMillis;
+                }
+            }
+
+            public static final class CircuitBreaker {
+                public static final int DEFAULT_FAILURE_THRESHOLD = 5;
+                public static final int DEFAULT_COOLDOWN_SECONDS = 60;
+
+                private final boolean enabled;
+                private final int failureThreshold;
+                private final int cooldownSeconds;
+
+                private CircuitBreaker(
+                        boolean enabled,
+                        int failureThreshold,
+                        int cooldownSeconds
+                ) {
+                    this.enabled = enabled;
+                    this.failureThreshold = positiveOrDefault(
+                            failureThreshold,
+                            DEFAULT_FAILURE_THRESHOLD
+                    );
+                    this.cooldownSeconds = positiveOrDefault(
+                            cooldownSeconds,
+                            DEFAULT_COOLDOWN_SECONDS
+                    );
+                }
+
+                public static CircuitBreaker fromMap(
+                        Map<String, Object> map,
+                        CircuitBreaker fallback
+                ) {
+                    CircuitBreaker defaults = fallback == null ? defaultValues() : fallback;
+                    return new CircuitBreaker(
+                            getBoolean(map, "enabled", defaults.isEnabled()),
+                            getInt(
+                                    map,
+                                    "failureThreshold",
+                                    defaults.getFailureThreshold()
+                            ),
+                            getInt(
+                                    map,
+                                    "cooldownSeconds",
+                                    defaults.getCooldownSeconds()
+                            )
+                    );
+                }
+
+                public static CircuitBreaker defaultValues() {
+                    return new CircuitBreaker(
+                            true,
+                            DEFAULT_FAILURE_THRESHOLD,
+                            DEFAULT_COOLDOWN_SECONDS
+                    );
+                }
+
+                public boolean isEnabled() {
+                    return enabled;
+                }
+
+                public int getFailureThreshold() {
+                    return failureThreshold;
+                }
+
+                public int getCooldownSeconds() {
+                    return cooldownSeconds;
+                }
             }
         }
 
@@ -617,6 +852,10 @@ public String getToken() {
 
         private static int positiveOrDefault(int value, int defaultValue) {
             return value > 0 ? value : defaultValue;
+        }
+
+        private static int nonNegativeOrDefault(int value, int defaultValue) {
+            return value >= 0 ? value : defaultValue;
         }
 
         private static String normalizeEndpoint(String endpoint, String defaultEndpoint) {
