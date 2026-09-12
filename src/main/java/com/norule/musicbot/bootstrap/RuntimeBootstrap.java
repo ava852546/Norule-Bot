@@ -1,6 +1,7 @@
 package com.norule.musicbot.bootstrap;
 
 import com.norule.musicbot.config.*;
+import com.norule.musicbot.config.domain.DictionaryCacheConfig;
 import com.norule.musicbot.config.domain.GuildDomainConfigAdapter;
 import com.norule.musicbot.config.domain.MusicConfig;
 import com.norule.musicbot.gateway.bilibili.BilibiliAudioSourceAdapter;
@@ -206,7 +207,10 @@ public final class RuntimeBootstrap {
         ModerationService moderationService = new ModerationService(moderationDataPath, moderationSqliteRepository);
         WordChainService wordChainService = new WordChainService(
                 new WordChainStateRepository(moderationDataPath.resolve("wordchain")),
-                new DictionaryApiService(createDictionaryApiGateway(config.getDictionary()))
+                new DictionaryApiService(
+                        createDictionaryApiGateway(config.getDictionary()),
+                        createDictionaryCacheConfig(config.getDictionary())
+                )
         );
         WordChainOps wordChainOps = new WordChainOps(wordChainService);
         HoneypotSqliteRepository honeypotSqliteRepository = sharedSqliteDatabase == null ? null : new HoneypotSqliteRepository(sharedSqliteDatabase);
@@ -993,6 +997,18 @@ public final class RuntimeBootstrap {
         }
 
         return new FallbackDictionaryApiGateway(primary, fallback, merriamWebster.isAvailable());
+    }
+
+    private static DictionaryCacheConfig createDictionaryCacheConfig(BotConfig.Dictionary config) {
+        BotConfig.Dictionary safeConfig = config == null ? BotConfig.Dictionary.defaultValues() : config;
+        BotConfig.Dictionary.Cache cache = safeConfig.getCache();
+        return new DictionaryCacheConfig(
+                cache.isEnabled(),
+                Duration.ofHours(cache.getFoundTtlHours()),
+                Duration.ofMinutes(cache.getNotFoundTtlMinutes()),
+                Duration.ofSeconds(cache.getTemporaryFailureTtlSeconds()),
+                cache.getMaxEntries()
+        );
     }
 
     private static void closeQuietly(AutoCloseable closeable, String name) {

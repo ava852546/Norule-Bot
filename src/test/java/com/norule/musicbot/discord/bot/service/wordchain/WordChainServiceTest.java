@@ -133,6 +133,7 @@ class WordChainServiceTest {
     @Test
     void apiErrorDoesNotMutateState() throws Exception {
         Path dir = Files.createTempDirectory("wordchain-apierror");
+        long userId = 77L;
         FakeGateway gateway = new FakeGateway();
         gateway.set("apple", DictionaryLookupResult.FOUND, 0);
         gateway.set("errorword", DictionaryLookupResult.API_ERROR, 0);
@@ -141,18 +142,28 @@ class WordChainServiceTest {
                 new DictionaryApiService(gateway)
         );
         service.setChannel(11L, 111L).join();
-        service.processMessage(11L, 111L, "apple").join();
+        service.processMessage(11L, 111L, userId, "apple").join();
 
         WordChainStatusSnapshot before = service.status(11L).join();
+        WordChainPlayerStatsSnapshot statsBefore = service.stats(11L, userId).join();
         assertEquals("apple", before.lastWord());
         assertEquals(1, before.chainCount());
+        assertEquals(1, statsBefore.totalMessages());
+        assertEquals(0, statsBefore.invalidCount());
 
-        WordChainProcessResult error = service.processMessage(11L, 111L, "errorword").join();
+        WordChainProcessResult error = service.processMessage(
+                11L,
+                111L,
+                userId,
+                "errorword"
+        ).join();
         assertEquals(WordChainValidationResult.DICTIONARY_API_ERROR, error.result());
 
         WordChainStatusSnapshot after = service.status(11L).join();
+        WordChainPlayerStatsSnapshot statsAfter = service.stats(11L, userId).join();
         assertEquals("apple", after.lastWord());
         assertEquals(1, after.chainCount());
+        assertEquals(statsBefore, statsAfter);
     }
 
     @Test

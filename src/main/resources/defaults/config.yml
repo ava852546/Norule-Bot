@@ -161,11 +161,25 @@ music:
 # Word-chain dictionary integrations
 # =============================================================================
 dictionary:
-  connectTimeoutSeconds: 5
-  requestTimeoutSeconds: 5
+  connectTimeoutSeconds: 3
+  requestTimeoutSeconds: 4
+  cache:
+    enabled: true
+    foundTtlHours: 24
+    notFoundTtlMinutes: 30
+    temporaryFailureTtlSeconds: 10
+    maxEntries: 10000
   freeDictionary:
     enabled: true
     endpoint: "https://api.dictionaryapi.dev/api/v2/entries/en/"
+    retry:
+      enabled: true
+      maxAttempts: 2
+      initialDelayMillis: 250
+    circuitBreaker:
+      enabled: true
+      failureThreshold: 5
+      cooldownSeconds: 60
   merriamWebster:
     enabled: true
     endpoint: "https://www.dictionaryapi.com/api/v3/references/collegiate/json/"
