@@ -53,6 +53,7 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
     private final BilibiliAudioSourceManager delegate;
     private final PrimaryMetadataLoader primaryMetadataLoader;
     private final BilibiliPagelistMetadataResolver pagelistMetadataResolver;
+    private final BilibiliShortUrlResolver shortUrlResolver;
     private final BilibiliCircuitBreaker circuitBreaker;
     private final BilibiliFailureClassifier failureClassifier = new BilibiliFailureClassifier();
     private final BilibiliRequestRateLimiter rateLimiter;
@@ -71,6 +72,14 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
     BilibiliAudioSourceAdapter(MusicConfig.Bilibili config,
                                PrimaryMetadataLoader primaryMetadataLoader,
                                BilibiliPagelistMetadataResolver pagelistMetadataResolver) {
+        this(config, primaryMetadataLoader, pagelistMetadataResolver, new BilibiliShortUrlResolver());
+    }
+
+    BilibiliAudioSourceAdapter(MusicConfig.Bilibili config,
+                               PrimaryMetadataLoader primaryMetadataLoader,
+                               BilibiliPagelistMetadataResolver pagelistMetadataResolver,
+                               BilibiliShortUrlResolver shortUrlResolver) {
+        this.shortUrlResolver = shortUrlResolver;
         MusicConfig.Bilibili resolved = config == null
                 ? MusicConfig.defaultValues().getBilibili()
                 : config;
@@ -115,34 +124,68 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
         if (!enabled || !BilibiliVideoIdentifier.isBilibiliInput(identifier)) {
             return null;
         }
-        Optional<BilibiliVideoIdentifier.VideoRequest> videoRequest = BilibiliVideoIdentifier.from(identifier);
         if (circuitBreaker.state() == BilibiliCircuitBreaker.State.OPEN) {
-            throw circuitOpenFailure(BilibiliFailureStage.METADATA);
+            throw circuitOpenFailure(BilibiliShortUrlResolver.isShortUrl(identifier)
+                    ? BilibiliFailureStage.SHORT_URL_RESOLVE : BilibiliFailureStage.METADATA);
         }
+        if (BilibiliShortUrlResolver.isShortUrl(identifier)) {
+            return loadShortUrl(manager, reference);
+        }
+        Optional<BilibiliVideoIdentifier.VideoRequest> videoRequest = BilibiliVideoIdentifier.from(identifier);
         if (videoRequest.isPresent()) {
-            BilibiliVideoIdentifier.VideoRequest request = videoRequest.get();
-            Optional<BilibiliMetadata> cached = metadataCache.get(request.bvid());
-            if (cached.isPresent()) {
-                return toAudioItem(cached.get(), request.page());
-            }
-            try {
-                AudioItem loaded = singleFlight.execute(
-                        request.singleFlightKey(),
-                        SINGLE_FLIGHT_TIMEOUT,
-                        () -> loadAndCache(manager, reference, request)
-                );
-                return cloneAudioItem(loaded);
-            } catch (RuntimeException runtimeFailure) {
-                throw runtimeFailure;
-            } catch (Exception failure) {
-                throw new FriendlyException(
-                        "Bilibili metadata request failed",
-                        FriendlyException.Severity.SUSPICIOUS,
-                        failure
-                );
-            }
+            return loadVideoRequest(manager, reference, videoRequest.get());
         }
         return loadGuarded(manager, reference);
+    }
+
+    private AudioItem loadShortUrl(AudioPlayerManager manager, AudioReference reference) {
+        BilibiliVideoIdentifier.VideoRequest request;
+        String host = URI.create(reference.identifier.trim()).getHost();
+        try {
+            URI resolved = shortUrlResolver.resolve(reference.identifier);
+            request = BilibiliVideoIdentifier.from(resolved.toString()).orElseThrow(
+                    () -> BilibiliShortUrlResolver.failure("MISSING_BVID", 0, false));
+        } catch (BilibiliRequestException failure) {
+            LOGGER.info("[NoRule] Bilibili short URL resolution failed: stage=SHORT_URL_RESOLVE "
+                            + "host={} category={} httpStatus={} retryable={} reason={}",
+                    host, failure.category(), failure.httpStatus(), failure.retryable(), failure.getMessage());
+            throw failure;
+        }
+        LOGGER.info("[NoRule] Bilibili short URL resolved: shortHost={} videoId={} page={}",
+                host, request.bvid(), request.page() == null ? 1 : request.page());
+        String canonical = canonicalVideoUrl(request.bvid())
+                + (request.page() == null ? "" : "?p=" + request.page());
+        try {
+            return loadVideoRequest(manager, new AudioReference(canonical, reference.title), request);
+        } catch (RuntimeException failure) {
+            BilibiliFailureReport report = failureClassifier.classify(failure, BilibiliFailureStage.METADATA);
+            throw new BilibiliRequestException(report.category(), report.stage(), report.httpStatus(),
+                    "Bilibili resolved video request failed", report.retryable(), request.bvid(), failure);
+        }
+    }
+
+    private AudioItem loadVideoRequest(AudioPlayerManager manager, AudioReference reference,
+                                       BilibiliVideoIdentifier.VideoRequest request) {
+        Optional<BilibiliMetadata> cached = metadataCache.get(request.bvid());
+        if (cached.isPresent()) {
+            return toAudioItem(cached.get(), request.page());
+        }
+        try {
+            AudioItem loaded = singleFlight.execute(
+                    request.singleFlightKey(),
+                    SINGLE_FLIGHT_TIMEOUT,
+                    () -> loadAndCache(manager, reference, request)
+            );
+            return cloneAudioItem(loaded);
+        } catch (RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        } catch (Exception failure) {
+            throw new FriendlyException(
+                    "Bilibili metadata request failed",
+                    FriendlyException.Severity.SUSPICIOUS,
+                    failure
+            );
+        }
     }
 
     @Override
@@ -206,6 +249,7 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
     @Override
     public void cleanupExpiredMetadata() {
         metadataCache.cleanupExpired();
+        shortUrlResolver.cleanupExpired();
     }
 
     BilibiliMetadataCache.Statistics cacheStatistics() {

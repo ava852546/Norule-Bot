@@ -20,7 +20,9 @@ public final class BilibiliFailureClassifier {
         for (Throwable current = failure; current != null; current = current.getCause()) {
             if (current instanceof BilibiliRequestException requestFailure) {
                 int status = requestFailure.httpStatus();
-                return report(requestFailure.category(), requestFailure.stage(), status);
+                BilibiliFailureReport report = report(requestFailure.category(), requestFailure.stage(), status);
+                return new BilibiliFailureReport(report.category(), report.stage(), status,
+                        requestFailure.retryable(), report.breakerFailure());
             }
             String message = normalizedMessage(current);
             stage = inferStage(message, stage);
@@ -45,7 +47,7 @@ public final class BilibiliFailureClassifier {
         if (httpStatus == 429) {
             return report(BilibiliFailureCategory.BILIBILI_RATE_LIMITED, stage, httpStatus);
         }
-        BilibiliFailureCategory category = stage == BilibiliFailureStage.METADATA
+        BilibiliFailureCategory category = stage != BilibiliFailureStage.PLAYBACK
                 ? BilibiliFailureCategory.BILIBILI_METADATA_FAILED
                 : BilibiliFailureCategory.BILIBILI_PLAYBACK_FAILED;
         boolean retryable = retryableNetworkFailure || httpStatus >= 500;
@@ -65,7 +67,7 @@ public final class BilibiliFailureClassifier {
     }
 
     private BilibiliFailureReport fallback(BilibiliFailureStage stage, boolean retryable) {
-        BilibiliFailureCategory category = stage == BilibiliFailureStage.METADATA
+        BilibiliFailureCategory category = stage != BilibiliFailureStage.PLAYBACK
                 ? BilibiliFailureCategory.BILIBILI_METADATA_FAILED
                 : BilibiliFailureCategory.BILIBILI_PLAYBACK_FAILED;
         return new BilibiliFailureReport(category, stage, 0, retryable, false);

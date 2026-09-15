@@ -4,6 +4,7 @@ import com.norule.musicbot.config.domain.MusicConfig;
 import com.norule.musicbot.domain.music.bilibili.BilibiliFailureClassifier;
 import com.norule.musicbot.domain.music.bilibili.BilibiliFailureReport;
 import com.norule.musicbot.domain.music.bilibili.BilibiliFailureStage;
+import com.norule.musicbot.domain.music.bilibili.BilibiliRequestException;
 import com.norule.musicbot.domain.music.bilibili.BilibiliSourceLifecycle;
 import com.norule.musicbot.domain.music.bilibili.BilibiliVideoIdentifier;
 
@@ -2303,6 +2304,12 @@ public class MusicPlayerService {
                 .orElseGet(() -> input != null && input.regionMatches(true, 0, "BV", 0, 2)
                         ? input
                         : "-");
+        for (Throwable current = exception; current != null; current = current.getCause()) {
+            if (current instanceof BilibiliRequestException requestFailure && !requestFailure.videoId().isBlank()) {
+                videoId = requestFailure.videoId();
+                break;
+            }
+        }
         String breakerState = bilibiliSourceLifecycle == null ? "UNKNOWN" : bilibiliSourceLifecycle.breakerState();
         String summary = "[NoRule] Bilibili request rejected: guildId=" + guildId
                 + " videoId=" + sanitizeInputForLog(videoId)
