@@ -49,7 +49,7 @@ public final class ShortUrlCreationGuard {
         }
 
         public static Options defaults() {
-            return new Options(true, 10, 50, 200, 30, 150, 500);
+            return new Options(true, 10, 50, 200, 30, 200, 500);
         }
     }
 

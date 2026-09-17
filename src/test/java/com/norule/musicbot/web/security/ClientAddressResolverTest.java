@@ -54,6 +54,16 @@ class ClientAddressResolverTest {
                 exchange, List.of("127.0.0.1/32")));
     }
 
+    @Test
+    void ignoresCloudflareAndRealIpHeadersEvenWhenImmediateProxyIsTrusted() {
+        TestHttpExchange exchange = exchange("127.0.0.1")
+                .header("CF-Connecting-IP", "192.0.2.9")
+                .header("X-Real-IP", "192.0.2.8");
+        assertEquals("127.0.0.1", ClientAddressResolver.resolve(exchange, List.of("127.0.0.1/32")));
+        exchange.header("X-Forwarded-For", "198.51.100.77");
+        assertEquals("198.51.100.77", ClientAddressResolver.resolve(exchange, List.of("127.0.0.1/32")));
+    }
+
     private TestHttpExchange exchange(String address) {
         return new TestHttpExchange("POST", "/api/short", new byte[0],
                 new InetSocketAddress(address, 54321));

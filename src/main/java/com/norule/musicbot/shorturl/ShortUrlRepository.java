@@ -47,6 +47,14 @@ public interface ShortUrlRepository {
 
     void deleteByCode(String code);
 
+    default boolean updateOwnedTarget(String code, String ownerUserId, long createdAt, String target) {
+        return false;
+    }
+
+    default boolean deleteOwned(String code, String ownerUserId, long createdAt) {
+        return false;
+    }
+
     int cleanupExpired(long nowMillis);
 
     long incrementViewCount(String code);

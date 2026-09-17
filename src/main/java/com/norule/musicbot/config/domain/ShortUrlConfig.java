@@ -8,6 +8,7 @@ import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
 import com.norule.musicbot.service.shorturl.MediaQuotaService;
 import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
 import com.norule.musicbot.service.shorturl.RateLimitService;
+import com.norule.musicbot.service.shorturl.TurnstileVerifier;
 import java.util.Locale;
 import java.util.List;
 
@@ -98,6 +99,9 @@ public final class ShortUrlConfig {
     private final MediaQuotaService.Options mediaQuotaOptions;
     private final ShortUrlCreationGuard.Options creationGuardOptions;
     private final RateLimitService.Options rateLimitOptions;
+    private final boolean anonymousExpirationEnabled;
+    private final int anonymousExpirationDays;
+    private final TurnstileVerifier.Options turnstileOptions;
     private final List<String> trustedProxyCidrs;
     private final String legacyImageStoragePath;
     private final String temporaryStoragePath;
@@ -161,6 +165,9 @@ public final class ShortUrlConfig {
         this.mediaQuotaOptions = MediaQuotaService.Options.defaults();
         this.creationGuardOptions = ShortUrlCreationGuard.Options.defaults();
         this.rateLimitOptions = RateLimitService.Options.defaults();
+        this.anonymousExpirationEnabled = false;
+        this.anonymousExpirationDays = 30;
+        this.turnstileOptions = TurnstileVerifier.Options.disabled();
         this.trustedProxyCidrs = List.of("127.0.0.1/32", "::1/128");
         this.legacyImageStoragePath = this.image.getStoragePath();
         this.temporaryStoragePath = "data/tmp/uploads";
@@ -237,6 +244,11 @@ public final class ShortUrlConfig {
                 creation.getAuthenticated().getMaxCreatesPerDay()
         );
         BotConfig.ShortUrl.ApiRateLimit rateLimit = source.getApiRateLimit();
+        this.anonymousExpirationEnabled = source.getAnonymous().isExpirationEnabled();
+        this.anonymousExpirationDays = source.getAnonymous().getExpirationDays();
+        this.turnstileOptions = new TurnstileVerifier.Options(
+                source.getAnonymous().isTurnstileEnabled(), source.getAnonymous().getTurnstileSiteKey(),
+                System.getenv("TURNSTILE_SECRET"), java.net.URI.create(publicBaseUrl).getHost());
         this.rateLimitOptions = new RateLimitService.Options(
                 rateLimit.isEnabled(),
                 rateLimit.getMediaRequestsPerMinutePerIp(),
@@ -246,7 +258,11 @@ public final class ShortUrlConfig {
                 rateLimit.getShortUrlRequestsPerMinutePerIp(),
                 rateLimit.getShortUrlRequestsPerMinutePerUser(),
                 rateLimit.getMediaConcurrencyPerIp(),
-                rateLimit.getMediaConcurrencyPerUser());
+                rateLimit.getMediaConcurrencyPerUser(),
+                rateLimit.getShortUrlRequestsPerHourPerIp(),
+                rateLimit.getShortUrlRequestsPerDayPerIp(),
+                rateLimit.getShortUrlAuthenticatedRequestsPerMinutePerIp(),
+                rateLimit.getShortUrlApiRequestsPerDayPerUser());
         this.trustedProxyCidrs = rateLimit.getTrustedProxyCidrs();
         this.legacyImageStoragePath = source.getImage().getStoragePath();
         this.temporaryStoragePath = mediaStorage.getTempPath();
@@ -266,7 +282,9 @@ public final class ShortUrlConfig {
                 cleanupIntervalMinutes * 60L * 1000L,
                 publicBaseUrl,
                 codeLength,
-                allowPrivateTargets
+                allowPrivateTargets,
+                anonymousExpirationEnabled,
+                anonymousExpirationDays
         );
     }
 
@@ -307,6 +325,7 @@ public final class ShortUrlConfig {
     public MediaQuotaService.Options getMediaQuotaOptions() { return mediaQuotaOptions; }
     public ShortUrlCreationGuard.Options getCreationGuardOptions() { return creationGuardOptions; }
     public RateLimitService.Options getRateLimitOptions() { return rateLimitOptions; }
+    public TurnstileVerifier.Options getTurnstileOptions() { return turnstileOptions; }
     public List<String> getTrustedProxyCidrs() { return trustedProxyCidrs; }
     public String getLegacyImageStoragePath() { return legacyImageStoragePath; }
     public String getTemporaryStoragePath() { return temporaryStoragePath; }

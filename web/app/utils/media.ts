@@ -96,6 +96,10 @@ export function shortUrlErrorMessage(payload: ApiErrorResponse): string {
     INVALID_CUSTOM_CODE: '自訂代碼只能使用英文字母、數字、-、_，長度需為 3～32 個字元。',
     RESERVED_CUSTOM_CODE: '此名稱由系統保留，請使用其他代碼。',
     CUSTOM_CODE_ALREADY_EXISTS: '此自訂代碼已被使用。',
+    CUSTOM_CODE_AUTH_REQUIRED: '請先登入 Discord，再設定自訂短碼。',
+    RATE_LIMITED: `請求過於頻繁，請在 ${Math.max(1, payload.retryAfter || payload.retryAfterSeconds || 1)} 秒後再試。`,
+    TURNSTILE_REQUIRED: '請完成驗證後再試。',
+    TURNSTILE_UNAVAILABLE: '驗證服務暫時無法使用，請稍後再試。',
     METHOD_NOT_ALLOWED: '不支援這個請求方式。',
   }
   return messages[code] || payload.error?.trim() || '建立短網址失敗，請稍後再試。'

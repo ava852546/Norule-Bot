@@ -231,6 +231,35 @@ public final class SqliteShortUrlRepository implements ShortUrlRepository {
     }
 
     @Override
+    public boolean updateOwnedTarget(String code, String ownerUserId, long createdAt, String target) {
+        String sql = "UPDATE short_urls SET target = ? WHERE code = ? AND owner_user_id = ? AND created_at = ?";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, target);
+            statement.setString(2, code);
+            statement.setString(3, ownerUserId);
+            statement.setLong(4, createdAt);
+            return statement.executeUpdate() == 1;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to update owned short url", e);
+        }
+    }
+
+    @Override
+    public boolean deleteOwned(String code, String ownerUserId, long createdAt) {
+        String sql = "DELETE FROM short_urls WHERE code = ? AND owner_user_id = ? AND created_at = ?";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, code);
+            statement.setString(2, ownerUserId);
+            statement.setLong(3, createdAt);
+            return statement.executeUpdate() == 1;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to delete owned short url", e);
+        }
+    }
+
+    @Override
     public int cleanupExpired(long nowMillis) {
         try (Connection connection = DriverManager.getConnection(jdbcUrl);
              PreparedStatement statement = connection.prepareStatement(CLEANUP)) {

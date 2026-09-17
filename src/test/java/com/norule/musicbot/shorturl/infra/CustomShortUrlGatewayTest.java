@@ -34,8 +34,8 @@ class CustomShortUrlGatewayTest {
                 "bindPort", port,
                 "publicBaseUrl", "http://127.0.0.1:" + port
         ), BotConfig.ShortUrl.defaultValues());
-        ShortUrlGatewayServer gateway = new ShortUrlGatewayServer(service, () -> config);
-        HttpClient client = HttpClient.newHttpClient();
+        ShortUrlGatewayServer gateway = new ShortUrlGatewayServer(service, () -> config, exchange -> "owner-a");
+        HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
         try {
             gateway.syncWithConfig();
 
@@ -64,7 +64,7 @@ class CustomShortUrlGatewayTest {
     private HttpResponse<String> post(HttpClient client, int port, String body) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(
                         URI.create("http://127.0.0.1:" + port + "/api/short"))
-                .header("Content-Type", "application/json")
+                .timeout(java.time.Duration.ofSeconds(10)).header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         return client.send(request, HttpResponse.BodyHandlers.ofString());

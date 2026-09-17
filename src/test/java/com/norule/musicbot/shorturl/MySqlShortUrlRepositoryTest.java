@@ -18,6 +18,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MySqlShortUrlRepositoryTest {
     @Test
+    void managementWritesIncludeOwnerAndCreationIdentityInSqlPredicate() {
+        java.util.List<String> statements = new java.util.ArrayList<>();
+        java.util.List<Map<Integer, Object>> bindings = new java.util.ArrayList<>();
+        DataSource source = proxy(DataSource.class, (ds, method, args) -> {
+            if (!"getConnection".equals(method.getName())) return defaultValue(method.getReturnType());
+            return proxy(Connection.class, (connection, call, params) -> {
+                if (!"prepareStatement".equals(call.getName())) return defaultValue(call.getReturnType());
+                statements.add((String) params[0]);
+                Map<Integer, Object> values = new HashMap<>();
+                bindings.add(values);
+                return proxy(PreparedStatement.class, (statement, operation, arguments) -> {
+                    if (operation.getName().startsWith("set")) values.put((Integer) arguments[0], arguments[1]);
+                    if ("executeUpdate".equals(operation.getName())) return 1;
+                    return defaultValue(operation.getReturnType());
+                });
+            });
+        });
+        var repository = new MySqlShortUrlRepository(source);
+        assertTrue(repository.updateOwnedTarget("code", "owner", 123L, "https://example.com"));
+        assertTrue(repository.deleteOwned("code", "owner", 123L));
+        assertTrue(statements.stream().allMatch(sql -> sql.contains("WHERE code = ? AND owner_user_id = ? AND created_at = ?")));
+        assertEquals(Map.of(1, "https://example.com", 2, "code", 3, "owner", 4, 123L), bindings.get(0));
+        assertEquals(Map.of(1, "code", 2, "owner", 3, 123L), bindings.get(1));
+    }
+
+    @Test
     void declaresCaseInsensitiveCollationForTheCodePrimaryKey() {
         assertTrue(MySqlShortUrlRepository.CREATE_TABLE.contains("PRIMARY KEY (code)"));
         assertTrue(MySqlShortUrlRepository.CREATE_TABLE.contains("COLLATE=utf8mb4_unicode_ci"));

@@ -175,7 +175,7 @@ class ShortUrlGatewayServerTest {
                 "bindPort", port,
                 "publicBaseUrl", "http://127.0.0.1:" + port
         ), BotConfig.ShortUrl.defaultValues());
-        ShortUrlGatewayServer gateway = new ShortUrlGatewayServer(service, () -> config);
+        ShortUrlGatewayServer gateway = new ShortUrlGatewayServer(service, () -> config, exchange -> "owner-a");
         HttpClient client = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .build();

@@ -26,6 +26,11 @@ describe('媒體分享驗證', () => {
 })
 
 describe('後端錯誤映射', () => {
+  it('提示登入需求、限流等待時間與驗證失敗', () => {
+    expect(shortUrlErrorMessage({ errorCode: 'CUSTOM_CODE_AUTH_REQUIRED' })).toContain('登入')
+    expect(shortUrlErrorMessage({ errorCode: 'RATE_LIMITED', retryAfter: 37 })).toContain('37 秒')
+    expect(shortUrlErrorMessage({ errorCode: 'TURNSTILE_REQUIRED' })).toContain('驗證')
+  })
   it('映射短網址與媒體 errorCode', () => {
     expect(shortUrlErrorMessage({ errorCode: 'INVALID_URL_OR_CODE' })).toContain('網址')
     expect(shortUrlErrorMessage({ errorCode: 'INVALID_CUSTOM_CODE' })).toContain('3～32')

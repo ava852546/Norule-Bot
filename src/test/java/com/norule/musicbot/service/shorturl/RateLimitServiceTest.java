@@ -74,9 +74,9 @@ class RateLimitServiceTest {
         RateLimitService service = service(clock,
                 new RateLimitService.Options(true, 100, 100, 200, 2, 100, 2, 3));
 
-        assertTrue(service.checkShortUrlCreation("198.51.100.1", "user-a").allowed());
-        assertTrue(service.checkShortUrlCreation("198.51.100.1", "user-a").allowed());
-        RateLimitService.Result limited = service.checkShortUrlCreation("198.51.100.1", "user-a");
+        assertTrue(service.checkShortUrlCreation("198.51.100.1", "").allowed());
+        assertTrue(service.checkShortUrlCreation("198.51.100.1", "").allowed());
+        RateLimitService.Result limited = service.checkShortUrlCreation("198.51.100.1", "");
         assertFalse(limited.allowed());
         assertTrue(limited.retryAfterSeconds() > 0L);
         assertTrue(service.checkShortUrlCreation("198.51.100.2", "user-b").allowed());
@@ -118,6 +118,87 @@ class RateLimitServiceTest {
         try (RateLimitService.UploadPermit reacquired = service.beginMediaUpload(
                 "203.0.113.1", "user-a")) {
             assertTrue(reacquired.allowed());
+        }
+    }
+
+    @Test
+    void anonymousMinuteAndHourWindowsBothApply() {
+        MutableClock clock = new MutableClock();
+        RateLimitService service = service(clock, RateLimitService.Options.defaults());
+        for (int minute = 0; minute < 3; minute++) {
+            for (int request = 0; request < 10; request++) {
+                assertTrue(service.checkShortUrlCreation("ip", "").allowed());
+            }
+            assertFalse(service.checkShortUrlCreation("ip", "").allowed());
+            clock.advanceMillis(60_000L);
+        }
+        assertFalse(service.checkShortUrlCreation("ip", "").allowed());
+        clock.advanceMillis(3_600_000L);
+        assertTrue(service.checkShortUrlCreation("ip", "").allowed());
+    }
+
+    @Test
+    void anonymousDailyWindowSurvivesMinuteAndHourRollover() {
+        MutableClock clock = new MutableClock();
+        RateLimitService service = service(clock, RateLimitService.Options.defaults());
+        for (int hour = 0; hour < 10; hour++) {
+            for (int request = 0; request < 10; request++) {
+                assertTrue(service.checkShortUrlCreation("ip", "").allowed());
+            }
+            clock.advanceMillis(3_600_000L);
+        }
+        assertFalse(service.checkShortUrlCreation("ip", "").allowed());
+        clock.advanceMillis(86_400_000L);
+        assertTrue(service.checkShortUrlCreation("ip", "").allowed());
+    }
+
+    @Test
+    void authenticatedUsersHaveTwentyRequestsAndSixtyPerSharedIp() {
+        RateLimitService service = service(new MutableClock(), RateLimitService.Options.defaults());
+        for (int request = 0; request < 10; request++) {
+            assertTrue(service.checkShortUrlCreation("ip", "").allowed());
+        }
+        for (int user = 0; user < 3; user++) {
+            for (int request = 0; request < 20; request++) {
+                assertTrue(service.checkShortUrlCreation("ip", "user-" + user).allowed());
+            }
+        }
+        assertFalse(service.checkShortUrlCreation("ip", "another-user").allowed());
+        assertFalse(service.checkShortUrlCreation("other-ip", "user-0").allowed());
+        assertTrue(service.checkShortUrlCreation("other-ip", "another-user").allowed());
+    }
+
+    @Test
+    void authenticatedApiQuotaIsSharedByCreationAndOwnerApiCalls() {
+        MutableClock clock = new MutableClock();
+        RateLimitService service = service(clock, RateLimitService.Options.defaults());
+        for (int minute = 0; minute < 10; minute++) {
+            for (int request = 0; request < 10; request++) {
+                assertTrue(service.checkShortUrlCreation("ip", "user").allowed());
+                assertTrue(service.checkShortUrlApi("user").allowed());
+            }
+            clock.advanceMillis(60_000L);
+        }
+        assertFalse(service.checkShortUrlApi("user").allowed());
+        assertFalse(service.checkShortUrlCreation("new-ip", "user").allowed());
+        assertTrue(service.checkShortUrlApi("other-user").allowed());
+        clock.advanceMillis(86_400_000L);
+        assertTrue(service.checkShortUrlApi("user").allowed());
+    }
+
+    @Test
+    void anonymousCreatesAndMediaShareTheConcurrencyPool() {
+        RateLimitService service = service(new MutableClock(), RateLimitService.Options.defaults());
+        try (var create = service.beginShortUrlCreation("ip", "");
+             var upload = service.beginMediaUpload("ip", "")) {
+            assertTrue(create.allowed());
+            assertTrue(upload.allowed());
+            try (var denied = service.beginShortUrlCreation("ip", "")) {
+                assertFalse(denied.allowed());
+            }
+        }
+        try (var released = service.beginShortUrlCreation("ip", "")) {
+            assertTrue(released.allowed());
         }
     }
 

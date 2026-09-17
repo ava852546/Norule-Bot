@@ -5,12 +5,10 @@ import com.norule.musicbot.config.BotConfig;
 import com.norule.musicbot.domain.shorturl.ImageShare;
 import com.norule.musicbot.domain.shorturl.OwnedShortUrlContent;
 import com.norule.musicbot.domain.shorturl.QuotaSubject;
-import com.norule.musicbot.domain.shorturl.ShortUrlCreationError;
 import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
 import com.norule.musicbot.service.shorturl.ImageShareService;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
-import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
 import com.norule.musicbot.service.shorturl.RateLimitService;
 import com.norule.musicbot.web.security.ClientAddressResolver;
 import com.norule.musicbot.web.security.HttpRequestBodyReader;
@@ -326,6 +324,11 @@ public final class ShortUrlGatewayServer {
         }
         String publicContentCode = extractPublicContentCode(path);
         if (publicContentCode != null) {
+            if ("PATCH".equals(exchange.getRequestMethod()) || "DELETE".equals(exchange.getRequestMethod())) {
+                new com.norule.musicbot.web.service.ShortUrlManagementWebService(shortUrlService)
+                        .handle(exchange, authenticatedUserId(exchange), publicContentCode);
+                return;
+            }
             handlePublicContentMetadata(exchange, publicContentCode);
             return;
         }
@@ -346,6 +349,8 @@ public final class ShortUrlGatewayServer {
         exchange.getResponseHeaders().set("Cache-Control", "private, no-store");
         sendJson(exchange, 200, DataObject.empty()
                 .put("authenticated", !authenticatedUserId(exchange).isBlank())
+                .put("turnstileEnabled", shortUrlService.turnstileVerifier().options().enabled())
+                .put("turnstileSiteKey", shortUrlService.turnstileVerifier().options().siteKey())
                 .toString());
     }
 
@@ -427,6 +432,7 @@ public final class ShortUrlGatewayServer {
                     .toString());
             return;
         }
+        if (!checkOwnerApiQuota(exchange, userId)) return;
         ShortUrlStatistics statistics = shortUrlService.findStatisticsForOwner(code, userId);
         if (statistics == null) {
             boolean exists = shortUrlService.resourceExists(code);
@@ -442,7 +448,7 @@ public final class ShortUrlGatewayServer {
                 .put("viewCount", statistics.viewCount())
                 .put("createdAt", statistics.createdAt())
                 .put("lastAccessedAt", statistics.lastAccessedAt())
-                .put("expiresAt", statistics.expiresAt())
+                .put("expiresAt", statistics.expiresAt() == Long.MAX_VALUE ? 0L : statistics.expiresAt())
                 .put("active", statistics.active());
         if (statistics.resourceType() == ShortUrlStatistics.ResourceType.MEDIA_SHARE) {
             response.put("mediaType", statistics.contentType().startsWith("video/") ? "VIDEO" : "IMAGE")
@@ -473,6 +479,7 @@ public final class ShortUrlGatewayServer {
                     .toString());
             return;
         }
+        if (!checkOwnerApiQuota(exchange, userId)) return;
         Map<String, String> query = parseUrlEncoded(exchange.getRequestURI().getRawQuery());
         ShortUrlService.OwnedContentType type;
         String rawType = query.getOrDefault("type", "ALL").trim().toUpperCase(Locale.ROOT);
@@ -518,7 +525,7 @@ public final class ShortUrlGatewayServer {
                     .put("code", item.code())
                     .put("shareType", item.resourceType().name())
                     .put("createdAt", item.createdAt())
-                    .put("expiresAt", item.expiresAt())
+                    .put("expiresAt", item.expiresAt() == Long.MAX_VALUE ? 0L : item.expiresAt())
                     .put("viewCount", item.viewCount())
                     .put("lastAccessedAt", item.lastAccessedAt())
                     .put("active", item.active())
@@ -544,88 +551,16 @@ public final class ShortUrlGatewayServer {
     }
 
     private void handleCreateShortUrl(HttpExchange exchange) throws IOException {
-        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-            sendJson(exchange, 405, DataObject.empty()
-                    .put("error", "Method Not Allowed")
-                    .put("errorCode", "METHOD_NOT_ALLOWED")
-                    .toString());
-            return;
-        }
-
-        String ownerUserId = authenticatedUserId(exchange);
-        String address = clientAddress(exchange);
-        RateLimitService.Result rateLimit = shortUrlService.checkShortUrlRate(address, ownerUserId);
-        if (!rateLimit.allowed()) {
-            sendRateLimited(exchange, rateLimit.retryAfterSeconds());
-            return;
-        }
-
-        String body;
-        try {
-            body = HttpRequestBodyReader.readUtf8BodyLimited(
-                    exchange, HttpRequestBodyReader.MAX_SHORT_URL_REQUEST_BODY_BYTES);
-        } catch (HttpRequestBodyReader.RequestBodyTooLargeException ignored) {
-            sendJson(exchange, 413, DataObject.empty()
-                    .put("error", "Request body too large")
-                    .put("errorCode", "REQUEST_BODY_TOO_LARGE")
-                    .toString());
-            return;
-        }
-        String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
-        Map<String, String> form = parseRequestBody(body, contentType);
-        String target = form.getOrDefault("url", "").trim();
-        String customCode = form.getOrDefault("customCode", form.getOrDefault("code", form.getOrDefault("slug", ""))).trim();
-        if (target.isBlank()) {
-            sendJson(exchange, 400, DataObject.empty()
-                    .put("error", "Missing url")
-                    .put("errorCode", "MISSING_URL")
-                    .toString());
-            return;
-        }
-
-        try (ShortUrlCreationGuard.CreationPermit permit = shortUrlService
-                .beginShortUrlCreation(ownerUserId, address)) {
-            if (!permit.allowed()) {
-                sendCreationGuardFailure(exchange, permit.status(), permit.retryAfterSeconds());
-                return;
-            }
-            ShortUrlService.CreationOutcome outcome = shortUrlService.createWithOutcome(
-                    target, customCode, ownerUserId, address);
-            ShortUrlService.ShortUrlEntry created = outcome.entry();
-            if (created == null) {
-                sendCreationFailure(exchange, outcome.error());
-                return;
-            }
-            if (outcome.newlyCreated()) {
-                permit.commitSuccessfulCreation();
-            }
-
-            sendJson(exchange, 200, DataObject.empty()
-                    .put("code", created.getCode())
-                    .put("shortUrl", shortUrlService.toPublicUrl(created.getCode()))
-                    .put("targetUrl", created.getTarget())
-                    .put("viewCount", created.getViewCount())
-                    .toString());
-        }
+        new com.norule.musicbot.web.service.ShortUrlCreationWebService(shortUrlService)
+                .handle(exchange, authenticatedUserId(exchange), clientAddress(exchange));
     }
 
-    private void sendCreationGuardFailure(HttpExchange exchange,
-                                          ShortUrlCreationGuard.Status status,
-                                          long retryAfterSeconds) throws IOException {
-        boolean dailyQuota = status == ShortUrlCreationGuard.Status.DAILY_QUOTA_EXCEEDED;
-        long safeRetryAfter = Math.max(1L, retryAfterSeconds);
-        exchange.getResponseHeaders().set("Retry-After", String.valueOf(safeRetryAfter));
-        sendJson(exchange, 429, DataObject.empty()
-                .put("error", dailyQuota
-                        ? "Daily short URL creation quota exceeded"
-                        : "Too many short URL requests")
-                .put("errorCode", dailyQuota
-                        ? "SHORT_URL_DAILY_QUOTA_EXCEEDED"
-                        : "SHORT_URL_RATE_LIMITED")
-                .put("retryAfterSeconds", safeRetryAfter)
-                .toString());
+    private boolean checkOwnerApiQuota(HttpExchange exchange, String userId) throws IOException {
+        RateLimitService.Result rate = shortUrlService.checkShortUrlApiRate(userId);
+        if (rate.allowed()) return true;
+        com.norule.musicbot.web.service.ShortUrlCreationWebService.sendRateLimited(exchange, rate.retryAfterSeconds());
+        return false;
     }
-
     private void handleImageShareConfig(HttpExchange exchange) throws IOException {
         if (!isGetOrHead(exchange)) {
             sendJson(exchange, 405, DataObject.empty()
@@ -1510,28 +1445,6 @@ public final class ShortUrlGatewayServer {
     private String clientAddress(HttpExchange exchange) {
         return ClientAddressResolver.resolve(exchange,
                 config().getApiRateLimit().getTrustedProxyCidrs());
-    }
-
-    private void sendCreationFailure(HttpExchange exchange,
-                                     ShortUrlCreationError error) throws IOException {
-        ShortUrlCreationError resolved = error == null ? ShortUrlCreationError.INVALID_TARGET : error;
-        int status = resolved == ShortUrlCreationError.CUSTOM_CODE_ALREADY_EXISTS ? 409 : 400;
-        String errorCode = switch (resolved) {
-            case INVALID_CUSTOM_CODE -> "INVALID_CUSTOM_CODE";
-            case RESERVED_CUSTOM_CODE -> "RESERVED_CUSTOM_CODE";
-            case CUSTOM_CODE_ALREADY_EXISTS -> "CUSTOM_CODE_ALREADY_EXISTS";
-            case NONE, INVALID_TARGET -> "INVALID_URL_OR_CODE";
-        };
-        String message = switch (resolved) {
-            case INVALID_CUSTOM_CODE -> "Custom code must be 3-32 characters using only a-z, 0-9, - and _";
-            case RESERVED_CUSTOM_CODE -> "This custom code is reserved by the system";
-            case CUSTOM_CODE_ALREADY_EXISTS -> "This custom code is already in use";
-            case NONE, INVALID_TARGET -> "Invalid URL or custom code";
-        };
-        sendJson(exchange, status, DataObject.empty()
-                .put("error", message)
-                .put("errorCode", errorCode)
-                .toString());
     }
 
     private String userAgent(HttpExchange exchange) {

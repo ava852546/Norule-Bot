@@ -1,28 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
-const authenticated = ref(false)
-const checking = ref(true)
+const { authenticated, checking, loadSession } = useShortUrlSession()
 const loggingOut = ref(false)
 
 onMounted(loadSession)
-
-async function loadSession() {
-  try {
-    const response = await fetch('/api/short/session', {
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
-    })
-    if (response.ok) {
-      const session = await response.json() as { authenticated?: boolean }
-      authenticated.value = session.authenticated === true
-    }
-  } catch {
-    authenticated.value = false
-  } finally {
-    checking.value = false
-  }
-}
 
 async function logout() {
   if (loggingOut.value) return

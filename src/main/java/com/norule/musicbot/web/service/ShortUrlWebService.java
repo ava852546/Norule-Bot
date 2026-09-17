@@ -1,15 +1,10 @@
 package com.norule.musicbot.web.service;
 
 import com.norule.musicbot.domain.shorturl.ShortUrl;
-import com.norule.musicbot.domain.shorturl.ShortUrlCreationError;
-import com.norule.musicbot.service.shorturl.RateLimitService;
-import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
 import com.norule.musicbot.web.infra.WebControlServer;
 import com.norule.musicbot.web.ops.ShortUrlOps;
 import com.norule.musicbot.web.security.ClientAddressResolver;
-import com.norule.musicbot.web.security.HttpRequestBodyReader;
 import com.sun.net.httpserver.HttpExchange;
-import net.dv8tion.jda.api.utils.data.DataObject;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,71 +27,15 @@ public final class ShortUrlWebService {
     }
 
     public void handleCreateShortUrl(HttpExchange exchange) throws IOException {
-        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-            owner.sendJson(exchange, 405, DataObject.empty()
-                    .put("error", "Method Not Allowed")
-                    .put("errorCode", "METHOD_NOT_ALLOWED"));
+        String path = exchange.getRequestURI().getPath();
+        if (path.matches("/api/short/[A-Za-z0-9_-]+")
+                && ("PATCH".equals(exchange.getRequestMethod()) || "DELETE".equals(exchange.getRequestMethod()))) {
+            new ShortUrlManagementWebService(owner.shortUrlService())
+                    .handle(exchange, owner.authenticatedUserId(exchange), path.substring("/api/short/".length()));
             return;
         }
-
-        String ownerUserId = owner.authenticatedUserId(exchange);
-        String address = clientAddress(exchange);
-        RateLimitService.Result rateLimit = owner.shortUrlService()
-                .checkShortUrlRate(address, ownerUserId);
-        if (!rateLimit.allowed()) {
-            sendRateLimited(exchange, rateLimit.retryAfterSeconds());
-            return;
-        }
-        ShortUrlCreationGuard.Decision requestDecision = owner.shortUrlService()
-                .checkCreationRequest(ownerUserId, address);
-        if (!requestDecision.allowed()) {
-            sendCreationGuardFailure(exchange, requestDecision.status(), requestDecision.retryAfterSeconds());
-            return;
-        }
-
-        String body;
-        try {
-            body = owner.readBody(exchange, HttpRequestBodyReader.MAX_SHORT_URL_REQUEST_BODY_BYTES);
-        } catch (HttpRequestBodyReader.RequestBodyTooLargeException ignored) {
-            owner.sendJson(exchange, 413, DataObject.empty()
-                    .put("error", "Request body too large")
-                    .put("errorCode", "REQUEST_BODY_TOO_LARGE"));
-            return;
-        }
-        String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
-        Map<String, String> form = parseRequestBody(body, contentType);
-        String target = form.getOrDefault("url", "").trim();
-        String customCode = form.getOrDefault("customCode", form.getOrDefault("code", form.getOrDefault("slug", ""))).trim();
-        if (target.isBlank()) {
-            owner.sendJson(exchange, 400, DataObject.empty()
-                    .put("error", "Missing url")
-                    .put("errorCode", "MISSING_URL"));
-            return;
-        }
-
-        try (ShortUrlCreationGuard.CreationPermit permit = owner.shortUrlService()
-                .beginShortUrlCreation(ownerUserId, address)) {
-            if (!permit.allowed()) {
-                sendCreationGuardFailure(exchange, permit.status(), permit.retryAfterSeconds());
-                return;
-            }
-            ShortUrlOps.CreationResult result = shortUrlOps.createFromWebWithOutcome(
-                    target, customCode, ownerUserId, address);
-            ShortUrl created = result.shortUrl();
-            if (created == null) {
-                sendCreationFailure(exchange, result.error());
-                return;
-            }
-            if (result.newlyCreated()) {
-                permit.commitSuccessfulCreation();
-            }
-
-            owner.sendJson(exchange, 200, DataObject.empty()
-                    .put("code", created.code())
-                    .put("shortUrl", owner.shortUrlService().toPublicUrl(created.code()))
-                    .put("targetUrl", created.target())
-                    .put("viewCount", created.viewCount()));
-        }
+        new ShortUrlCreationWebService(owner.shortUrlService())
+                .handle(exchange, owner.authenticatedUserId(exchange), clientAddress(exchange));
     }
 
     public void handleResolveShortUrl(HttpExchange exchange) throws IOException {
@@ -164,23 +103,6 @@ public final class ShortUrlWebService {
         ));
     }
 
-    private Map<String, String> parseRequestBody(String body, String contentType) {
-        if (contentType != null && contentType.toLowerCase(Locale.ROOT).contains("application/json")) {
-            try {
-                DataObject json = DataObject.fromJson(body == null ? "{}" : body);
-                return Map.of(
-                        "url", json.getString("url", "").trim(),
-                        "customCode", json.getString("customCode", "").trim(),
-                        "code", json.getString("code", "").trim(),
-                        "slug", json.getString("slug", "").trim()
-                );
-            } catch (Exception ignored) {
-                return Map.of();
-            }
-        }
-        return owner.parseUrlEncoded(body);
-    }
-
     private String renderTemplateString(String template, Map<String, String> replacements) {
         String rendered = template;
         for (Map.Entry<String, String> entry : replacements.entrySet()) {
@@ -204,53 +126,6 @@ public final class ShortUrlWebService {
 
     private String clientAddress(HttpExchange exchange) {
         return ClientAddressResolver.resolve(exchange, owner.webSettings().getTrustedProxyCidrs());
-    }
-
-    private void sendRateLimited(HttpExchange exchange, long retryAfterSeconds) throws IOException {
-        long retryAfter = Math.max(1L, retryAfterSeconds);
-        exchange.getResponseHeaders().set("Retry-After", String.valueOf(retryAfter));
-        owner.sendJson(exchange, 429, DataObject.empty()
-                .put("error", "RATE_LIMITED")
-                .put("errorCode", "RATE_LIMITED")
-                .put("message", "\u8acb\u6c42\u904e\u65bc\u983b\u7e41\uff0c\u8acb\u7a0d\u5f8c\u518d\u8a66\u3002")
-                .put("retryAfter", retryAfter)
-                .put("retryAfterSeconds", retryAfter));
-    }
-
-    private void sendCreationGuardFailure(HttpExchange exchange,
-                                          ShortUrlCreationGuard.Status status,
-                                          long retryAfterSeconds) throws IOException {
-        boolean dailyQuota = status == ShortUrlCreationGuard.Status.DAILY_QUOTA_EXCEEDED;
-        exchange.getResponseHeaders().set("Retry-After", String.valueOf(Math.max(1L, retryAfterSeconds)));
-        owner.sendJson(exchange, 429, DataObject.empty()
-                .put("error", dailyQuota
-                        ? "Daily short URL creation quota exceeded"
-                        : "Too many short URL requests")
-                .put("errorCode", dailyQuota
-                        ? "SHORT_URL_DAILY_QUOTA_EXCEEDED"
-                        : "SHORT_URL_RATE_LIMITED")
-                .put("retryAfterSeconds", Math.max(1L, retryAfterSeconds)));
-    }
-
-    private void sendCreationFailure(HttpExchange exchange,
-                                     ShortUrlCreationError error) throws IOException {
-        ShortUrlCreationError resolved = error == null ? ShortUrlCreationError.INVALID_TARGET : error;
-        int status = resolved == ShortUrlCreationError.CUSTOM_CODE_ALREADY_EXISTS ? 409 : 400;
-        String errorCode = switch (resolved) {
-            case INVALID_CUSTOM_CODE -> "INVALID_CUSTOM_CODE";
-            case RESERVED_CUSTOM_CODE -> "RESERVED_CUSTOM_CODE";
-            case CUSTOM_CODE_ALREADY_EXISTS -> "CUSTOM_CODE_ALREADY_EXISTS";
-            case NONE, INVALID_TARGET -> "INVALID_URL_OR_CODE";
-        };
-        String message = switch (resolved) {
-            case INVALID_CUSTOM_CODE -> "Custom code must be 3-32 characters using only a-z, 0-9, - and _";
-            case RESERVED_CUSTOM_CODE -> "This custom code is reserved by the system";
-            case CUSTOM_CODE_ALREADY_EXISTS -> "This custom code is already in use";
-            case NONE, INVALID_TARGET -> "Invalid URL or custom code";
-        };
-        owner.sendJson(exchange, status, DataObject.empty()
-                .put("error", message)
-                .put("errorCode", errorCode));
     }
 
     private String userAgent(HttpExchange exchange) {
