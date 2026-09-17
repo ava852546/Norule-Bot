@@ -12,6 +12,29 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShortUrlConfigTest {
     @Test
+    void tierDefaultsAndInvalidLimitsAreMappedAtTheBoundary() {
+        var defaults = new ShortUrlConfig(null);
+        var rate = defaults.getRateLimitOptions();
+        assertEquals(10, rate.shortUrlPerMinutePerIp());
+        assertEquals(30, rate.shortUrlPerHourPerIp());
+        assertEquals(100, rate.shortUrlPerDayPerIp());
+        assertEquals(20, rate.shortUrlPerMinutePerUser());
+        assertEquals(60, rate.shortUrlAuthenticatedPerMinutePerIp());
+        assertEquals(200, rate.shortUrlApiPerDayPerUser());
+        assertFalse(defaults.toOptions().anonymousExpirationEnabled());
+        assertFalse(defaults.getTurnstileOptions().enabled());
+        var parsed = BotConfig.ShortUrl.fromMap(Map.of("abuseProtection", Map.of("rateLimit", Map.of(
+                "shortUrlRequestsPerHourPerIp", 0, "shortUrlRequestsPerDayPerIp", -1,
+                "shortUrlAuthenticatedRequestsPerMinutePerIp", -1, "shortUrlApiRequestsPerDayPerUser", 0))),
+                BotConfig.ShortUrl.defaultValues());
+        var sanitized = new ShortUrlConfig(parsed).getRateLimitOptions();
+        assertEquals(1, sanitized.shortUrlPerHourPerIp());
+        assertEquals(1, sanitized.shortUrlPerDayPerIp());
+        assertEquals(1, sanitized.shortUrlAuthenticatedPerMinutePerIp());
+        assertEquals(1, sanitized.shortUrlApiPerDayPerUser());
+    }
+
+    @Test
     void defaultsVideoUploadsToOneHundredMegabytesAndFiveMinutes() {
         ImageShareService.Options options = new ShortUrlConfig(null).toImageShareOptions();
 

@@ -11,6 +11,7 @@ import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
 import com.norule.musicbot.service.shorturl.ShortUrlCreationGuard;
 import com.norule.musicbot.service.shorturl.RateLimitService;
+import com.norule.musicbot.service.shorturl.TurnstileVerifier;
 import com.norule.musicbot.shorturl.InMemoryRateLimitStore;
 import com.norule.musicbot.domain.shorturl.QuotaSubject;
 import com.norule.musicbot.shorturl.ShortUrlAccessPublisher;
@@ -30,7 +31,9 @@ public final class ShortUrlService {
             long cleanupIntervalMillis,
             String publicBaseUrl,
             int codeLength,
-            boolean allowPrivateTargets
+            boolean allowPrivateTargets,
+            boolean anonymousExpirationEnabled,
+            int anonymousExpirationDays
     ) {
         public Options {
             ttlMillis = Math.max(1L, ttlMillis);
@@ -38,6 +41,13 @@ public final class ShortUrlService {
             String base = publicBaseUrl == null || publicBaseUrl.isBlank() ? DEFAULT_PUBLIC_BASE_URL : publicBaseUrl.trim();
             publicBaseUrl = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
             codeLength = Math.max(4, Math.min(32, codeLength));
+            anonymousExpirationDays = Math.max(1, anonymousExpirationDays);
+        }
+
+        public Options(boolean dedupeEnabled, long ttlMillis, long cleanupIntervalMillis,
+                       String publicBaseUrl, int codeLength, boolean allowPrivateTargets) {
+            this(dedupeEnabled, ttlMillis, cleanupIntervalMillis, publicBaseUrl,
+                    codeLength, allowPrivateTargets, false, 30);
         }
     }
 
@@ -129,6 +139,7 @@ public final class ShortUrlService {
     private final ImageShareService imageShareService;
     private final AnonymousDeviceIdentityService anonymousDeviceIdentityService;
     private final RateLimitService rateLimitService;
+    private final TurnstileVerifier turnstileVerifier = new TurnstileVerifier();
     private final ShortUrlCreationGuard creationGuard = new ShortUrlCreationGuard(
             ShortUrlCreationGuard.Options.defaults());
     private final AtomicReference<Options> options = new AtomicReference<>();
@@ -210,6 +221,16 @@ public final class ShortUrlService {
                 creatorDiscordUserId, clientAddress);
     }
 
+    public CreationOutcome createFromWebWithOutcome(String target, String code, String owner, String address) {
+        Options current = options.get();
+        // A far-future timestamp preserves existing repository expiry queries without a migration.
+        long ttl = Long.MAX_VALUE;
+        if ((owner == null || owner.isBlank()) && current.anonymousExpirationEnabled()) {
+            ttl = current.anonymousExpirationDays() * 86_400_000L;
+        }
+        return createOutcome(target, code, ttl, owner, address);
+    }
+
     public ShortUrlEntry create(String rawTarget, long ttlMillis) {
         return createOutcome(rawTarget, null, ttlMillis, "", "").entry();
     }
@@ -224,21 +245,16 @@ public final class ShortUrlService {
                                           String creatorDiscordUserId,
                                           String clientAddress) {
         String target = domainService.normalizeTarget(rawTarget);
-        if (!domainService.isValidTarget(target)) {
+        if (!isAllowedTarget(target)) {
             return new CreationOutcome(null, false, ShortUrlCreationError.INVALID_TARGET);
         }
         Options currentOptions = options.get();
-        if (!currentOptions.allowPrivateTargets() && domainService.isPrivateOrLocalTarget(target)) {
-            return new CreationOutcome(null, false, ShortUrlCreationError.INVALID_TARGET);
-        }
-        if (isSelfDomainTarget(target)) {
-            return new CreationOutcome(null, false, ShortUrlCreationError.INVALID_TARGET);
-        }
 
         long now = System.currentTimeMillis();
         maybeCleanup(now);
 
-        long safeTtl = ttlMillis <= 0L ? currentOptions.ttlMillis() : ttlMillis;
+        long safeTtl = Math.min(Long.MAX_VALUE - now,
+                ttlMillis <= 0L ? currentOptions.ttlMillis() : ttlMillis);
         String normalizedOwnerUserId = creatorDiscordUserId == null ? "" : creatorDiscordUserId.trim();
         String requestedSlug = domainService.normalizeSlug(customSlug);
         if (requestedSlug.isBlank() && currentOptions.dedupeEnabled()) {
@@ -331,6 +347,25 @@ public final class ShortUrlService {
         this.options.set(options);
     }
 
+    public enum MutationResult { SUCCESS, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, INVALID_TARGET }
+
+    public MutationResult mutateOwned(String code, String owner, String target, boolean delete) {
+        if (owner == null || owner.isBlank()) return MutationResult.UNAUTHORIZED;
+        ShortUrlEntry entry = repository.findByCodeIgnoreCase(code);
+        if (entry == null) return MutationResult.NOT_FOUND;
+        if (!owner.equals(entry.ownerUserId())) return MutationResult.FORBIDDEN;
+        if (delete) {
+            return repository.deleteOwned(entry.code(), owner, entry.createdAt())
+                    ? MutationResult.SUCCESS : MutationResult.NOT_FOUND;
+        }
+        String normalized = domainService.normalizeTarget(target);
+        if (!isAllowedTarget(normalized)) {
+            return MutationResult.INVALID_TARGET;
+        }
+        return repository.updateOwnedTarget(entry.code(), owner, entry.createdAt(), normalized)
+                ? MutationResult.SUCCESS : MutationResult.NOT_FOUND;
+    }
+
     public void updateCreationGuardOptions(ShortUrlCreationGuard.Options options) {
         creationGuard.updateOptions(options);
     }
@@ -351,6 +386,26 @@ public final class ShortUrlService {
 
     public RateLimitService.Result checkShortUrlRate(String clientAddress, String ownerUserId) {
         return rateLimitService.checkShortUrlCreation(clientAddress, ownerUserId);
+    }
+
+    public void updateRateLimitOptions(RateLimitService.Options options) {
+        rateLimitService.updateOptions(options);
+    }
+
+    public TurnstileVerifier turnstileVerifier() { return turnstileVerifier; }
+
+    private boolean isAllowedTarget(String target) {
+        return domainService.isValidTarget(target)
+                && (options.get().allowPrivateTargets() || !domainService.isPrivateOrLocalTarget(target))
+                && !isSelfDomainTarget(target);
+    }
+
+    public RateLimitService.Result checkShortUrlApiRate(String ownerUserId) {
+        return rateLimitService.checkShortUrlApi(ownerUserId);
+    }
+
+    public RateLimitService.UploadPermit beginShortUrlRequest(String clientAddress, String ownerUserId) {
+        return rateLimitService.beginShortUrlCreation(clientAddress, ownerUserId);
     }
 
     public RateLimitService.UploadPermit beginMediaUpload(String clientAddress, String ownerUserId) {

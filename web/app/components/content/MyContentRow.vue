@@ -25,7 +25,7 @@ function formatFileSize(bytes = 0): string {
     </div>
     <dl>
       <div><dt>建立時間</dt><dd>{{ formatDate(props.item.createdAt) }}</dd></div>
-      <div><dt>到期時間</dt><dd>{{ formatDate(props.item.expiresAt) }}</dd></div>
+      <div><dt>到期時間</dt><dd>{{ props.item.expiresAt ? formatDate(props.item.expiresAt) : '無期限' }}</dd></div>
       <div><dt>{{ props.item.shareType === 'MEDIA_SHARE' ? '瀏覽' : '點擊' }}</dt><dd>{{ props.item.viewCount.toLocaleString() }}</dd></div>
       <div><dt>狀態</dt><dd :class="props.item.active ? 'is-live' : 'is-expired'">{{ props.item.active ? '使用中' : '已過期' }}</dd></div>
     </dl>

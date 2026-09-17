@@ -33,7 +33,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncToolFromHash)
 
 const principles = [
   { number: '01', title: '立即可用', description: '貼上網址就能建立連結，不以註冊流程打斷分享。' },
-  { number: '02', title: '留下辨識度', description: '需要時自訂短碼，讓收件者知道這條連結為何而來。' },
+  { number: '02', title: '留下辨識度', description: '登入後可自訂短碼，讓收件者知道這條連結為何而來。' },
   { number: '03', title: '分享的不只網址', description: '圖片與影片使用同一套清楚、直接的分享流程。' },
   { number: '04', title: '控制何時結束', description: '以到期時間與密碼界定媒體內容的存取範圍。' },
 ]
@@ -54,7 +54,7 @@ const principles = [
             <p class="utility-intro__lead">建立容易分享的短連結，或上傳有期限與密碼保護的媒體。</p>
             <dl class="utility-summary">
               <div><dt>01</dt><dd>免登入使用</dd></div>
-              <div><dt>02</dt><dd>可自訂短碼</dd></div>
+              <div><dt>02</dt><dd>登入可自訂短碼</dd></div>
               <div><dt>03</dt><dd>限時媒體分享</dd></div>
             </dl>
           </aside>

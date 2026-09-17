@@ -4,6 +4,8 @@ export interface ApiErrorResponse {
   error?: string
   errorCode?: string
   status?: number
+  retryAfter?: number
+  retryAfterSeconds?: number
 }
 
 export interface ShortUrlResponse {

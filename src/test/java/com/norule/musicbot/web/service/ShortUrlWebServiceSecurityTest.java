@@ -38,6 +38,7 @@ class ShortUrlWebServiceSecurityTest {
                     .header("Content-Type", "application/x-www-form-urlencoded");
 
             ShortUrlWebService service = new ShortUrlWebService(owner);
+            authenticate(owner, json, form);
             service.handleCreateShortUrl(json);
             service.handleCreateShortUrl(form);
 
@@ -64,6 +65,7 @@ class ShortUrlWebServiceSecurityTest {
             TestHttpExchange duplicate = jsonRequest(
                     "{\"url\":\"https://example.com/duplicate\",\"customCode\":\"MY-CODE\"}");
 
+            authenticate(owner, invalid, reserved, created, duplicate);
             service.handleCreateShortUrl(invalid);
             service.handleCreateShortUrl(reserved);
             service.handleCreateShortUrl(created);
@@ -120,7 +122,7 @@ class ShortUrlWebServiceSecurityTest {
             assertEquals(400, invalid.responseCode());
             assertEquals(200, firstValid.responseCode());
             assertEquals(429, dailyDenied.responseCode());
-            assertTrue(dailyDenied.responseBodyUtf8().contains("SHORT_URL_DAILY_QUOTA_EXCEEDED"));
+            assertTrue(dailyDenied.responseBodyUtf8().contains("RATE_LIMITED"));
             assertTrue(Long.parseLong(dailyDenied.getResponseHeaders().getFirst("Retry-After")) > 0L);
         } finally {
             owner.shutdown();
@@ -143,7 +145,7 @@ class ShortUrlWebServiceSecurityTest {
 
             assertEquals(400, invalid.responseCode());
             assertEquals(429, denied.responseCode());
-            assertTrue(denied.responseBodyUtf8().contains("SHORT_URL_RATE_LIMITED"));
+            assertTrue(denied.responseBodyUtf8().contains("RATE_LIMITED"));
             assertTrue(Long.parseLong(denied.getResponseHeaders().getFirst("Retry-After")) > 0L);
         } finally {
             owner.shutdown();
@@ -186,6 +188,12 @@ class ShortUrlWebServiceSecurityTest {
         }
     }
 
+    private void authenticate(WebControlServer owner, TestHttpExchange... exchanges) {
+        owner.sessionManager().sessions().put("test-session",
+                new com.norule.musicbot.web.session.WebSessionManager.WebSession(
+                        "owner-a", "test", "", "", "", System.currentTimeMillis() + 60_000L));
+        for (TestHttpExchange exchange : exchanges) exchange.header("Cookie", "norule_session=test-session");
+    }
     private TestHttpExchange jsonRequest(String json) {
         return new TestHttpExchange("POST", "/api/short", json.getBytes(StandardCharsets.UTF_8))
                 .header("Content-Type", "application/json");

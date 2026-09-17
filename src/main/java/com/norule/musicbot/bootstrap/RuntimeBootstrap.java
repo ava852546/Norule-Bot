@@ -694,6 +694,8 @@ public final class RuntimeBootstrap {
                 shortUrlService.updateOptions(shortUrlConfig.toOptions());
                 shortUrlService.updateImageShareOptions(shortUrlConfig.toImageShareOptions());
                 shortUrlService.updateCreationGuardOptions(shortUrlConfig.getCreationGuardOptions());
+                shortUrlService.updateRateLimitOptions(shortUrlConfig.getRateLimitOptions());
+                shortUrlService.turnstileVerifier().updateOptions(shortUrlConfig.getTurnstileOptions());
             }
             context.musicCommandListener().reloadRuntimeConfig(snapshot);
             startActivityRotation(context.jda(), reloaded.getBotProfile());
@@ -1044,6 +1046,7 @@ public final class RuntimeBootstrap {
                 repository, shortUrlConfig.toOptions(), imageShareService, identityService,
                 new RateLimitService(new InMemoryRateLimitStore(), shortUrlConfig.getRateLimitOptions()));
         service.updateCreationGuardOptions(shortUrlConfig.getCreationGuardOptions());
+        service.turnstileVerifier().updateOptions(shortUrlConfig.getTurnstileOptions());
         return service;
     }
 

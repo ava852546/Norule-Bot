@@ -6,8 +6,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
 import java.util.HexFormat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class RateLimitService {
+    private static final Logger LOG = LoggerFactory.getLogger(RateLimitService.class);
     public record Options(boolean enabled,
                           int mediaPerMinutePerIp,
                           int mediaAuthenticatedPerMinutePerIp,
@@ -16,7 +19,11 @@ public final class RateLimitService {
                           int shortUrlPerMinutePerIp,
                           int shortUrlPerMinutePerUser,
                           int mediaConcurrencyPerIp,
-                          int mediaConcurrencyPerUser) {
+                          int mediaConcurrencyPerUser,
+                          int shortUrlPerHourPerIp,
+                          int shortUrlPerDayPerIp,
+                          int shortUrlAuthenticatedPerMinutePerIp,
+                          int shortUrlApiPerDayPerUser) {
         public Options {
             mediaPerMinutePerIp = Math.max(1, mediaPerMinutePerIp);
             mediaAuthenticatedPerMinutePerIp = Math.max(
@@ -27,6 +34,21 @@ public final class RateLimitService {
             shortUrlPerMinutePerUser = Math.max(1, shortUrlPerMinutePerUser);
             mediaConcurrencyPerIp = Math.max(1, mediaConcurrencyPerIp);
             mediaConcurrencyPerUser = Math.max(1, mediaConcurrencyPerUser);
+            shortUrlPerHourPerIp = Math.max(1, shortUrlPerHourPerIp);
+            shortUrlPerDayPerIp = Math.max(1, shortUrlPerDayPerIp);
+            shortUrlAuthenticatedPerMinutePerIp = Math.max(1, shortUrlAuthenticatedPerMinutePerIp);
+            shortUrlApiPerDayPerUser = Math.max(1, shortUrlApiPerDayPerUser);
+        }
+
+        public Options(boolean enabled, int mediaPerMinutePerIp,
+                       int mediaAuthenticatedPerMinutePerIp, int mediaPerMinutePerUser,
+                       int mediaPerDayPerUser, int shortUrlPerMinutePerIp,
+                       int shortUrlPerMinutePerUser, int mediaConcurrencyPerIp,
+                       int mediaConcurrencyPerUser) {
+            this(enabled, mediaPerMinutePerIp, mediaAuthenticatedPerMinutePerIp,
+                    mediaPerMinutePerUser, mediaPerDayPerUser, shortUrlPerMinutePerIp,
+                    shortUrlPerMinutePerUser, mediaConcurrencyPerIp, mediaConcurrencyPerUser,
+                    30, 100, 60, 200);
         }
 
         public Options(boolean enabled,
@@ -44,7 +66,7 @@ public final class RateLimitService {
         }
 
         public static Options defaults() {
-            return new Options(true, 10, 60, 20, 200, 30, 60, 2, 3);
+            return new Options(true, 10, 60, 20, 200, 10, 20, 2, 3);
         }
     }
 
@@ -89,10 +111,11 @@ public final class RateLimitService {
     }
 
     private static final long MINUTE_MILLIS = 60_000L;
+    private static final long HOUR_MILLIS = 60L * MINUTE_MILLIS;
     private static final long DAY_MILLIS = 24L * 60L * 60L * 1000L;
 
     private final RateLimitStore store;
-    private final Options options;
+    private volatile Options options;
     private final Clock clock;
 
     public RateLimitService(RateLimitStore store, Options options) {
@@ -106,6 +129,12 @@ public final class RateLimitService {
         this.store = store;
         this.options = options == null ? Options.defaults() : options;
         this.clock = clock == null ? Clock.systemUTC() : clock;
+    }
+
+    public void updateOptions(Options options) {
+        if (options != null) {
+            this.options = options;
+        }
     }
 
     public Result checkMediaUpload(String clientIp, String ownerId) {
@@ -137,16 +166,43 @@ public final class RateLimitService {
     }
 
     public Result checkShortUrlCreation(String clientIp, String ownerId) {
-        if (!options.enabled()) {
+        Options current = options;
+        if (!current.enabled()) {
             return Result.allowedResult();
         }
         long now = clock.millis();
-        Result ip = consume(
-                "short:ip", clientIp, options.shortUrlPerMinutePerIp(), MINUTE_MILLIS, now);
-        if (!ip.allowed() || ownerId == null || ownerId.isBlank()) {
-            return ip;
+        boolean authenticated = ownerId != null && !ownerId.isBlank();
+        Result ip = consume(authenticated ? "short:authenticated:ip:minute" : "short:anonymous:ip:minute",
+                clientIp, authenticated ? current.shortUrlAuthenticatedPerMinutePerIp()
+                        : current.shortUrlPerMinutePerIp(), MINUTE_MILLIS, now);
+        if (!ip.allowed()) return ip;
+        if (authenticated) {
+            Result minute = consume("short:authenticated:user:minute", ownerId,
+                    current.shortUrlPerMinutePerUser(), MINUTE_MILLIS, now);
+            return minute.allowed() ? checkShortUrlApi(ownerId) : minute;
         }
-        return consume("short:user", ownerId, options.shortUrlPerMinutePerUser(), MINUTE_MILLIS, now);
+        Result hour = consume("short:anonymous:ip:hour", clientIp,
+                current.shortUrlPerHourPerIp(), HOUR_MILLIS, now);
+        return hour.allowed() ? consume("short:anonymous:ip:day", clientIp,
+                current.shortUrlPerDayPerIp(), DAY_MILLIS, now) : hour;
+    }
+
+    /** Shared quota for authenticated short URL create/list/stats/management requests. */
+    public Result checkShortUrlApi(String ownerId) {
+        Options current = options;
+        if (!current.enabled() || ownerId == null || ownerId.isBlank()) {
+            return Result.allowedResult();
+        }
+        return consume("short:authenticated:user:day", ownerId,
+                current.shortUrlApiPerDayPerUser(), DAY_MILLIS, clock.millis());
+    }
+
+    /** Anonymous creation and uploads share the existing IP concurrency pool. */
+    public UploadPermit beginShortUrlCreation(String clientIp, String ownerId) {
+        if (ownerId != null && !ownerId.isBlank()) {
+            return new UploadPermit(true, 0L, null, null);
+        }
+        return beginMediaUpload(clientIp, "");
     }
 
     public UploadPermit beginMediaUpload(String clientIp, String ownerId) {
@@ -174,6 +230,10 @@ public final class RateLimitService {
     private Result consume(String scope, String identity, int limit, long windowMillis, long now) {
         RateLimitStore.Consumption result = store.tryConsume(
                 key(scope, identity), limit, windowMillis, now);
+        if (!result.allowed() && scope.startsWith("short:")) {
+            // Scope contains only policy labels, never IPs, cookies, or resource URLs.
+            LOG.info("Short URL rate limited: policy={}", scope);
+        }
         return new Result(result.allowed(), result.retryAfterSeconds());
     }
 

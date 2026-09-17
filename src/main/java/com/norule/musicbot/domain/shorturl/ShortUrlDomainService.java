@@ -10,6 +10,7 @@ import java.util.regex.Pattern;
 public final class ShortUrlDomainService {
     public static final int MIN_CUSTOM_CODE_LENGTH = 3;
     public static final int MAX_CUSTOM_CODE_LENGTH = 32;
+    public static final int MAX_TARGET_LENGTH = 8192;
 
     private static final char[] BASE62 = "23456789abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ".toCharArray();
     private static final Pattern CUSTOM_CODE_PATTERN = Pattern.compile(
@@ -30,7 +31,7 @@ public final class ShortUrlDomainService {
     }
 
     public boolean isValidTarget(String target) {
-        if (target == null || target.isBlank()) {
+        if (target == null || target.isBlank() || target.length() > MAX_TARGET_LENGTH) {
             return false;
         }
         try {

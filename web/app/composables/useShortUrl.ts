@@ -9,12 +9,13 @@ export function useShortUrl() {
   const result = ref<ShortUrlResponse | null>(null)
   const error = ref('')
 
-  async function create(targetUrl: string, customCode: string) {
+  async function create(targetUrl: string, customCode: string, turnstileToken = '') {
     status.value = 'loading'
     result.value = null
     error.value = ''
     try {
-      const body: { url: string; customCode?: string } = { url: targetUrl.trim() }
+      const body: { url: string; customCode?: string; turnstileToken?: string } = { url: targetUrl.trim() }
+      if (turnstileToken) body.turnstileToken = turnstileToken
       const normalizedCustomCode = normalizeCustomShortCode(customCode)
       if (normalizedCustomCode) body.customCode = normalizedCustomCode
       const response = await fetch('/api/short', {

@@ -3037,6 +3037,35 @@ public String getToken() {
     }
 
     public static class ShortUrl {
+        public static final class Anonymous {
+            private final boolean expirationEnabled;
+            private final int expirationDays;
+            private final boolean turnstileEnabled;
+            private final String turnstileSiteKey;
+
+            private Anonymous(boolean expirationEnabled, int expirationDays,
+                              boolean turnstileEnabled, String turnstileSiteKey) {
+                this.expirationEnabled = expirationEnabled;
+                this.expirationDays = Math.max(1, expirationDays);
+                this.turnstileEnabled = turnstileEnabled;
+                this.turnstileSiteKey = turnstileSiteKey;
+            }
+
+            private static Anonymous fromMap(Map<String, Object> map, Anonymous defaults) {
+                Map<String, Object> turnstile = asMap(map.get("turnstile"));
+                return new Anonymous(getBoolean(map, "expirationEnabled", defaults.expirationEnabled),
+                        getInt(map, "expirationDays", defaults.expirationDays),
+                        getBoolean(turnstile, "enabled", defaults.turnstileEnabled),
+                        getString(turnstile, "siteKey", defaults.turnstileSiteKey));
+            }
+
+            private static Anonymous defaultValues() { return new Anonymous(false, 30, false, ""); }
+            public boolean isExpirationEnabled() { return expirationEnabled; }
+            public int getExpirationDays() { return expirationDays; }
+            public boolean isTurnstileEnabled() { return turnstileEnabled; }
+            public String getTurnstileSiteKey() { return turnstileSiteKey; }
+        }
+
         public static final class CreationAbuseProtection {
             public static final class Limits {
                 private final int maxRequestsPerMinute;
@@ -3066,7 +3095,7 @@ public String getToken() {
                 }
 
                 private static Limits authenticatedDefaults() {
-                    return new Limits(30, 150, 500);
+                    return new Limits(30, 200, 500);
                 }
 
                 public int getMaxRequestsPerMinute() { return maxRequestsPerMinute; }
@@ -3112,6 +3141,10 @@ public String getToken() {
             private final int mediaRequestsPerDayPerUser;
             private final int shortUrlRequestsPerMinutePerIp;
             private final int shortUrlRequestsPerMinutePerUser;
+            private final int shortUrlRequestsPerHourPerIp;
+            private final int shortUrlRequestsPerDayPerIp;
+            private final int shortUrlAuthenticatedRequestsPerMinutePerIp;
+            private final int shortUrlApiRequestsPerDayPerUser;
             private final int mediaConcurrencyPerIp;
             private final int mediaConcurrencyPerUser;
             private final List<String> trustedProxyCidrs;
@@ -3123,6 +3156,10 @@ public String getToken() {
                                  int mediaRequestsPerDayPerUser,
                                  int shortUrlRequestsPerMinutePerIp,
                                  int shortUrlRequestsPerMinutePerUser,
+                                 int shortUrlRequestsPerHourPerIp,
+                                 int shortUrlRequestsPerDayPerIp,
+                                 int shortUrlAuthenticatedRequestsPerMinutePerIp,
+                                 int shortUrlApiRequestsPerDayPerUser,
                                  int mediaConcurrencyPerIp,
                                  int mediaConcurrencyPerUser,
                                  List<String> trustedProxyCidrs) {
@@ -3136,6 +3173,10 @@ public String getToken() {
                         this.mediaRequestsPerMinutePerUser, mediaRequestsPerDayPerUser);
                 this.shortUrlRequestsPerMinutePerIp = Math.max(1, shortUrlRequestsPerMinutePerIp);
                 this.shortUrlRequestsPerMinutePerUser = Math.max(1, shortUrlRequestsPerMinutePerUser);
+                this.shortUrlRequestsPerHourPerIp = Math.max(1, shortUrlRequestsPerHourPerIp);
+                this.shortUrlRequestsPerDayPerIp = Math.max(1, shortUrlRequestsPerDayPerIp);
+                this.shortUrlAuthenticatedRequestsPerMinutePerIp = Math.max(1, shortUrlAuthenticatedRequestsPerMinutePerIp);
+                this.shortUrlApiRequestsPerDayPerUser = Math.max(1, shortUrlApiRequestsPerDayPerUser);
                 this.mediaConcurrencyPerIp = Math.max(1, mediaConcurrencyPerIp);
                 this.mediaConcurrencyPerUser = Math.max(1, mediaConcurrencyPerUser);
                 this.trustedProxyCidrs = trustedProxyCidrs == null
@@ -3159,6 +3200,10 @@ public String getToken() {
                                 defaults.getShortUrlRequestsPerMinutePerIp()),
                         getInt(map, "shortUrlRequestsPerMinutePerUser",
                                 defaults.getShortUrlRequestsPerMinutePerUser()),
+                        getInt(map, "shortUrlRequestsPerHourPerIp", defaults.getShortUrlRequestsPerHourPerIp()),
+                        getInt(map, "shortUrlRequestsPerDayPerIp", defaults.getShortUrlRequestsPerDayPerIp()),
+                        getInt(map, "shortUrlAuthenticatedRequestsPerMinutePerIp", defaults.getShortUrlAuthenticatedRequestsPerMinutePerIp()),
+                        getInt(map, "shortUrlApiRequestsPerDayPerUser", defaults.getShortUrlApiRequestsPerDayPerUser()),
                         getInt(map, "mediaConcurrencyPerIp", defaults.getMediaConcurrencyPerIp()),
                         getInt(map, "mediaConcurrencyPerUser", defaults.getMediaConcurrencyPerUser()),
                         getStringList(map, "trustedProxyCidrs", defaults.getTrustedProxyCidrs())
@@ -3166,7 +3211,7 @@ public String getToken() {
             }
 
             private static ApiRateLimit defaultValues() {
-                return new ApiRateLimit(true, 10, 60, 20, 200, 30, 60, 2, 3,
+                return new ApiRateLimit(true, 10, 60, 20, 200, 10, 20, 30, 100, 60, 200, 2, 3,
                         List.of("127.0.0.1/32", "::1/128"));
             }
 
@@ -3182,6 +3227,10 @@ public String getToken() {
             public int getMediaUploadsPerDayPerUser() { return getMediaRequestsPerDayPerUser(); }
             public int getShortUrlRequestsPerMinutePerIp() { return shortUrlRequestsPerMinutePerIp; }
             public int getShortUrlRequestsPerMinutePerUser() { return shortUrlRequestsPerMinutePerUser; }
+            public int getShortUrlRequestsPerHourPerIp() { return shortUrlRequestsPerHourPerIp; }
+            public int getShortUrlRequestsPerDayPerIp() { return shortUrlRequestsPerDayPerIp; }
+            public int getShortUrlAuthenticatedRequestsPerMinutePerIp() { return shortUrlAuthenticatedRequestsPerMinutePerIp; }
+            public int getShortUrlApiRequestsPerDayPerUser() { return shortUrlApiRequestsPerDayPerUser; }
             public int getMediaConcurrencyPerIp() { return mediaConcurrencyPerIp; }
             public int getMediaConcurrencyPerUser() { return mediaConcurrencyPerUser; }
             public List<String> getTrustedProxyCidrs() { return trustedProxyCidrs; }
@@ -3589,6 +3638,7 @@ public String getToken() {
         private final int cleanupIntervalMinutes;
         private final CreationAbuseProtection creationAbuseProtection;
         private final ApiRateLimit apiRateLimit;
+        private final Anonymous anonymous;
         private final Image image;
         private final Mysql mysql;
         private final Sqlite sqlite;
@@ -3604,6 +3654,7 @@ public String getToken() {
                          int cleanupIntervalMinutes,
                          CreationAbuseProtection creationAbuseProtection,
                          ApiRateLimit apiRateLimit,
+                         Anonymous anonymous,
                          Image image,
                          Mysql mysql,
                          Sqlite sqlite) {
@@ -3619,6 +3670,7 @@ public String getToken() {
             this.creationAbuseProtection = creationAbuseProtection == null
                     ? CreationAbuseProtection.defaultValues() : creationAbuseProtection;
             this.apiRateLimit = apiRateLimit == null ? ApiRateLimit.defaultValues() : apiRateLimit;
+            this.anonymous = anonymous == null ? Anonymous.defaultValues() : anonymous;
             this.image = image == null ? Image.defaultValues() : image;
             this.mysql = mysql == null ? Mysql.defaultValues() : mysql;
             this.sqlite = sqlite == null ? Sqlite.defaultValues() : sqlite;
@@ -3665,6 +3717,7 @@ public String getToken() {
                     ApiRateLimit.fromMap(
                             asMap(asMap(map.get("abuseProtection")).get("rateLimit")),
                             defaults.getApiRateLimit()),
+                    Anonymous.fromMap(asMap(map.get("anonymous")), defaults.getAnonymous()),
                     Image.fromMap(asMap(map.get("image")), defaults.getImage()),
                     Mysql.fromMap(asMap(map.get("mysql")), defaults.getMysql()),
                     Sqlite.fromMap(asMap(map.get("sqlite")), defaults.getSqlite())
@@ -3684,6 +3737,7 @@ public String getToken() {
                     10,
                     CreationAbuseProtection.defaultValues(),
                     ApiRateLimit.defaultValues(),
+                    Anonymous.defaultValues(),
                     Image.defaultValues(),
                     Mysql.defaultValues(),
                     Sqlite.defaultValues()
@@ -3738,6 +3792,8 @@ public String getToken() {
         public CreationAbuseProtection getCreationAbuseProtection() {
             return creationAbuseProtection;
         }
+
+        public Anonymous getAnonymous() { return anonymous; }
 
         public ApiRateLimit getApiRateLimit() {
             return apiRateLimit;

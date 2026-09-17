@@ -8,6 +8,10 @@ const clientError = ref('')
 const host = ref('此網域')
 const { status, result, error, create } = useShortUrl()
 const clipboard = useClipboard()
+const { authenticated, turnstileEnabled, turnstileSiteKey } = useShortUrlSession()
+const verificationToken = ref('')
+const verificationAttempt = ref(0)
+const verificationRequired = computed(() => !authenticated.value && turnstileEnabled.value)
 
 const shownStatus = computed(() => clientError.value ? 'idle' : status.value)
 const shownError = computed(() => error.value)
@@ -20,6 +24,7 @@ const customCodeHint = computed(() => normalizedCustomCode.value
 
 onMounted(() => { host.value = window.location.host })
 watch(targetUrl, () => { clientError.value = '' })
+watch(authenticated, () => { customCode.value = ''; verificationToken.value = '' })
 
 async function submit() {
   clientError.value = ''
@@ -35,8 +40,11 @@ async function submit() {
     clientError.value = '請輸入完整的 http:// 或 https:// 網址。'
     return
   }
-  if (customCodeError.value) return
-  await create(value, normalizedCustomCode.value)
+  if (authenticated.value && customCodeError.value) return
+  if (verificationRequired.value && !verificationToken.value) return
+  await create(value, authenticated.value ? normalizedCustomCode.value : '', verificationToken.value)
+  verificationToken.value = ''
+  verificationAttempt.value++
 }
 </script>
 
@@ -45,11 +53,13 @@ async function submit() {
     <form novalidate @submit.prevent="submit">
       <div class="short-form-card__primary">
         <NrInput id="target-url" v-model="targetUrl" label="要縮短的網址" type="url" placeholder="https://example.com/very/long/url" autocomplete="url" required :error="clientError" />
-        <NrButton type="submit" :loading="status === 'loading'" :disabled="!targetUrl.trim() || Boolean(customCodeError)">縮短</NrButton>
+        <NrButton type="submit" :loading="status === 'loading'" :disabled="!targetUrl.trim() || (authenticated && Boolean(customCodeError)) || (verificationRequired && !verificationToken)">縮短</NrButton>
       </div>
-      <NrInput id="custom-code" v-model="customCode" label="自訂短碼" placeholder="好記的短碼" :maxlength="CUSTOM_SHORT_CODE_MAX_LENGTH" :hint="customCodeHint" :error="customCodeError">
+      <NrInput v-if="authenticated" id="custom-code" v-model="customCode" label="自訂短碼" placeholder="好記的短碼" :maxlength="CUSTOM_SHORT_CODE_MAX_LENGTH" :hint="customCodeHint" :error="customCodeError">
         <template #prefix>{{ codePrefix }}</template>
       </NrInput>
+      <p v-else>匿名建立會自動產生短碼。<a href="/api/short/session/login">登入後可自訂短碼及查看自己的統計。</a></p>
+      <ShortUrlVerification v-if="verificationRequired" :key="verificationAttempt" :site-key="turnstileSiteKey" @verified="verificationToken = $event" />
     </form>
     <NrResultCard :status="shownStatus" title="短網址建立完成" :url="result?.shortUrl" :meta="result ? `前往 ${result.targetUrl}` : ''" :error="shownError" :copy-state="clipboard.state.value" @copy="result && clipboard.copy(result.shortUrl)" />
   </div>

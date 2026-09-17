@@ -368,15 +368,19 @@ Dashboard 目前包含一般、通知、日誌、音樂、私人包廂、歡迎�
 - `/`：建立短網址／媒體分享頁面。
 - `/{code}`：網址 redirect 或媒體頁面；`/{code}?stats` 只允許登入後的擁有者查看。
 - `/my-content`：登入後管理自己的短網址與媒體。
-- `/api/short`、`/api/short/{code}`、`/api/short/{code}/stats`：建立、解析與統計。
+- `POST /api/short`、`GET /api/short/{code}`、`GET /api/short/{code}/stats`：建立短網址、公開媒體 metadata 與私人統計。
 - `/api/short/session`、`/api/short/session/login`、`/api/short/session/logout`：登入狀態。
 - `/api/short/mine`：列出登入者擁有的內容。
+- `PATCH /api/short/{code}`：登入後修改自己的目標網址（JSON `{"url":"https://example.com/new"}`）。
+- `DELETE /api/short/{code}`：登入後刪除自己的短網址；媒體分享不使用這兩個管理操作。
 - `/api/short/image`、`/api/short/image/config`、`/api/short/image/content/{code}`、`/api/short/image/access/{code}`：媒體上傳、設定與內容存取。
 
 `shortUrl.publicBaseUrl` 是產生公開連結的唯一來源，不要在 handler 內硬編碼 production domain。
 
 ### 自訂短碼
 
+- HTTP 匿名建立只允許自動產生短碼；`customCode`、`code`、`slug` 任一非空值都需有效 Session，否則回傳 `403 CUSTOM_CODE_AUTH_REQUIRED`。
+- Owner 一律取自伺服器 Session，request body 的 Owner 欄位不生效。私人統計、清單與管理 API 要求登入，操作資源還需符合 Owner。
 - 長度 3–32，允許 `a-z`、`A-Z`、`0-9`、`-`、`_`。
 - 比對不分大小寫，儲存與回傳會正規化為小寫。
 - API、auth、login、dashboard、stats、privacy、terms、status、assets、media 等保留路徑會被拒絕。
@@ -385,9 +389,17 @@ Dashboard 目前包含一般、通知、日誌、音樂、私人包廂、歡迎�
 
 ### Rate limit 與來源 IP
 
-API admission 預設限制：匿名媒體上傳每 IP 每分鐘 10 次；已登入上傳另受 IP 每分鐘 60 次、每使用者每分鐘 20 次與每日 200 次限制；短網址建立為 IP 每分鐘 30 次、使用者每分鐘 60 次；同時媒體上傳為 IP 2、使用者 3。
+API admission 預設限制：匿名短網址建立同時套用 IP **10/min、30/hour、100/day**；登入建立套用 **User 20/min、IP 60/min**，短網址建立／清單／統計／修改／刪除共用 **User 200/day**。分鐘、小時、每日皆為滾動窗口，匿名與登入 IP bucket 分離。公開 redirect、Session 查詢與靜態頁面不消耗私人 API quota。匿名建立與媒體上傳共用 IP 2 的並行池。
 
-短網址建立另有 `shortUrl.abuseProtection.creation` 防護：匿名使用者預設為每分鐘 10 次、每 10 分鐘 50 次、每日建立 200 個；已登入使用者為每分鐘 30 次、每 10 分鐘 150 次、每日建立 500 個。請同時考量兩層限制；被限制時回傳 HTTP `429`、`Retry-After` 與統一 rate-limit payload。
+媒體原有限額保持獨立：匿名上傳 IP 10/min；登入上傳 IP 60/min、User 20/min、User 200 次上傳請求/day；媒體並行 IP 2、User 3。Dashboard 其他 API 不加入短網址的每日配額。
+
+`shortUrl.abuseProtection.rateLimit` 是主要分級設定。既有 `shortUrl.abuseProtection.creation` 設定仍作額外防護：匿名 10/min、50/10min、200 成功建立/day；登入 30/min、200/10min、500 成功建立/day。自訂較低的舊設定仍可能先觸發。所有限流回應統一為 HTTP `429`、`Retry-After`、`errorCode=RATE_LIMITED`、`retryAfter` 與 `retryAfterSeconds`。目前計數在單一程序記憶體內，重啟會重設，副本之間不共享。
+
+新 HTTP 短網址預設無自動到期。可啟用 `shortUrl.anonymous.expirationEnabled`（預設 false），以 `expirationDays`（預設 30）限制新匿名 URL；登入 URL 不套用匿名到期政策。既有 URL 的到期時間與 Owner 保持不變；`ttlDays` 保留給既有內部／Discord 建立流程。無期限 URL 在清單／統計 API 回傳 `expiresAt: 0`。
+
+匿名建立可選用 Turnstile：設定 `shortUrl.anonymous.turnstile.enabled: true`、`siteKey`，並以環境變數 `TURNSTILE_SECRET` 提供 secret。預設關閉，不需任何 Cloudflare 設定；啟用卻缺少必要設定時 fail fast。後端先限流再呼叫 Siteverify，核對成功狀態與 publicBaseUrl hostname，驗證失敗不建立 URL。
+
+完整端點、設定、相容性與驗證說明見 [短網址匿名／登入分級政策](docs/short-url-tier-policy.md)。
 
 只有直接 peer 位於 `shortUrl.abuseProtection.rateLimit.trustedProxyCidrs` 時，程式才採信 `X-Forwarded-For`。部署在 Nginx、Cloudflare 或 Tunnel 後方時，請填入實際「直接上一跳」的 CIDR，並確認代理正確覆寫／附加 `X-Forwarded-For`；不要信任所有網段，也不要假設程式會讀取其他 vendor-specific IP header。
 

@@ -226,6 +226,15 @@ shortUrl:
   allowPrivateTargets: false
   dedupe: true
   ttlDays: 7
+  # Applies only to NEW anonymous HTTP URLs; existing expiry timestamps are preserved.
+  # Authenticated HTTP URLs have no automatic expiration; ttlDays remains for internal callers.
+  anonymous:
+    expirationEnabled: false
+    expirationDays: 30
+    turnstile:
+      enabled: false
+      siteKey: ""
+      # Secret is read only from TURNSTILE_SECRET; never store it in this file.
   cleanupIntervalMinutes: 10
   abuseProtection:
     rateLimit:
@@ -237,8 +246,14 @@ shortUrl:
       mediaRequestsPerMinutePerUser: 20
       # Counts every authenticated HTTP upload request, including dedup/share reuse.
       mediaRequestsPerDayPerUser: 200
-      shortUrlRequestsPerMinutePerIp: 30
-      shortUrlRequestsPerMinutePerUser: 60
+      # Anonymous short URL requests: all three rolling windows apply.
+      shortUrlRequestsPerMinutePerIp: 10
+      shortUrlRequestsPerHourPerIp: 30
+      shortUrlRequestsPerDayPerIp: 100
+      shortUrlRequestsPerMinutePerUser: 20
+      shortUrlAuthenticatedRequestsPerMinutePerIp: 60
+      # Shared by short URL create/list/stats/management requests (not public assets/session).
+      shortUrlApiRequestsPerDayPerUser: 200
       mediaConcurrencyPerIp: 2
       mediaConcurrencyPerUser: 3
       # Only requests arriving from these proxies may supply X-Forwarded-For.
@@ -246,6 +261,7 @@ shortUrl:
         - "127.0.0.1/32"
         - "::1/128"
     creation:
+      # Legacy additional request/successful-create protection. Kept for compatibility.
       enabled: true
       anonymous:
         maxRequestsPerMinute: 10
@@ -253,7 +269,7 @@ shortUrl:
         maxCreatesPerDay: 200
       authenticated:
         maxRequestsPerMinute: 30
-        maxRequestsPer10Minutes: 150
+        maxRequestsPer10Minutes: 200
         maxCreatesPerDay: 500
   image:
     enabled: true

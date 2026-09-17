@@ -24,7 +24,7 @@ function formatFileSize(bytes = 0): string {
     <dl>
       <div><dt>短網址代碼</dt><dd class="is-code">{{ props.stats.code }}</dd></div>
       <div><dt>{{ props.stats.shareType === 'MEDIA_SHARE' ? '瀏覽次數' : '點擊次數' }}</dt><dd class="is-number">{{ props.stats.viewCount.toLocaleString() }}</dd></div>
-      <div><dt>到期時間</dt><dd>{{ formatDate(props.stats.expiresAt) }}</dd></div>
+      <div><dt>到期時間</dt><dd>{{ props.stats.expiresAt ? formatDate(props.stats.expiresAt) : '無期限' }}</dd></div>
       <template v-if="props.stats.shareType === 'MEDIA_SHARE'">
         <div><dt>媒體格式</dt><dd>{{ props.stats.contentType || '—' }}</dd></div>
         <div><dt>檔案大小</dt><dd>{{ formatFileSize(props.stats.fileSize) }}</dd></div>

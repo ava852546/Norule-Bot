@@ -22,6 +22,14 @@ class ShortUrlDomainServiceTest {
     }
 
     @Test
+    void rejectsTargetsBeyondTheLengthLimit() {
+        String prefix = "https://example.com/";
+        String maximum = prefix + "x".repeat(ShortUrlDomainService.MAX_TARGET_LENGTH - prefix.length());
+        assertTrue(domain.isValidTarget(maximum));
+        assertFalse(domain.isValidTarget(maximum + "x"));
+    }
+
+    @Test
     void validatesSlugCharsetAndReservedCodes() {
         assertEquals("abc_123-x", domain.normalizeSlug("  AbC_123-X  "));
         assertTrue(domain.isValidSlug("abc_123-x"));

@@ -8,6 +8,7 @@ import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 
 import java.awt.Color;
+import java.net.URI;
 import java.time.Instant;
 
 public final class DiscordShortUrlAccessPublisher implements ShortUrlAccessPublisher {
@@ -48,13 +49,14 @@ public final class DiscordShortUrlAccessPublisher implements ShortUrlAccessPubli
                 .addField("短網址", event.publicUrl(), false)
                 .addField("代碼", '`' + safe(event.code(), 128) + '`', true)
                 .addField("累計瀏覽", '`' + String.valueOf(event.viewCount()) + '`', true)
-                .addField("到期時間", "<t:" + event.expiresAt() / 1000L + ":F>", false)
+                .addField("到期時間", event.expiresAt() == Long.MAX_VALUE
+                        ? "\u7121\u671f\u9650" : "<t:" + event.expiresAt() / 1000L + ":F>", false)
                 .setTimestamp(Instant.ofEpochMilli(event.occurredAt()));
         if (image || video) {
             embed.addField("存取方式", event.passwordProtected() ? "密碼保護" : "公開", true)
                     .addField("內容類型", '`' + safe(event.target(), 128) + '`', true);
         } else {
-            embed.addField("目標網址", safe(event.target(), 1000), false);
+            embed.addField("目標網址", targetOrigin(event.target()), false);
         }
         String creatorDiscordUserId = event.creatorDiscordUserId() == null ? "" : event.creatorDiscordUserId();
         if (!viewed && !creatorDiscordUserId.isBlank()) {
@@ -76,6 +78,16 @@ public final class DiscordShortUrlAccessPublisher implements ShortUrlAccessPubli
     private String discordMention(String userId) {
         String normalized = userId == null ? "" : userId.trim();
         return normalized.matches("\\d{17,20}") ? "<@" + normalized + ">" : safe(normalized, 128);
+    }
+
+    static String targetOrigin(String target) {
+        try {
+            URI uri = URI.create(target);
+            if (uri.getHost() == null || uri.getScheme() == null) return "unknown";
+            return uri.getScheme() + "://" + uri.getHost();
+        } catch (IllegalArgumentException | NullPointerException ignored) {
+            return "unknown";
+        }
     }
 
     private String formatFileSize(long sizeBytes) {
