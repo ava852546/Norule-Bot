@@ -2,6 +2,7 @@ package com.norule.musicbot.discord.bot.app;
 
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackText;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelStateStore;
+import com.norule.musicbot.discord.bot.gateway.panel.RefreshReason;
 import com.norule.musicbot.domain.music.MusicPlayerService;
 
 import java.util.Map;
@@ -56,10 +57,10 @@ class PlaybackFailureNotifier {
                 message,
                 now + PANEL_NOTICE_DURATION_MILLIS
         );
-        service.refreshPanel(guildId);
+        service.requestPanelRefresh(guildId, RefreshReason.RECOVERY);
         service.scheduler().schedule(() -> {
             if (panelStateStore.clearPanelNotice(guildId, notice)) {
-                service.refreshPanel(guildId);
+                service.requestPanelRefresh(guildId, RefreshReason.RECOVERY);
             }
         }, PANEL_NOTICE_DURATION_MILLIS, TimeUnit.MILLISECONDS);
     }

@@ -22,7 +22,7 @@ public class TrackScheduler extends AudioEventAdapter {
     private final AudioPlayer player;
     private final Queue<AudioTrack> queue = new ConcurrentLinkedQueue<>();
     private volatile RepeatMode repeatMode = RepeatMode.OFF;
-    private volatile Runnable stateListener;
+    private volatile Consumer<MusicStateChange> stateListener;
     private volatile Consumer<AudioTrack> queueExhaustedListener;
     private volatile Consumer<AudioTrack> trackStartListener;
     private volatile Consumer<AudioTrack> trackEndListener;
@@ -44,12 +44,12 @@ public class TrackScheduler extends AudioEventAdapter {
             playbackGeneration++;
             clearRecoveryMarker();
         }
-        notifyStateChanged();
+        notifyStateChanged(MusicStateChange.QUEUE_CHANGED);
     }
 
     public synchronized void nextTrack() {
         startReplacement(queue.poll());
-        notifyStateChanged();
+        notifyStateChanged(MusicStateChange.QUEUE_CHANGED);
     }
 
     public synchronized void clear() {
@@ -57,7 +57,7 @@ public class TrackScheduler extends AudioEventAdapter {
         playbackGeneration++;
         clearRecoveryMarker();
         failedTrackAwaitingEnd = null;
-        notifyStateChanged();
+        notifyStateChanged(MusicStateChange.QUEUE_CHANGED);
     }
 
     public synchronized int shuffleQueue() {
@@ -70,7 +70,7 @@ public class TrackScheduler extends AudioEventAdapter {
         for (AudioTrack track : tracks) {
             queue.offer(track);
         }
-        notifyStateChanged();
+        notifyStateChanged(MusicStateChange.SHUFFLE_CHANGED);
         return tracks.size();
     }
 
@@ -84,7 +84,7 @@ public class TrackScheduler extends AudioEventAdapter {
         } catch (Exception ignored) {
             repeatMode = RepeatMode.OFF;
         }
-        notifyStateChanged();
+        notifyStateChanged(MusicStateChange.LOOP_CHANGED);
     }
 
     public List<AudioTrack> snapshotQueue() {
@@ -92,7 +92,11 @@ public class TrackScheduler extends AudioEventAdapter {
     }
 
     public void setStateListener(Runnable stateListener) {
-        this.stateListener = stateListener;
+        this.stateListener = stateListener == null ? null : ignored -> stateListener.run();
+    }
+
+    public void setStateChangeListener(Consumer<MusicStateChange> listener) {
+        this.stateListener = listener;
     }
 
     public void setQueueExhaustedListener(Consumer<AudioTrack> queueExhaustedListener) {
@@ -144,7 +148,7 @@ public class TrackScheduler extends AudioEventAdapter {
             replacement.setPosition(resumePosition);
         }
         startReplacement(replacement);
-        notifyStateChanged();
+        notifyStateChanged(MusicStateChange.RECOVERY);
         return true;
     }
 
@@ -166,7 +170,7 @@ public class TrackScheduler extends AudioEventAdapter {
         if (startListener != null && track != null) {
             startListener.accept(track);
         }
-        notifyStateChanged();
+        notifyStateChanged(MusicStateChange.TRACK_START);
     }
 
     @Override
@@ -176,26 +180,26 @@ public class TrackScheduler extends AudioEventAdapter {
             endListener.accept(track);
         }
         if (!endReason.mayStartNext) {
-            notifyStateChanged();
+            notifyStateChanged(MusicStateChange.TRACK_END);
             return;
         }
 
         if (endReason == AudioTrackEndReason.LOAD_FAILED && failedTrackAwaitingEnd == track) {
             failedTrackAwaitingEnd = null;
-            notifyStateChanged();
+            notifyStateChanged(MusicStateChange.TRACK_END);
             return;
         }
 
         if (endReason == AudioTrackEndReason.LOAD_FAILED
                 && recoveringTrack == track
                 && recoveringGeneration == playbackGeneration) {
-            notifyStateChanged();
+            notifyStateChanged(MusicStateChange.TRACK_END);
             return;
         }
 
         if (repeatMode == RepeatMode.SINGLE && track != null) {
             startReplacement(cloneWithUserData(track));
-            notifyStateChanged();
+            notifyStateChanged(MusicStateChange.TRACK_END);
             return;
         }
 
@@ -206,7 +210,7 @@ public class TrackScheduler extends AudioEventAdapter {
         AudioTrack next = queue.poll();
         if (next != null) {
             startReplacement(next);
-            notifyStateChanged();
+            notifyStateChanged(MusicStateChange.TRACK_END);
             return;
         }
 
@@ -217,7 +221,7 @@ public class TrackScheduler extends AudioEventAdapter {
                 listener.accept(track.makeClone());
             }
         }
-        notifyStateChanged();
+        notifyStateChanged(MusicStateChange.TRACK_END);
     }
 
     @Override
@@ -228,7 +232,7 @@ public class TrackScheduler extends AudioEventAdapter {
         } else {
             nextTrack();
         }
-        notifyStateChanged();
+        notifyStateChanged(MusicStateChange.RECOVERY);
     }
 
     @Override
@@ -239,7 +243,7 @@ public class TrackScheduler extends AudioEventAdapter {
         } else {
             nextTrack();
         }
-        notifyStateChanged();
+        notifyStateChanged(MusicStateChange.RECOVERY);
     }
 
     private void startReplacement(AudioTrack track) {
@@ -261,10 +265,10 @@ public class TrackScheduler extends AudioEventAdapter {
         return clone;
     }
 
-    private void notifyStateChanged() {
-        Runnable listener = this.stateListener;
+    private void notifyStateChanged(MusicStateChange reason) {
+        Consumer<MusicStateChange> listener = this.stateListener;
         if (listener != null) {
-            listener.run();
+            listener.accept(reason);
         }
     }
 }

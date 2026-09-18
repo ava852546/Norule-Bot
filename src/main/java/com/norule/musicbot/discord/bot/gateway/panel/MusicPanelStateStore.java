@@ -1,23 +1,18 @@
 package com.norule.musicbot.discord.bot.gateway.panel;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+/** Active message references and notices. Refresh scheduling belongs to the coordinator. */
 public final class MusicPanelStateStore {
     private final Map<Long, PanelRef> panelByGuild = new ConcurrentHashMap<>();
-    private final Map<Long, Long> panelLastRefreshAt = new ConcurrentHashMap<>();
-    private final Map<Long, String> panelLastSignature = new ConcurrentHashMap<>();
-    private final Map<Long, ScheduledFuture<?>> delayedPanelRefreshByGuild = new ConcurrentHashMap<>();
-    private final Map<Long, Boolean> delayedPanelRefreshForceByGuild = new ConcurrentHashMap<>();
-    private final Set<Long> panelRefreshingGuilds = ConcurrentHashMap.newKeySet();
-    private final Map<Long, RefreshRequest> pendingPanelRefreshByGuild = new ConcurrentHashMap<>();
     private final Map<Long, PanelNotice> panelNoticeByGuild = new ConcurrentHashMap<>();
 
     public Map<Long, PanelRef> panelRefs() {
-        return panelByGuild;
+        return Collections.unmodifiableMap(panelByGuild);
     }
 
     public PanelRef getPanelRef(long guildId) {
@@ -26,121 +21,44 @@ public final class MusicPanelStateStore {
 
     public boolean isActivePanel(long guildId, long channelId, long messageId) {
         PanelRef active = panelByGuild.get(guildId);
-        return active != null
-                && active.channelId == channelId
-                && active.messageId == messageId;
+        return active != null && active.channelId == channelId && active.messageId == messageId;
     }
 
-    public synchronized void putPanelRef(long guildId, PanelRef panelRef) {
+    public void putPanelRef(long guildId, PanelRef panelRef) {
         panelByGuild.put(guildId, panelRef);
     }
 
-    public synchronized void activatePanelRef(long guildId,
-                                              PanelRef panelRef,
-                                              String signature,
-                                              long refreshedAt) {
+    public void activatePanelRef(long guildId, PanelRef panelRef, long refreshedAt) {
+        panelRef.lastRefreshAt = refreshedAt;
         panelByGuild.put(guildId, panelRef);
-        if (signature == null) {
-            panelLastSignature.remove(guildId);
-        } else {
-            panelLastSignature.put(guildId, signature);
-        }
-        panelLastRefreshAt.put(guildId, refreshedAt);
     }
 
-    public synchronized PanelRef removePanelRef(long guildId) {
-        return panelByGuild.remove(guildId);
-    }
-
-    public synchronized void clearPanelState(long guildId) {
+    public void clearPanelState(long guildId) {
         panelByGuild.remove(guildId);
-        panelLastSignature.remove(guildId);
-        panelLastRefreshAt.remove(guildId);
-        pendingPanelRefreshByGuild.remove(guildId);
-        delayedPanelRefreshForceByGuild.remove(guildId);
-        cancelDelayedRefreshTask(guildId);
+        panelNoticeByGuild.remove(guildId);
     }
 
-    public synchronized boolean compareAndClearPanelState(long guildId,
-                                                          long expectedChannelId,
-                                                          long expectedMessageId) {
-        PanelRef active = panelByGuild.get(guildId);
-        if (active == null
-                || active.channelId != expectedChannelId
-                || active.messageId != expectedMessageId
-                || !panelByGuild.remove(guildId, active)) {
-            return false;
-        }
-        panelLastSignature.remove(guildId);
-        panelLastRefreshAt.remove(guildId);
-        pendingPanelRefreshByGuild.remove(guildId);
-        delayedPanelRefreshForceByGuild.remove(guildId);
-        cancelDelayedRefreshTask(guildId);
-        return true;
+    public boolean compareAndClearPanelState(long guildId, long channelId, long messageId) {
+        AtomicBoolean cleared = new AtomicBoolean();
+        panelByGuild.computeIfPresent(guildId, (ignored, active) -> {
+            if (active.channelId == channelId && active.messageId == messageId) {
+                cleared.set(true);
+                return null;
+            }
+            return active;
+        });
+        return cleared.get();
     }
 
     public long getLastRefreshAt(long guildId) {
-        return panelLastRefreshAt.getOrDefault(guildId, 0L);
+        PanelRef ref = panelByGuild.get(guildId);
+        return ref == null ? 0L : ref.lastRefreshAt;
     }
 
-    public void putLastRefreshAt(long guildId, long timestamp) {
-        panelLastRefreshAt.put(guildId, timestamp);
-    }
-
-    public String getLastSignature(long guildId) {
-        return panelLastSignature.get(guildId);
-    }
-
-    public void putLastSignature(long guildId, String signature) {
-        panelLastSignature.put(guildId, signature);
-    }
-
-    public void requestRefresh(long guildId, boolean force, boolean immediate, boolean periodicOnly) {
-        RefreshRequest incoming = new RefreshRequest(force, immediate, periodicOnly);
-        pendingPanelRefreshByGuild.merge(guildId, incoming, RefreshRequest::merge);
-    }
-
-    public RefreshRequest pollRefreshRequest(long guildId) {
-        return pendingPanelRefreshByGuild.remove(guildId);
-    }
-
-    public boolean hasPendingRefresh(long guildId) {
-        return pendingPanelRefreshByGuild.containsKey(guildId);
-    }
-
-    public boolean startRefreshing(long guildId) {
-        return panelRefreshingGuilds.add(guildId);
-    }
-
-    public void finishRefreshing(long guildId) {
-        panelRefreshingGuilds.remove(guildId);
-    }
-
-    public ScheduledFuture<?> getDelayedRefreshTask(long guildId) {
-        return delayedPanelRefreshByGuild.get(guildId);
-    }
-
-    public void putDelayedRefreshTask(long guildId, ScheduledFuture<?> task) {
-        delayedPanelRefreshByGuild.put(guildId, task);
-    }
-
-    public void removeDelayedRefreshTask(long guildId) {
-        delayedPanelRefreshByGuild.remove(guildId);
-    }
-
-    public void mergeDelayedRefreshForce(long guildId, boolean force) {
-        delayedPanelRefreshForceByGuild.merge(guildId, force, (current, incoming) -> current || incoming);
-    }
-
-    public boolean pollDelayedRefreshForce(long guildId) {
-        return Boolean.TRUE.equals(delayedPanelRefreshForceByGuild.remove(guildId));
-    }
-
-    public synchronized void cancelDelayedRefreshTask(long guildId) {
-        ScheduledFuture<?> task = delayedPanelRefreshByGuild.remove(guildId);
-        delayedPanelRefreshForceByGuild.remove(guildId);
-        if (task != null) {
-            task.cancel(false);
+    public void markRefreshed(long guildId, PanelRef expected, long timestamp) {
+        // Writing to an old reference can never alter the replacement panel's timestamp.
+        if (panelByGuild.get(guildId) == expected) {
+            expected.lastRefreshAt = timestamp;
         }
     }
 
@@ -167,22 +85,13 @@ public final class MusicPanelStateStore {
         return expected != null && panelNoticeByGuild.remove(guildId, expected);
     }
 
-    public record RefreshRequest(boolean force, boolean immediate, boolean periodicOnly) {
-        RefreshRequest merge(RefreshRequest other) {
-            return new RefreshRequest(
-                    force || other.force,
-                    immediate || other.immediate,
-                    periodicOnly && other.periodicOnly
-            );
-        }
-    }
-
     public record PanelNotice(String message, long expiresAtMillis) {
     }
 
     public static final class PanelRef {
         public final long channelId;
         public final long messageId;
+        private volatile long lastRefreshAt;
 
         public PanelRef(long channelId, long messageId) {
             this.channelId = channelId;

@@ -125,7 +125,7 @@ public class MusicPlayerService {
     private final Map<YoutubeFailureCategory, LongAdder> youtubePlaybackFailureCounters =
             createYoutubeFailureCounters();
     private final Map<Long, GuildMusicManager> musicManagers = new ConcurrentHashMap<>();
-    private final Map<Long, Runnable> guildStateListeners = new ConcurrentHashMap<>();
+    private final Map<Long, Consumer<MusicStateChange>> guildStateListeners = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastCommandChannelByGuild = new ConcurrentHashMap<>();
     private final Map<Long, String> autoplayNoticeByGuild = new ConcurrentHashMap<>();
     private final Map<Long, Long> spotifyRateLimitGuildCooldownUntil = new ConcurrentHashMap<>();
@@ -734,6 +734,7 @@ public class MusicPlayerService {
                     (track, thresholdMs) -> handleTrackStuck(id, track, thresholdMs),
                     () -> guild.getAudioManager().getConnectedChannel() != null
             );
+            manager.getScheduler().setStateChangeListener(reason -> notifyStateChanged(id, reason));
             manager.getPlayer().setVolume(musicDataService.getVolume(id));
             applyPlaybackSpeedFilter(manager, musicDataService.getPlaybackSpeed(id));
             guild.getAudioManager().setSendingHandler(manager.getSendHandler());
@@ -750,6 +751,10 @@ public class MusicPlayerService {
     }
 
     public void setGuildStateListener(long guildId, Runnable listener) {
+        setGuildStateChangeListener(guildId, listener == null ? null : ignored -> listener.run());
+    }
+
+    public void setGuildStateChangeListener(long guildId, Consumer<MusicStateChange> listener) {
         if (listener == null) {
             guildStateListeners.remove(guildId);
         } else {
@@ -1606,7 +1611,7 @@ public class MusicPlayerService {
         AudioPlayer player = getGuildMusicManager(guild).getPlayer();
         boolean target = !player.isPaused();
         player.setPaused(target);
-        notifyStateChanged(guild.getIdLong());
+        notifyStateChanged(guild.getIdLong(), target ? MusicStateChange.PAUSE : MusicStateChange.RESUME);
         return target;
     }
 
@@ -1652,7 +1657,7 @@ public class MusicPlayerService {
     public int setVolume(Guild guild, int volume) {
         int applied = musicDataService.setVolume(guild.getIdLong(), volume);
         getGuildMusicManager(guild).getPlayer().setVolume(applied);
-        notifyStateChanged(guild.getIdLong());
+        notifyStateChanged(guild.getIdLong(), MusicStateChange.VOLUME_CHANGED);
         return applied;
     }
 
@@ -1908,9 +1913,13 @@ public class MusicPlayerService {
     }
 
     private void notifyStateChanged(long guildId) {
-        Runnable listener = guildStateListeners.get(guildId);
+        notifyStateChanged(guildId, MusicStateChange.STATE_CHANGED);
+    }
+
+    private void notifyStateChanged(long guildId, MusicStateChange reason) {
+        Consumer<MusicStateChange> listener = guildStateListeners.get(guildId);
         if (listener != null) {
-            listener.run();
+            listener.accept(reason);
         }
     }
 
@@ -2062,6 +2071,7 @@ public class MusicPlayerService {
                 new TrackRecoveryService.Listener() {
                     @Override
                     public void recovering(int attempt, int maxAttempts) {
+                        notifyStateChanged(guildId, MusicStateChange.RECOVERY);
                         if (attempt == 1) {
                             notifyPlaybackFailure(guildId, title, TRACK_RECOVERING_ERROR_KEY);
                         }
@@ -2078,7 +2088,7 @@ public class MusicPlayerService {
                     @Override
                     public void recovered(int attempt) {
                         clearAutoplayNotice(guildId);
-                        notifyStateChanged(guildId);
+                        notifyStateChanged(guildId, MusicStateChange.RECOVERY);
                         LOGGER.info(
                                 "[NoRule] Track recovery completed: guildId={} identifier={} attempt={}",
                                 guildId,

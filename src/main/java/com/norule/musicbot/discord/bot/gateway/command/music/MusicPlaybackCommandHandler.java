@@ -2,6 +2,7 @@ package com.norule.musicbot.discord.bot.gateway.command.music;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
+import com.norule.musicbot.discord.bot.gateway.panel.RefreshReason;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -351,7 +352,8 @@ public final class MusicPlaybackCommandHandler {
         if (panelChannel != null) {
             owner.musicService().rememberCommandChannel(guild.getIdLong(), panelChannel.getIdLong());
         }
-        owner.musicService().setGuildStateListener(guild.getIdLong(), () -> panelController.refreshPanel(guild.getIdLong()));
+        owner.musicService().setGuildStateChangeListener(guild.getIdLong(), reason -> owner.requestPanelRefresh(
+                guild.getIdLong(), RefreshReason.valueOf(reason.name())));
         boolean wasIdle = owner.musicService().getCurrentTitle(guild) == null;
         int queuedBefore = owner.musicService().getQueueSnapshot(guild).size();
         owner.musicService().loadAndPlay(guild, response -> {
@@ -413,7 +415,8 @@ public final class MusicPlaybackCommandHandler {
             return;
         }
         owner.musicService().joinChannel(guild, voice);
-        owner.musicService().setGuildStateListener(guild.getIdLong(), () -> panelController.refreshPanel(guild.getIdLong()));
+        owner.musicService().setGuildStateChangeListener(guild.getIdLong(), reason -> owner.requestPanelRefresh(
+                guild.getIdLong(), RefreshReason.valueOf(reason.name())));
         sink.send(owner.i18nService().t(lang, "music.joined", Map.of("channel", voice.getAsMention())));
     }
 
