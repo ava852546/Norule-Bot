@@ -58,12 +58,12 @@ class PanelRefreshFailurePolicyTest {
     }
 
     @Test
-    void missingAccessIsExpectedAndKeepsStateForRecovery() {
+    void missingAccessClearsStateWithoutAutomaticRetry() {
         PanelRefreshFailurePolicy.PanelFailure failure = policy.classify(
                 discordError(ErrorResponse.MISSING_ACCESS, 403)
         );
 
-        assertEquals(PanelRefreshFailurePolicy.FailureDisposition.KEEP_STATE, failure.disposition());
+        assertEquals(PanelRefreshFailurePolicy.FailureDisposition.CLEAR_STATE, failure.disposition());
         assertEquals("MISSING_ACCESS", failure.reason());
     }
 

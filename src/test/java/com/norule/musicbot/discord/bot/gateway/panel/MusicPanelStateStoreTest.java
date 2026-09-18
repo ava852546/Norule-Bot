@@ -31,60 +31,13 @@ class MusicPanelStateStoreTest {
     }
 
     @Test
-    void pendingRefreshRequestsAreCoalescedAndEscalated() {
+    void staleCompletionCannotChangeReplacementTimestamp() {
         MusicPanelStateStore store = new MusicPanelStateStore();
-
-        store.requestRefresh(1L, false, false, true);
-        store.requestRefresh(1L, false, false, false);
-        store.requestRefresh(1L, true, true, false);
-
-        MusicPanelStateStore.RefreshRequest request = store.pollRefreshRequest(1L);
-        assertTrue(request.force());
-        assertTrue(request.immediate());
-        assertFalse(request.periodicOnly());
-        assertFalse(store.hasPendingRefresh(1L));
-    }
-
-    @Test
-    void refreshLockIsHeldUntilExplicitCompletion() {
-        MusicPanelStateStore store = new MusicPanelStateStore();
-
-        assertTrue(store.startRefreshing(1L));
-        assertFalse(store.startRefreshing(1L));
-
-        store.finishRefreshing(1L);
-
-        assertTrue(store.startRefreshing(1L));
-    }
-
-    @Test
-    void delayedRefreshPreservesStrongestForceIntent() {
-        MusicPanelStateStore store = new MusicPanelStateStore();
-
-        store.mergeDelayedRefreshForce(1L, false);
-        store.mergeDelayedRefreshForce(1L, true);
-        store.mergeDelayedRefreshForce(1L, false);
-
-        assertTrue(store.pollDelayedRefreshForce(1L));
-        assertFalse(store.pollDelayedRefreshForce(1L));
-    }
-
-    @Test
-    void activatingPanelDoesNotDropRefreshQueuedDuringCreation() {
-        MusicPanelStateStore store = new MusicPanelStateStore();
-        store.requestRefresh(1L, true, false, false);
-
-        store.activatePanelRef(
-                1L,
-                new MusicPanelStateStore.PanelRef(10L, 100L),
-                "rendered-state",
-                123L
-        );
-
-        assertTrue(store.hasPendingRefresh(1L));
-        assertEquals("rendered-state", store.getLastSignature(1L));
-        assertEquals(123L, store.getLastRefreshAt(1L));
-        assertTrue(store.isActivePanel(1L, 10L, 100L));
+        var old = new MusicPanelStateStore.PanelRef(10L, 100L);
+        store.activatePanelRef(1L, old, 123L);
+        store.activatePanelRef(1L, new MusicPanelStateStore.PanelRef(10L, 200L), 456L);
+        store.markRefreshed(1L, old, 999L);
+        assertEquals(456L, store.getLastRefreshAt(1L));
     }
 
     @Test

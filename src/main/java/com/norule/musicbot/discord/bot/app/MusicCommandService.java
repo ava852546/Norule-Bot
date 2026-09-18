@@ -23,6 +23,7 @@ import com.norule.musicbot.discord.bot.gateway.command.registry.DiscordCommandCa
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelStateStore;
+import com.norule.musicbot.discord.bot.gateway.panel.RefreshReason;
 import com.norule.musicbot.discord.bot.gateway.command.moderation.AntiDuplicateCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.moderation.DeleteMessagesCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.moderation.WarningCommandHandler;
@@ -46,7 +47,6 @@ import com.norule.musicbot.ops.minecraft.MinecraftStatusOps;
 import com.norule.musicbot.discord.bot.ops.ticket.TicketOps;
 import com.norule.musicbot.discord.bot.ops.wordchain.WordChainOps;
 
-import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.Permission;
@@ -136,7 +136,7 @@ public class MusicCommandService extends ListenerAdapter {
     private final PlaybackFailureNotifier playbackFailureNotifier;
     private final HelpViewRenderer helpViewRenderer;
     private final AtomicBoolean botReadyForSlashCommands = new AtomicBoolean(false);
-    private static final long PANEL_PERIODIC_REFRESH_MS = 10_000L;
+    private static final long PANEL_PERIODIC_REFRESH_MS = 30_000L;
 
     @SuppressWarnings("java:S107")
     public MusicCommandService(MusicPlayerService musicService,
@@ -333,7 +333,22 @@ public class MusicCommandService extends ListenerAdapter {
         musicPanelRuntime.musicPanelController().initializeGuild(event.getGuild());
     }
 
+    @Override
+    public void onGuildLeave(net.dv8tion.jda.api.events.guild.GuildLeaveEvent event) {
+        musicPanelRuntime.musicPanelRefreshService().clearPanel(event.getGuild().getIdLong());
+        musicService.setGuildStateChangeListener(event.getGuild().getIdLong(), null);
+    }
+
+    @Override
+    public void onMessageDelete(net.dv8tion.jda.api.events.message.MessageDeleteEvent event) {
+        if (event.isFromGuild()) {
+            musicPanelRuntime.musicPanelRefreshService().clearPanel(
+                    event.getGuild().getIdLong(), event.getChannel().getIdLong(), event.getMessageIdLong());
+        }
+    }
+
     public void shutdown() {
+        musicPanelRuntime.musicPanelRefreshService().close();
         scheduler.shutdownNow();
     }
 
@@ -446,20 +461,12 @@ public class MusicCommandService extends ListenerAdapter {
         musicPanelRuntime.musicPanelRefreshService().createPanelMessageWithFeedback(guild, channel, lang, onSuccess, onError);
     }
 
+    public void requestPanelRefresh(long guildId, RefreshReason reason) {
+        musicPanelRuntime.musicPanelRefreshService().requestRefresh(guildId, reason);
+    }
+
     public void refreshPanel(long guildId) {
         musicPanelRuntime.musicPanelRefreshService().refreshPanel(guildId);
-    }
-
-    private void refreshPanelPeriodic(long guildId) {
-        musicPanelRuntime.musicPanelRefreshService().refreshPanelPeriodic(guildId);
-    }
-
-    public void refreshPanelMessage(Guild guild, TextChannel channel, long messageId, boolean force) {
-        musicPanelRuntime.musicPanelRefreshService().refreshPanelMessage(guild, channel, messageId, force);
-    }
-
-    public void refreshPanelMessage(Guild guild, TextChannel channel, long messageId, boolean force, boolean immediate) {
-        musicPanelRuntime.musicPanelRefreshService().refreshPanelMessage(guild, channel, messageId, force, immediate);
     }
 
     boolean isPanelButton(String componentId) {
@@ -560,62 +567,9 @@ public class MusicCommandService extends ListenerAdapter {
     }
 
     private void refreshAllPanelsSafely() {
-        try {
-            List<Long> guildIds = musicPanelRuntime.panelStateStore().snapshotGuildIds();
-            for (Long guildId : guildIds) {
-                refreshPanelPeriodic(guildId);
-            }
-        } catch (Exception ignored) {
-        }
+        musicPanelRuntime.musicPanelRefreshService().refreshAllPanelsSafely();
     }
 
-    public String panelSignature(Guild guild) {
-        AudioTrack currentTrack = musicService.getCurrentTrack(guild);
-        String current = musicService.getCurrentTitle(guild);
-        long duration = musicService.getCurrentDurationMillis(guild);
-        long position = musicService.getCurrentPositionMillis(guild);
-        long positionBucket = Math.max(0L, position / PANEL_PERIODIC_REFRESH_MS);
-        String state = current == null ? "IDLE" : (musicService.isPaused(guild) ? "PAUSED" : "PLAYING");
-        String repeat = musicService.getRepeatMode(guild);
-        List<AudioTrack> queue = musicService.getQueueSnapshot(guild);
-        StringBuilder queuePreview = new StringBuilder();
-        for (int index = 0; index < Math.min(queue.size(), 6); index++) {
-            AudioTrack queuedTrack = queue.get(index);
-            if (index > 0) {
-                queuePreview.append(',');
-            }
-            queuePreview.append(safe(queuedTrack.getIdentifier(), 60))
-                    .append(':')
-                    .append(safe(queuedTrack.getInfo().title, 40));
-        }
-        String connected = guild.getAudioManager().getConnectedChannel() == null
-                ? "-"
-                : guild.getAudioManager().getConnectedChannel().getId();
-        String source = musicService.getCurrentSource(guild);
-        String autoplayNotice = musicService.getAutoplayNotice(guild.getIdLong());
-        MusicPanelStateStore.PanelNotice panelNotice = musicPanelRuntime.panelStateStore()
-                .getPanelNotice(guild.getIdLong(), System.currentTimeMillis());
-        return String.join("|",
-                safe(current, 60),
-                currentTrack == null ? "-" : safe(currentTrack.getIdentifier(), 80),
-                safe(musicService.getCurrentAuthor(guild), 60),
-                safe(musicService.getCurrentRequesterDisplay(guild), 60),
-                safe(musicService.getCurrentArtworkUrl(guild), 100),
-                String.valueOf(duration),
-                String.valueOf(positionBucket),
-                String.valueOf(musicService.isCurrentStream(guild)),
-                state,
-                safe(repeat, 12),
-                String.valueOf(musicService.getVolume(guild)),
-                String.valueOf(queue.size()),
-                queuePreview.toString(),
-                connected,
-                safe(source, 20),
-                safe(autoplayNotice, 50),
-                panelNotice == null ? "-" : safe(panelNotice.message(), 120),
-                String.valueOf(isAutoplayEnabled(guild.getIdLong()))
-        );
-    }
     public long acquireCooldown(long userId) {
         return commandCooldownService.acquireCooldown(userId);
     }

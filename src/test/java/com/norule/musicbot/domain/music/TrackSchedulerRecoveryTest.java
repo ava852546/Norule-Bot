@@ -15,6 +15,36 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TrackSchedulerRecoveryTest {
     @Test
+    void stateListenerReceivesSpecificPlaybackReasons() {
+        FakePlayer player = new FakePlayer();
+        TrackScheduler scheduler = new TrackScheduler(player.proxy);
+        var reasons = new java.util.ArrayList<MusicStateChange>();
+        scheduler.setStateChangeListener(reasons::add);
+        FakeTrack track = new FakeTrack("track", true);
+        scheduler.queue(track.proxy);
+        scheduler.onTrackStart(player.proxy, track.proxy);
+        scheduler.setRepeatMode("ALL");
+        scheduler.onTrackEnd(player.proxy, track.proxy, AudioTrackEndReason.STOPPED);
+        assertEquals(java.util.List.of(MusicStateChange.QUEUE_CHANGED, MusicStateChange.TRACK_START,
+                MusicStateChange.LOOP_CHANGED, MusicStateChange.TRACK_END), reasons);
+    }
+
+    @Test
+    void successfulRecoveryNotifiesWithoutChangingTheRecoveryContract() {
+        FakePlayer player = new FakePlayer();
+        TrackScheduler scheduler = new TrackScheduler(player.proxy);
+        FakeTrack old = new FakeTrack("old", true);
+        FakeTrack replacement = new FakeTrack("replacement", true);
+        scheduler.queue(old.proxy);
+        var reasons = new java.util.ArrayList<MusicStateChange>();
+        scheduler.setStateChangeListener(reasons::add);
+        assertTrue(scheduler.replaceIfCurrent(old.proxy, replacement.proxy,
+                scheduler.getPlaybackGeneration(), 28_000L));
+        assertEquals(java.util.List.of(MusicStateChange.RECOVERY), reasons);
+        assertEquals(28_000L, replacement.position);
+    }
+
+    @Test
     void loadFailedEndEventDoesNotAdvanceQueueDuringRecovery() {
         FakePlayer player = new FakePlayer();
         TrackScheduler scheduler = new TrackScheduler(player.proxy);

@@ -1,0 +1,7 @@
+package com.norule.musicbot.discord.bot.gateway.panel;
+
+public enum RefreshReason {
+    TRACK_START, TRACK_END, QUEUE_CHANGED, PAUSE, RESUME, VOLUME_CHANGED,
+    LOOP_CHANGED, SHUFFLE_CHANGED, SEEK, RECOVERY, STATE_CHANGED,
+    BUTTON_INTERACTION, PERIODIC_REFRESH, MANUAL
+}

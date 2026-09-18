@@ -10,7 +10,6 @@ import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 
 class MusicPanelRuntime {
-    private static final long PANEL_MIN_EDIT_INTERVAL_MS = 3500L;
 
     private final MusicPanelStateStore panelStateStore;
     private final MusicPanelRenderer musicPanelRenderer;
@@ -29,8 +28,7 @@ class MusicPanelRuntime {
                 this.musicPanelRenderer,
                 commandChannelProvisioner,
                 scheduler,
-                panelPeriodicRefreshMs,
-                PANEL_MIN_EDIT_INTERVAL_MS
+                panelPeriodicRefreshMs
         );
         this.musicPanelController = new MusicPanelController(
                 service,
