@@ -92,7 +92,9 @@ public final class YoutubeFailureClassifier {
     private ClassifiedFailure classifyThrowable(Throwable failure) {
         YoutubeFailureCategory best = YoutubeFailureCategory.UNKNOWN;
         Integer bestStatus = null;
+        boolean hasIOException = false;
         for (Throwable current : throwableGraph(failure)) {
+            hasIOException |= current instanceof IOException;
             Integer status = structuredHttpStatus(current);
             YoutubeFailureCategory typeCategory = classifyType(current, status);
             if (priority(typeCategory) > priority(best)) {
@@ -111,6 +113,10 @@ public final class YoutubeFailureClassifier {
                 }
             }
         }
+        // IOException is also used for rejected HTTP responses; prefer their specific cause.
+        if (best == YoutubeFailureCategory.UNKNOWN && hasIOException) {
+            best = YoutubeFailureCategory.NETWORK_IO;
+        }
         return new ClassifiedFailure(best, bestStatus);
     }
 
@@ -128,9 +134,6 @@ public final class YoutubeFailureClassifier {
             if (httpStatus == 400) {
                 return YoutubeFailureCategory.HTTP_BAD_REQUEST;
             }
-        }
-        if (failure instanceof IOException) {
-            return YoutubeFailureCategory.NETWORK_IO;
         }
         return YoutubeFailureCategory.UNKNOWN;
     }
@@ -188,6 +191,7 @@ public final class YoutubeFailureClassifier {
         if (containsAny(message,
                 "signature decipher",
                 "signature extraction",
+                "must find sig function from script",
                 "signature failure",
                 "invalid signature")) {
             return YoutubeFailureCategory.SIGNATURE_FAILURE;
