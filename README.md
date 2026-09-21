@@ -342,6 +342,10 @@ Bilibili URL 由專用 adapter 處理。控制面 API 請求具備：
 
 YouTube cipher server、PO token、visitor data 或 OAuth refresh token 都是進階選項，可能受上游政策影響。不要把憑證提交到 repository；修改後應以實際 `/play` 測試，不要只以啟動成功判定可播放。
 
+遇到 `AllClientsFailedException` 時，請查看 `clients={...}` 的個別原因；最外層的 `BOT_DETECTED / AUTH_MAY_HELP` 不代表所有 client 都只缺登入。例如 `Must find sig function from script` 是簽章解析失敗，`Invalid status code for player api response: 400` 是 HTTP 請求被拒絕，並非一般網路斷線。
+
+簽章解析失敗可使用 youtube-source 支援的 [remote cipher server](https://github.com/lavalink-devs/youtube-source#using-a-remote-cipher-server)。本專案已接入此功能：先準備可連線且相容的服務，再設定 `YOUTUBE_CIPHER_ENABLED=true`、`YOUTUBE_CIPHER_SERVER` 與服務要求的 `YOUTUBE_CIPHER_PASSWORD`，重新啟動 Bot。只設定 URL 不會啟用 Cipher；`localhost` 必須是 Bot 執行環境實際能連到的服務位置。Cipher 處理簽章，不保證解除 `BOT_DETECTED` 或 `LOGIN_REQUIRED`；驗證模式與憑證仍需另外依上游支援情況配置。
+
 ### Spotify 與直接 HTTP
 
 Spotify 整合預設關閉。啟用並提供需要的 client credentials／`sp_dc` 後，Spotify track、album、playlist 與 artist 資源會解析成可播放搜尋結果；Jam、show 與 episode 不是一般播放入口。Spotify Web API 仍可能因私人、個人化、空歌單或 rate limit 拒絕解析。

@@ -5,7 +5,9 @@ import dev.lavalink.youtube.AllClientsFailedException;
 import dev.lavalink.youtube.ClientException;
 import dev.lavalink.youtube.clients.skeleton.Client;
 import org.junit.jupiter.api.Test;
+import org.apache.http.client.HttpResponseException;
 
+import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +70,59 @@ class YoutubeFailureClassifierTest {
 
         assertEquals(YoutubeFailureCategory.DECODER_FAILURE, report.category());
         assertEquals(YoutubeRecoveryClass.DECODER_FALLBACK_MAY_HELP, report.recoveryClass());
+    }
+
+    @Test
+    void recognizesPlayerSignatureExtractionFailure() {
+        YoutubeFailureReport report = classifier.classify(new IllegalStateException(
+                "Must find sig function from script: /s/player/4fd832e7/player_embed.vflset/zh_TW/base.js"
+        ));
+
+        assertEquals(YoutubeFailureCategory.SIGNATURE_FAILURE, report.category());
+        assertEquals(YoutubeRecoveryClass.CLIENT_FALLBACK_MAY_HELP, report.recoveryClass());
+    }
+
+    @Test
+    void httpResponseIsNotMisclassifiedAsGenericNetworkIo() {
+        for (int status : List.of(400, 403)) {
+            YoutubeFailureCategory expected = status == 400
+                    ? YoutubeFailureCategory.HTTP_BAD_REQUEST
+                    : YoutubeFailureCategory.HTTP_FORBIDDEN;
+            for (IOException cause : List.of(
+                    new IOException("Invalid status code for player api response: " + status),
+                    new HttpResponseException(status, "Player request rejected")
+            )) {
+                YoutubeFailureReport report = classifier.classify(new IOException("Playback failed", cause));
+
+                assertEquals(expected, report.category());
+                assertEquals(status, report.httpStatus());
+                assertEquals(YoutubeRecoveryClass.CLIENT_FALLBACK_MAY_HELP, report.recoveryClass());
+            }
+        }
+        YoutubeFailureReport network = classifier.classify(new IOException("Transport failed"));
+        assertEquals(YoutubeFailureCategory.NETWORK_IO, network.category());
+        assertEquals(YoutubeRecoveryClass.RETRYABLE, network.recoveryClass());
+    }
+
+    @Test
+    void reportedMixedFailuresRetainSpecificClientDiagnostics() {
+        YoutubeFailureReport report = classifier.classify(aggregate(
+                clientFailure("WEB", "No supported audio streams available, available types: "),
+                clientFailure("MWEB", "Must find sig function from script: /s/player/4fd832e7/base.js"),
+                clientFailure("WEB_EMBEDDED_PLAYER", "This video is unavailable"),
+                clientFailure("TVHTML5_SIMPLY", "Sign in to confirm you're not a bot"),
+                clientFailure("ANDROID_VR", "This video requires login."),
+                clientFailure("ANDROID_MUSIC", "This video requires login."),
+                new ClientException("Player request failed", client("IOS"),
+                        new IOException("Invalid status code for player api response: 400"))
+        ));
+
+        assertEquals(YoutubeFailureCategory.BOT_DETECTED, report.category());
+        assertEquals(YoutubeRecoveryClass.AUTH_MAY_HELP, report.recoveryClass());
+        assertEquals(400, report.httpStatus());
+        assertTrue(report.clientsSummary().contains("MWEB:SIGNATURE_FAILURE"));
+        assertTrue(report.clientsSummary().contains("IOS:HTTP_BAD_REQUEST"));
+        assertFalse(report.allowsPlaybackRecovery(MusicConfig.Youtube.AuthMode.NONE));
     }
 
     @Test
