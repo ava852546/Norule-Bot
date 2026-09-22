@@ -1,19 +1,18 @@
 package com.norule.musicbot.discord.bot.gateway.command.music;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.domain.music.MusicCommandChannelProvisioning;
+import com.norule.musicbot.service.music.MusicCommandChannelProvisioningService;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -24,22 +23,21 @@ public final class MusicCommandChannelProvisioner {
     public static final long STARTUP_INTERVAL_MS = 1_000L;
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MusicCommandChannelProvisioner.class);
-    private static final long FAILURE_LOG_COOLDOWN_MS = Duration.ofMinutes(10).toMillis();
 
     private final ChannelState channelState;
     private final ScheduledExecutorService scheduler;
     private final long startupIntervalMs;
-    private final Map<Long, CompletableFuture<TextChannel>> provisioningByGuild = new ConcurrentHashMap<>();
-    private final Set<Long> queuedGuilds = ConcurrentHashMap.newKeySet();
-    private final Map<Long, Long> lastFailureLogAtByGuild = new ConcurrentHashMap<>();
+    private final MusicCommandChannelProvisioningService provisioningState;
 
-    public MusicCommandChannelProvisioner(MusicCommandService owner, ScheduledExecutorService scheduler) {
-        this(new OwnerChannelState(owner), scheduler, STARTUP_INTERVAL_MS);
+    public MusicCommandChannelProvisioner(MusicCommandService owner, ScheduledExecutorService scheduler,
+                                         MusicCommandChannelProvisioningService provisioningState) {
+        this(new OwnerChannelState(owner), scheduler, STARTUP_INTERVAL_MS, provisioningState);
     }
 
     MusicCommandChannelProvisioner(ChannelState channelState,
                                    ScheduledExecutorService scheduler,
-                                   long startupIntervalMs) {
+                                   long startupIntervalMs,
+                                   MusicCommandChannelProvisioningService provisioningState) {
         if (channelState == null) {
             throw new IllegalArgumentException("channelState cannot be null");
         }
@@ -52,6 +50,7 @@ public final class MusicCommandChannelProvisioner {
         this.channelState = channelState;
         this.scheduler = scheduler;
         this.startupIntervalMs = startupIntervalMs;
+        this.provisioningState = Objects.requireNonNull(provisioningState);
     }
 
     public void queueStartupProvisioning(List<Guild> guilds,
@@ -73,7 +72,7 @@ public final class MusicCommandChannelProvisioner {
 
     public boolean queueGuildJoinProvisioning(Guild guild,
                                                BiConsumer<Guild, TextChannel> onProvisioned) {
-        return queueProvisioning(guild, startupIntervalMs, onProvisioned, false);
+        return queueProvisioning(guild, startupIntervalMs, onProvisioned);
     }
 
     public CompletableFuture<TextChannel> ensureCommandChannel(Guild guild) {
@@ -87,13 +86,14 @@ public final class MusicCommandChannelProvisioner {
             return CompletableFuture.completedFuture(configured);
         }
 
-        long guildId = guild.getIdLong();
-        CompletableFuture<TextChannel> future = provisioningByGuild.computeIfAbsent(
-                guildId,
-                ignored -> startProvisioning(guild)
-        );
-        future.whenComplete((channel, failure) -> provisioningByGuild.remove(guildId, future));
-        return future;
+        try {
+            MusicCommandChannelProvisioning attempt = provisioningState.tryStart(guild.getIdLong());
+            return attempt == null
+                    ? CompletableFuture.failedFuture(new AlreadyAttemptedException())
+                    : executeProvisioning(guild, attempt);
+        } catch (RuntimeException failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
     }
 
     public boolean adoptCommandChannel(Guild guild, TextChannel channel) {
@@ -109,24 +109,12 @@ public final class MusicCommandChannelProvisioner {
             return;
         }
         Throwable cause = rootCause(failure);
-        if (cause instanceof MissingManageChannelPermissionException) {
-            logSkipped(guild.getIdLong(), "Missing permission: Manage Channels");
+        if (cause instanceof AlreadyAttemptedException) {
             return;
         }
-        long guildId = guild.getIdLong();
-        long now = System.currentTimeMillis();
-        Long previous = lastFailureLogAtByGuild.putIfAbsent(guildId, now);
-        if (previous != null) {
-            if (now - previous < FAILURE_LOG_COOLDOWN_MS) {
-                return;
-            }
-            if (!lastFailureLogAtByGuild.replace(guildId, previous, now)) {
-                return;
-            }
-        }
         LOGGER.warn(
-                "[NoRule] Music command channel provisioning failed: guildId={} reason={}",
-                guildId,
+                "Music command channel resolution failed: guildId={} reason={}",
+                guild.getIdLong(),
                 safeErrorMessage(cause)
         );
     }
@@ -134,32 +122,25 @@ public final class MusicCommandChannelProvisioner {
     private boolean queueProvisioning(Guild guild,
                                       long delayMs,
                                       BiConsumer<Guild, TextChannel> onProvisioned) {
-        return queueProvisioning(guild, delayMs, onProvisioned, true);
-    }
-
-    private boolean queueProvisioning(Guild guild,
-                                      long delayMs,
-                                      BiConsumer<Guild, TextChannel> onProvisioned,
-                                      boolean checkPermissionBeforeQueueing) {
         if (guild == null) {
             return false;
         }
         long guildId = guild.getIdLong();
-        if (checkPermissionBeforeQueueing && !hasManageChannelPermission(guild)) {
-            logSkipped(guildId, "Missing permission: Manage Channels");
+        MusicCommandChannelProvisioning attempt;
+        try {
+            attempt = provisioningState.tryStart(guildId);
+        } catch (RuntimeException failure) {
+            // Fail closed: Discord must not be called without a durable claim.
+            logProvisioningFailure(guild, failure);
             return false;
         }
-        if (!queuedGuilds.add(guildId)) {
-            LOGGER.debug(
-                    "[NoRule] Music command channel provisioning already queued: guildId={}",
-                    guildId
-            );
+        if (attempt == null) {
             return false;
         }
 
         try {
             scheduler.schedule(
-                    () -> runQueuedProvisioning(guild, onProvisioned),
+                    () -> runQueuedProvisioning(guild, attempt, onProvisioned),
                     delayMs,
                     TimeUnit.MILLISECONDS
             );
@@ -170,43 +151,69 @@ public final class MusicCommandChannelProvisioner {
             );
             return true;
         } catch (RejectedExecutionException failure) {
-            queuedGuilds.remove(guildId);
-            logProvisioningFailure(guild, failure);
+            provisioningState.fail(attempt, failure);
             return false;
         }
     }
 
     private void runQueuedProvisioning(Guild scheduledGuild,
+                                       MusicCommandChannelProvisioning attempt,
                                        BiConsumer<Guild, TextChannel> onProvisioned) {
         long guildId = scheduledGuild.getIdLong();
         try {
-            Guild currentGuild = scheduledGuild.getJDA().getGuildById(guildId);
-            if (currentGuild == null) {
-                logSkipped(guildId, "Guild is no longer available");
-                queuedGuilds.remove(guildId);
+            if (!provisioningState.isAttempting(attempt)) {
                 return;
             }
-            if (!hasManageChannelPermission(currentGuild)) {
-                logSkipped(guildId, "Missing permission: Manage Channels");
-                queuedGuilds.remove(guildId);
+            Guild currentGuild = scheduledGuild.getJDA().getGuildById(guildId);
+            if (currentGuild == null) {
+                provisioningState.fail(attempt, new IllegalStateException("Guild is no longer available"));
                 return;
             }
 
-            ensureCommandChannel(currentGuild).whenComplete((channel, failure) -> {
-                try {
-                    if (failure != null) {
-                        logProvisioningFailure(currentGuild, failure);
-                    } else if (onProvisioned != null) {
-                        onProvisioned.accept(currentGuild, channel);
-                    }
-                } finally {
-                    queuedGuilds.remove(guildId);
+            executeProvisioning(currentGuild, attempt).thenAccept(channel -> {
+                if (channel != null && onProvisioned != null) {
+                    onProvisioned.accept(currentGuild, channel);
                 }
+            }).exceptionally(failure -> {
+                logProvisioningFailure(currentGuild, failure);
+                return null;
             });
         } catch (RuntimeException failure) {
-            queuedGuilds.remove(guildId);
-            logProvisioningFailure(scheduledGuild, failure);
+            provisioningState.fail(attempt, failure);
         }
+    }
+
+    public void guildLeft(long guildId) {
+        provisioningState.guildLeft(guildId);
+    }
+
+    private CompletableFuture<TextChannel> executeProvisioning(Guild guild,
+                                                               MusicCommandChannelProvisioning attempt) {
+        CompletableFuture<TextChannel> creation;
+        try {
+            if (!provisioningState.isAttempting(attempt)) {
+                return CompletableFuture.failedFuture(new AlreadyAttemptedException());
+            }
+            TextChannel configured = configuredChannel(guild);
+            creation = configured != null ? CompletableFuture.completedFuture(configured) : startProvisioning(guild);
+        } catch (RuntimeException failure) {
+            creation = CompletableFuture.failedFuture(failure);
+        }
+        return creation.thenApply(channel -> {
+            // A callback from an earlier membership must not affect a new attempt.
+            if (!provisioningState.isAttempting(attempt)) {
+                throw new AlreadyAttemptedException();
+            }
+            rememberChannel(guild, channel);
+            if (!provisioningState.succeed(attempt)) {
+                throw new AlreadyAttemptedException();
+            }
+            return channel;
+        }).whenComplete((channel, failure) -> {
+            if (failure != null) {
+                provisioningState.fail(attempt, failure);
+            }
+        });
     }
 
     private CompletableFuture<TextChannel> startProvisioning(Guild guild) {
@@ -215,7 +222,6 @@ public final class MusicCommandChannelProvisioner {
                 .min(Comparator.comparingLong(TextChannel::getIdLong))
                 .orElse(null);
         if (reusable != null) {
-            rememberChannel(guild, reusable);
             logAlreadyProvisioned(guild, reusable);
             return CompletableFuture.completedFuture(reusable);
         }
@@ -224,6 +230,9 @@ public final class MusicCommandChannelProvisioner {
             return CompletableFuture.failedFuture(
                     new MissingManageChannelPermissionException()
             );
+        }
+        if (!guild.getSelfMember().hasPermission(Permission.MANAGE_PERMISSIONS)) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Missing permission: MANAGE_PERMISSIONS"));
         }
 
         CompletableFuture<TextChannel> result = new CompletableFuture<>();
@@ -241,7 +250,6 @@ public final class MusicCommandChannelProvisioner {
                         0L
                 )
                 .queue(channel -> {
-                    rememberChannel(guild, channel);
                     LOGGER.info(
                             "[NoRule] Music command channel created: guildId={} channelId={}",
                             guild.getIdLong(),
@@ -268,7 +276,6 @@ public final class MusicCommandChannelProvisioner {
     private void rememberChannel(Guild guild, TextChannel channel) {
         long guildId = guild.getIdLong();
         channelState.rememberCommandChannel(guildId, channel.getIdLong());
-        lastFailureLogAtByGuild.remove(guildId);
     }
 
     private boolean hasManageChannelPermission(Guild guild) {
@@ -289,14 +296,6 @@ public final class MusicCommandChannelProvisioner {
                 "[NoRule] Music command channel already provisioned: guildId={} channelId={}",
                 guild.getIdLong(),
                 channel.getIdLong()
-        );
-    }
-
-    private void logSkipped(long guildId, String reason) {
-        LOGGER.info(
-                "[NoRule] Music command channel provisioning skipped: guildId={} reason={}",
-                guildId,
-                reason
         );
     }
 
@@ -349,7 +348,13 @@ public final class MusicCommandChannelProvisioner {
 
     private static final class MissingManageChannelPermissionException extends IllegalStateException {
         private MissingManageChannelPermissionException() {
-            super("Missing permission: Manage Channels");
+            super("Missing permission: MANAGE_CHANNEL");
+        }
+    }
+
+    private static final class AlreadyAttemptedException extends IllegalStateException {
+        private AlreadyAttemptedException() {
+            super("Music command channel provisioning already attempted for this membership");
         }
     }
 }

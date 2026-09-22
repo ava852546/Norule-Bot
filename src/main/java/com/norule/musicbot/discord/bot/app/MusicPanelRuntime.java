@@ -5,6 +5,7 @@ import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRefreshService;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRenderer;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelStateStore;
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicCommandChannelProvisioner;
+import com.norule.musicbot.service.music.MusicCommandChannelProvisioningService;
 
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
@@ -18,8 +19,9 @@ class MusicPanelRuntime {
 
     MusicPanelRuntime(MusicCommandService service,
                       ScheduledExecutorService scheduler,
-                      long panelPeriodicRefreshMs) {
-        MusicCommandChannelProvisioner commandChannelProvisioner = new MusicCommandChannelProvisioner(service, scheduler);
+                      long panelPeriodicRefreshMs,
+                      MusicCommandChannelProvisioningService provisioningState) {
+        MusicCommandChannelProvisioner commandChannelProvisioner = new MusicCommandChannelProvisioner(service, scheduler, provisioningState);
         this.panelStateStore = new MusicPanelStateStore();
         this.musicPanelRenderer = new MusicPanelRenderer(service, this.panelStateStore);
         this.musicPanelRefreshService = new MusicPanelRefreshService(

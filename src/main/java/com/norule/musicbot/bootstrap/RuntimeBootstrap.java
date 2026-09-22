@@ -50,12 +50,14 @@ import com.norule.musicbot.shorturl.SqliteMediaSecurityRepository;
 import com.norule.musicbot.shorturl.infra.FileSystemImageShareStorage;
 import com.norule.musicbot.shorturl.infra.ShortUrlGatewayServer;
 import com.norule.musicbot.service.shorturl.ImageShareService;
+import com.norule.musicbot.service.music.MusicCommandChannelProvisioningService;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
 import com.norule.musicbot.service.shorturl.MediaQuotaService;
 import com.norule.musicbot.service.shorturl.RateLimitService;
 import com.norule.musicbot.shorturl.InMemoryRateLimitStore;
 import com.norule.musicbot.storage.sqlite.GuildSettingsSqliteRepository;
+import com.norule.musicbot.storage.sqlite.MusicCommandChannelProvisioningSqliteRepository;
 import com.norule.musicbot.storage.sqlite.HoneypotSqliteRepository;
 import com.norule.musicbot.storage.sqlite.ModerationSqliteRepository;
 import com.norule.musicbot.storage.sqlite.SqliteDatabase;
@@ -185,6 +187,12 @@ public final class RuntimeBootstrap {
         SqliteDatabase sharedSqliteDatabase = createSharedSqliteDatabase(sharedSqlitePath);
         StatsConfig statsConfig = new StatsConfig(config.getStats());
         Path musicSqlitePath = resolveMusicSqlitePath(sharedSqlitePath, statsConfig, baseDir);
+        // Provisioning claims are always durable, even when shared SQLite storage is disabled.
+        SqliteDatabase provisioningDatabase = sharedSqliteDatabase != null ? sharedSqliteDatabase
+                : new SqliteDatabase(sharedSqlitePath != null ? sharedSqlitePath
+                        : musicDataPath.resolve("command-channel-provisioning.db"));
+        MusicCommandChannelProvisioningService provisioningState = new MusicCommandChannelProvisioningService(
+                new MusicCommandChannelProvisioningSqliteRepository(provisioningDatabase));
 
         GuildSettingsSqliteRepository guildSettingsSqliteRepository = sharedSqliteDatabase == null ? null : new GuildSettingsSqliteRepository(sharedSqliteDatabase);
         GuildSettingsService guildSettingsService =
@@ -252,7 +260,8 @@ public final class RuntimeBootstrap {
                 shortUrlService,
                 ticketService,
                 messageStatsListener == null ? null : messageStatsListener.service(),
-                wordChainOps
+                wordChainOps,
+                provisioningState
         );
 
         JDA jda;
