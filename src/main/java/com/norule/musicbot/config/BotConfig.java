@@ -2235,7 +2235,7 @@ public String getToken() {
                 }
 
                 static Companion defaultValues() {
-                    return new Companion(false, "http://127.0.0.1:8282", "", true, 5000, 10000);
+                    return new Companion(false, "http://127.0.0.1:8282", "", false, 5000, 10000);
                 }
 
                 public boolean isEnabled() { return enabled; }

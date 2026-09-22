@@ -93,7 +93,10 @@ music:
       windowSeconds: 60
       cooldownSeconds: 300
   youtube:
-    # Startup-only YouTube playback backend: YOUTUBE_SOURCE or COMPANION.
+    # Startup-only playback extraction backend for direct/search/Spotify/playlist/recovery tracks.
+    # COMPANION never changes backend unless companion.fallbackToSource is explicitly enabled.
+    # youtube-source still supplies search and metadata in both modes.
+    # Supported backends: YOUTUBE_SOURCE or COMPANION.
     # youtube_source, YOUTUBE_SOURCE, and youtube-source are accepted; invalid values fall back safely.
     playbackBackend: YOUTUBE_SOURCE
     # Invidious Companion is used only for YouTube audio playback; youtube-source still handles search and metadata.
@@ -107,7 +110,8 @@ music:
       # Environment: YOUTUBE_COMPANION_SECRET.
       secret: ""
       # On Companion timeout, offline, or HTTP 5xx, try youtube-source once. Environment: YOUTUBE_COMPANION_FALLBACK_TO_SOURCE.
-      fallbackToSource: true
+      # Explicit cross-backend fallback; opt in only. Failures otherwise stay on COMPANION.
+      fallbackToSource: false
       # TCP connection timeout for Companion metadata and playback proxy requests.
       # Environment: YOUTUBE_COMPANION_CONNECT_TIMEOUT_MILLIS.
       connectTimeoutMillis: 5000
@@ -130,6 +134,10 @@ music:
     enabled: false
     refreshToken: ""
   cipher:
+    # Controls standalone local/remote Cipher in the YOUTUBE_SOURCE path.
+    # false forbids that integration, including fallback and recovery.
+    # Does NOT disable Invidious Companion internal signature/decipher handling.
+    # Environment variables cannot override enabled=false.
     enabled: false
     server: "http://localhost:8001"
     password: ""

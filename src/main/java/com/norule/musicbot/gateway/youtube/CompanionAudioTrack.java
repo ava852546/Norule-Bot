@@ -56,6 +56,8 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
         try {
             resolved = resolver.resolve(videoId);
         } catch (YouTubePlaybackException failure) {
+            LOGGER.warn("[NoRule] YouTube playback failed: configuredBackend=COMPANION actualBackend=COMPANION "
+                    + "videoId={} reason={} fallbackAttempted=false", videoId, failure.category());
             throw friendly(failure);
         }
         if (!resolved.usesCompanionStream()) {
@@ -81,6 +83,8 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
             try {
                 fallback = resolver.fallback(videoId, classified);
             } catch (YouTubePlaybackException finalFailure) {
+                LOGGER.warn("[NoRule] YouTube playback failed: configuredBackend=COMPANION actualBackend=COMPANION "
+                        + "videoId={} reason={} fallbackAttempted=false", videoId, finalFailure.category());
                 throw friendly(finalFailure);
             }
             if (fallback.backend() != com.norule.musicbot.domain.music.YouTubePlaybackBackend.YOUTUBE_SOURCE) {
@@ -178,14 +182,14 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
                 && resolved.primaryFailureCategory() != null) {
             LOGGER.warn(
                     "[NoRule] YouTube playback fallback: videoId={} primaryBackend=COMPANION "
-                            + "primaryFailure={} fallbackBackend=YOUTUBE_SOURCE",
+                            + "primaryFailure={} configuredBackend=COMPANION actualBackend=YOUTUBE_SOURCE fallbackAttempted=true",
                     videoId,
                     resolved.primaryFailureCategory()
             );
             return;
         }
         LOGGER.debug(
-                "[NoRule] YouTube playback selected: videoId={} backend={}",
+                "[NoRule] YouTube playback resolved: videoId={} configuredBackend=COMPANION actualBackend={}",
                 videoId,
                 resolved.backend()
         );

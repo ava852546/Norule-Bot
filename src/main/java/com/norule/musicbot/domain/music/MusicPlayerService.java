@@ -23,17 +23,7 @@ import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import dev.lavalink.bilibili.BilibiliAudioSourceManager;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
-import dev.lavalink.youtube.YoutubeSourceOptions;
-import dev.lavalink.youtube.clients.AndroidMusicWithThumbnail;
-import dev.lavalink.youtube.clients.AndroidVrWithThumbnail;
-import dev.lavalink.youtube.clients.MWebWithThumbnail;
-import dev.lavalink.youtube.clients.IosWithThumbnail;
-import dev.lavalink.youtube.clients.MusicWithThumbnail;
-import dev.lavalink.youtube.clients.Tv;
-import dev.lavalink.youtube.clients.TvHtml5SimplyWithThumbnail;
 import dev.lavalink.youtube.clients.Web;
-import dev.lavalink.youtube.clients.WebEmbeddedWithThumbnail;
-import dev.lavalink.youtube.clients.WebWithThumbnail;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.MessageChannel;
@@ -134,7 +124,7 @@ public class MusicPlayerService {
     private final Map<String, CachedPlaylistTracks> youtubePlaylistCache = new ConcurrentHashMap<>();
     private volatile MusicConfig.Youtube youtubeConfig;
     private volatile MusicConfig.Oauth oauthConfig;
-    private volatile MusicConfig.Cipher cipherConfig;
+    private final CipherPolicy cipherPolicy;
     private volatile MusicConfig.Spotify spotifyConfig;
     private volatile MusicConfig.Audio audioConfig;
     private volatile AudioUrlSafetyValidator directHttpValidator;
@@ -158,29 +148,15 @@ public class MusicPlayerService {
                               LongToIntFunction historyLimitProvider,
                               LongToIntFunction statsRetentionDaysProvider,
                               LongToIntFunction playlistTrackLimitProvider,
-                              MusicConfig globalMusicConfig) {
-        this(dataDir,
-                historyLimitProvider,
-                statsRetentionDaysProvider,
-                playlistTrackLimitProvider,
-                globalMusicConfig,
-                null);
-    }
-
-    @SuppressWarnings("deprecation")
-    public MusicPlayerService(Path dataDir,
-                              LongToIntFunction historyLimitProvider,
-                              LongToIntFunction statsRetentionDaysProvider,
-                              LongToIntFunction playlistTrackLimitProvider,
                               MusicConfig globalMusicConfig,
-                              Path sqliteDbPath) {
+                              CipherPolicy cipherPolicy,
+                              Function<MusicConfig.Youtube.AuthMode, YoutubeAudioSourceManager> youtubeSourceFactory) {
         this(dataDir,
                 historyLimitProvider,
                 statsRetentionDaysProvider,
                 playlistTrackLimitProvider,
                 globalMusicConfig,
-                sqliteDbPath,
-                SpotifyPlaylistInspector.noOp());
+                null, cipherPolicy, youtubeSourceFactory);
     }
 
     @SuppressWarnings("deprecation")
@@ -190,17 +166,15 @@ public class MusicPlayerService {
                               LongToIntFunction playlistTrackLimitProvider,
                               MusicConfig globalMusicConfig,
                               Path sqliteDbPath,
-                              SpotifyPlaylistInspector spotifyPlaylistInspector) {
-        this(
-                dataDir,
+                              CipherPolicy cipherPolicy,
+                              Function<MusicConfig.Youtube.AuthMode, YoutubeAudioSourceManager> youtubeSourceFactory) {
+        this(dataDir,
                 historyLimitProvider,
                 statsRetentionDaysProvider,
                 playlistTrackLimitProvider,
                 globalMusicConfig,
                 sqliteDbPath,
-                spotifyPlaylistInspector,
-                YouTubePlaybackTrackFactory.youtubeSource()
-        );
+                SpotifyPlaylistInspector.noOp(), cipherPolicy, youtubeSourceFactory);
     }
 
     @SuppressWarnings("deprecation")
@@ -211,7 +185,8 @@ public class MusicPlayerService {
                               MusicConfig globalMusicConfig,
                               Path sqliteDbPath,
                               SpotifyPlaylistInspector spotifyPlaylistInspector,
-                              YouTubePlaybackTrackFactory youtubePlaybackTrackFactory) {
+                              CipherPolicy cipherPolicy,
+                              Function<MusicConfig.Youtube.AuthMode, YoutubeAudioSourceManager> youtubeSourceFactory) {
         this(
                 dataDir,
                 historyLimitProvider,
@@ -220,8 +195,7 @@ public class MusicPlayerService {
                 globalMusicConfig,
                 sqliteDbPath,
                 spotifyPlaylistInspector,
-                youtubePlaybackTrackFactory,
-                new BilibiliAudioSourceManager()
+                YouTubePlaybackTrackFactory.youtubeSource(), cipherPolicy, youtubeSourceFactory
         );
     }
 
@@ -234,7 +208,34 @@ public class MusicPlayerService {
                               Path sqliteDbPath,
                               SpotifyPlaylistInspector spotifyPlaylistInspector,
                               YouTubePlaybackTrackFactory youtubePlaybackTrackFactory,
-                              AudioSourceManager bilibiliSourceManager) {
+                              CipherPolicy cipherPolicy,
+                              Function<MusicConfig.Youtube.AuthMode, YoutubeAudioSourceManager> youtubeSourceFactory) {
+        this(
+                dataDir,
+                historyLimitProvider,
+                statsRetentionDaysProvider,
+                playlistTrackLimitProvider,
+                globalMusicConfig,
+                sqliteDbPath,
+                spotifyPlaylistInspector,
+                youtubePlaybackTrackFactory,
+                new BilibiliAudioSourceManager(), cipherPolicy, youtubeSourceFactory
+        );
+    }
+
+    @SuppressWarnings("deprecation")
+    public MusicPlayerService(Path dataDir,
+                              LongToIntFunction historyLimitProvider,
+                              LongToIntFunction statsRetentionDaysProvider,
+                              LongToIntFunction playlistTrackLimitProvider,
+                              MusicConfig globalMusicConfig,
+                              Path sqliteDbPath,
+                              SpotifyPlaylistInspector spotifyPlaylistInspector,
+                              YouTubePlaybackTrackFactory youtubePlaybackTrackFactory,
+                              AudioSourceManager bilibiliSourceManager,
+                              CipherPolicy cipherPolicy,
+                              Function<MusicConfig.Youtube.AuthMode, YoutubeAudioSourceManager> youtubeSourceFactory) {
+        this.cipherPolicy = Objects.requireNonNull(cipherPolicy, "cipherPolicy");
         this.musicDataService = new MusicDataService(
                 dataDir,
                 historyLimitProvider,
@@ -267,7 +268,7 @@ public class MusicPlayerService {
         playerManager.registerSourceManager(bilibiliSourceManager);
         LOGGER.info("[NoRule] Bilibili audio source registered.");
         YoutubeAuthRuntime youtubeAuth = configureYouTubePoToken(resolveYoutubeAuthentication());
-        YoutubeAudioSourceManager youtubeSourceManager = createYoutubeSourceManager(youtubeAuth.mode());
+        YoutubeAudioSourceManager youtubeSourceManager = youtubeSourceFactory.apply(youtubeAuth.mode());
         youtubeAuth = configureYouTubeOauth(youtubeSourceManager, youtubeAuth);
         this.effectiveYoutubeAuthMode = youtubeAuth.mode();
         playerManager.registerSourceManager(youtubeSourceManager);
@@ -322,7 +323,7 @@ public class MusicPlayerService {
     private void applyGlobalMusicConfig(MusicConfig config) {
         this.youtubeConfig = config.getYoutube();
         this.oauthConfig = config.getOauth();
-        this.cipherConfig = config.getCipher();
+        this.cipherPolicy.update(config.getCipher().isEnabled());
         this.spotifyConfig = config.getSpotify();
         this.audioConfig = config.getAudio();
         if (bilibiliSourceLifecycle != null) {
@@ -525,52 +526,6 @@ public class MusicPlayerService {
             type.getMethod(methodName, String.class).invoke(instance, value);
         } catch (Exception ignored) {
         }
-    }
-
-    private YoutubeAudioSourceManager createYoutubeSourceManager(MusicConfig.Youtube.AuthMode authMode) {
-        List<dev.lavalink.youtube.clients.skeleton.Client> clients = new ArrayList<>();
-        clients.add(new MusicWithThumbnail());
-        if (authMode == MusicConfig.Youtube.AuthMode.OAUTH) {
-            clients.add(new Tv());
-        }
-        clients.add(new WebWithThumbnail());
-        clients.add(new MWebWithThumbnail());
-        clients.add(new WebEmbeddedWithThumbnail());
-        clients.add(new TvHtml5SimplyWithThumbnail());
-        clients.add(new AndroidVrWithThumbnail());
-        clients.add(new AndroidMusicWithThumbnail());
-        clients.add(new IosWithThumbnail());
-        boolean remoteCipherEnabled = isYouTubeCipherEnabled();
-        String remoteCipherUrl = remoteCipherEnabled
-                ? firstNonBlank(
-                System.getenv("YOUTUBE_CIPHER_SERVER"),
-                System.getenv("YOUTUBE_REMOTE_CIPHER_URL"),
-                cipherConfig.getServer()
-        )
-                : null;
-        dev.lavalink.youtube.clients.skeleton.Client[] clientArray =
-                clients.toArray(dev.lavalink.youtube.clients.skeleton.Client[]::new);
-        if (remoteCipherUrl == null) {
-            return new YoutubeAudioSourceManager(clientArray);
-        }
-        String remoteCipherPassword = firstNonBlank(
-                System.getenv("YOUTUBE_CIPHER_PASSWORD"),
-                System.getenv("YOUTUBE_REMOTE_CIPHER_PASSWORD"),
-                cipherConfig.getPassword()
-        );
-        String remoteCipherUserAgent = firstNonBlank(
-                System.getenv("YOUTUBE_CIPHER_USER_AGENT"),
-                System.getenv("YOUTUBE_REMOTE_CIPHER_USER_AGENT"),
-                cipherConfig.getUserAgent()
-        );
-        YoutubeSourceOptions options = new YoutubeSourceOptions()
-                .setRemoteCipher(remoteCipherUrl, remoteCipherPassword, remoteCipherUserAgent);
-        LOGGER.info("[NoRule] YouTube remote cipher server configured.");
-        return new YoutubeAudioSourceManager(options, clientArray);
-    }
-
-    private boolean isYouTubeCipherEnabled() {
-        return getBooleanEnvOverride("YOUTUBE_CIPHER_ENABLED", cipherConfig.isEnabled());
     }
 
     private YoutubeAuthRuntime resolveYoutubeAuthentication() {
@@ -1236,6 +1191,12 @@ public class MusicPlayerService {
     }
 
     private YouTubePlaybackPrecheckResult precheckTrack(AudioTrack track, String sourceLabel) {
+        if (youtubePlaybackTrackFactory.backend() == YouTubePlaybackBackend.COMPANION) {
+            // The external /youtube/stream precheck extracts with another backend.
+            // Companion owns stream validation as well as actual playback in this mode.
+            return new YouTubePlaybackPrecheckResult(YouTubePlaybackPrecheckStatus.CONFIG_DISABLED,
+                    youtubeVideoId(track), Instant.now(), null, "Companion validates its own stream", null);
+        }
         if (track == null || track.getInfo() == null) {
             return youtubePrecheckService.check(null);
         }
@@ -3224,6 +3185,5 @@ public class MusicPlayerService {
     }
 
 }
-
 
 

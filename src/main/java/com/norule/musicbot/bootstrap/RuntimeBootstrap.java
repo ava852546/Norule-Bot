@@ -191,6 +191,9 @@ public final class RuntimeBootstrap {
                 new GuildSettingsService(guildSettingsPath, config, guildSettingsSqliteRepository);
         GuildDomainConfigAdapter guildConfigAdapter = new GuildDomainConfigAdapter(guildSettingsService, config.getMusic());
         MusicConfig globalMusicConfig = new MusicConfig(config.getMusic(), config.getMusic());
+        com.norule.musicbot.domain.music.CipherPolicy cipherPolicy =
+                new com.norule.musicbot.domain.music.CipherPolicy(globalMusicConfig.getCipher().isEnabled());
+        var youtubeTrackFactory = YouTubePlaybackRuntimeFactory.create(globalMusicConfig.getYoutube(), cipherPolicy);
         MusicPlayerService playerService = new MusicPlayerService(
                 musicDataPath,
                 guildConfigAdapter::getMusicHistoryLimit,
@@ -199,8 +202,10 @@ public final class RuntimeBootstrap {
                 globalMusicConfig,
                 musicSqlitePath,
                 new SpotifyWebApiPlaylistInspector(),
-                YouTubePlaybackRuntimeFactory.create(globalMusicConfig.getYoutube()),
-                new BilibiliAudioSourceAdapter(globalMusicConfig.getBilibili())
+                youtubeTrackFactory,
+                new BilibiliAudioSourceAdapter(globalMusicConfig.getBilibili()),
+                cipherPolicy,
+                authMode -> YouTubePlaybackRuntimeFactory.createSource(globalMusicConfig.getCipher(), cipherPolicy, authMode, youtubeTrackFactory)
         );
         Path moderationDataPath = resolveDataPath(baseDir, config.getModerationDataDir());
         ModerationSqliteRepository moderationSqliteRepository = sharedSqliteDatabase == null ? null : new ModerationSqliteRepository(sharedSqliteDatabase);

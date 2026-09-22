@@ -12,6 +12,11 @@ public final class CompanionYouTubePlaybackTrackFactory implements YouTubePlayba
     private final YouTubePlaybackResolver resolver;
     private final HttpAudioSourceManager companionHttpSource;
 
+    CompanionYouTubePlaybackTrackFactory(YouTubePlaybackResolver resolver, HttpAudioSourceManager httpSource) {
+        this.resolver = Objects.requireNonNull(resolver);
+        this.companionHttpSource = Objects.requireNonNull(httpSource);
+    }
+
     public CompanionYouTubePlaybackTrackFactory(YouTubePlaybackResolver resolver,
                                                 int connectTimeoutMillis,
                                                 int requestTimeoutMillis) {
@@ -28,12 +33,18 @@ public final class CompanionYouTubePlaybackTrackFactory implements YouTubePlayba
     }
 
     @Override
+    public com.norule.musicbot.domain.music.YouTubePlaybackBackend backend() {
+        return com.norule.musicbot.domain.music.YouTubePlaybackBackend.COMPANION;
+    }
+
+    @Override
     public AudioTrack prepare(String videoId, AudioTrack youtubeSourceTrack) {
         if (videoId == null
                 || !videoId.matches("[A-Za-z0-9_-]{11}")
                 || youtubeSourceTrack == null
                 || !(youtubeSourceTrack instanceof InternalAudioTrack)
-                || youtubeSourceTrack instanceof CompanionAudioTrack) {
+                || youtubeSourceTrack instanceof CompanionAudioTrack
+                || youtubeSourceTrack instanceof BackendYoutubeAudioSourceManager.BackendTrack) {
             return youtubeSourceTrack;
         }
         return new CompanionAudioTrack(videoId, youtubeSourceTrack, resolver, companionHttpSource);

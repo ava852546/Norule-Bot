@@ -13,6 +13,9 @@ public final class YoutubePlaybackErrorMapper {
         }
 
         String normalized = error.toLowerCase(Locale.ROOT);
+        if (normalized.contains("cipher_required_but_disabled")) {
+            return "music.cipher_required_but_disabled";
+        }
         if (containsAny(normalized,
                 "members-only",
                 "members only",

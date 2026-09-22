@@ -128,7 +128,7 @@ class ConfigInitializerTest {
         assertEquals("YOUTUBE_SOURCE", youtube.get("playbackBackend"));
         assertEquals(false, companion.get("enabled"));
         assertEquals("http://127.0.0.1:8282", companion.get("url"));
-        assertEquals(true, companion.get("fallbackToSource"));
+        assertEquals(false, companion.get("fallbackToSource"));
         assertFalse(youtube.containsKey("auth"));
         assertFalse(youtube.containsKey("oauthEnabled"));
         assertFalse(youtube.containsKey("oauthRefreshToken"));

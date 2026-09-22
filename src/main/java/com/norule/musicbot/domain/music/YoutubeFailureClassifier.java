@@ -54,7 +54,9 @@ public final class YoutubeFailureClassifier {
     public boolean isYoutubeSourceFailure(Throwable failure) {
         for (Throwable current : throwableGraph(failure)) {
             Package exceptionPackage = current.getClass().getPackage();
-            if (current instanceof AllClientsFailedException
+            if (current instanceof CipherDisabledException
+                    || current instanceof YouTubePlaybackException
+                    || current instanceof AllClientsFailedException
                     || current instanceof ClientException
                     || (exceptionPackage != null
                     && exceptionPackage.getName().startsWith("dev.lavalink.youtube"))) {
@@ -90,6 +92,16 @@ public final class YoutubeFailureClassifier {
     }
 
     private ClassifiedFailure classifyThrowable(Throwable failure) {
+        // Typed backend/policy failures are authoritative; a wrapper containing "timeout"
+        // must not turn COMPANION_TIMEOUT into a generic NETWORK_TIMEOUT.
+        for (Throwable current : throwableGraph(failure)) {
+            if (current instanceof CipherDisabledException) {
+                return new ClassifiedFailure(YoutubeFailureCategory.CIPHER_REQUIRED_BUT_DISABLED, null);
+            }
+            if (current instanceof YouTubePlaybackException playback) {
+                return new ClassifiedFailure(playback.category(), playback.httpStatus());
+            }
+        }
         YoutubeFailureCategory best = YoutubeFailureCategory.UNKNOWN;
         Integer bestStatus = null;
         boolean hasIOException = false;
@@ -121,6 +133,9 @@ public final class YoutubeFailureClassifier {
     }
 
     private YoutubeFailureCategory classifyType(Throwable failure, Integer httpStatus) {
+        if (failure instanceof CipherDisabledException) {
+            return YoutubeFailureCategory.CIPHER_REQUIRED_BUT_DISABLED;
+        }
         if (failure instanceof YouTubePlaybackException playbackException) {
             return playbackException.category();
         }
@@ -237,7 +252,7 @@ public final class YoutubeFailureClassifier {
             case NETWORK_TIMEOUT, NETWORK_IO, COMPANION_UNAVAILABLE, COMPANION_TIMEOUT,
                     COMPANION_STREAM_UNAVAILABLE ->
                     YoutubeRecoveryClass.RETRYABLE;
-            case COMPANION_AUTH_FAILED, COMPANION_BAD_REQUEST -> YoutubeRecoveryClass.CONFIGURATION_ERROR;
+            case CIPHER_REQUIRED_BUT_DISABLED, COMPANION_AUTH_FAILED, COMPANION_BAD_REQUEST -> YoutubeRecoveryClass.CONFIGURATION_ERROR;
             case BOT_DETECTED, LOGIN_REQUIRED -> YoutubeRecoveryClass.AUTH_MAY_HELP;
             case NO_SUPPORTED_AUDIO_STREAM, PLAYER_CONFIGURATION_ERROR,
                     HTTP_FORBIDDEN, HTTP_BAD_REQUEST, SIGNATURE_FAILURE, CIPHER_FAILURE ->
@@ -251,6 +266,7 @@ public final class YoutubeFailureClassifier {
 
     private int priority(YoutubeFailureCategory category) {
         return switch (category) {
+            case CIPHER_REQUIRED_BUT_DISABLED -> 1_100;
             case VIDEO_PRIVATE -> 1_000;
             case VIDEO_AGE_RESTRICTED -> 990;
             case REGION_RESTRICTED -> 980;

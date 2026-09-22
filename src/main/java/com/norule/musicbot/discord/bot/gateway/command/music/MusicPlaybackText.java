@@ -40,6 +40,13 @@ public final class MusicPlaybackText {
     }
 
     public String mapMusicLoadError(String lang, String rawError) {
+        if ("CIPHER_REQUIRED_BUT_DISABLED".equalsIgnoreCase(rawError)
+                || "YOUTUBE_CIPHER_REQUIRED_BUT_DISABLED".equalsIgnoreCase(rawError)) {
+            return translatedOrFallback(lang, "music.cipher_required_but_disabled",
+                    "Cipher is disabled by the administrator; this playback path requires it.",
+                    "\u7ba1\u7406\u54e1\u5df2\u505c\u7528 Cipher\uff0c\u6b64\u64ad\u653e\u8def\u5f91\u9700\u8981 Cipher\u3002",
+                    "\u7ba1\u7406\u5458\u5df2\u505c\u7528 Cipher\uff0c\u6b64\u64ad\u653e\u8def\u5f84\u9700\u8981 Cipher\u3002");
+        }
         if ("SPOTIFY_GENERATED_PLAYLIST_UNAVAILABLE".equalsIgnoreCase(rawError)
                 || "AUDIO_SPOTIFY_GENERATED_PLAYLIST_UNAVAILABLE".equalsIgnoreCase(rawError)) {
             return spotifyGeneratedPlaylistUnavailable(lang);
