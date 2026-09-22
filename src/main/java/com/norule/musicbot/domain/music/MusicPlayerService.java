@@ -769,7 +769,7 @@ public class MusicPlayerService {
         GuildMusicManager guildMusicManager = getGuildMusicManager(guild);
         clearAutoplayNotice(guild.getIdLong());
         resumeIfPaused(guildMusicManager.getPlayer(), guild.getIdLong());
-        String normalizedInput = normalizeRepeatedSpotifyUrl(input);
+        String normalizedInput = normalizeRepeatedSpotifyUrl(AudioInputNormalizer.extractFirstHttpUrlOrQuery(input));
         AudioInputClassifier.Classification classification = inputClassifier.classify(normalizedInput);
         ResolvedInput resolvedInput = resolveInput(normalizedInput, classification);
         String identifier = resolvedInput.isUrl ? resolvedInput.identifier : YT_SEARCH_PREFIX + resolvedInput.identifier;
@@ -831,7 +831,7 @@ public class MusicPlayerService {
     }
 
     public boolean isUrlLikeInput(String input) {
-        return inputClassifier.classify(input).isUrlLike();
+        return inputClassifier.classify(AudioInputNormalizer.extractFirstHttpUrlOrQuery(input)).isUrlLike();
     }
 
     private void load(long guildId,
@@ -1728,7 +1728,7 @@ public class MusicPlayerService {
                                           String requesterName,
                                           Consumer<MusicDataService.PlaylistTrackAddResult> onSuccess,
                                           Consumer<String> onError) {
-        String trimmed = input == null ? "" : input.trim();
+        String trimmed = AudioInputNormalizer.extractFirstHttpUrlOrQuery(input);
         if (trimmed.isBlank()) {
             onSuccess.accept(new MusicDataService.PlaylistTrackAddResult(
                     MusicDataService.PlaylistMutationStatus.EMPTY,
