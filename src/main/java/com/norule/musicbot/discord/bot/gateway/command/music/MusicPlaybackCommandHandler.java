@@ -3,6 +3,7 @@ package com.norule.musicbot.discord.bot.gateway.command.music;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
 import com.norule.musicbot.discord.bot.gateway.panel.RefreshReason;
+import com.norule.musicbot.domain.music.AudioInputNormalizer;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -481,7 +482,7 @@ public final class MusicPlaybackCommandHandler {
         if (queryOption == null) {
             queryOption = event.getOption(MusicCommandService.OPTION_QUERY_ZH);
         }
-        return queryOption == null ? "" : queryOption.getAsString().trim();
+        return AudioInputNormalizer.extractFirstHttpUrlOrQuery(queryOption == null ? null : queryOption.getAsString());
     }
 
     private StringSelectMenu buildSearchMenu(String token, List<AudioTrack> tracks, String lang) {

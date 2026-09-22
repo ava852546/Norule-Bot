@@ -6,7 +6,7 @@ import java.util.regex.Pattern;
 public final class AudioInputNormalizer {
     private static final Pattern HTTP_START = Pattern.compile("https?://", Pattern.CASE_INSENSITIVE);
     private static final String OPEN_BRACKETS = "([{\uFF08\u3010";
-    private static final String CLOSE_BRACKETS = ")]\u007D\uFF09\u3011";
+    private static final String CLOSE_BRACKETS = ")]}\uFF09\u3011";
     private static final String SHARE_DELIMITERS = "<>\"`\u201C\u201D\u2018\u2019\u300C\u300D\u300E\u300F"
             + "\u3002\uFF0C\uFF01\uFF1F\uFF1B\uFF1A\u3001\u2026";
 
@@ -43,16 +43,26 @@ public final class AudioInputNormalizer {
 
         // Only remove paired outer markup; apostrophes, underscores and tildes can be URL data.
         String prefix = text.substring(0, start);
+        int beforePunctuation = end;
+        while (beforePunctuation > matcher.end() && ".,!?;:".indexOf(text.charAt(beforePunctuation - 1)) >= 0) {
+            beforePunctuation--;
+        }
         for (String wrapper : new String[] {"'", "**", "__", "~~", "*", "_"}) {
-            if (prefix.endsWith(wrapper) && text.substring(start, end).endsWith(wrapper)) {
-                end -= wrapper.length();
-                break;
+            if (prefix.endsWith(wrapper)) {
+                if (text.substring(start, end).endsWith(wrapper)) {
+                    end -= wrapper.length();
+                    break;
+                }
+                if (text.substring(start, beforePunctuation).endsWith(wrapper)) {
+                    end = beforePunctuation - wrapper.length();
+                    break;
+                }
             }
         }
         // ASCII punctuation is ambiguous in URLs. Trim prose-ending periods/commas only
         // in surrounding text and outside query/fragment data; keep bare URLs unchanged.
         String url = text.substring(start, end);
-        if (start > 0 && url.indexOf('?') < 0 && url.indexOf('#') < 0) {
+        if (start > 0 && end == text.length() && url.indexOf('?') < 0 && url.indexOf('#') < 0) {
             while (end > matcher.end() && (text.charAt(end - 1) == '.' || text.charAt(end - 1) == ',')) {
                 end--;
             }
