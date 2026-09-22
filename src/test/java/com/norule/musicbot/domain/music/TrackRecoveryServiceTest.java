@@ -99,6 +99,50 @@ class TrackRecoveryServiceTest {
         return new TrackLoadContext("original", "resolved", "youtube", 42L, "requester", attempts);
     }
 
+    @Test
+    void cancelledRecoveryIgnoresFailuresAndDuplicateCallbacks() {
+        var service = new TrackRecoveryService(true, 2, 0);
+        var gateway = new FakeGateway("old");
+        var failures = new java.util.concurrent.atomic.AtomicInteger();
+        var listener = new TrackRecoveryService.Listener() {
+            @Override public void recoveryFailed(Throwable failure) { failures.incrementAndGet(); }
+        };
+        service.recover(1, "old", context(0), 0, true, gateway, listener);
+        service.cancel(1);
+        gateway.pendingHandler.failed(new RuntimeException("stale"));
+        gateway.complete("stale replacement", true);
+        assertEquals(0, failures.get());
+        assertFalse(gateway.skipped);
+        assertEquals("old", gateway.playingTrack);
+    }
+
+    @Test
+    void recoveryContextRetainsOriginalAndLaterCausesAndCorrelation() {
+        var original = new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_TIMEOUT, "first");
+        var later = new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_BAD_REQUEST, "second", 400, null);
+        var context = context(0).withFailure(original);
+        var replacement = context.withRecoveryAttempt(1, 0).withFailure(later);
+        assertEquals(context.correlationId(), replacement.correlationId());
+        assertEquals(java.util.List.of(original, later), replacement.failures());
+        assertTrue(replacement.resetRecovery().failures().isEmpty());
+    }
+
+    @Test
+    void failedReloadAfterGenerationChangeDoesNotNotifyOrSkip() {
+        var service = new TrackRecoveryService(true, 2, 0);
+        var gateway = new FakeGateway("old");
+        var failures = new java.util.concurrent.atomic.AtomicInteger();
+        service.recover(1, "old", context(0), 0, true, gateway, new TrackRecoveryService.Listener() {
+            @Override public void recoveryFailed(Throwable failure) { failures.incrementAndGet(); }
+        });
+        gateway.playingTrack = "new";
+        gateway.generation++;
+        gateway.pendingHandler.failed(new IllegalStateException("old load failed"));
+        assertEquals("new", gateway.playingTrack);
+        assertFalse(gateway.skipped);
+        assertEquals(0, failures.get());
+    }
+
     private static final class FakeGateway implements TrackRecoveryService.RecoveryGateway {
         private Object playingTrack;
         private long generation = 7L;
@@ -160,13 +204,15 @@ class TrackRecoveryServiceTest {
         }
 
         @Override
-        public void skip(Object expectedTrack, long expectedGeneration) {
+        public boolean skip(Object expectedTrack, long expectedGeneration) {
             if (isActive(expectedTrack, expectedGeneration)) {
                 skipped = true;
                 playingTrack = null;
                 generation++;
                 paused = false;
+                return true;
             }
+            return false;
         }
 
         private void complete(Object replacement, boolean seekable) {

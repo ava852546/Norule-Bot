@@ -43,8 +43,8 @@ class PlaybackFailureNotifier {
 
         String lang = service.lang(guildId);
         String message;
-        if (musicPlaybackText.isCompanionFailure(failure.rawError())) {
-            message = musicPlaybackText.companionPlaybackSkipped(lang);
+        if (musicPlaybackText.isInternalPlaybackFailure(failure.rawError())) {
+            message = musicPlaybackText.mapMusicLoadError(lang, failure.rawError());
         } else {
             String mapped = musicPlaybackText.mapMusicLoadError(lang, failure.rawError());
             message = service.musicText(lang, "playback_failed", Map.of(

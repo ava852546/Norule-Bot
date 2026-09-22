@@ -32,6 +32,9 @@ public class TrackScheduler extends AudioEventAdapter {
     private AudioTrack recoveringTrack;
     private long recoveringGeneration = -1L;
     private AudioTrack failedTrackAwaitingEnd;
+    private AudioTrack recoveryAwaitingFrame;
+    private AudioTrack scheduledTrack;
+    private Consumer<AudioTrack> recoveryFrameListener;
 
     public TrackScheduler(AudioPlayer player) {
         this.player = player;
@@ -41,6 +44,7 @@ public class TrackScheduler extends AudioEventAdapter {
         if (!player.startTrack(track, true)) {
             queue.offer(track);
         } else {
+            scheduledTrack = track;
             playbackGeneration++;
             clearRecoveryMarker();
         }
@@ -54,6 +58,7 @@ public class TrackScheduler extends AudioEventAdapter {
 
     public synchronized void clear() {
         queue.clear();
+        scheduledTrack = null;
         playbackGeneration++;
         clearRecoveryMarker();
         failedTrackAwaitingEnd = null;
@@ -147,21 +152,39 @@ public class TrackScheduler extends AudioEventAdapter {
         if (replacement.isSeekable() && resumePosition > 0L) {
             replacement.setPosition(resumePosition);
         }
+        failedTrackAwaitingEnd = expectedTrack;
         startReplacement(replacement);
+        recoveryAwaitingFrame = replacement;
         notifyStateChanged(MusicStateChange.RECOVERY);
         return true;
     }
 
-    public synchronized void skipIfCurrent(AudioTrack expectedTrack, long expectedGeneration) {
+    public synchronized boolean skipIfCurrent(AudioTrack expectedTrack, long expectedGeneration) {
         if (isActiveTrack(expectedTrack, expectedGeneration)) {
             failedTrackAwaitingEnd = expectedTrack;
             nextTrack();
+            return true;
         }
+        return false;
     }
 
     public synchronized void invalidatePlaybackGeneration() {
+        scheduledTrack = null;
         playbackGeneration++;
         clearRecoveryMarker();
+    }
+
+    public synchronized void setRecoveryFrameListener(Consumer<AudioTrack> listener) {
+        recoveryFrameListener = listener;
+    }
+
+    /** Called only for a valid frame already obtained by the ordinary audio send flow. */
+    synchronized void observeAudioFrame(AudioTrack track) {
+        if (track == null || track != recoveryAwaitingFrame || player.getPlayingTrack() != track) {
+            return;
+        }
+        recoveryAwaitingFrame = null;
+        if (recoveryFrameListener != null) recoveryFrameListener.accept(track);
     }
 
     @Override
@@ -175,11 +198,19 @@ public class TrackScheduler extends AudioEventAdapter {
 
     @Override
     public synchronized void onTrackEnd(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason) {
+        if (recoveryAwaitingFrame == track) recoveryAwaitingFrame = null;
         Consumer<AudioTrack> endListener = trackEndListener;
         if (endListener != null && track != null) {
             endListener.accept(track);
         }
         if (!endReason.mayStartNext) {
+            notifyStateChanged(MusicStateChange.TRACK_END);
+            return;
+        }
+
+        // End events may arrive after more than one replacement/skip. Track identity
+        // prevents an old event from advancing the latest queue, even when it is empty.
+        if (track != scheduledTrack) {
             notifyStateChanged(MusicStateChange.TRACK_END);
             return;
         }
@@ -225,7 +256,8 @@ public class TrackScheduler extends AudioEventAdapter {
     }
 
     @Override
-    public void onTrackException(AudioPlayer player, AudioTrack track, FriendlyException exception) {
+    public synchronized void onTrackException(AudioPlayer player, AudioTrack track, FriendlyException exception) {
+        if (track == failedTrackAwaitingEnd || (player.getPlayingTrack() != track && recoveringTrack != track)) return;
         BiConsumer<AudioTrack, FriendlyException> listener = trackExceptionListener;
         if (listener != null) {
             listener.accept(track, exception);
@@ -236,7 +268,8 @@ public class TrackScheduler extends AudioEventAdapter {
     }
 
     @Override
-    public void onTrackStuck(AudioPlayer player, AudioTrack track, long thresholdMs) {
+    public synchronized void onTrackStuck(AudioPlayer player, AudioTrack track, long thresholdMs) {
+        if (track == failedTrackAwaitingEnd || (player.getPlayingTrack() != track && recoveringTrack != track)) return;
         BiConsumer<AudioTrack, Long> listener = trackStuckListener;
         if (listener != null) {
             listener.accept(track, thresholdMs);
@@ -247,6 +280,7 @@ public class TrackScheduler extends AudioEventAdapter {
     }
 
     private void startReplacement(AudioTrack track) {
+        scheduledTrack = track;
         playbackGeneration++;
         clearRecoveryMarker();
         player.setPaused(false);
@@ -254,6 +288,7 @@ public class TrackScheduler extends AudioEventAdapter {
     }
 
     private void clearRecoveryMarker() {
+        recoveryAwaitingFrame = null;
         recoveringTrack = null;
         recoveringGeneration = -1L;
     }
@@ -272,6 +307,3 @@ public class TrackScheduler extends AudioEventAdapter {
         }
     }
 }
-
-
-

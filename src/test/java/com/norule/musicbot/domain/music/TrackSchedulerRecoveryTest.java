@@ -15,6 +15,93 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TrackSchedulerRecoveryTest {
     @Test
+    void submittedReplacementNeedsValidFrameAndOrdinarySendFlowObservesItOnlyOnce() {
+        FakePlayer player = new FakePlayer();
+        TrackScheduler scheduler = new TrackScheduler(player.proxy);
+        var observed = new java.util.ArrayList<AudioTrack>();
+        scheduler.setRecoveryFrameListener(observed::add);
+        FakeTrack old = new FakeTrack("old", true), replacement = new FakeTrack("replacement", true);
+        scheduler.queue(old.proxy);
+        scheduler.replaceIfCurrent(old.proxy, replacement.proxy, scheduler.getPlaybackGeneration(), 0);
+        scheduler.onTrackStart(player.proxy, replacement.proxy);
+        AudioPlayerSendHandler sender = new AudioPlayerSendHandler(player.proxy, scheduler);
+        assertTrue(observed.isEmpty());
+        assertFalse(sender.canProvide());
+        assertTrue(observed.isEmpty());
+        player.frame = com.sedmelluq.discord.lavaplayer.track.playback.TerminatorAudioFrame.INSTANCE;
+        sender.canProvide();
+        assertTrue(observed.isEmpty());
+        player.frame = new com.sedmelluq.discord.lavaplayer.track.playback.ImmutableAudioFrame(0,
+                new byte[]{1, 2, 3}, 100, com.sedmelluq.discord.lavaplayer.format.StandardAudioDataFormats.DISCORD_OPUS);
+        assertTrue(sender.canProvide());
+        assertEquals(java.util.List.of(replacement.proxy), observed);
+        assertEquals(java.nio.ByteBuffer.wrap(new byte[]{1, 2, 3}), sender.provide20MsAudio());
+        sender.canProvide();
+        assertEquals(1, observed.size());
+        assertEquals(4, player.provideCalls, "No extra frame must be consumed for observation");
+    }
+
+    @Test
+    void skipStopDisconnectAndLateEndCannotConfirmOrReplaceANewerTrack() {
+        for (String action : java.util.List.of("skip", "stop", "disconnect")) {
+            FakePlayer player = new FakePlayer();
+            TrackScheduler scheduler = new TrackScheduler(player.proxy);
+            var observed = new java.util.ArrayList<AudioTrack>();
+            scheduler.setRecoveryFrameListener(observed::add);
+            FakeTrack old = new FakeTrack("old", true), replacement = new FakeTrack("replacement", true), next = new FakeTrack("next", true);
+            scheduler.queue(old.proxy);
+            scheduler.queue(next.proxy);
+            scheduler.replaceIfCurrent(old.proxy, replacement.proxy, scheduler.getPlaybackGeneration(), 0);
+            scheduler.onTrackEnd(player.proxy, old.proxy, AudioTrackEndReason.LOAD_FAILED);
+            assertSame(replacement.proxy, player.current);
+            assertEquals(1, scheduler.snapshotQueue().size());
+            if (action.equals("skip")) scheduler.nextTrack();
+            else if (action.equals("stop")) scheduler.clear();
+            else scheduler.invalidatePlaybackGeneration();
+            scheduler.observeAudioFrame(replacement.proxy);
+            scheduler.observeAudioFrame(next.proxy);
+            assertTrue(observed.isEmpty());
+        }
+    }
+
+    @Test
+    void repeatedFailureEventNotifiesAndAdvancesQueueOnlyOnce() {
+        FakePlayer player = new FakePlayer();
+        TrackScheduler scheduler = new TrackScheduler(player.proxy);
+        FakeTrack old = new FakeTrack("old", true), next = new FakeTrack("next", true);
+        scheduler.queue(old.proxy);
+        scheduler.queue(next.proxy);
+        var notices = new java.util.concurrent.atomic.AtomicInteger();
+        scheduler.setTrackExceptionListener((track, failure) -> {
+            notices.incrementAndGet();
+            scheduler.skipIfCurrent(track, scheduler.getPlaybackGeneration());
+        });
+        var failure = new FriendlyException("blocked", FriendlyException.Severity.SUSPICIOUS, new CipherDisabledException());
+        scheduler.onTrackException(player.proxy, old.proxy, failure);
+        scheduler.onTrackException(player.proxy, old.proxy, failure);
+        scheduler.onTrackEnd(player.proxy, old.proxy, AudioTrackEndReason.LOAD_FAILED);
+        assertEquals(1, notices.get());
+        assertSame(next.proxy, player.current);
+    }
+
+    @Test
+    void lateEndAfterMultipleReplacementsDoesNotAdvanceQueueTwice() {
+        FakePlayer player = new FakePlayer();
+        TrackScheduler scheduler = new TrackScheduler(player.proxy);
+        FakeTrack old = new FakeTrack("old", true), replacement = new FakeTrack("replacement", true);
+        FakeTrack next = new FakeTrack("next", true), afterNext = new FakeTrack("afterNext", true);
+        scheduler.queue(old.proxy);
+        scheduler.queue(next.proxy);
+        scheduler.queue(afterNext.proxy);
+        scheduler.replaceIfCurrent(old.proxy, replacement.proxy, scheduler.getPlaybackGeneration(), 0);
+        scheduler.skipIfCurrent(replacement.proxy, scheduler.getPlaybackGeneration());
+        scheduler.onTrackEnd(player.proxy, old.proxy, AudioTrackEndReason.LOAD_FAILED);
+        scheduler.onTrackEnd(player.proxy, replacement.proxy, AudioTrackEndReason.LOAD_FAILED);
+        assertSame(next.proxy, player.current);
+        assertEquals(java.util.List.of(afterNext.proxy), scheduler.snapshotQueue());
+    }
+
+    @Test
     void stateListenerReceivesSpecificPlaybackReasons() {
         FakePlayer player = new FakePlayer();
         TrackScheduler scheduler = new TrackScheduler(player.proxy);
@@ -114,6 +201,8 @@ class TrackSchedulerRecoveryTest {
 
     private static final class FakePlayer {
         private AudioTrack current;
+        private com.sedmelluq.discord.lavaplayer.track.playback.AudioFrame frame;
+        private int provideCalls;
         private boolean paused;
         private final AudioPlayer proxy = (AudioPlayer) Proxy.newProxyInstance(
                 AudioPlayer.class.getClassLoader(),
@@ -121,6 +210,7 @@ class TrackSchedulerRecoveryTest {
                 (ignored, method, args) -> switch (method.getName()) {
                     case "startTrack" -> startTrack((AudioTrack) args[0], (boolean) args[1]);
                     case "getPlayingTrack" -> current;
+                    case "provide" -> { provideCalls++; yield frame; }
                     case "setPaused" -> {
                         paused = (boolean) args[0];
                         yield null;

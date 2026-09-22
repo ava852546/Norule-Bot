@@ -39,7 +39,7 @@ public final class TrackRecoveryService {
                         long resumePosition,
                         TrackLoadContext context);
 
-        void skip(Object expectedTrack, long expectedGeneration);
+        boolean skip(Object expectedTrack, long expectedGeneration);
     }
 
     public interface Listener {
@@ -49,7 +49,7 @@ public final class TrackRecoveryService {
         default void recovering(int attempt, int maxAttempts) {
         }
 
-        default void recovered(int attempt) {
+        default void replacementSubmitted(int attempt) {
         }
 
         default void recoveryFailed(Throwable failure) {
@@ -97,7 +97,7 @@ public final class TrackRecoveryService {
             return StartResult.STALE;
         }
         if (context.recoveryAttempts() >= maxAttempts) {
-            gateway.skip(track, generation);
+            if (!gateway.skip(track, generation)) return StartResult.STALE;
             callbacks.exhausted(maxAttempts);
             return StartResult.EXHAUSTED;
         }
@@ -131,25 +131,21 @@ public final class TrackRecoveryService {
                     );
                     operations.remove(guildId, operation);
                     if (replaced) {
-                        callbacks.recovered(attempt);
+                        callbacks.replacementSubmitted(attempt);
                     }
                 }
 
                 @Override
                 public void failed(Throwable failure) {
-                    if (isCurrentOperation(guildId, operation) && gateway.isActive(track, generation)) {
-                        gateway.skip(track, generation);
+                    if (operations.remove(guildId, operation) && gateway.skip(track, generation)) {
                         callbacks.recoveryFailed(failure);
                     }
-                    operations.remove(guildId, operation);
                 }
             });
         } catch (RuntimeException failure) {
-            if (gateway.isActive(track, generation)) {
-                gateway.skip(track, generation);
+            if (operations.remove(guildId, operation) && gateway.skip(track, generation)) {
+                callbacks.recoveryFailed(failure);
             }
-            operations.remove(guildId, operation);
-            callbacks.recoveryFailed(failure);
         }
         return StartResult.STARTED;
     }

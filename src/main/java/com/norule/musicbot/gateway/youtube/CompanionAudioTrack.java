@@ -28,7 +28,8 @@ import java.util.regex.Pattern;
 
 public final class CompanionAudioTrack extends DelegatedAudioTrack {
     private static final Logger LOGGER = LoggerFactory.getLogger(CompanionAudioTrack.class);
-    private static final Pattern HTTP_STATUS = Pattern.compile("(?<!\\d)([45]\\d{2})(?!\\d)");
+    private static final Pattern HTTP_STATUS = Pattern.compile(
+            "(?i)(?:HTTP(?: status)?[ :=]*|status code[^\\r\\n:]{0,80}:[ ]*)([45]\\d{2})\\b");
 
     private final String videoId;
     private final InternalAudioTrack youtubeSourceTrack;
@@ -72,9 +73,10 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
         } catch (Exception streamFailure) {
             YouTubePlaybackException classified = classifyStreamFailure(streamFailure);
             LOGGER.warn(
-                    "[NoRule] Companion audio stream failed: videoId={} stage=LAVAPLAYER_LOAD "
+                    "[NoRule] Companion audio stream failed: videoId={} stage={} "
                             + "category={} httpStatus={} failureType={}",
                     videoId,
+                    classified.category() == YoutubeFailureCategory.DECODER_FAILURE ? "AUDIO_DECODING" : "STREAM_EXTRACTION",
                     classified.category(),
                     classified.httpStatus(),
                     streamFailure.getClass().getSimpleName()
@@ -103,7 +105,7 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
         );
         String loadedType = loaded == null ? "null" : loaded.getClass().getSimpleName();
         LOGGER.debug(
-                "[NoRule] Companion audio load result: videoId={} stage=LAVAPLAYER_LOAD loadedType={}",
+                "[NoRule] Companion audio load result: videoId={} stage=STREAM_EXTRACTION loadedType={}",
                 videoId,
                 loadedType
         );
@@ -114,7 +116,7 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
             );
         }
         LOGGER.debug(
-                "[NoRule] Companion audio stream opened: videoId={} stage=LAVAPLAYER_LOAD mime={} codec={}",
+                "[NoRule] Companion audio stream opened: videoId={} stage=STREAM_EXTRACTION mime={} codec={}",
                 videoId,
                 mimeBase(resolved.mimeType()),
                 resolved.codec()
@@ -122,11 +124,15 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
         processDelegate(httpTrack, executor);
     }
 
-    private YouTubePlaybackException classifyStreamFailure(Throwable failure) {
+    static YouTubePlaybackException classifyStreamFailure(Throwable failure) {
+        // A generic FriendlyException/IOException may wrap a structured backend error.
+        // Inspect the entire cause chain before interpreting transport or decoder text.
         for (Throwable current : throwableGraph(failure)) {
             if (current instanceof YouTubePlaybackException playbackException) {
                 return playbackException;
             }
+        }
+        for (Throwable current : throwableGraph(failure)) {
             if (current instanceof SocketTimeoutException || current instanceof HttpTimeoutException) {
                 return new YouTubePlaybackException(
                         YoutubeFailureCategory.COMPANION_TIMEOUT,
@@ -135,7 +141,12 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
                         failure
                 );
             }
-            Integer status = httpStatus(current.getMessage());
+            Integer status = current instanceof org.apache.http.client.HttpResponseException response
+                    ? Integer.valueOf(response.getStatusCode()) : httpStatus(current.getMessage());
+            if (status != null && (status == 401 || status == 403)) {
+                return new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_AUTH_FAILED,
+                        "Companion playback proxy rejected authentication.", status, failure);
+            }
             if (status != null && status == 408) {
                 return new YouTubePlaybackException(
                         YoutubeFailureCategory.COMPANION_TIMEOUT,
@@ -160,6 +171,13 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
                         failure
                 );
             }
+        }
+        var report = new com.norule.musicbot.domain.music.YoutubeFailureClassifier().classify(failure);
+        if (report.category() == YoutubeFailureCategory.DECODER_FAILURE) {
+            return new YouTubePlaybackException(YoutubeFailureCategory.DECODER_FAILURE,
+                    "Companion audio decoding failed.", null, failure);
+        }
+        for (Throwable current : throwableGraph(failure)) {
             if (current instanceof IOException) {
                 return new YouTubePlaybackException(
                         YoutubeFailureCategory.COMPANION_UNAVAILABLE,
@@ -211,7 +229,7 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
         );
     }
 
-    private Iterable<Throwable> throwableGraph(Throwable failure) {
+    private static Iterable<Throwable> throwableGraph(Throwable failure) {
         java.util.List<Throwable> failures = new java.util.ArrayList<>();
         Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
         Throwable current = failure;
@@ -222,7 +240,7 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
         return failures;
     }
 
-    private Integer httpStatus(String message) {
+    private static Integer httpStatus(String message) {
         if (message == null || message.isBlank()) {
             return null;
         }

@@ -139,7 +139,8 @@ public final class YouTubePlaybackRuntimeFactory {
         return new CompanionYouTubePlaybackTrackFactory(
                 selectedResolver,
                 connectTimeoutMillis,
-                requestTimeoutMillis
+                requestTimeoutMillis,
+                client
         );
     }
 

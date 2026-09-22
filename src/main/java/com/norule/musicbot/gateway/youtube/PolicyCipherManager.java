@@ -18,18 +18,57 @@ final class PolicyCipherManager implements CipherManager {
     private final CipherPolicy policy;
     private final Supplier<CipherManager> factory;
     private CipherManager delegate;
+    private static final ThreadLocal<Scope> CURRENT_SCOPE = new ThreadLocal<>();
+
+    static Scope metadataScope() {
+        return scope("METADATA_DISCOVERY");
+    }
+
+    static Scope streamScope() {
+        return scope("STREAM_EXTRACTION");
+    }
+
+    private static Scope scope(String stage) {
+        Scope scope = new Scope(CURRENT_SCOPE.get(), stage);
+        CURRENT_SCOPE.set(scope);
+        return scope;
+    }
+
+    static final class Scope implements AutoCloseable {
+        private final Scope previous;
+        private final String stage;
+        private boolean blocked;
+
+        private Scope(Scope previous, String stage) {
+            this.previous = previous;
+            this.stage = stage;
+        }
+
+        @Override
+        public void close() {
+            if (previous == null) CURRENT_SCOPE.remove();
+            else CURRENT_SCOPE.set(previous);
+        }
+    }
 
     PolicyCipherManager(CipherPolicy policy, Supplier<CipherManager> factory) {
         this.policy = Objects.requireNonNull(policy);
         this.factory = Objects.requireNonNull(factory);
     }
 
-    private CipherManager delegate() {
-        if (!policy.isAllowed()) {
+    void requirePlayerScriptAllowed() {
+        Scope scope = CURRENT_SCOPE.get();
+        if (!policy.isAllowed() && (scope == null || !scope.blocked)) {
             LOGGER.warn("[NoRule] Cipher request blocked: reason=CIPHER_DISABLED backend=YOUTUBE_SOURCE "
-                    + "stage=STREAM_EXTRACTION cipherAllowed=false cipherAttempted=false cipherBlocked=true");
+                    + "stage={} cipherAllowed=false cipherAttempted=false cipherBlocked=true",
+                    scope == null ? "STREAM_EXTRACTION" : scope.stage);
+            if (scope != null) scope.blocked = true;
         }
         policy.requireAllowed();
+    }
+
+    private CipherManager delegate() {
+        requirePlayerScriptAllowed();
         if (delegate == null) {
             delegate = factory.get();
         }

@@ -249,6 +249,17 @@ class CompanionPlaybackClientTest {
         );
 
         assertEquals(Level.INFO, httpTrackLogger.getEffectiveLevel());
+        Logger visitorLogger = (Logger) LoggerFactory.getLogger("dev.lavalink.youtube.http.YoutubeAccessTokenTracker");
+        assertFalse(visitorLogger.isInfoEnabled(), "Upstream INFO prints the complete visitor ID");
+    }
+
+    @Test
+    void cookiesVisitorIdsAndLongResponseBodiesAreRedactedAndBounded() {
+        var client = client(request -> response(400,
+                "visitorId=visitor-private token=token-private Cookie=a=cookie-private; b=second-private " + "x".repeat(5000)));
+        var failure = assertThrows(YouTubePlaybackException.class, () -> client.resolve(VIDEO_ID));
+        assertFalse(failure.getMessage().contains("-private"));
+        assertTrue(failure.getMessage().length() < 240);
     }
 
     private CompanionPlaybackClient client(CompanionPlaybackClient.HttpTransport transport) {

@@ -690,6 +690,14 @@ public class MusicPlayerService {
                     () -> guild.getAudioManager().getConnectedChannel() != null
             );
             manager.getScheduler().setStateChangeListener(reason -> notifyStateChanged(id, reason));
+            manager.getScheduler().setRecoveryFrameListener(track -> {
+                TrackLoadContext context = readContext(track);
+                LOGGER.info("[NoRule] Recovery audio frame observed: guildId={} videoId={} correlationId={} attempt={} stage=AUDIO_FRAME",
+                        id, youtubeVideoId(track), context == null ? "-" : context.correlationId(),
+                        context == null ? 0 : context.recoveryAttempts());
+                clearAutoplayNotice(id);
+                notifyStateChanged(id, MusicStateChange.RECOVERY);
+            });
             manager.getPlayer().setVolume(musicDataService.getVolume(id));
             applyPlaybackSpeedFilter(manager, musicDataService.getPlaybackSpeed(id));
             guild.getAudioManager().setSendingHandler(manager.getSendHandler());
@@ -1078,13 +1086,7 @@ public class MusicPlayerService {
                     load(guildId, guildMusicManager, messageSender, userInput, fallbackIdentifier, sourceLabel, false, requesterId, requesterName, 0);
                     return;
                 }
-                if (category != AudioLoadFailureClassifier.Category.UNKNOWN
-                        && !looksLikeYouTubeUrl(userInput)
-                        && !looksLikeSpotifyUrl(userInput)) {
-                    messageSender.accept("LOAD_FAILED:" + FAILURE_CLASSIFIER.errorKey(category));
-                } else {
-                    messageSender.accept("LOAD_FAILED:" + exception.getMessage());
-                }
+                messageSender.accept("LOAD_FAILED:" + FAILURE_CLASSIFIER.errorKey(category));
             }
         });
     }
@@ -1810,13 +1812,7 @@ public class MusicPlayerService {
                     return;
                 }
                 AudioLoadFailureClassifier.Category category = FAILURE_CLASSIFIER.classify(exception);
-                if (category != AudioLoadFailureClassifier.Category.UNKNOWN
-                        && !looksLikeYouTubeUrl(trimmed)
-                        && !looksLikeSpotifyUrl(trimmed)) {
-                    onError.accept(FAILURE_CLASSIFIER.errorKey(category));
-                } else {
-                    onError.accept(exception == null || exception.getMessage() == null ? "-" : exception.getMessage().trim());
-                }
+                onError.accept(FAILURE_CLASSIFIER.errorKey(category));
             }
         });
     }
@@ -1910,6 +1906,12 @@ public class MusicPlayerService {
     }
 
     private void handleTrackException(long guildId, AudioTrack track, Throwable exception) {
+        TrackLoadContext failureContext = readContext(track);
+        if (failureContext == null && track != null) {
+            String identifier = resolveRecoveryIdentifier(track, track.getIdentifier());
+            failureContext = new TrackLoadContext(identifier, identifier, "youtube", null, "", 0);
+        }
+        if (failureContext != null) track.setUserData(failureContext.withFailure(exception));
         if (isBilibiliTrack(track) || BILIBILI_FAILURE_CLASSIFIER.isBilibiliSourceFailure(exception)) {
             BilibiliFailureReport bilibiliFailure = BILIBILI_FAILURE_CLASSIFIER.classify(
                     exception,
@@ -1936,6 +1938,11 @@ public class MusicPlayerService {
         }
         if (isYoutubeTrack(track) || YOUTUBE_FAILURE_CLASSIFIER.isYoutubeSourceFailure(exception)) {
             YoutubeFailureReport youtubeFailure = YOUTUBE_FAILURE_CLASSIFIER.classify(exception);
+            LOGGER.warn("[NoRule] YouTube attempt failed: guildId={} correlationId={} attempt={} history={}",
+                    guildId, failureContext == null ? "-" : failureContext.correlationId(),
+                    failureContext == null ? 0 : failureContext.recoveryAttempts(),
+                    failureContext == null ? java.util.List.of() : failureContext.failures().stream()
+                            .map(cause -> YOUTUBE_FAILURE_CLASSIFIER.classify(cause).category()).toList());
             recordYoutubePlaybackFailure(youtubeFailure);
             recordYoutubePrecheckFailure(track, youtubeFailure);
             logYoutubeFailure(
@@ -1944,7 +1951,8 @@ public class MusicPlayerService {
                     youtubeVideoId(track),
                     trackTitle(track),
                     youtubeFailure,
-                    exception
+                    exception,
+                    failureContext == null ? "-" : failureContext.correlationId()
             );
             if (youtubeFailure.allowsPlaybackRecovery(effectiveYoutubeAuthMode)) {
                 TrackRecoveryService.StartResult recovery = recoverTrack(
@@ -2037,29 +2045,35 @@ public class MusicPlayerService {
                             notifyPlaybackFailure(guildId, title, TRACK_RECOVERING_ERROR_KEY);
                         }
                         LOGGER.warn(
-                                "[NoRule] Track recovery started: guildId={} identifier={} category={} attempt={}/{}",
+                                "[NoRule] Track recovery started: guildId={} identifier={} category={} attempt={}/{} correlationId={}",
                                 guildId,
                                 sanitizeInputForLog(track.getIdentifier()),
                                 category,
                                 attempt,
-                                maxAttempts
+                                maxAttempts,
+                                readContext(track) == null ? "-" : readContext(track).correlationId()
                         );
                     }
 
                     @Override
-                    public void recovered(int attempt) {
-                        clearAutoplayNotice(guildId);
+                    public void replacementSubmitted(int attempt) {
                         notifyStateChanged(guildId, MusicStateChange.RECOVERY);
                         LOGGER.info(
-                                "[NoRule] Track recovery completed: guildId={} identifier={} attempt={}",
+                                "[NoRule] Track recovery replacement submitted: guildId={} identifier={} attempt={} correlationId={}",
                                 guildId,
                                 sanitizeInputForLog(track.getIdentifier()),
-                                attempt
+                                attempt,
+                                readContext(track) == null ? "-" : readContext(track).correlationId()
                         );
                     }
 
                     @Override
                     public void recoveryFailed(Throwable failure) {
+                        TrackLoadContext history = readContext(track);
+                        if (history != null) track.setUserData(history.withFailure(failure));
+                        LOGGER.warn("[NoRule] Recovery load failed: guildId={} correlationId={} initialCategory={} recoveryCategory={}",
+                                guildId, history == null ? "-" : history.correlationId(), category,
+                                YOUTUBE_FAILURE_CLASSIFIER.classify(failure).category());
                         if (isBilibiliTrack(track)
                                 || BILIBILI_FAILURE_CLASSIFIER.isBilibiliSourceFailure(failure)) {
                             BilibiliFailureReport bilibiliFailure = BILIBILI_FAILURE_CLASSIFIER.classify(
@@ -2080,7 +2094,8 @@ public class MusicPlayerService {
                                     youtubeVideoId(track),
                                     title,
                                     youtubeFailure,
-                                    failure
+                                    failure,
+                                    history == null ? "-" : history.correlationId()
                             );
                             notifyPlaybackFailure(guildId, title, youtubeFailure.errorKey());
                             return;
@@ -2180,10 +2195,11 @@ public class MusicPlayerService {
             }
 
             @Override
-            public void skip(Object expectedTrack, long expectedGeneration) {
+            public boolean skip(Object expectedTrack, long expectedGeneration) {
                 if (expectedTrack instanceof AudioTrack audioTrack) {
-                    manager.getScheduler().skipIfCurrent(audioTrack, expectedGeneration);
+                    return manager.isConnected() && manager.getScheduler().skipIfCurrent(audioTrack, expectedGeneration);
                 }
+                return false;
             }
         };
     }
@@ -2365,34 +2381,32 @@ public class MusicPlayerService {
                                    String title,
                                    YoutubeFailureReport failure,
                                    Throwable exception) {
+        logYoutubeFailure(stage, guildId, videoId, title, failure, exception, java.util.UUID.randomUUID().toString());
+    }
+
+    private void logYoutubeFailure(String stage, long guildId, String videoId, String title,
+                                   YoutubeFailureReport failure, Throwable exception, String correlationId) {
         YoutubeFailureReport report = failure == null
                 ? YOUTUBE_FAILURE_CLASSIFIER.classify(exception)
                 : failure;
         String summary = "[NoRule] YouTube " + stage + " failed:"
+                + " correlationId=" + correlationId
                 + " guildId=" + guildId
                 + " videoId=" + sanitizeInputForLog(videoId)
                 + " title=" + sanitizeInputForLog(title)
                 + " category=" + report.category()
                 + " recoveryClass=" + report.recoveryClass()
                 + " clients=" + report.clientsSummary();
-        if (report.category() == YoutubeFailureCategory.UNKNOWN) {
-            LOGGER.error(summary, exception);
-            return;
-        }
-        LOGGER.warn(summary);
-        if (LOGGER.isDebugEnabled() && exception != null) {
-            if (report.category().name().startsWith("COMPANION_")) {
-                LOGGER.debug(
-                        "YouTube {} failure details: guildId={} videoId={} failureType={}",
-                        stage,
-                        guildId,
-                        sanitizeInputForLog(videoId),
-                        exception.getClass().getName()
-                );
-            } else {
-                LOGGER.debug("YouTube {} failure details: guildId={} videoId={}",
-                        stage, guildId, sanitizeInputForLog(videoId), exception);
-            }
+        LOGGER.warn(summary + " configuredBackend=" + youtubePlaybackTrackFactory.backend()
+                + " provider=" + YOUTUBE_FAILURE_CLASSIFIER.provider(exception)
+                + " stage=" + (stage.contains("load") ? "METADATA_DISCOVERY"
+                    : report.category() == YoutubeFailureCategory.DECODER_FAILURE ? "AUDIO_DECODING" : "STREAM_EXTRACTION")
+                + " httpStatus=" + report.httpStatus()
+                + " reason=" + YOUTUBE_FAILURE_CLASSIFIER.safeDescription(exception));
+        for (YoutubeClientFailure client : report.clientFailures()) {
+            LOGGER.warn("[NoRule] YouTube client failure: correlationId={} guildId={} videoId={} client={} category={} httpStatus={} reason={}",
+                    correlationId, guildId, sanitizeInputForLog(videoId), client.clientName(), client.category(),
+                    client.httpStatus(), client.safeMessage());
         }
     }
 

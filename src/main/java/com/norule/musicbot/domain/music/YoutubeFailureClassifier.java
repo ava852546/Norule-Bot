@@ -51,6 +51,17 @@ public final class YoutubeFailureClassifier {
         );
     }
 
+    public String provider(Throwable failure) {
+        for (Throwable current : throwableGraph(failure)) {
+            if (current instanceof YouTubePlaybackException) return "COMPANION";
+        }
+        return "YOUTUBE_SOURCE";
+    }
+
+    public String safeDescription(Throwable failure) {
+        return safeMessage(deepestCause(failure));
+    }
+
     public boolean isYoutubeSourceFailure(Throwable failure) {
         for (Throwable current : throwableGraph(failure)) {
             Package exceptionPackage = current.getClass().getPackage();
@@ -159,7 +170,6 @@ public final class YoutubeFailureClassifier {
         }
         if (containsAny(message,
                 "expected decoding to halt",
-                "decoding the track",
                 "decoder failure",
                 "failed to decode",
                 "aac decoder")) {
@@ -382,7 +392,10 @@ public final class YoutubeFailureClassifier {
         if (message == null || message.isBlank()) {
             return failure == null ? "-" : failure.getClass().getSimpleName();
         }
-        String sanitized = SECRET_ASSIGNMENT.matcher(message)
+        String sanitized = SECRET_ASSIGNMENT.matcher(message
+                .replaceAll("(?i)https?://[^\\s]+", "<redacted-url>")
+                .replaceAll("(?i)Bearer\\s+[^\\s,;]+", "Bearer <redacted>")
+                .replaceAll("(?i)(cookie|token|secret|visitor[_ -]?id)\\s*[=:]\\s*[^\\r\\n]+", "$1=<redacted>"))
                 .replaceAll("$1=<redacted>")
                 .replace('\r', ' ')
                 .replace('\n', ' ')
