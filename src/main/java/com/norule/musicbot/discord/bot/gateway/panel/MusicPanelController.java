@@ -51,6 +51,10 @@ public final class MusicPanelController {
         commandChannelProvisioner.queueStartupProvisioning(guilds, this::initializePanel);
     }
 
+    public void guildLeft(long guildId) {
+        commandChannelProvisioner.guildLeft(guildId);
+    }
+
     private void initializePanel(Guild guild, TextChannel channel) {
         ensurePanelForChannel(guild, channel, owner.lang(guild.getIdLong()));
     }
@@ -224,7 +228,6 @@ public final class MusicPanelController {
         return "OFF";
     }
 }
-
 
 
 

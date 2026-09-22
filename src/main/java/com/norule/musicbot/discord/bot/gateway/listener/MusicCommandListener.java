@@ -16,6 +16,8 @@ import com.norule.musicbot.discord.bot.service.meta.DevService;
 import com.norule.musicbot.discord.gateway.InMemorySignals;
 import com.norule.musicbot.discord.gateway.Signals;
 import com.norule.musicbot.domain.music.MusicPlayerService;
+import com.norule.musicbot.service.music.MusicCommandChannelProvisioningService;
+import net.dv8tion.jda.api.events.guild.GuildLeaveEvent;
 import net.dv8tion.jda.api.events.guild.GuildJoinEvent;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.CommandAutoCompleteInteractionEvent;
@@ -38,8 +40,9 @@ public class MusicCommandListener extends ListenerAdapter {
                                 ModerationService moderationService,
                                 HoneypotService honeypotService,
                                 ShortUrlService shortUrlService,
-                                TicketService ticketService) {
-        this(musicService, runtimeConfig, settingsService, moderationService, honeypotService, shortUrlService, ticketService, null);
+                                TicketService ticketService,
+                                MusicCommandChannelProvisioningService provisioningState) {
+        this(musicService, runtimeConfig, settingsService, moderationService, honeypotService, shortUrlService, ticketService, null, provisioningState);
     }
 
     public MusicCommandListener(MusicPlayerService musicService,
@@ -49,8 +52,9 @@ public class MusicCommandListener extends ListenerAdapter {
                                 HoneypotService honeypotService,
                                 ShortUrlService shortUrlService,
                                 TicketService ticketService,
-                                MessageStatsEventService statsEventService) {
-        this(musicService, runtimeConfig, settingsService, moderationService, honeypotService, new InMemorySignals(), shortUrlService, ticketService, statsEventService, null);
+                                MessageStatsEventService statsEventService,
+                                MusicCommandChannelProvisioningService provisioningState) {
+        this(musicService, runtimeConfig, settingsService, moderationService, honeypotService, new InMemorySignals(), shortUrlService, ticketService, statsEventService, null, provisioningState);
     }
 
     public MusicCommandListener(MusicPlayerService musicService,
@@ -60,8 +64,9 @@ public class MusicCommandListener extends ListenerAdapter {
                                 HoneypotService honeypotService,
                                 Signals signals,
                                 ShortUrlService shortUrlService,
-                                TicketService ticketService) {
-        this(musicService, runtimeConfig, settingsService, moderationService, honeypotService, signals, shortUrlService, ticketService, null, null);
+                                TicketService ticketService,
+                                MusicCommandChannelProvisioningService provisioningState) {
+        this(musicService, runtimeConfig, settingsService, moderationService, honeypotService, signals, shortUrlService, ticketService, null, null, provisioningState);
     }
 
     public MusicCommandListener(MusicPlayerService musicService,
@@ -73,7 +78,8 @@ public class MusicCommandListener extends ListenerAdapter {
                                 ShortUrlService shortUrlService,
                                 TicketService ticketService,
                                 MessageStatsEventService statsEventService,
-                                WordChainOps wordChainOps) {
+                                WordChainOps wordChainOps,
+                                MusicCommandChannelProvisioningService provisioningState) {
         this.service = new MusicCommandService(
                 musicService,
                 runtimeConfig,
@@ -83,7 +89,8 @@ public class MusicCommandListener extends ListenerAdapter {
                 shortUrlService,
                 ticketService,
                 statsEventService,
-                wordChainOps
+                wordChainOps,
+                provisioningState
         );
         this.gateway = new InteractionGateway(service, signals);
         this.devOps = new DevOps(new DevService(
@@ -114,6 +121,11 @@ public class MusicCommandListener extends ListenerAdapter {
     @Override
     public void onGuildJoin(GuildJoinEvent event) {
         service.onGuildJoin(event);
+    }
+
+    @Override
+    public void onGuildLeave(GuildLeaveEvent event) {
+        service.onGuildLeave(event);
     }
 
     @Override

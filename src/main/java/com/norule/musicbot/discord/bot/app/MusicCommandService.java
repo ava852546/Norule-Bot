@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.app;
 
+import com.norule.musicbot.service.music.MusicCommandChannelProvisioningService;
+
 import com.norule.musicbot.config.*;
 import com.norule.musicbot.config.domain.MinecraftStatusConfig;
 import com.norule.musicbot.config.domain.GuildDomainConfigAdapter;
@@ -147,7 +149,8 @@ public class MusicCommandService extends ListenerAdapter {
                                ShortUrlService shortUrlService,
                                com.norule.musicbot.TicketService ticketService,
                                MessageStatsEventService statsEventService,
-                               WordChainOps wordChainOps) {
+                               WordChainOps wordChainOps,
+                               MusicCommandChannelProvisioningService provisioningState) {
         this.musicService = musicService;
         this.moderationService = moderationService;
         this.honeypotService = honeypotService;
@@ -161,7 +164,7 @@ public class MusicCommandService extends ListenerAdapter {
         this.musicService.setAutoplayEnabledChecker(guildId -> settingsService.getMusic(guildId).isAutoplayEnabled());
         this.discordCommandCatalog = new DiscordCommandCatalog();
         this.commandRegistrar = new CommandRegistrar(this);
-        this.musicPanelRuntime = new MusicPanelRuntime(this, this.scheduler, PANEL_PERIODIC_REFRESH_MS);
+        this.musicPanelRuntime = new MusicPanelRuntime(this, this.scheduler, PANEL_PERIODIC_REFRESH_MS, provisioningState);
         this.musicPlaybackText = new MusicPlaybackText(this::i18nService);
         this.playbackFailureNotifier = new PlaybackFailureNotifier(
                 this, musicPanelRuntime.panelStateStore(), this.musicPlaybackText);
@@ -335,6 +338,7 @@ public class MusicCommandService extends ListenerAdapter {
 
     @Override
     public void onGuildLeave(net.dv8tion.jda.api.events.guild.GuildLeaveEvent event) {
+        musicPanelRuntime.musicPanelController().guildLeft(event.getGuild().getIdLong());
         musicPanelRuntime.musicPanelRefreshService().clearPanel(event.getGuild().getIdLong());
         musicService.setGuildStateChangeListener(event.getGuild().getIdLong(), null);
     }

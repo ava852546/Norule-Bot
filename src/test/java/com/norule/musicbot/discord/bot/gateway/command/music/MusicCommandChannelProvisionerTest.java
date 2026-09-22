@@ -1,5 +1,9 @@
 package com.norule.musicbot.discord.bot.gateway.command.music;
 
+import com.norule.musicbot.domain.music.MusicCommandChannelProvisioning.Status;
+import com.norule.musicbot.service.music.MusicCommandChannelProvisioningService;
+import com.norule.musicbot.storage.sqlite.MusicCommandChannelProvisioningSqliteRepository;
+import com.norule.musicbot.storage.sqlite.SqliteDatabase;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
@@ -8,10 +12,12 @@ import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.requests.restaction.ChannelAction;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -30,18 +36,26 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MusicCommandChannelProvisionerTest {
+    @TempDir
+    Path tempDir;
     private final List<ScheduledExecutorService> schedulers = new ArrayList<>();
 
     @AfterEach
-    void shutdownSchedulers() {
+    void shutdownSchedulers() throws InterruptedException {
         schedulers.forEach(ScheduledExecutorService::shutdownNow);
+        for (ScheduledExecutorService scheduler : schedulers) {
+            assertTrue(scheduler.awaitTermination(5, TimeUnit.SECONDS));
+        }
     }
 
     @Test
-    void skipsGuildWithoutManageChannelsBeforeQueueing() throws InterruptedException {
+    void recordsFailureWithoutManageChannelsAndNeverRetries() throws Exception {
         TestChannelState state = new TestChannelState();
         GuildFixture fixture = new GuildFixture(101L, false, true);
         MusicCommandChannelProvisioner provisioner = provisioner(state, 10L);
@@ -49,8 +63,12 @@ class MusicCommandChannelProvisionerTest {
         boolean queued = provisioner.queueProvisioning(fixture.guild(), (guild, channel) -> {
         });
 
-        assertFalse(queued);
-        assertFalse(fixture.createStarted().await(100, TimeUnit.MILLISECONDS));
+        assertTrue(queued);
+        drainScheduler();
+        assertEquals(Status.FAILED, repository().find(101L).status());
+        assertEquals("Missing permission: MANAGE_CHANNEL", repository().find(101L).failureReason());
+        fixture.setManageChannels(true);
+        assertFalse(provisioner(state, 0L).queueProvisioning(fixture.guild(), null));
         assertEquals(0, fixture.createCalls());
         assertEquals(0, fixture.retrieveCalls());
     }
@@ -190,7 +208,183 @@ class MusicCommandChannelProvisionerTest {
     private MusicCommandChannelProvisioner provisioner(TestChannelState state, long intervalMs) {
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         schedulers.add(scheduler);
-        return new MusicCommandChannelProvisioner(state, scheduler, intervalMs);
+        return new MusicCommandChannelProvisioner(state, scheduler, intervalMs,
+                new MusicCommandChannelProvisioningService(repository()));
+    }
+
+    private MusicCommandChannelProvisioningSqliteRepository repository() {
+        return new MusicCommandChannelProvisioningSqliteRepository(new SqliteDatabase(tempDir.resolve("state.db")));
+    }
+
+    private void drainScheduler() throws Exception {
+        schedulers.getLast().submit(() -> {}).get(2, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void newGuildAttemptsExactlyOnceAndSuccessSurvivesRestart() throws Exception {
+        GuildFixture fixture = new GuildFixture(801L, true, true);
+        MusicCommandChannelProvisioner first = provisioner(new TestChannelState(), 0L);
+        CountDownLatch completed = new CountDownLatch(1);
+        assertTrue(first.queueGuildJoinProvisioning(fixture.guild(), (guild, channel) -> completed.countDown()));
+        assertTrue(completed.await(2, TimeUnit.SECONDS));
+        var saved = repository().find(801L);
+        assertEquals(Status.SUCCESS, saved.status());
+        assertNotNull(saved.attemptedAt());
+        assertNull(saved.failureReason());
+        assertFalse(first.queueProvisioning(fixture.guild(), null));
+
+        // Reopen the same file with new repository, service, scheduler and channel state.
+        MusicCommandChannelProvisioner restarted = provisioner(new TestChannelState(), 0L);
+        restarted.queueStartupProvisioning(List.of(fixture.guild()), null);
+        assertFalse(restarted.queueGuildJoinProvisioning(fixture.guild(), null));
+        assertThrows(Exception.class, () -> restarted.ensureCommandChannel(fixture.guild()).get());
+        assertEquals(1, fixture.createCalls());
+        assertEquals(saved, repository().find(801L));
+    }
+
+    @Test
+    void asynchronousFailureSurvivesRestart() throws Exception {
+        GuildFixture fixture = new GuildFixture(802L, true, false);
+        MusicCommandChannelProvisioner first = provisioner(new TestChannelState(), 0L);
+        CompletableFuture<TextChannel> pending = first.ensureCommandChannel(fixture.guild());
+        fixture.failCreation(new IllegalStateException("Discord API failure"));
+        assertThrows(Exception.class, () -> pending.get(2, TimeUnit.SECONDS));
+        var saved = repository().find(802L);
+        assertEquals(Status.FAILED, saved.status());
+        assertEquals("Discord API failure", saved.failureReason());
+        MusicCommandChannelProvisioner restarted = provisioner(new TestChannelState(), 0L);
+        restarted.queueStartupProvisioning(List.of(fixture.guild()), null);
+        assertFalse(restarted.queueGuildJoinProvisioning(fixture.guild(), null));
+        assertEquals(1, fixture.createCalls());
+        assertEquals(saved, repository().find(802L));
+    }
+
+    @Test
+    void attemptingSurvivesRestart() throws Exception {
+        GuildFixture fixture = new GuildFixture(803L, true, false);
+        provisioner(new TestChannelState(), 0L).ensureCommandChannel(fixture.guild());
+        assertEquals(Status.ATTEMPTING, repository().find(803L).status());
+        MusicCommandChannelProvisioner restarted = provisioner(new TestChannelState(), 0L);
+        restarted.queueStartupProvisioning(List.of(fixture.guild()), null);
+        assertFalse(restarted.queueGuildJoinProvisioning(fixture.guild(), null));
+        assertEquals(1, fixture.createCalls());
+    }
+
+    @Test
+    void multipleStartupEventsAttemptOnceEvenAfterCompletion() throws Exception {
+        GuildFixture fixture = new GuildFixture(804L, true, true);
+        MusicCommandChannelProvisioner provisioner = provisioner(new TestChannelState(), 0L);
+        CountDownLatch completed = new CountDownLatch(1);
+        provisioner.queueStartupProvisioning(List.of(fixture.guild()), (guild, channel) -> completed.countDown());
+        assertTrue(completed.await(2, TimeUnit.SECONDS));
+        for (int i = 0; i < 5; i++) {
+            provisioner.queueStartupProvisioning(List.of(fixture.guild()), null);
+        }
+        assertEquals(1, fixture.createCalls());
+    }
+
+    @Test
+    void guildJoinAndReadyRaceAcrossIndependentRepositoriesAttemptOnce() throws Exception {
+        GuildFixture fixture = new GuildFixture(805L, true, false);
+        MusicCommandChannelProvisioner join = provisioner(new TestChannelState(), 0L);
+        MusicCommandChannelProvisioner ready = provisioner(new TestChannelState(), 0L);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch completed = new CountDownLatch(1);
+        try (var callers = Executors.newFixedThreadPool(2)) {
+            var joined = callers.submit(() -> {
+                start.await();
+                return join.queueGuildJoinProvisioning(fixture.guild(), (guild, channel) -> completed.countDown());
+            });
+            var started = callers.submit(() -> {
+                start.await();
+                ready.queueStartupProvisioning(List.of(fixture.guild()), (guild, channel) -> completed.countDown());
+                return null;
+            });
+            start.countDown();
+            joined.get(2, TimeUnit.SECONDS);
+            started.get(2, TimeUnit.SECONDS);
+        }
+        // Wait for queue() as well as createTextChannel(), then release the async response.
+        for (ScheduledExecutorService scheduler : schedulers) {
+            scheduler.submit(() -> {}).get(2, TimeUnit.SECONDS);
+        }
+        assertEquals(Status.ATTEMPTING, repository().find(805L).status());
+        fixture.completeCreation();
+        assertTrue(completed.await(2, TimeUnit.SECONDS));
+        assertEquals(1, fixture.createCalls());
+        assertEquals(Status.SUCCESS, repository().find(805L).status());
+    }
+
+    @Test
+    void guildLeaveRemovesRecordAndRejoinAttemptsAgain() throws Exception {
+        GuildFixture fixture = new GuildFixture(806L, true, true);
+        MusicCommandChannelProvisioner provisioner = provisioner(new TestChannelState(), 0L);
+        provisioner.ensureCommandChannel(fixture.guild()).get(2, TimeUnit.SECONDS);
+        provisioner.guildLeft(806L);
+        assertNull(repository().find(806L));
+        CountDownLatch completed = new CountDownLatch(1);
+        assertTrue(provisioner.queueGuildJoinProvisioning(fixture.guild(), (guild, channel) -> completed.countDown()));
+        assertTrue(completed.await(2, TimeUnit.SECONDS));
+        assertEquals(2, fixture.createCalls());
+        assertEquals(Status.SUCCESS, repository().find(806L).status());
+    }
+
+    @Test
+    void missingManagePermissionsRecordsFailureAndNeverRetriesAfterPermissionGranted() throws Exception {
+        GuildFixture fixture = new GuildFixture(807L, true, true);
+        fixture.managePermissions.set(false);
+        MusicCommandChannelProvisioner provisioner = provisioner(new TestChannelState(), 0L);
+        assertTrue(provisioner.queueGuildJoinProvisioning(fixture.guild(), null));
+        drainScheduler();
+        var saved = repository().find(807L);
+        assertEquals(Status.FAILED, saved.status());
+        assertEquals("Missing permission: MANAGE_PERMISSIONS", saved.failureReason());
+        fixture.managePermissions.set(true);
+        MusicCommandChannelProvisioner restarted = provisioner(new TestChannelState(), 0L);
+        restarted.queueStartupProvisioning(List.of(fixture.guild()), null);
+        assertFalse(restarted.queueGuildJoinProvisioning(fixture.guild(), null));
+        assertThrows(Exception.class, () -> restarted.ensureCommandChannel(fixture.guild()).get());
+        assertEquals(0, fixture.createCalls());
+        assertEquals(saved, repository().find(807L));
+    }
+
+    @Test
+    void staleCallbackCannotOverwriteRejoinedGuildAttempt() throws Exception {
+        GuildFixture oldMembership = new GuildFixture(808L, true, false);
+        TestChannelState channels = new TestChannelState();
+        MusicCommandChannelProvisioner provisioner = provisioner(channels, 0L);
+        var oldResult = provisioner.ensureCommandChannel(oldMembership.guild());
+        provisioner.guildLeft(808L);
+        GuildFixture newMembership = new GuildFixture(808L, true, false);
+        var newResult = provisioner.ensureCommandChannel(newMembership.guild());
+        var current = repository().find(808L);
+        oldMembership.completeCreation();
+        assertThrows(Exception.class, () -> oldResult.get(2, TimeUnit.SECONDS));
+        assertEquals(current, repository().find(808L));
+        assertNull(channels.configuredChannelId(808L));
+        newMembership.completeCreation();
+        newResult.get(2, TimeUnit.SECONDS);
+        assertEquals(Status.SUCCESS, repository().find(808L).status());
+    }
+
+    @Test
+    void queuedTaskDoesNotCreateChannelAfterGuildLeave() throws Exception {
+        GuildFixture fixture = new GuildFixture(809L, true, true);
+        MusicCommandChannelProvisioner provisioner = provisioner(new TestChannelState(), 0L);
+        CountDownLatch release = new CountDownLatch(1);
+        schedulers.getLast().submit(() -> {
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        assertTrue(provisioner.queueGuildJoinProvisioning(fixture.guild(), null));
+        provisioner.guildLeft(809L);
+        release.countDown();
+        drainScheduler();
+        assertNull(repository().find(809L));
+        assertEquals(0, fixture.createCalls());
     }
 
     private static final class TestChannelState implements MusicCommandChannelProvisioner.ChannelState {
@@ -210,6 +404,7 @@ class MusicCommandChannelProvisionerTest {
     private static final class GuildFixture implements InvocationHandler {
         private final long guildId;
         private final AtomicBoolean manageChannels;
+        private final AtomicBoolean managePermissions = new AtomicBoolean(true);
         private final boolean autoCompleteCreation;
         private final AtomicBoolean active = new AtomicBoolean(true);
         private final AtomicInteger createCalls = new AtomicInteger();
@@ -218,6 +413,7 @@ class MusicCommandChannelProvisionerTest {
         private final CountDownLatch createStarted = new CountDownLatch(1);
         private final Map<Long, TextChannel> cachedChannels = new ConcurrentHashMap<>();
         private final AtomicReference<Consumer<? super TextChannel>> pendingSuccess = new AtomicReference<>();
+        private final AtomicReference<Consumer<? super Throwable>> pendingFailure = new AtomicReference<>();
         private final Guild guild;
         private final JDA jda;
         private final SelfMember selfMember;
@@ -276,6 +472,10 @@ class MusicCommandChannelProvisionerTest {
             }
         }
 
+        private void failCreation(Throwable failure) {
+            pendingFailure.getAndSet(null).accept(failure);
+        }
+
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) {
             return switch (method.getName()) {
@@ -308,6 +508,9 @@ class MusicCommandChannelProvisionerTest {
                     if (permission == Permission.MANAGE_CHANNEL) {
                         return manageChannels.get();
                     }
+                    if (permission == Permission.MANAGE_PERMISSIONS) {
+                        return managePermissions.get();
+                    }
                 }
             }
             return true;
@@ -335,6 +538,7 @@ class MusicCommandChannelProvisionerTest {
                     if (autoCompleteCreation) {
                         success.accept(createdChannel);
                     } else {
+                        pendingFailure.set((Consumer<? super Throwable>) args[1]);
                         pendingSuccess.set(success);
                     }
                     return null;
