@@ -41,6 +41,7 @@ class BilibiliAudioSourceManagerCompatibilityTest {
         BilibiliAudioSourceAdapter bilibiliSource = new BilibiliAudioSourceAdapter(
                 MusicConfig.defaultValues().getBilibili()
         );
+        CipherPolicy policy = new CipherPolicy(false);
         MusicPlayerService service = new MusicPlayerService(
                 tempDir,
                 ignored -> 100,
@@ -50,7 +51,10 @@ class BilibiliAudioSourceManagerCompatibilityTest {
                 tempDir.resolve("music.db"),
                 SpotifyPlaylistInspector.noOp(),
                 YouTubePlaybackTrackFactory.youtubeSource(),
-                bilibiliSource
+                bilibiliSource,
+                policy,
+                auth -> com.norule.musicbot.gateway.youtube.YouTubePlaybackRuntimeFactory.createSource(
+                        MusicConfig.defaultValues().getCipher(), policy, auth, YouTubePlaybackTrackFactory.youtubeSource())
         );
         AudioPlayerManager playerManager = playerManager(service);
         try {

@@ -19,7 +19,8 @@ public record YoutubeFailureReport(
     }
 
     public String errorKey() {
-        return "YOUTUBE_" + category.name();
+        return category == YoutubeFailureCategory.CIPHER_REQUIRED_BUT_DISABLED
+                ? category.name() : "YOUTUBE_" + category.name();
     }
 
     public String clientsSummary() {

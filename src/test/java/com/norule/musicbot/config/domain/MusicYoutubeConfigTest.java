@@ -12,6 +12,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MusicYoutubeConfigTest {
     @Test
+    void companionFallbackDefaultsToOptInAndCipherFalseWinsOverGlobalDefaults() {
+        assertFalse(MusicConfig.defaultValues().getYoutube().getCompanion().isFallbackToSource());
+        for (boolean enabled : new boolean[]{false, true}) {
+            var parsed = BotConfig.Music.fromMap(Map.of("cipher", Map.of("enabled", enabled)), BotConfig.Music.defaultValues());
+            assertEquals(enabled, MusicConfig.fromLegacy(parsed, parsed).getCipher().isEnabled());
+        }
+    }
+    @Test
     void oauthCipherAndDifferentiatedCacheTtlsMapToDomainConfig() {
         BotConfig.Music parsed = BotConfig.Music.fromMap(
                 Map.of(

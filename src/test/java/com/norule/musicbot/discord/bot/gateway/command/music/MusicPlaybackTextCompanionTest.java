@@ -13,6 +13,18 @@ class MusicPlaybackTextCompanionTest {
     Path languageDir;
 
     @Test
+    void cipherPolicyFailureHasLocalizedTextRatherThanRawKey() {
+        I18nService i18n = I18nService.load(languageDir, "en");
+        MusicPlaybackText text = new MusicPlaybackText(() -> i18n);
+        for (String lang : new String[]{"en", "zh-TW", "zh-CN"}) {
+            String message = text.mapMusicLoadError(lang, "CIPHER_REQUIRED_BUT_DISABLED");
+            org.junit.jupiter.api.Assertions.assertFalse(message.contains("music.cipher_required_but_disabled"));
+            org.junit.jupiter.api.Assertions.assertFalse(message.contains("CIPHER_REQUIRED_BUT_DISABLED"));
+            org.junit.jupiter.api.Assertions.assertTrue(message.contains("Cipher"));
+        }
+    }
+
+    @Test
     void mapsCompanionFailuresToLocalizedMessages() {
         I18nService i18n = I18nService.load(languageDir, "en");
         MusicPlaybackText text = new MusicPlaybackText(() -> i18n);

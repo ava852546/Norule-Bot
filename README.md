@@ -314,7 +314,7 @@ database:
 | Spotify | `SPOTIFY_ENABLED`、`SPOTIFY_CLIENT_ID`、`SPOTIFY_CLIENT_SECRET`、`SPOTIFY_SP_DC`、`SPOTIFY_COUNTRY_CODE`、`SPOTIFY_PREFER_ANONYMOUS_TOKEN`、`SPOTIFY_CUSTOM_TOKEN_ENDPOINT` |
 | Bilibili | `BILIBILI_ENABLED`、`BILIBILI_COOKIE`、`BILIBILI_METADATA_CACHE_ENABLED`、`BILIBILI_METADATA_CACHE_TTL_HOURS`、`BILIBILI_METADATA_CACHE_MAX_ENTRIES`、`BILIBILI_RATE_LIMIT_ENABLED`、`BILIBILI_RATE_LIMIT_RPS`、`BILIBILI_RATE_LIMIT_BURST`、`BILIBILI_CIRCUIT_BREAKER_ENABLED`、`BILIBILI_CIRCUIT_BREAKER_FAILURE_THRESHOLD`、`BILIBILI_CIRCUIT_BREAKER_WINDOW_SECONDS`、`BILIBILI_CIRCUIT_BREAKER_COOLDOWN_SECONDS` |
 | YouTube Companion | `YOUTUBE_PLAYBACK_BACKEND`、`YOUTUBE_COMPANION_ENABLED`、`YOUTUBE_COMPANION_FALLBACK_TO_SOURCE`、`YOUTUBE_COMPANION_URL`、`YOUTUBE_COMPANION_SECRET`、`YOUTUBE_COMPANION_CONNECT_TIMEOUT_MILLIS`、`YOUTUBE_COMPANION_REQUEST_TIMEOUT_MILLIS` |
-| YouTube cipher/auth | `YOUTUBE_CIPHER_ENABLED`、`YOUTUBE_CIPHER_SERVER`、`YOUTUBE_CIPHER_PASSWORD`、`YOUTUBE_CIPHER_USER_AGENT`、`YOUTUBE_AUTH_MODE`、`YOUTUBE_OAUTH_ENABLED`、`YOUTUBE_STRICT_AUTH_CONFIG`、`YOUTUBE_PO_TOKEN`、`YOUTUBE_VISITOR_DATA`、`YOUTUBE_OAUTH_REFRESH_TOKEN` |
+| YouTube cipher/auth | `YOUTUBE_CIPHER_SERVER`、`YOUTUBE_CIPHER_PASSWORD`、`YOUTUBE_CIPHER_USER_AGENT`、`YOUTUBE_AUTH_MODE`、`YOUTUBE_OAUTH_ENABLED`、`YOUTUBE_STRICT_AUTH_CONFIG`、`YOUTUBE_PO_TOKEN`、`YOUTUBE_VISITOR_DATA`、`YOUTUBE_OAUTH_REFRESH_TOKEN` |
 | YouTube 預檢 | `LAVALINK_BASE_URL`、`LAVALINK_PASSWORD` |
 | 短網址／媒體 | `SHORT_URL_QUOTA_HMAC_SECRET`、`SHORT_URL_DEVICE_HMAC_SECRET` |
 | 前端建置／開發 | `NUXT_DEV_API_TARGET`、`NUXT_DASHBOARD_API_TARGET`、`NORULE_WEB_OUTPUT_DIR` |
@@ -338,13 +338,17 @@ Bilibili URL 由專用 adapter 處理。控制面 API 請求具備：
 
 預設 `music.youtube.playbackBackend` 為 `YOUTUBE_SOURCE`。設為 `COMPANION` 且 `music.youtube.companion.enabled: true` 時，Companion 負責取得／代理播放串流，youtube-source 仍負責搜尋與 metadata。Companion secret 必須是 16 位英數字元；若啟用 `fallbackToSource`，Companion timeout、無法連線、5xx 或無串流時只會 fallback 到 youtube-source 一次。
 
-`music.youtube.strictPrecheck.enabled` 是選填的 Lavalink youtube-plugin 預檢。啟用時需提供 base URL 與 password，程式會呼叫 `/youtube/stream/{videoId}`，並依可播放、暫時失敗與永久失敗分別使用設定的 cache TTL；若 Lavalink 未安裝相容 plugin，請保持關閉。
+後端於啟動時選定，適用於直接 URL、搜尋結果、Spotify 延遲解析、歌單、重試、恢復、clone 與解碼還原的 YouTube track。`music.youtube.companion.fallbackToSource` 預設為 `false`：Companion 失敗即回報失敗，不會改用 youtube-source 播放。只有明確設為 `true`（或 `YOUTUBE_COMPANION_FALLBACK_TO_SOURCE=true`）才允許跨後端 fallback，日誌會標示 `configuredBackend`、`actualBackend` 與 `fallbackAttempted`。既有設定檔若已寫入 `true`，會保留其值；需要嚴格 Companion 模式時請改成 `false` 並重新啟動。
+
+`music.cipher.enabled=false` 禁止 NoRule / youtube-source 的獨立本機與遠端 Cipher，也涵蓋明確開啟的 fallback；需要此功能的路徑會回報 `CIPHER_REQUIRED_BUT_DISABLED`。此開關**不影響 Invidious Companion 內部正常的 signature / decipher**。開關以 YAML 為準，不再接受 `YOUTUBE_CIPHER_ENABLED` 覆蓋；`MUSIC_CIPHER_ENABLED`、`CIPHER_ENABLED`、`REMOTE_CIPHER_ENABLED` 亦非支援的覆蓋來源。重新載入設定可停用既有 Cipher 呼叫，端點與後端設定仍需重新啟動。
+
+`music.youtube.strictPrecheck.enabled` 是 `YOUTUBE_SOURCE` 模式下選填的 Lavalink youtube-plugin 預檢。啟用時需提供 base URL 與 password，程式會呼叫 `/youtube/stream/{videoId}`，並依可播放、暫時失敗與永久失敗分別使用設定的 cache TTL；若 Lavalink 未安裝相容 plugin，請保持關閉。`COMPANION` 模式由 Companion 驗證串流，不呼叫此外部解析入口。
 
 YouTube cipher server、PO token、visitor data 或 OAuth refresh token 都是進階選項，可能受上游政策影響。不要把憑證提交到 repository；修改後應以實際 `/play` 測試，不要只以啟動成功判定可播放。
 
 遇到 `AllClientsFailedException` 時，請查看 `clients={...}` 的個別原因；最外層的 `BOT_DETECTED / AUTH_MAY_HELP` 不代表所有 client 都只缺登入。例如 `Must find sig function from script` 是簽章解析失敗，`Invalid status code for player api response: 400` 是 HTTP 請求被拒絕，並非一般網路斷線。
 
-簽章解析失敗可使用 youtube-source 支援的 [remote cipher server](https://github.com/lavalink-devs/youtube-source#using-a-remote-cipher-server)。本專案已接入此功能：先準備可連線且相容的服務，再設定 `YOUTUBE_CIPHER_ENABLED=true`、`YOUTUBE_CIPHER_SERVER` 與服務要求的 `YOUTUBE_CIPHER_PASSWORD`，重新啟動 Bot。只設定 URL 不會啟用 Cipher；`localhost` 必須是 Bot 執行環境實際能連到的服務位置。Cipher 處理簽章，不保證解除 `BOT_DETECTED` 或 `LOGIN_REQUIRED`；驗證模式與憑證仍需另外依上游支援情況配置。
+簽章解析失敗可使用 youtube-source 支援的 [remote cipher server](https://github.com/lavalink-devs/youtube-source#using-a-remote-cipher-server)。本專案已接入此功能：先準備可連線且相容的服務，再設定 `music.cipher.enabled: true`、`YOUTUBE_CIPHER_SERVER` 與服務要求的 `YOUTUBE_CIPHER_PASSWORD`，重新啟動 Bot。只設定 URL 不會啟用 Cipher；`localhost` 必須是 Bot 執行環境實際能連到的服務位置。Cipher 處理簽章，不保證解除 `BOT_DETECTED` 或 `LOGIN_REQUIRED`；驗證模式與憑證仍需另外依上游支援情況配置。
 
 ### Spotify 與直接 HTTP
 
