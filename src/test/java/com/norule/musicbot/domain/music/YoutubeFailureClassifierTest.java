@@ -63,7 +63,7 @@ class YoutubeFailureClassifierTest {
     @Test
     void decoderEvidenceIsNotOverwrittenByOtherClient403Responses() {
         YoutubeFailureReport report = classifier.classify(aggregate(
-                clientFailure("WEB", "Something went wrong when decoding the track"),
+                clientFailure("WEB", "Expected decoding to halt, got: 5"),
                 clientFailure("MWEB", "Not success status code: 403"),
                 clientFailure("IOS", "Not success status code: 403")
         ));
@@ -167,6 +167,35 @@ class YoutubeFailureClassifierTest {
 
     private void assertCategory(YoutubeFailureCategory expected, String message) {
         assertEquals(expected, classifier.classify(new RuntimeException(message)).category());
+    }
+
+    @Test
+    void genericFriendlyWrapperIsNotDecoderEvidence() {
+        var cause = new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_BAD_REQUEST, "rejected", 400, null);
+        var wrapper = new com.sedmelluq.discord.lavaplayer.tools.FriendlyException(
+                "Something went wrong when decoding the track", com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.FAULT, cause);
+        assertEquals(YoutubeFailureCategory.COMPANION_BAD_REQUEST, classifier.classify(wrapper).category());
+        assertEquals(400, classifier.classify(wrapper).httpStatus());
+        assertFalse(classifier.classify(wrapper).allowsPlaybackRecovery(MusicConfig.Youtube.AuthMode.NONE));
+        assertEquals(YoutubeFailureCategory.HTTP_BAD_REQUEST, classifier.classify(
+                new RuntimeException("Something went wrong when decoding the track", new HttpResponseException(400, "rejected"))).category());
+        assertCategory(YoutubeFailureCategory.UNKNOWN, "Something went wrong when decoding the track");
+    }
+
+    @Test
+    void mixedPolicyLoginAndHttpFailuresAreAllRetainedAndRedacted() {
+        var report = classifier.classify(aggregate(
+                new ClientException("blocked", client("WEB"), new CipherDisabledException()),
+                clientFailure("ANDROID_VR", "This video requires login"),
+                new ClientException("request", client("IOS"), new HttpResponseException(400,
+                        "https://fixture.googlevideo.com/audio?sig=private Cookie=secret visitorId=private"))));
+        assertEquals(3, report.clientFailures().size());
+        assertEquals(YoutubeFailureCategory.CIPHER_REQUIRED_BUT_DISABLED, report.category());
+        assertTrue(report.clientsSummary().contains("ANDROID_VR:LOGIN_REQUIRED"));
+        assertTrue(report.clientsSummary().contains("IOS:HTTP_BAD_REQUEST"));
+        assertFalse(report.clientFailures().get(2).safeMessage().contains("private"));
+        assertFalse(report.clientFailures().get(2).safeMessage().contains("secret"));
+        assertFalse(report.allowsPlaybackRecovery(MusicConfig.Youtube.AuthMode.OAUTH));
     }
 
     private AllClientsFailedException aggregate(ClientException... failures) {

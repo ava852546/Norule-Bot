@@ -31,7 +31,7 @@ public class GuildMusicManager {
         this.scheduler.setTrackEndListener(trackEndListener);
         this.scheduler.setTrackExceptionListener(trackExceptionListener);
         this.scheduler.setTrackStuckListener(trackStuckListener);
-        this.sendHandler = new AudioPlayerSendHandler(player);
+        this.sendHandler = new AudioPlayerSendHandler(player, scheduler);
         this.connectedChecker = connectedChecker == null ? () -> true : connectedChecker;
         player.addListener(scheduler);
     }

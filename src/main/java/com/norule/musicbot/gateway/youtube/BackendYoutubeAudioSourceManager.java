@@ -18,7 +18,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
 
-/** Search/metadata still use youtube-source; every resulting track routes playback here,
+/** Search/list metadata use youtube-source; direct Companion videos use its player API.
+ * Every resulting track routes playback here,
  * including tracks resolved lazily inside LavaSrc's Spotify mirroring resolver. */
 final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(BackendYoutubeAudioSourceManager.class);
@@ -36,15 +37,59 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
         String identifier = reference.identifier;
         String search = identifier != null && (identifier.startsWith("ytsearch:") || identifier.startsWith("ytmsearch:"))
                 ? identifier.replace('\r', ' ').replace('\n', ' ') : "-";
-        LOGGER.debug("[NoRule] YouTube candidate discovery: provider=YOUTUBE_SOURCE configuredBackend={} searchQuery={}",
+        LOGGER.debug("[NoRule] YouTube candidate discovery: stage=METADATA_DISCOVERY configuredBackend={} searchQuery={}",
                 trackFactory.backend(), search.substring(0, Math.min(search.length(), 240)));
-        try {
+        try (var scope = PolicyCipherManager.metadataScope()) {
             return super.loadItem(manager, reference);
         } catch (RuntimeException failure) {
-            LOGGER.warn("[NoRule] YouTube candidate discovery failed: configuredBackend={} provider=YOUTUBE_SOURCE "
-                    + "stage=METADATA_DISCOVERY failureType={}", trackFactory.backend(), failure.getClass().getSimpleName());
+            var classifier = new com.norule.musicbot.domain.music.YoutubeFailureClassifier();
+            var report = classifier.classify(failure);
+            LOGGER.warn("[NoRule] YouTube candidate discovery failed: configuredBackend={} provider={} "
+                    + "stage=METADATA_DISCOVERY category={} httpStatus={} clients={} failureType={}",
+                    trackFactory.backend(), classifier.provider(failure), report.category(), report.httpStatus(),
+                    report.clientsSummary(), failure.getClass().getSimpleName());
             throw failure;
         }
+    }
+
+    @Override
+    protected Router routeFromVideoId(com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface http,
+                                      String videoId, dev.lavalink.youtube.UrlTools.UrlInfo url) {
+        // Leave playlist/mix selection to the upstream router. Search and list metadata
+        // do not need a player script; each selected track still uses the selected backend.
+        if (trackFactory instanceof CompanionYouTubePlaybackTrackFactory companion
+                && videoId != null && videoId.matches("[A-Za-z0-9_-]{11}")
+                && isSingleVideo(url)) {
+            try {
+                // Resolve once, before upstream's per-client loop. A Companion failure
+                // must not retry this same request for every youtube-source client.
+                AudioTrack track = buildAudioTrack(companion.loadMetadata(videoId));
+                return ignored -> track;
+            } catch (com.norule.musicbot.domain.music.YouTubePlaybackException failure) {
+                throw new com.sedmelluq.discord.lavaplayer.tools.FriendlyException(
+                        "YouTube metadata is unavailable.",
+                        com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.SUSPICIOUS, failure);
+            }
+        }
+        Router route = super.routeFromVideoId(http, videoId, url);
+        if (route == Router.none || !isSingleVideo(url)) {
+            return route;
+        }
+        return client -> {
+            // Capability, not a hardcoded client name: this upstream video path calls
+            // getCachedPlayerScript before requesting metadata when this flag is true.
+            if (client.requirePlayerScript() && getCipherManager() instanceof PolicyCipherManager guard) {
+                guard.requirePlayerScriptAllowed();
+            }
+            return route.route(client);
+        };
+    }
+
+    private static boolean isSingleVideo(dev.lavalink.youtube.UrlTools.UrlInfo url) {
+        if (url == null || !url.parameters.containsKey("list")) return true;
+        String list = url.parameters.get("list");
+        // youtube-source 1.18.2 treats these personal-list URLs as a single video.
+        return list.startsWith("LL") || list.startsWith("WL") || list.startsWith("LM");
     }
 
     @Override
@@ -88,7 +133,7 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
                 throw new IllegalStateException("Playback backend violation");
             }
             selected.setUserData(getUserData());
-            try {
+            try (var scope = PolicyCipherManager.streamScope()) {
                 processDelegate((InternalAudioTrack) selected, executor);
             } catch (Exception failure) {
                 LOGGER.warn("[NoRule] YouTube playback failed: source={} sourceTrackId={} videoId={} "

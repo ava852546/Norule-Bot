@@ -32,7 +32,7 @@ public final class CompanionPlaybackClient {
     private static final String GOOGLEVIDEO_SUFFIX = ".googlevideo.com";
     private static final Pattern BEARER_SECRET = Pattern.compile("(?i)Bearer\\s+[^\\s,;]+");
     private static final Pattern SENSITIVE_ASSIGNMENT = Pattern.compile(
-            "(?i)(authorization|secret|po[_ -]?token|pot|sig|lsig|(?<![A-Za-z0-9_])n|spc|visitor[_ -]?data)"
+            "(?i)(authorization|cookie|token|secret|po[_ -]?token|pot|sig|lsig|(?<![A-Za-z0-9_])n|spc|visitor[_ -]?(?:data|id))"
                     + "\\s*[:=]\\s*[^\\s&,;}]+"
     );
     private static final Pattern HTTP_URL = Pattern.compile("(?i)https?://[^\\s]+");
@@ -72,7 +72,7 @@ public final class CompanionPlaybackClient {
         this.transport = transport;
     }
 
-    public ResolvedYouTubePlayback resolve(String videoId) throws YouTubePlaybackException {
+    private JsonNode requestPlayer(String videoId) throws YouTubePlaybackException {
         if (videoId == null || !videoId.matches("[A-Za-z0-9_-]{11}")) {
             throw streamUnavailable("Invalid YouTube video ID.", null, null);
         }
@@ -142,6 +142,9 @@ public final class CompanionPlaybackClient {
         }
         try {
             JsonNode root = objectMapper.readTree(body);
+            if (root == null || !root.isObject()) {
+                throw streamUnavailable("Invalid Invidious Companion player response.", response.statusCode(), null);
+            }
             String status = root.path("playabilityStatus").path("status").asText("");
             if (!"OK".equalsIgnoreCase(status)) {
                 String reason = root.path("playabilityStatus").path("reason").asText("stream unavailable");
@@ -161,79 +164,7 @@ public final class CompanionPlaybackClient {
                         null
                 );
             }
-            FormatSelection selection;
-            try {
-                selection = selectAudioFormat(root.path("streamingData").path("adaptiveFormats"));
-            } catch (YouTubePlaybackException failure) {
-                LOGGER.warn(
-                        "[NoRule] Companion audio selection failed: videoId={} stage=FORMAT_SELECTION "
-                                + "category={} reason={}",
-                        videoId,
-                        failure.category(),
-                        safeReason(failure.getMessage())
-                );
-                throw failure;
-            }
-            LOGGER.debug(
-                    "[NoRule] Companion player response: videoId={} stage=PLAYER_RESPONSE playability={} "
-                            + "adaptiveFormats={} audioFormats={}",
-                    videoId,
-                    status,
-                    selection.adaptiveFormats(),
-                    selection.audioFormats()
-            );
-            CompanionFormat format = selection.selected();
-            if (format == null) {
-                LOGGER.warn(
-                        "[NoRule] Companion audio selection failed: videoId={} stage=FORMAT_SELECTION "
-                                + "adaptiveFormats={} audioFormats={} compatibleFormats={} category={}",
-                        videoId,
-                        selection.adaptiveFormats(),
-                        selection.audioFormats(),
-                        selection.compatibleFormats(),
-                        YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE
-                );
-                throw streamUnavailable(
-                        "Invidious Companion returned no LavaPlayer-compatible Opus or AAC audio stream.",
-                        response.statusCode(),
-                        null
-                );
-            }
-            LOGGER.debug(
-                    "[NoRule] Companion audio selected: videoId={} stage=FORMAT_SELECTION itag={} mime={} "
-                            + "codec={} bitrate={} contentLength={}",
-                    videoId,
-                    format.itag(),
-                    mimeBase(format.mimeType()),
-                    format.codec(),
-                    format.bitrate(),
-                    format.contentLength()
-            );
-            Instant expiresAt;
-            try {
-                expiresAt = expiration(format.directUri());
-            } catch (YouTubePlaybackException failure) {
-                LOGGER.warn(
-                        "[NoRule] Companion proxy URL failed: videoId={} stage=PROXY_URL category={} reason={}",
-                        videoId,
-                        failure.category(),
-                        safeReason(failure.getMessage())
-                );
-                throw failure;
-            }
-            URI proxyUri = buildProxyUri(videoId, format.directUri());
-            return new ResolvedYouTubePlayback(
-                    videoId,
-                    YouTubePlaybackBackend.COMPANION,
-                    proxyUri,
-                    format.mimeType(),
-                    format.codec(),
-                    format.itag(),
-                    format.bitrate(),
-                    format.contentLength(),
-                    expiresAt,
-                    null
-            );
+            return root;
         } catch (YouTubePlaybackException failure) {
             throw failure;
         } catch (IOException | IllegalArgumentException failure) {
@@ -246,6 +177,99 @@ public final class CompanionPlaybackClient {
             );
             throw streamUnavailable("Invalid Invidious Companion player response.", null, failure);
         }
+    }
+
+    public com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo loadMetadata(String videoId)
+            throws YouTubePlaybackException {
+        JsonNode details = requestPlayer(videoId).path("videoDetails");
+        String title = details.path("title").asText("");
+        Long seconds = parseLong(details.path("lengthSeconds").asText(""));
+        boolean live = details.path("isLive").asBoolean(false);
+        if (!videoId.equals(details.path("videoId").asText()) || title.isBlank()
+                || (!live && (seconds == null || seconds < 0 || seconds > Long.MAX_VALUE / 1000))) {
+            throw streamUnavailable("Companion returned invalid video metadata.", null, null);
+        }
+        return new com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo(title,
+                details.path("author").asText("Unknown"), live ? Long.MAX_VALUE : seconds * 1000,
+                videoId, live, "https://www.youtube.com/watch?v=" + videoId);
+    }
+
+    public ResolvedYouTubePlayback resolve(String videoId) throws YouTubePlaybackException {
+        JsonNode root = requestPlayer(videoId);
+        String status = "OK";
+        FormatSelection selection;
+        try {
+            selection = selectAudioFormat(root.path("streamingData").path("adaptiveFormats"));
+        } catch (YouTubePlaybackException failure) {
+            LOGGER.warn(
+                    "[NoRule] Companion audio selection failed: videoId={} stage=FORMAT_SELECTION "
+                            + "category={} reason={}",
+                    videoId,
+                    failure.category(),
+                    safeReason(failure.getMessage())
+            );
+            throw failure;
+        }
+        LOGGER.debug(
+                "[NoRule] Companion player response: videoId={} stage=PLAYER_RESPONSE playability={} "
+                        + "adaptiveFormats={} audioFormats={}",
+                videoId,
+                status,
+                selection.adaptiveFormats(),
+                selection.audioFormats()
+        );
+        CompanionFormat format = selection.selected();
+        if (format == null) {
+            LOGGER.warn(
+                    "[NoRule] Companion audio selection failed: videoId={} stage=FORMAT_SELECTION "
+                            + "adaptiveFormats={} audioFormats={} compatibleFormats={} category={}",
+                    videoId,
+                    selection.adaptiveFormats(),
+                    selection.audioFormats(),
+                    selection.compatibleFormats(),
+                    YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE
+            );
+            throw streamUnavailable(
+                    "Invidious Companion returned no LavaPlayer-compatible Opus or AAC audio stream.",
+                    200,
+                    null
+            );
+        }
+        LOGGER.debug(
+                "[NoRule] Companion audio selected: videoId={} stage=FORMAT_SELECTION itag={} mime={} "
+                        + "codec={} bitrate={} contentLength={}",
+                videoId,
+                format.itag(),
+                mimeBase(format.mimeType()),
+                format.codec(),
+                format.bitrate(),
+                format.contentLength()
+        );
+        Instant expiresAt;
+        try {
+            expiresAt = expiration(format.directUri());
+        } catch (YouTubePlaybackException failure) {
+            LOGGER.warn(
+                    "[NoRule] Companion proxy URL failed: videoId={} stage=PROXY_URL category={} reason={}",
+                    videoId,
+                    failure.category(),
+                    safeReason(failure.getMessage())
+            );
+            throw failure;
+        }
+        URI proxyUri = buildProxyUri(videoId, format.directUri());
+        return new ResolvedYouTubePlayback(
+                videoId,
+                YouTubePlaybackBackend.COMPANION,
+                proxyUri,
+                format.mimeType(),
+                format.codec(),
+                format.itag(),
+                format.bitrate(),
+                format.contentLength(),
+                expiresAt,
+                null
+        );
     }
 
     public HealthResult healthCheck() {
@@ -590,6 +614,8 @@ public final class CompanionPlaybackClient {
         if (!secret.isBlank()) {
             sanitized = sanitized.replace(secret, "<redacted>");
         }
+        // A Cookie header can contain several semicolon-separated secrets.
+        sanitized = sanitized.replaceAll("(?i)cookie\\s*[:=]\\s*[^\\r\\n]+", "Cookie=<redacted>");
         sanitized = BEARER_SECRET.matcher(sanitized).replaceAll("Bearer <redacted>");
         sanitized = SENSITIVE_ASSIGNMENT.matcher(sanitized).replaceAll("$1=<redacted>");
         sanitized = HTTP_URL.matcher(sanitized).replaceAll("<redacted-url>");

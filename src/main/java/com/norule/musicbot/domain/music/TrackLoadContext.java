@@ -7,8 +7,17 @@ public record TrackLoadContext(
         Long requesterId,
         String requesterName,
         int recoveryAttempts,
-        long recoveryResumePosition
+        long recoveryResumePosition,
+        String correlationId,
+        java.util.List<Throwable> failures
 ) {
+    public TrackLoadContext(String originalInput, String resolvedIdentifier, String sourceName,
+                            Long requesterId, String requesterName, int recoveryAttempts,
+                            long recoveryResumePosition) {
+        this(originalInput, resolvedIdentifier, sourceName, requesterId, requesterName, recoveryAttempts,
+                recoveryResumePosition, java.util.UUID.randomUUID().toString(), java.util.List.of());
+    }
+
     public TrackLoadContext(String originalInput,
                             String resolvedIdentifier,
                             String sourceName,
@@ -25,6 +34,7 @@ public record TrackLoadContext(
         requesterName = requesterName == null ? "" : requesterName.trim();
         recoveryAttempts = Math.max(0, recoveryAttempts);
         recoveryResumePosition = Math.max(0L, recoveryResumePosition);
+        failures = failures == null ? java.util.List.of() : java.util.List.copyOf(failures);
     }
 
     public TrackLoadContext withRecoveryAttempt(int attempts, long resumePosition) {
@@ -35,8 +45,18 @@ public record TrackLoadContext(
                 requesterId,
                 requesterName,
                 attempts,
-                resumePosition
+                resumePosition,
+                correlationId,
+                failures
         );
+    }
+
+    public TrackLoadContext withFailure(Throwable failure) {
+        if (failure == null || failures.contains(failure)) return this;
+        var history = new java.util.ArrayList<>(failures);
+        history.add(failure);
+        return new TrackLoadContext(originalInput, resolvedIdentifier, sourceName, requesterId, requesterName,
+                recoveryAttempts, recoveryResumePosition, correlationId, history);
     }
 
     public TrackLoadContext resetRecovery() {

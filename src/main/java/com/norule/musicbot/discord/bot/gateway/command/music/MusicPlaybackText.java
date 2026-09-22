@@ -10,10 +10,6 @@ import java.util.function.Supplier;
 public final class MusicPlaybackText {
     private static final String SPOTIFY_GENERATED_PLAYLIST_UNAVAILABLE_KEY =
             "music.spotify_generated_playlist_unavailable";
-    private static final String YOUTUBE_AUDIO_SOURCE_UNAVAILABLE_KEY =
-            "music.youtube_audio_source_unavailable";
-    private static final String YOUTUBE_PLAYBACK_SKIPPED_KEY =
-            "music.youtube_playback_skipped";
     private final Supplier<I18nService> i18nSupplier;
 
     public MusicPlaybackText(Supplier<I18nService> i18nSupplier) {
@@ -40,12 +36,8 @@ public final class MusicPlaybackText {
     }
 
     public String mapMusicLoadError(String lang, String rawError) {
-        if ("CIPHER_REQUIRED_BUT_DISABLED".equalsIgnoreCase(rawError)
-                || "YOUTUBE_CIPHER_REQUIRED_BUT_DISABLED".equalsIgnoreCase(rawError)) {
-            return translatedOrFallback(lang, "music.cipher_required_but_disabled",
-                    "Cipher is disabled by the administrator; this playback path requires it.",
-                    "\u7ba1\u7406\u54e1\u5df2\u505c\u7528 Cipher\uff0c\u6b64\u64ad\u653e\u8def\u5f91\u9700\u8981 Cipher\u3002",
-                    "\u7ba1\u7406\u5458\u5df2\u505c\u7528 Cipher\uff0c\u6b64\u64ad\u653e\u8def\u5f84\u9700\u8981 Cipher\u3002");
+        if (isInternalPlaybackFailure(rawError)) {
+            return playbackAdminRequired(lang);
         }
         if ("SPOTIFY_GENERATED_PLAYLIST_UNAVAILABLE".equalsIgnoreCase(rawError)
                 || "AUDIO_SPOTIFY_GENERATED_PLAYLIST_UNAVAILABLE".equalsIgnoreCase(rawError)) {
@@ -94,9 +86,6 @@ public final class MusicPlaybackText {
         }
         if (rawError != null && rawError.regionMatches(true, 0, "BILIBILI_", 0, "BILIBILI_".length())) {
             return bilibiliFailureText(lang, rawError);
-        }
-        if (isCompanionFailure(rawError)) {
-            return youtubeAudioSourceUnavailable(lang);
         }
         if (rawError != null && rawError.regionMatches(true, 0, "YOUTUBE_", 0, "YOUTUBE_".length())) {
             return i18n().t(lang, switch (rawError.toUpperCase()) {
@@ -151,27 +140,24 @@ public final class MusicPlaybackText {
         };
     }
 
-    public String companionPlaybackSkipped(String lang) {
-        return translatedOrFallback(
-                lang,
-                YOUTUBE_PLAYBACK_SKIPPED_KEY,
-                "\u26A0\uFE0F This track cannot be played right now and was skipped automatically.",
-                "\u26A0\uFE0F \u76ee\u524d\u7121\u6cd5\u64ad\u653e\u9019\u9996\u6b4c\u66f2\uff0c\u5df2\u81ea\u52d5\u8df3\u904e\u3002",
-                "\u26A0\uFE0F \u76ee\u524d\u65e0\u6cd5\u64ad\u653e\u8fd9\u9996\u6b4c\u66f2\uff0c\u5df2\u81ea\u52a8\u8df3\u8fc7\u3002"
-        );
+    public boolean isInternalPlaybackFailure(String rawError) {
+        if (rawError == null) return false;
+        String error = rawError.toUpperCase(java.util.Locale.ROOT);
+        return error.contains("CIPHER_REQUIRED_BUT_DISABLED") || error.contains("COMPANION_")
+                || error.contains("BACKEND=COMPANION") || error.contains("MUSIC.CIPHER.")
+                || error.equals("YOUTUBE_PLAYER_CONFIGURATION_ERROR")
+                || error.equals("YOUTUBE_SIGNATURE_FAILURE") || error.equals("YOUTUBE_CIPHER_FAILURE");
     }
 
-    private String youtubeAudioSourceUnavailable(String lang) {
-        return translatedOrFallback(
-                lang,
-                YOUTUBE_AUDIO_SOURCE_UNAVAILABLE_KEY,
-                "\u26A0\uFE0F No playable audio source is available for this track. Please try again later "
-                        + "or choose another track.",
-                "\u26A0\uFE0F \u7121\u6cd5\u53d6\u5f97\u9019\u9996\u6b4c\u66f2\u7684\u53ef\u64ad\u653e\u97f3\u6e90\uff0c"
-                        + "\u8acb\u7a0d\u5f8c\u518d\u8a66\u6216\u9078\u64c7\u5176\u4ed6\u6b4c\u66f2\u3002",
-                "\u26A0\uFE0F \u65e0\u6cd5\u83b7\u53d6\u8fd9\u9996\u6b4c\u66f2\u7684\u53ef\u64ad\u653e\u97f3\u6e90\uff0c"
-                        + "\u8bf7\u7a0d\u540e\u91cd\u8bd5\u6216\u9009\u62e9\u5176\u4ed6\u6b4c\u66f2\u3002"
-        );
+    public String companionPlaybackSkipped(String lang) {
+        return playbackAdminRequired(lang);
+    }
+
+    private String playbackAdminRequired(String lang) {
+        return translatedOrFallback(lang, "music.youtube_playback_admin_required",
+                "This video cannot be played right now. Please contact an administrator.",
+                "\u76ee\u524d\u7121\u6cd5\u64ad\u653e\u6b64\u5f71\u7247\uff0c\u8acb\u806f\u7d61\u7ba1\u7406\u54e1\u3002",
+                "\u76ee\u524d\u65e0\u6cd5\u64ad\u653e\u6b64\u89c6\u9891\uff0c\u8bf7\u8054\u7cfb\u7ba1\u7406\u5458\u3002");
     }
 
     private String spotifyGeneratedPlaylistUnavailable(String lang) {
