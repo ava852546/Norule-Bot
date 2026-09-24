@@ -17,7 +17,7 @@ async function logout() {
     })
     if (response.ok) {
       authenticated.value = false
-      if (window.location.pathname === '/my-content') window.location.href = '/'
+      if (window.location.pathname === '/my') window.location.href = '/'
     }
   } finally {
     loggingOut.value = false
@@ -28,7 +28,7 @@ async function logout() {
 <template>
   <div class="session-action" :aria-busy="checking">
     <template v-if="authenticated">
-      <a class="session-action__content" href="/my-content">我的內容</a>
+      <a class="session-action__content" href="/my">我的內容</a>
       <button type="button" :disabled="loggingOut" @click="logout">
         <span class="session-action__state"><i aria-hidden="true" />已登入</span>
         <span>{{ loggingOut ? '登出中' : '登出' }}</span>

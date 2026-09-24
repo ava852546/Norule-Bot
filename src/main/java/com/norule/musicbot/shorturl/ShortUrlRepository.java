@@ -57,6 +57,10 @@ public interface ShortUrlRepository {
 
     int cleanupExpired(long nowMillis);
 
+    default List<ShortUrlService.ShortUrlEntry> findExpiredBetween(long after, long through) {
+        return List.of();
+    }
+
     long incrementViewCount(String code);
 
     default long incrementViewCount(String code, long lastAccessedAt) {

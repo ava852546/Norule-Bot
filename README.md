@@ -375,12 +375,12 @@ Dashboard 目前包含一般、通知、日誌、音樂、私人包廂、歡迎�
 
 - `/`：建立短網址／媒體分享頁面。
 - `/{code}`：網址 redirect 或媒體頁面；`/{code}?stats` 只允許登入後的擁有者查看。
-- `/my-content`：登入後管理自己的短網址與媒體。
+- `/my`：登入後管理自己的短網址與媒體。
 - `POST /api/short`、`GET /api/short/{code}`、`GET /api/short/{code}/stats`：建立短網址、公開媒體 metadata 與私人統計。
 - `/api/short/session`、`/api/short/session/login`、`/api/short/session/logout`：登入狀態。
 - `/api/short/mine`：列出登入者擁有的內容。
 - `PATCH /api/short/{code}`：登入後修改自己的目標網址（JSON `{"url":"https://example.com/new"}`）。
-- `DELETE /api/short/{code}`：登入後刪除自己的短網址；媒體分享不使用這兩個管理操作。
+- `DELETE /api/short/{code}`：登入後永久刪除自己的短網址或媒體分享 mapping，釋放短碼。PATCH 僅用於普通短網址。
 - `/api/short/image`、`/api/short/image/config`、`/api/short/image/content/{code}`、`/api/short/image/access/{code}`：媒體上傳、設定與內容存取。
 
 `shortUrl.publicBaseUrl` 是產生公開連結的唯一來源，不要在 handler 內硬編碼 production domain。
@@ -480,3 +480,12 @@ npm run build
 ## License
 
 本專案依 [GNU General Public License v3.0](LICENSE) 授權。
+
+### 短碼與媒體保存生命週期
+
+- 舊路徑 `/my-content` 以 HTTP 308 導向 `/my`；兩者皆為保留路由。
+- 普通網址和媒體分享到期後仍保留 mapping 與短碼，公開頁回傳 410 到期頁，不提供目標網址或媒體。匿名內容不自動認領或釋放。
+- Owner 在 `/my` 完成兩階段確認（第二階段輸入完整短碼）後，才永久刪除 mapping 並釋放短碼。使用中與已到期內容皆可刪除。
+- 最後一個有效媒體分享消失後，實體檔案移到 archive；從實際 `archived_at` 起保存 `expiredShareRetentionDays`（預設 30 天）。刪除已到期分享不延長保存期。
+- 清除 archive 時以交易解除 mapping 的 blob 關聯並刪除 blob metadata；到期頁仍保留。共用 blob 的其他有效分享不受影響。
+- 相同內容再次上傳會重用 blob；再次封存才重新計算保存期限。

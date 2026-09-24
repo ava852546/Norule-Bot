@@ -2,6 +2,7 @@ package com.norule.musicbot;
 
 import com.norule.musicbot.domain.shorturl.ShortUrlDomainService;
 import com.norule.musicbot.domain.shorturl.ImageShare;
+import com.norule.musicbot.domain.shorturl.MediaOwnerType;
 import com.norule.musicbot.domain.shorturl.ShortUrlAccessEvent;
 import com.norule.musicbot.domain.shorturl.ShortUrlCreationError;
 import com.norule.musicbot.domain.shorturl.ShortUrlStatistics;
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class ShortUrlService {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(ShortUrlService.class);
     public record Options(
             boolean dedupeEnabled,
             long ttlMillis,
@@ -239,7 +241,15 @@ public final class ShortUrlService {
         return createOutcome(rawTarget, customSlug, ttlMillis, "", "").entry();
     }
 
-    private CreationOutcome createOutcome(String rawTarget,
+    private CreationOutcome createOutcome(String rawTarget, String customSlug, long ttlMillis,
+                                          String creatorDiscordUserId, String clientAddress) {
+        // URL and media creation share the same namespace and service-instance lock.
+        synchronized (imageShareService == null ? this : imageShareService) {
+            return createOutcomeLocked(rawTarget, customSlug, ttlMillis, creatorDiscordUserId, clientAddress);
+        }
+    }
+
+    private CreationOutcome createOutcomeLocked(String rawTarget,
                                           String customSlug,
                                           long ttlMillis,
                                           String creatorDiscordUserId,
@@ -268,7 +278,7 @@ public final class ShortUrlService {
         if (requestedSlug.isBlank()) {
             ShortUrlEntry created = createWithGeneratedCode(
                     target, now, safeTtl, normalizedOwnerUserId);
-            publishCreated(created, creatorDiscordUserId, clientAddress);
+            publishCreated(created, creatorDiscordUserId, clientAddress, !requestedSlug.isBlank());
             return new CreationOutcome(created, true);
         }
         CodeResolution resolution = resolveCustomCodeForCreate(requestedSlug, now);
@@ -281,7 +291,7 @@ public final class ShortUrlService {
         if (!repository.saveIfAbsent(created)) {
             return new CreationOutcome(null, false, ShortUrlCreationError.CUSTOM_CODE_ALREADY_EXISTS);
         }
-        publishCreated(created, creatorDiscordUserId, clientAddress);
+        publishCreated(created, creatorDiscordUserId, clientAddress, !requestedSlug.isBlank());
         return new CreationOutcome(created, true);
     }
 
@@ -303,10 +313,14 @@ public final class ShortUrlService {
             return null;
         }
         if (domainService.isExpired(entry.getExpiresAt(), now)) {
-            repository.deleteByCode(normalized);
             return null;
         }
         return entry;
+    }
+
+    public boolean isExpiredShortUrl(String code) {
+        ShortUrlEntry entry = code == null ? null : repository.findByCode(code.trim());
+        return entry != null && domainService.isExpired(entry.expiresAt(), System.currentTimeMillis());
     }
 
     public ShortUrlEntry findActiveByTarget(String rawTarget) {
@@ -323,7 +337,6 @@ public final class ShortUrlService {
             return null;
         }
         if (domainService.isExpired(existing.getExpiresAt(), now)) {
-            repository.deleteByCode(existing.getCode());
             return null;
         }
         return existing;
@@ -352,11 +365,14 @@ public final class ShortUrlService {
     public MutationResult mutateOwned(String code, String owner, String target, boolean delete) {
         if (owner == null || owner.isBlank()) return MutationResult.UNAUTHORIZED;
         ShortUrlEntry entry = repository.findByCodeIgnoreCase(code);
-        if (entry == null) return MutationResult.NOT_FOUND;
+        if (entry == null) return delete && imageShareService != null
+                ? imageShareService.deleteOwned(code, owner) : MutationResult.NOT_FOUND;
         if (!owner.equals(entry.ownerUserId())) return MutationResult.FORBIDDEN;
         if (delete) {
-            return repository.deleteOwned(entry.code(), owner, entry.createdAt())
-                    ? MutationResult.SUCCESS : MutationResult.NOT_FOUND;
+            boolean deleted = repository.deleteOwned(entry.code(), owner, entry.createdAt());
+            if (deleted) LOG.info("event=SHORT_URL_PERMANENTLY_DELETED actorType=DISCORD_USER userId={} code={} wasExpired={} deletedAt={} codeReleased=true",
+                    owner, entry.code(), entry.expiresAt() <= System.currentTimeMillis(), System.currentTimeMillis());
+            return deleted ? MutationResult.SUCCESS : MutationResult.NOT_FOUND;
         }
         String normalized = domainService.normalizeTarget(target);
         if (!isAllowedTarget(normalized)) {
@@ -432,6 +448,13 @@ public final class ShortUrlService {
         ImageShareService.UploadResult result = imageShareService.create(upload, quotaSubject);
         if (result.isSuccess()) {
             ImageShare imageShare = result.imageShare();
+            LOG.info("event=MEDIA_SHARE_CREATED actorType={} userId={} code={} shortUrl={} blobId={} sha256={} storageName={} contentType={} mediaType={} sizeBytes={} createdAt={} expiresAt={} publicRetentionSeconds={} archiveRetentionDays={} passwordProtected={}",
+                    imageShare.ownerType(), imageShare.ownerType() == MediaOwnerType.DISCORD_USER ? imageShare.ownerId() : "",
+                    imageShare.code(), toPublicUrl(imageShare.code()), imageShare.blobId(), imageShare.contentHash(),
+                    imageShare.storageName(), imageShare.contentType(), imageShare.contentType().startsWith("video/") ? "VIDEO" : "IMAGE",
+                    imageShare.sizeBytes(), imageShare.createdAt(), imageShare.expiresAt(),
+                    (imageShare.expiresAt() - imageShare.createdAt()) / 1000L,
+                    imageShareService.options().expiredShareRetentionMillis() / 86_400_000L, imageShare.isPasswordProtected());
             publishAccess(ShortUrlAccessEvent.Action.CREATED, mediaResourceType(imageShare),
                     imageShare.code(), imageShare.contentType(), imageShare.viewCount(), imageShare.expiresAt(),
                     imageShare.isPasswordProtected(), imageShare.sizeBytes(), "", clientAddress, userAgent);
@@ -712,7 +735,10 @@ public final class ShortUrlService {
 
     public void cleanupExpired() {
         long now = System.currentTimeMillis();
-        repository.cleanupExpired(now);
+        for (ShortUrlEntry expired : repository.findExpiredBetween(lastCleanupAt, now)) {
+            LOG.info("event=SHORT_URL_EXPIRED code={} ownerUserId={} expiredAt={} codeReleased=false",
+                    expired.code(), expired.ownerUserId(), expired.expiresAt());
+        }
         if (imageShareService != null) {
             imageShareService.cleanupExpired();
         }
@@ -723,15 +749,11 @@ public final class ShortUrlService {
         if (now - lastCleanupAt < options.get().cleanupIntervalMillis()) {
             return;
         }
-        synchronized (this) {
+        synchronized (imageShareService == null ? this : imageShareService) {
             if (now - lastCleanupAt < options.get().cleanupIntervalMillis()) {
                 return;
             }
-            repository.cleanupExpired(now);
-            if (imageShareService != null) {
-                imageShareService.cleanupExpired();
-            }
-            lastCleanupAt = now;
+            cleanupExpired();
         }
     }
 
@@ -775,16 +797,17 @@ public final class ShortUrlService {
         if (existing == null) {
             return new CodeResolution(slug, ShortUrlCreationError.NONE);
         }
-        if (domainService.isExpired(existing.getExpiresAt(), nowMillis)) {
-            repository.deleteByCode(existing.getCode());
-            return new CodeResolution(slug, ShortUrlCreationError.NONE);
-        }
         return new CodeResolution(null, ShortUrlCreationError.CUSTOM_CODE_ALREADY_EXISTS);
     }
 
     private void publishCreated(ShortUrlEntry created,
                                 String creatorDiscordUserId,
-                                String clientAddress) {
+                                String clientAddress, boolean customCode) {
+        if (created == null) return;
+        LOG.info("event=SHORT_URL_CREATED actorType={} userId={} code={} shortUrl={} targetUrl={} createdAt={} expiresAt={} customCode={}",
+                created.ownerUserId().isBlank() ? "ANONYMOUS" : "DISCORD_USER", created.ownerUserId(),
+                created.code(), toPublicUrl(created.code()), created.target(), created.createdAt(),
+                created.expiresAt() == Long.MAX_VALUE ? "PERMANENT" : created.expiresAt(), customCode);
         publishAccess(ShortUrlAccessEvent.Action.CREATED, ShortUrlAccessEvent.ResourceType.URL,
                 created.code(), created.target(), created.viewCount(), created.expiresAt(), false, 0L,
                 creatorDiscordUserId, clientAddress, "");

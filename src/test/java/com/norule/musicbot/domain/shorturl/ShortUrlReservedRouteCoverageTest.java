@@ -38,7 +38,7 @@ class ShortUrlReservedRouteCoverageTest {
     void fixedInfrastructureAndStaticNamesAreReserved() {
         for (String route : List.of(
                 "api", "auth", "login", "logout", "oauth", "callback", "session",
-                "my-content", "web", "short-url", "_nuxt", "dashboard",
+                "my", "my-content", "web", "short-url", "_nuxt", "dashboard",
                 "favicon.ico", "robots.txt", "sitemap.xml", "share-expired", "404", "index")) {
             assertReserved(route, "fixed route");
         }

@@ -7,8 +7,6 @@ import com.norule.musicbot.service.shorturl.TurnstileVerifier;
 import com.norule.musicbot.web.security.HttpRequestBodyReader;
 import com.sun.net.httpserver.HttpExchange;
 import net.dv8tion.jda.api.utils.data.DataObject;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URLDecoder;
@@ -19,7 +17,6 @@ import java.util.Map;
 
 /** Shared HTTP policy for the public and dashboard creation endpoints. */
 public final class ShortUrlCreationWebService {
-    private static final Logger LOG = LoggerFactory.getLogger(ShortUrlCreationWebService.class);
     private final ShortUrlService service;
 
     public ShortUrlCreationWebService(ShortUrlService service) {
@@ -107,9 +104,6 @@ public final class ShortUrlCreationWebService {
             }
             if (outcome.newlyCreated()) permit.commitSuccessfulCreation();
             ShortUrlService.ShortUrlEntry created = outcome.entry();
-            LOG.info("Short URL created: actor={} userId={} code={}",
-                    userId == null || userId.isBlank() ? "anonymous" : "authenticated",
-                    userId == null ? "" : userId, created.code());
             sendJson(exchange, 200, DataObject.empty()
                     .put("code", created.code())
                     .put("shortUrl", service.toPublicUrl(created.code()))

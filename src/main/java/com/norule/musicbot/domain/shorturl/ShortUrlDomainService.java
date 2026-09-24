@@ -20,7 +20,7 @@ public final class ShortUrlDomainService {
             "admin", "api", "auth", "login", "logout", "dashboard", "stats", "oauth", "callback",
             "privacy", "terms", "privacy-policy", "terms-of-service", "robots.txt", "sitemap.xml",
             "favicon.ico", "health", "status", "assets", "static", "media", "images",
-            "web", "short-url", "my-content", "session", "_nuxt", "share-expired", "index", "404"
+            "web", "short-url", "my", "my-content", "session", "_nuxt", "share-expired", "index", "404"
     );
 
     public String normalizeTarget(String raw) {

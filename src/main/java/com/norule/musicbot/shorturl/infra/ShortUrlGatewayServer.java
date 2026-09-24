@@ -57,7 +57,7 @@ public final class ShortUrlGatewayServer {
     private static final Pattern MULTIPART_BOUNDARY = Pattern.compile("boundary=(?:\\\"([^\\\"]+)\\\"|([^;\\s]+))", Pattern.CASE_INSENSITIVE);
     private static final Pattern CONTENT_DISPOSITION_NAME = Pattern.compile("(?:^|;)\\s*name=\\\"([^\\\"]*)\\\"", Pattern.CASE_INSENSITIVE);
     private static final Set<String> RESERVED_PATHS = Set.of(
-            "api", "assets", "static", "web", "dashboard", "my-content", "short-url", "index", "404"
+            "api", "assets", "static", "web", "dashboard", "my", "my-content", "short-url", "index", "404"
     );
 
     private final ShortUrlService shortUrlService;
@@ -211,6 +211,12 @@ public final class ShortUrlGatewayServer {
             return;
         }
         if ("/my-content".equals(rawPath)) {
+            exchange.getResponseHeaders().set("Location", "/my");
+            exchange.sendResponseHeaders(308, -1);
+            exchange.close();
+            return;
+        }
+        if ("/my".equals(rawPath)) {
             handleMyContentPage(exchange);
             return;
         }
@@ -246,6 +252,10 @@ public final class ShortUrlGatewayServer {
         }
 
         ShortUrlService.ShortUrlEntry entry = shortUrlService.resolve(code);
+        if (shortUrlService.isExpiredShortUrl(code)) {
+            sendHtml(exchange, 410, loadTemplate("web/url-expired.html"));
+            return;
+        }
         if (entry == null || entry.target().isBlank()) {
             sendHtml(exchange, 404, buildShortUrlNotFoundPage());
             return;
@@ -270,7 +280,7 @@ public final class ShortUrlGatewayServer {
         if (query.containsKey("__nr_auth")) {
             String transferredUserId = resolveAuthenticationHandoff(exchange);
             if (!transferredUserId.isBlank()) {
-                redirect(exchange, shortUrlService.publicBaseUrl() + "/my-content");
+                redirect(exchange, shortUrlService.publicBaseUrl() + "/my");
                 return;
             }
         }
@@ -798,7 +808,7 @@ public final class ShortUrlGatewayServer {
         if (uri.getRawFragment() != null) {
             return false;
         }
-        if (("/".equals(path) || "/my-content".equals(path)) && uri.getRawQuery() == null) {
+        if (("/".equals(path) || "/my".equals(path)) && uri.getRawQuery() == null) {
             return true;
         }
         return path != null && path.matches("/[^/]+") && "stats".equals(uri.getRawQuery());

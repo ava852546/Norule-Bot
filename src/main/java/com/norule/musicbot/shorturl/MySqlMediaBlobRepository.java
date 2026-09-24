@@ -118,12 +118,23 @@ public final class MySqlMediaBlobRepository implements MediaBlobRepository, Auto
 
     @Override
     public void deleteById(long blobId) {
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement("DELETE FROM media_blobs WHERE id = ?")) {
-            statement.setLong(1, blobId);
-            statement.executeUpdate();
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement detach = connection.prepareStatement(
+                    "UPDATE short_url_images SET blob_id = NULL, active_reuse_key = NULL, "
+                            + "storage_state = 'ARCHIVE_DELETED' WHERE blob_id = ?");
+                 PreparedStatement delete = connection.prepareStatement("DELETE FROM media_blobs WHERE id = ?")) {
+                detach.setLong(1, blobId);
+                detach.executeUpdate();
+                delete.setLong(1, blobId);
+                delete.executeUpdate();
+                connection.commit();
+            } catch (SQLException e) {
+                connection.rollback();
+                throw e;
+            }
         } catch (SQLException e) {
-            throw new IllegalStateException("Failed to delete media blob", e);
+            throw new IllegalStateException("Failed to purge media blob metadata", e);
         }
     }
 

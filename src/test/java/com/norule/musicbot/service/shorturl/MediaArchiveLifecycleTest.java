@@ -128,8 +128,10 @@ class MediaArchiveLifecycleTest {
 
         ImageShare reconciled = images.findByCode(expired.code());
         assertEquals(MediaStorageState.ARCHIVED, reconciled.storageState());
-        assertEquals(expired.storageName(), reconciled.archiveStorageName());
-        assertTrue(Files.exists(archive.resolve(expired.storageName())));
+        String canonical = java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(PNG)) + ".png";
+        assertEquals(canonical, reconciled.archiveStorageName());
+        assertTrue(Files.exists(archive.resolve(canonical)));
         service.cleanupExpired();
         assertEquals(MediaStorageState.ARCHIVED, images.findByCode(expired.code()).storageState());
     }

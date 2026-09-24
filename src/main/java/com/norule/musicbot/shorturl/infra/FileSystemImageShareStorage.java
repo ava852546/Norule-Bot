@@ -65,14 +65,50 @@ public final class FileSystemImageShareStorage implements ImageShareStorage {
                 channel.force(true);
             }
             try {
-                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
-            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+                // Never overwrite an existing hash path before verifying its contents.
                 Files.move(temporary, target);
             } catch (FileAlreadyExistsException existing) {
                 verifyExistingBlob(target, imageShare, content.length, existing);
             }
         } finally {
             Files.deleteIfExists(temporary);
+        }
+    }
+
+    @Override
+    public boolean restore(ImageShare imageShare) throws IOException {
+        Path source = resolveArchive(imageShare);
+        if (!Files.isRegularFile(source)) return false;
+        Path target = resolve(imageShare);
+        verifiedCopy(source, target, imageShare);
+        Files.delete(source);
+        return true;
+    }
+
+    @Override
+    public void canonicalize(ImageShare source, ImageShare target) throws IOException {
+        boolean archived = target.storageState() == com.norule.musicbot.domain.shorturl.MediaStorageState.ARCHIVED;
+        Path from = source.storageState() == com.norule.musicbot.domain.shorturl.MediaStorageState.ARCHIVED
+                ? resolveArchive(source) : resolve(source);
+        if (!Files.isRegularFile(from)) from = findLegacySource(source.storageName());
+        if (from == null) throw new NoSuchFileException(source.storageName());
+        verifiedCopy(from, archived ? resolveArchive(target) : resolve(target), target);
+    }
+
+    private void verifiedCopy(Path source, Path target, ImageShare expected) throws IOException {
+        if (Files.size(source) != expected.sizeBytes() || !sha256(source).equals(expected.contentHash())) {
+            throw new IOException("Media source hash or size mismatch");
+        }
+        Files.createDirectories(target.getParent());
+        if (!source.equals(target)) {
+            try {
+                Files.copy(source, target);
+            } catch (FileAlreadyExistsException ignored) {
+                // A concurrent migration may have created the canonical file; verify it below.
+            }
+        }
+        if (Files.size(target) != expected.sizeBytes() || !sha256(target).equals(expected.contentHash())) {
+            throw new IOException("Canonical media hash or size mismatch");
         }
     }
 
