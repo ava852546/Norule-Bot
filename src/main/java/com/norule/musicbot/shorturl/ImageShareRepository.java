@@ -11,6 +11,10 @@ import com.norule.musicbot.domain.shorturl.MediaStorageState;
 public interface ImageShareRepository {
     ImageShare findByCode(String code);
 
+    default boolean isCodeInUseIgnoreCase(String code) {
+        return findByCode(code) != null;
+    }
+
     List<ImageShare> findActiveByContentHash(String contentHash, long nowMillis);
 
     default ImageShare findActiveByOwnerAndBlob(MediaOwnerType ownerType, String ownerId,
@@ -58,6 +62,11 @@ public interface ImageShareRepository {
 
     void deleteByCode(String code);
 
+    default boolean deleteOwned(String code, String ownerId, long createdAt) {
+        throw new UnsupportedOperationException("Atomic owner deletion is not implemented");
+    }
+
+
     default List<ImageShare> findWithoutBlob(int limit) {
         return List.of();
     }
@@ -75,6 +84,10 @@ public interface ImageShareRepository {
                     share.archivedAt(), share.ownerType(), share.ownerId(), share.quotaGroupId(),
                     share.createdDeviceIdHash(), share.createdIpHash(), share.lastAccessedAt(), blobId));
         }
+    }
+
+    default void replaceBlobReferences(long oldBlobId, MediaBlob replacement) {
+        throw new UnsupportedOperationException("Blob migration is not supported");
     }
 
     default void alignStorageWithBlob(String code, MediaBlob blob) {

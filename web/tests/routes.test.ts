@@ -10,6 +10,6 @@ describe('短網址 route helpers', () => {
 
   it('登入連結保留原始 stats 或我的內容路徑', () => {
     expect(shortUrlLoginPath('/ABC123?stats')).toContain(encodeURIComponent('/ABC123?stats'))
-    expect(shortUrlLoginPath('/my-content')).toContain(encodeURIComponent('/my-content'))
+    expect(shortUrlLoginPath('/my')).toContain(encodeURIComponent('/my'))
   })
 })

@@ -15,7 +15,7 @@ import java.util.Set;
 
 public final class ShortUrlWebService {
     private static final Set<String> RESERVED_PATHS = Set.of(
-            "api", "assets", "static", "web", "dashboard", "short-url", "index", "404"
+            "api", "assets", "static", "web", "dashboard", "my", "my-content", "short-url", "index", "404"
     );
 
     private final WebControlServer owner;
@@ -57,6 +57,10 @@ public final class ShortUrlWebService {
             return;
         }
 
+        if (owner.shortUrlService().isExpiredShortUrl(code)) {
+            sendHtml(exchange, 410, loadTemplate("web/url-expired.html"));
+            return;
+        }
         ShortUrl resolved = shortUrlOps.resolve(code);
         if (resolved == null || resolved.target() == null || resolved.target().isBlank()) {
             sendHtml(exchange, 404, buildShortUrlNotFoundPage());

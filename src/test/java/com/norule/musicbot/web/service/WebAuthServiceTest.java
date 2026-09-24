@@ -15,8 +15,8 @@ class WebAuthServiceTest {
     void allowsOnlyConfiguredShortUrlOwnerDestinations() {
         assertEquals("https://s.norule.me/", WebAuthService.sanitizeReturnTo(
                 "https://s.norule.me/", DASHBOARD, SHORT_URL));
-        assertEquals("https://s.norule.me/my-content", WebAuthService.sanitizeReturnTo(
-                "https://s.norule.me/my-content", DASHBOARD, SHORT_URL));
+        assertEquals("https://s.norule.me/my", WebAuthService.sanitizeReturnTo(
+                "https://s.norule.me/my", DASHBOARD, SHORT_URL));
         assertEquals("https://s.norule.me/abc123?stats", WebAuthService.sanitizeReturnTo(
                 "https://s.norule.me/abc123?stats", DASHBOARD, SHORT_URL));
         assertEquals(DASHBOARD, WebAuthService.sanitizeReturnTo(

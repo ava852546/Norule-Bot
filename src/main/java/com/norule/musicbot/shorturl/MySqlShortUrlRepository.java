@@ -232,6 +232,23 @@ public final class MySqlShortUrlRepository implements ShortUrlRepository, AutoCl
     }
 
     @Override
+    public List<ShortUrlService.ShortUrlEntry> findExpiredBetween(long after, long through) {
+        List<ShortUrlService.ShortUrlEntry> entries = new ArrayList<>();
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement("SELECT " + SELECT_FIELDS
+                     + " FROM short_urls WHERE expires_at > ? AND expires_at <= ?")) {
+            statement.setLong(1, after);
+            statement.setLong(2, through);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) entries.add(mapRow(rows));
+            }
+            return entries;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to query expired short URLs", e);
+        }
+    }
+
+    @Override
     public int cleanupExpired(long nowMillis) {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement statement = connection.prepareStatement(CLEANUP)) {

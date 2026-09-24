@@ -152,7 +152,7 @@ public final class ImageShareService {
     private static final char[] RANDOM_CODE_ALPHABET = "23456789abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ".toCharArray();
     private static final int PASSWORD_ITERATIONS = 120_000;
     private static final int PASSWORD_KEY_LENGTH_BITS = 256;
-    private static final long ORPHAN_BLOB_GRACE_MILLIS = 5L * 60L * 1000L;
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(ImageShareService.class);
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final ImageShareDomainService domainService = new ImageShareDomainService();
@@ -497,7 +497,7 @@ public final class ImageShareService {
     }
 
     public boolean isCodeInUse(String code) {
-        return code != null && !code.isBlank() && imageRepository.findByCode(code.trim()) != null;
+        return code != null && !code.isBlank() && imageRepository.isCodeInUseIgnoreCase(code.trim());
     }
 
     public void updateOptions(Options updatedOptions) {
@@ -509,7 +509,13 @@ public final class ImageShareService {
     public synchronized void cleanupExpired() {
         long now = clock.millis();
         migrateLegacyMedia();
+        canonicalizeLegacyBlobs();
         imageRepository.releaseExpiredReuseKeys(now);
+        for (ImageShare expired : imageRepository.findExpired(now)) {
+            if (expired.expiresAt() > lastCleanupAt) LOG.info(
+                    "event=MEDIA_SHARE_EXPIRED code={} ownerUserId={} blobId={} sha256={} expiredAt={} codeReleased=false",
+                    expired.code(), expired.ownerId(), expired.blobId(), expired.contentHash(), expired.expiresAt());
+        }
         for (MediaBlob blob : blobRepository.findByStorageStates(Set.of(MediaStorageState.ACTIVE))) {
             if (!hasActiveShare(blob, now)) {
                 MediaBlob pending = blob.withStorageState(
@@ -520,7 +526,7 @@ public final class ImageShareService {
         }
         retryPendingBlobArchives(now);
         reconcileArchivedBlobs(now);
-        cleanupOrphanBlobs();
+        purgeExpiredArchives(now);
         lastCleanupAt = now;
     }
 
@@ -538,7 +544,7 @@ public final class ImageShareService {
     private String nextAvailableCode(int codeLength) {
         for (int attempt = 0; attempt < 10_000; attempt++) {
             String code = randomCode(codeLength);
-            if (imageRepository.findByCode(code) == null && shortUrlRepository.findByCode(code) == null) {
+            if (!imageRepository.isCodeInUseIgnoreCase(code) && shortUrlRepository.findByCodeIgnoreCase(code) == null) {
                 return code;
             }
         }
@@ -587,7 +593,7 @@ public final class ImageShareService {
         try {
             persisted = blobRepository.saveIfAbsent(candidate);
         } catch (RuntimeException exception) {
-            storage.delete(candidateFile);
+            // Another successful insert may already reference this content-addressed file.
             throw exception;
         }
         if (!persisted.storageName().equals(candidate.storageName())) {
@@ -601,7 +607,9 @@ public final class ImageShareService {
         if (blob.storageState() == MediaStorageState.ACTIVE && storage.exists(file)) {
             return blob;
         }
-        storage.save(file.withStorageState(MediaStorageState.ACTIVE, "", 0L), content);
+        if (!storage.restore(file)) {
+            storage.save(file.withStorageState(MediaStorageState.ACTIVE, "", 0L), content);
+        }
         if (storage.existsArchived(file)) {
             storage.deleteArchived(file);
         }
@@ -705,6 +713,9 @@ public final class ImageShareService {
             MediaBlob archived = pending.withStorageState(
                     MediaStorageState.ARCHIVED, result.archiveStorageName(), archivedAt);
             updateBlobState(archived);
+            LOG.info("event=MEDIA_BLOB_ARCHIVED blobId={} sha256={} storageName={} archivedAt={} purgeAt={} reason=NO_ACTIVE_SHARES",
+                    archived.id(), archived.sha256(), archived.storageName(), archivedAt,
+                    archivedAt + options.get().expiredShareRetentionMillis());
             logArchiveReconciliation(file, result.status());
         } catch (Exception exception) {
             logArchiveFailure(file, exception);
@@ -735,11 +746,39 @@ public final class ImageShareService {
         }
     }
 
-    private void cleanupOrphanBlobs() {
-        long cutoff = clock.millis() - ORPHAN_BLOB_GRACE_MILLIS;
-        for (MediaBlob orphan : blobRepository.findOrphans(cutoff)) {
-            cleanupOrphanBlob(orphan);
+    private void purgeExpiredArchives(long now) {
+        for (MediaBlob blob : blobRepository.findByStorageStates(
+                Set.of(MediaStorageState.ARCHIVED, MediaStorageState.ARCHIVE_DELETED))) {
+            if (hasActiveShare(blob, now) || now - blob.archivedAt() < options.get().expiredShareRetentionMillis()) {
+                continue;
+            }
+            try {
+                storage.deleteArchived(storageView(blob));
+                blobRepository.deleteById(blob.id());
+                LOG.info("event=MEDIA_BLOB_PURGED blobId={} sha256={} storageName={} archivedAt={} purgedAt={} retentionDays={}",
+                        blob.id(), blob.sha256(), blob.storageName(), blob.archivedAt(), now,
+                        options.get().expiredShareRetentionMillis() / 86_400_000L);
+            } catch (Exception exception) {
+                logUploadFailure("purge archive", exception);
+            }
         }
+    }
+
+    public synchronized com.norule.musicbot.ShortUrlService.MutationResult deleteOwned(String code, String owner) {
+        if (owner == null || owner.isBlank()) return com.norule.musicbot.ShortUrlService.MutationResult.UNAUTHORIZED;
+        ImageShare share = findByCodeForOwner(code);
+        if (share == null) return com.norule.musicbot.ShortUrlService.MutationResult.NOT_FOUND;
+        if (share.ownerType() != MediaOwnerType.DISCORD_USER || !owner.equals(share.ownerId())) {
+            return com.norule.musicbot.ShortUrlService.MutationResult.FORBIDDEN;
+        }
+        if (!imageRepository.deleteOwned(share.code(), owner, share.createdAt())) {
+            return com.norule.musicbot.ShortUrlService.MutationResult.NOT_FOUND;
+        }
+        long now = clock.millis();
+        retireExpiredShare(share, now);
+        LOG.info("event=MEDIA_SHARE_PERMANENTLY_DELETED actorType=DISCORD_USER userId={} code={} blobId={} sha256={} wasExpired={} deletedAt={} codeReleased=true physicalMediaDeleted=false",
+                owner, share.code(), share.blobId(), share.contentHash(), share.expiresAt() <= now, now);
+        return com.norule.musicbot.ShortUrlService.MutationResult.SUCCESS;
     }
 
     private boolean hasActiveShare(MediaBlob blob, long now) {
@@ -754,17 +793,59 @@ public final class ImageShareService {
                         || blob.sha256().equals(share.contentHash()));
     }
 
-    private void cleanupOrphanBlob(MediaBlob blob) {
-        if (blob == null || blob.id() <= 0L || imageRepository.countByBlobId(blob.id()) > 0L) {
-            return;
-        }
-        ImageShare file = storageView(blob);
-        try {
-            storage.delete(file);
-            storage.deleteArchived(file);
-            blobRepository.deleteById(blob.id());
-        } catch (Exception exception) {
-            logUploadFailure("clean orphan", exception);
+    private void canonicalizeLegacyBlobs() {
+        for (MediaBlob previous : blobRepository.findByStorageStates(
+                Set.of(MediaStorageState.ACTIVE, MediaStorageState.ARCHIVED, MediaStorageState.ARCHIVE_PENDING))) {
+            if (previous.storageName().equals(previous.sha256() + "." + previous.extension())
+                    && (previous.archiveStorageName().isBlank()
+                    || previous.archiveStorageName().equals(previous.storageName()))) continue;
+            try {
+                ImageShare source = storageView(previous);
+                HashAndSize actual;
+                if (storage.exists(source)) {
+                    actual = hashStream(storage.open(source), MediaStorageState.ACTIVE, "", 0L);
+                } else if (storage.existsArchived(source)) {
+                    actual = hashStream(storage.openArchived(source), MediaStorageState.ARCHIVED,
+                            source.archiveStorageName(), source.archivedAt());
+                } else {
+                    continue;
+                }
+                source = source.withStorageState(actual.storageState(), actual.archiveStorageName(), actual.archivedAt());
+                byte[] header;
+                try (InputStream input = actual.storageState() == MediaStorageState.ARCHIVED
+                        ? storage.openArchived(source) : storage.open(source)) {
+                    header = input.readNBytes(64 * 1024);
+                }
+                ImageShareDomainService.MediaType detected = domainService.detectStoredMediaType(header);
+                if (detected == null) throw new IOException("Cannot detect legacy media content type");
+                String extension = detected.extension();
+                String contentType = detected.contentType();
+                String name = actual.sha256() + "." + extension;
+                MediaBlob existing = blobRepository.findBySha256(actual.sha256());
+                boolean active = hasActiveShare(previous, clock.millis()) || hasActiveShare(existing, clock.millis());
+                MediaStorageState state = active ? MediaStorageState.ACTIVE : actual.storageState();
+                long archivedAt = state == MediaStorageState.ARCHIVED ? actual.archivedAt() : 0L;
+                if (existing != null && existing.storageState() == MediaStorageState.ARCHIVED
+                        && existing.archivedAt() > 0L && archivedAt > 0L) {
+                    archivedAt = Math.min(archivedAt, existing.archivedAt());
+                }
+                MediaBlob canonical = new MediaBlob(existing == null ? 0L : existing.id(), actual.sha256(), name,
+                        actual.sizeBytes(), contentType, extension, previous.createdAt(), state,
+                        state == MediaStorageState.ARCHIVED ? name : "", archivedAt);
+                storage.canonicalize(source, storageView(canonical));
+                if (canonical.id() == 0L) canonical = blobRepository.saveIfAbsent(canonical);
+                else blobRepository.update(canonical);
+                imageRepository.replaceBlobReferences(previous.id(), canonical);
+                if (previous.id() != canonical.id()) blobRepository.deleteById(previous.id());
+                if (!previous.storageName().equals(name)) {
+                    // Canonical contents were verified before switching all references.
+                    storage.delete(source);
+                    storage.deleteArchived(source);
+                    storage.deleteLegacy(source);
+                }
+            } catch (Exception exception) {
+                logUploadFailure("canonicalize legacy", exception);
+            }
         }
     }
 
@@ -885,6 +966,19 @@ public final class ImageShareService {
     private void deleteMigratedDuplicate(ImageShare legacy, MediaBlob blob) throws Exception {
         if (legacy.storageName().equals(blob.storageName())) {
             return;
+        }
+        ImageShare canonical = storageView(blob);
+        HashAndSize verified;
+        if (storage.exists(canonical)) {
+            verified = hashStream(storage.open(canonical), MediaStorageState.ACTIVE, "", 0L);
+        } else if (storage.existsArchived(canonical)) {
+            verified = hashStream(storage.openArchived(canonical), MediaStorageState.ARCHIVED,
+                    canonical.archiveStorageName(), canonical.archivedAt());
+        } else {
+            throw new IOException("Canonical media is missing; retaining legacy file");
+        }
+        if (!verified.sha256().equals(blob.sha256()) || verified.sizeBytes() != blob.sizeBytes()) {
+            throw new IOException("Canonical media verification failed; retaining legacy file");
         }
         ImageShare activeLegacy = legacy.withStorageState(MediaStorageState.ACTIVE, "", 0L);
         ImageShare archivedLegacy = legacy.withStorageState(

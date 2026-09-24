@@ -86,6 +86,20 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
     }
 
     @Override
+    public boolean isCodeInUseIgnoreCase(String code) {
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT 1 FROM short_url_images WHERE LOWER(code) = LOWER(?)")) {
+            statement.setString(1, code);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to check media code namespace", e);
+        }
+    }
+
+    @Override
     public ImageShare findByCode(String code) {
         try (Connection connection = DriverManager.getConnection(jdbcUrl);
              PreparedStatement statement = connection.prepareStatement(SELECT_BY_CODE)) {
@@ -240,6 +254,21 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
     }
 
     @Override
+    public boolean deleteOwned(String code, String ownerId, long createdAt) {
+        String sql = "DELETE FROM short_url_images WHERE code = ? AND owner_type = 'DISCORD_USER'"
+                + " AND owner_id = ? AND created_at = ?";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, code);
+            statement.setString(2, ownerId);
+            statement.setLong(3, createdAt);
+            return statement.executeUpdate() == 1;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to permanently delete owned media share", e);
+        }
+    }
+
+    @Override
     public void deleteByCode(String code) {
         try (Connection connection = DriverManager.getConnection(jdbcUrl);
              PreparedStatement statement = connection.prepareStatement(DELETE_BY_CODE)) {
@@ -306,6 +335,28 @@ public final class SqliteImageShareRepository implements ImageShareRepository {
             statement.executeUpdate();
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to attach media blob to image share", e);
+        }
+    }
+
+    @Override
+    public void replaceBlobReferences(long oldBlobId, MediaBlob replacement) {
+        String sql = "UPDATE short_url_images SET blob_id = ?, content_hash = ?, storage_name = ?,"
+                + " content_type = ?, size_bytes = ?, storage_state = ?, archive_storage_name = ?,"
+                + " archived_at = ?, active_reuse_key = NULL WHERE blob_id = ?";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, replacement.id());
+            statement.setString(2, replacement.sha256());
+            statement.setString(3, replacement.storageName());
+            statement.setString(4, replacement.contentType());
+            statement.setLong(5, replacement.sizeBytes());
+            statement.setString(6, replacement.storageState().name());
+            statement.setString(7, replacement.archiveStorageName());
+            statement.setLong(8, replacement.archivedAt());
+            statement.setLong(9, oldBlobId);
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to migrate blob references", e);
         }
     }
 

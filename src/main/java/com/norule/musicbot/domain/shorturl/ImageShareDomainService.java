@@ -37,6 +37,21 @@ public final class ImageShareDomainService {
         return null;
     }
 
+    /** Detects a stored file's signature without requiring complete video duration metadata. */
+    public MediaType detectStoredMediaType(byte[] header) {
+        MediaType detected = detectMediaType(header);
+        if (detected != null || header == null) return detected;
+        if (header.length >= 12 && header[4] == 'f' && header[5] == 't'
+                && header[6] == 'y' && header[7] == 'p') {
+            return new MediaType("video/mp4", "mp4", true, 0L);
+        }
+        if (header.length >= 4 && header[0] == 0x1a && header[1] == 0x45
+                && header[2] == (byte) 0xdf && header[3] == (byte) 0xa3) {
+            return new MediaType("video/webm", "webm", true, 0L);
+        }
+        return null;
+    }
+
     public String normalizePassword(String password) {
         return password == null ? "" : password.trim();
     }

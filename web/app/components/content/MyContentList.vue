@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import type { OwnedContentItem } from '~/types/api'
 
+defineEmits<{ delete: [item: OwnedContentItem] }>()
+
 defineProps<{ items: OwnedContentItem[] }>()
 </script>
 
 <template>
   <div v-if="items.length" class="content-list">
-    <MyContentRow v-for="item in items" :key="`${item.shareType}:${item.code}`" :item="item" />
+    <MyContentRow v-for="item in items" :key="`${item.shareType}:${item.code}`" :item="item" @delete="$emit('delete', $event)" />
   </div>
   <div v-else class="content-empty">
     <span>NO CONTENT</span><h2>這個分類目前沒有內容</h2><p>登入狀態下建立的短連結與媒體分享會出現在這裡。</p><a href="/">建立新內容 →</a>

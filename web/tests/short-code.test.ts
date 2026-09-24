@@ -27,7 +27,7 @@ describe('自訂短網址代碼規則', () => {
     expect(normalizeCustomShortCode('  My-Discord  ')).toBe('my-discord')
     for (const code of [
       'admin', 'ADMIN', 'Stats', 'LOGIN', 'api', 'auth', 'logout', 'oauth', 'callback',
-      'session', 'my-content', '_nuxt', 'web', 'short-url', 'dashboard', 'share-expired',
+      'session', 'my', 'my-content', '_nuxt', 'web', 'short-url', 'dashboard', 'share-expired',
     ]) {
       expect(validateCustomShortCode(code)).toContain('系統保留')
     }

@@ -109,8 +109,13 @@ class MediaDeduplicationIntegrationTest {
         fixture.images().deleteByCode(second.code());
         fixture.clock().advanceMillis(5L * 60L * 1000L + 1L);
         fixture.service().cleanupExpired();
-        assertEquals(0L, count(fixture.database(), "media_blobs"));
+        assertEquals(1L, count(fixture.database(), "media_blobs"));
         assertFalse(Files.exists(fixture.activeDirectory().resolve(first.storageName())));
+        assertTrue(Files.exists(fixture.storage().archiveDirectory().resolve(first.storageName())));
+        fixture.clock().advanceMillis(30L * 86_400_000L);
+        fixture.service().cleanupExpired();
+        assertEquals(0L, count(fixture.database(), "media_blobs"));
+        assertFalse(Files.exists(fixture.storage().archiveDirectory().resolve(first.storageName())));
     }
 
     @Test

@@ -30,6 +30,16 @@ public interface ImageShareStorage {
 
     boolean exists(ImageShare imageShare);
 
+    default boolean restore(ImageShare imageShare) throws IOException {
+        return false;
+    }
+
+    /** Copies to a verified content-addressed name; source remains until metadata commits. */
+    default void canonicalize(ImageShare source, ImageShare target) throws IOException {
+        throw new IOException("Canonical migration is not supported by this storage");
+    }
+
+
     void delete(ImageShare imageShare) throws IOException;
 
     default String archive(ImageShare imageShare) throws IOException {
