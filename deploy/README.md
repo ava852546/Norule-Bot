@@ -1,0 +1,76 @@
+# Gateway 與 JVM 監控
+
+監控在 JDA 建立前註冊，使用獨立排程器，不依賴音樂指令排程。沿用現有 console／`data.logDir` 檔案日誌。所有時間門檻使用單調時鐘，系統校時不會改變離線時長。這些設定於啟動時讀取，修改後需重新啟動 Bot。
+
+## 設定
+
+`config.yml` 的 `discord.monitoring`（舊設定會使用預設值）：
+
+```yaml
+discord:
+  monitoring:
+    resourceIntervalSeconds: 60
+    offlineWarningSeconds: 300
+    warningRepeatSeconds: 300
+    recoveryEnabled: false
+    restartAfterSeconds: 1800
+    stalledReconnectSeconds: 1800
+    maxRecoveryRestarts: 3
+    restartCooldownSeconds: 60
+```
+
+每 10 秒檢查離線狀態，因此 5 分鐘告警最遲於下一次檢查發出。持續離線每 5 分鐘再告警，成功連線後重設。告警寫入本機 WARN 日誌，請由日誌平台或程序管理器轉送給維運人員；Gateway 離線時不依賴 Discord 訊息通知。此變更不會自動安裝或啟動服務。
+
+## 日誌欄位
+
+- `[Gateway] event=CONNECTED/DISCONNECTED/RECONNECTING/IDENTIFY`：保留 JDA 原始 `status`、上一狀態與重連次數。`IDENTIFY` 表示 JDA 的 `IDENTIFYING_SESSION` 階段，可能是新登入或恢復流程，實際 Session 結果以下列事件為準。
+- `RECONNECT_RESULT`：逐次記錄 `attempt`、`SUCCESS/FAILED`、斷線原因與 server/client WebSocket 關閉代碼。無 close frame 時代碼為 `null`；無原因時明確標示 transport／unknown，不能據此推斷是 Discord 或本機網路故障。底層網路錯誤細節仍以 JDA 自身日誌為準。
+- `SESSION_CONNECTED`：`INITIAL_READY` 為首次登入；`RESUMED`／`resumed=true` 表示原 Session 恢復；`RECREATED`／`resumed=false` 表示新 Session。記錄整段離線秒數與嘗試總數，不輸出 Token、Session ID 或 Gateway payload。
+- `OFFLINE_WARNING`：包含離線秒數、多久無進展、原始狀態、關閉代碼及是否允許自動恢復。
+- `[JVM] event=RESOURCE_SAMPLE`：程序／主機 CPU 百分比、heap 使用／配置／上限、non-heap 使用量、GC 次數與收集耗時差值、live／daemon／peak 執行緒數與各執行緒狀態計數。CPU 不支援或尚未取樣時顯示 `UNAVAILABLE`，heap 上限 `-1` 表示 JVM 未提供。
+- GC 停頓使用 JDK JFR `jdk.GCPhasePause`：每個紀錄區間的停頓次數、總毫秒與最大毫秒。JFR 事件非同步送達，會有短暫延遲；GC collection time 與 stop-the-world pause 是分開的欄位。JFR 無法使用時，`gcPauseAvailable=false` 且停頓值為 `UNAVAILABLE`，MXBean GC 計數仍保留。JFR 只開啟 GC pause 事件，不收集 stack trace，保留上限 2 分鐘／32 MiB。
+
+## 恢復策略與保護條件
+
+JDA 自動重連保持啟用，不因離線 5 分鐘就重啟。`recoveryEnabled` 預設為 `false`，應先確認 Pterodactyl／Wings 的 crash detection 可接手程序重啟，再明確開啟。
+
+只有曾成功登入、連續離線超過 `restartAfterSeconds`，且符合以下任一證據，才提出一次 `RECOVERY_REQUEST`：
+
+1. 收到 JDA `ShutdownEvent`，關閉代碼明確允許重連，且非正常關閉；JDA 已停止運作。
+2. 至少曾進入一次重連，JDA 實際狀態與事件狀態一致，重連相關狀態持續沒有進展。等待門檻為 `max(stalledReconnectSeconds, 2 × JDA max reconnect delay + 60)` 秒。這是「重連流程停滯」的操作判定，並非宣稱 Discord 或網路一定健康。
+
+正常持續重試會更新進展時間，即使長時間斷網也不重啟。Session controller 的 `RECONNECT_QUEUED`、仍在載入 subsystems、首次登入未成功、登入失敗、不可重連的 fatal code、未知 shutdown code，以及人工關機都不觸發自動重啟。持續嘗試但無法連線時，保留 WARN 告警，交由維運檢查網路、Discord 狀態、憑證與限流。
+
+符合條件後先冷卻 `restartCooldownSeconds`（最少 60 秒），再重新檢查：若已連線或重連有進展，取消退出。仍符合條件時，先持久化保留一次重啟額度，再以退出碼 **75** 呼叫現有 JVM shutdown hook，停止監控並清理資源，由 Wings 啟動新容器／程序。Bot 不會自行建立新的 JDA 或遞迴啟動 JVM。若清理卡住，需由程序管理器的停止逾時或維運處理，不使用 `Runtime.halt` 強制略過清理。
+
+## Pterodactyl／Wings 部署
+
+沿用目前的 Java 21 egg 與 Startup Command，不需要在容器內安裝 systemd、Docker daemon 或額外 shell supervisor。範例（依實際 JAR 位置調整，保留既有 JVM 記憶體參數）：
+
+```sh
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.7.jar
+```
+
+確認 egg 的停止命令為 `stop`（或使用能送出正常終止訊號的設定），讓人工停止走既有清理流程。JAR dependency bootstrap 會將子 JVM 退出碼原樣傳回給容器入口。不要用 `|| true`、無限 `while` 或額外 restart script 吃掉退出碼，也不要配置固定排程反覆重啟已被額度保護的 Bot。
+
+Wings 的 crash detection 應由節點管理員檢查。官方設定位於節點的 `/etc/pterodactyl/config.yml`，並非 Bot 的 `config.yml`：
+
+```yaml
+system:
+  crash_detection:
+    enabled: true
+    detect_clean_exit_as_crash: false
+    timeout: 60
+```
+
+`enabled` 允許 Wings 接手非正常退出；`detect_clean_exit_as_crash: false` 讓正常退出不算崩潰；`timeout` 是兩次崩潰太接近時的停止保護，**不是**每次重啟的冷卻等待，也不是累積次數上限。上例屬於整個 Wings 節點設定，會影響該節點其他伺服器；應由節點管理員依現有政策決定，不應直接覆寫。沒有節點權限時請交由託管方確認。此變更沒有自動操作 Pterodactyl 或修改節點設定。
+
+## 持久化重啟額度
+
+額度檔案為 **Bot 設定檔所在目錄下**的 `data/monitoring/gateway-recovery.count`。在標準 Pterodactyl 部署中應位於持久化的 `/home/container` 內；如使用 `BOT_CONFIG_PATH`，請確認該設定目錄同樣持久化且可寫。不要放在 `/tmp` 或隨容器銷毀的目錄，也不要在 Startup Command 中刪除它。
+
+預設總共允許 **3 次 Gateway 恢復退出**，容器／JVM 重啟、成功恢復與重新登入均不會自動歸零。`maxRecoveryRestarts` 可設定 0–10，0 表示完全不給額度。額度耗盡或額度檔無法寫入／損毀時，記錄 `RECOVERY_BLOCKED`，Bot 保持現有程序、繼續離線 WARN，**不再退出讓 Wings 重啟**。因此 Panel 仍可能顯示容器 Running；Discord 連線健康應以 Gateway 日誌判斷。此上限只涵蓋 Gateway 主動提出的恢復，不替代 Wings 對 OOM、外部 kill 或其他程序崩潰的管理。
+
+需要重設時先在 Panel 停止 Bot，檢查斷線原因與資源紀錄，再透過 File Manager 把該檔內容改成單一 `0`（或刪除該檔），然後人工啟動。不要自動定期清空額度。若保留額度後剛好恢復或程序被外部停止，已保留的額度仍會計入，採保守方式避免超額重啟。
+
+參考：[JDA SessionDisconnectEvent](https://docs.jda.wiki/net/dv8tion/jda/api/events/session/SessionDisconnectEvent.html)、[Wings 設定](https://docs.pterodactyl.io/v1/wings/configuration)、[egg 啟動與停止設定](https://docs.pterodactyl.io/v1/guides/egg-creation/egg-config-parser)。

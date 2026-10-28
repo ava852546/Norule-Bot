@@ -12,6 +12,18 @@ discord:
     maxAttempts: 8
     initialDelaySeconds: 5
     maxDelaySeconds: 60
+  monitoring:
+    resourceIntervalSeconds: 60
+    offlineWarningSeconds: 300
+    warningRepeatSeconds: 300
+    # Enable only under an external process manager (Pterodactyl/Wings; exit code 75).
+    recoveryEnabled: false
+    restartAfterSeconds: 1800
+    # Also waits at least 2 * JDA max reconnect delay + 60 seconds without progress.
+    stalledReconnectSeconds: 1800
+    # Persistent budget: data/monitoring/gateway-recovery.count; manual reset only.
+    maxRecoveryRestarts: 3
+    restartCooldownSeconds: 60
 
 # Command prefix
 prefix: "!"

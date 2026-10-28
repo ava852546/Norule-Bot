@@ -144,6 +144,7 @@ public final class RuntimeBootstrap {
     private static final AtomicReference<WebControlServer> WEB_SERVER = new AtomicReference<>();
     private static final AtomicReference<ShortUrlGatewayServer> SHORT_URL_GATEWAY_SERVER = new AtomicReference<>();
     private static final AtomicReference<PrintStream> CONSOLE_FILE_STREAM = new AtomicReference<>();
+    private static final AtomicReference<GatewayMonitoringRuntime> GATEWAY_MONITORING = new AtomicReference<>();
     private static final AtomicReference<I18nService> I18N_SERVICE = new AtomicReference<>();
     private static final AtomicReference<TicketService> TICKET_SERVICE = new AtomicReference<>();
     private static final AtomicReference<ShortUrlService> SHORT_URL_SERVICE = new AtomicReference<>();
@@ -264,6 +265,8 @@ public final class RuntimeBootstrap {
                 provisioningState
         );
 
+        GatewayMonitoringRuntime monitoring = new GatewayMonitoringRuntime(config.getDiscord().getMonitoring(), baseDir);
+        GATEWAY_MONITORING.set(monitoring);
         JDA jda;
         try {
             jda = new DiscordLoginRetryExecutor().execute(() -> {
@@ -289,7 +292,9 @@ public final class RuntimeBootstrap {
                         )
                         .setStatus(parseOnlineStatus(config.getBotProfile().getPresenceStatus()))
                         .setActivity(null)
+                        .setAutoReconnect(true)
                         .addEventListeners(
+                                monitoring.listener(),
                                 musicCommandListener,
                                 new NotificationListener(guildSettingsService, i18nService),
                                 new MessageLogListener(guildSettingsService, i18nService, messageLogCacheRepository),
@@ -311,9 +316,13 @@ public final class RuntimeBootstrap {
                 return builder.build();
             }, config.getDiscord().getLoginRetry());
         } catch (InterruptedException interrupted) {
+            monitoring.close();
             Thread.currentThread().interrupt();
             LOGGER.warn("[NoRule] Discord login retry interrupted; startup aborted.");
             return;
+        } catch (RuntimeException | Error failure) {
+            monitoring.close();
+            throw failure;
         }
         shortUrlService.updateAccessPublisher(new DiscordShortUrlAccessPublisher(jda));
         installConsoleShutdownListener(new ConsoleRuntimeContext(
@@ -330,6 +339,7 @@ public final class RuntimeBootstrap {
                 ticketService
         ));
         installShutdownHook(jda, i18nService, config.getDefaultLanguage(), musicCommandListener);
+        monitoring.watch(jda);
 
         try {
             jda.awaitReady();
@@ -751,6 +761,10 @@ public final class RuntimeBootstrap {
             return;
         }
 
+        GatewayMonitoringRuntime monitoring = GATEWAY_MONITORING.getAndSet(null);
+        if (monitoring != null) {
+            monitoring.close();
+        }
         logLifecycleMessage(i18nService, language, false);
         musicCommandListener.shutdown();
         WebControlServer webServer = WEB_SERVER.getAndSet(null);
