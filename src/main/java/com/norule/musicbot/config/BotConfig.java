@@ -1,5 +1,6 @@
 package com.norule.musicbot.config;
 
+import com.norule.musicbot.config.domain.GatewayMonitoringConfig;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -385,25 +386,43 @@ public String getToken() {
 
     public static final class Discord {
         private final LoginRetry loginRetry;
+        private final GatewayMonitoringConfig monitoring;
 
-        private Discord(LoginRetry loginRetry) {
+        private Discord(LoginRetry loginRetry, GatewayMonitoringConfig monitoring) {
             this.loginRetry = loginRetry == null ? LoginRetry.defaultValues() : loginRetry;
+            this.monitoring = monitoring == null ? GatewayMonitoringConfig.defaultValues() : monitoring;
         }
 
         public static Discord fromMap(Map<String, Object> map, Discord fallback) {
             Discord defaults = fallback == null ? defaultValues() : fallback;
+            Map<String, Object> monitor = asMap(map.get("monitoring"));
+            GatewayMonitoringConfig previous = defaults.getMonitoring();
+            GatewayMonitoringConfig monitoring = new GatewayMonitoringConfig(
+                    getInt(monitor, "resourceIntervalSeconds", previous.resourceIntervalSeconds()),
+                    getInt(monitor, "offlineWarningSeconds", previous.offlineWarningSeconds()),
+                    getInt(monitor, "warningRepeatSeconds", previous.warningRepeatSeconds()),
+                    getBoolean(monitor, "recoveryEnabled", previous.recoveryEnabled()),
+                    getInt(monitor, "restartAfterSeconds", previous.restartAfterSeconds()),
+                    getInt(monitor, "stalledReconnectSeconds", previous.stalledReconnectSeconds()),
+                    getInt(monitor, "maxRecoveryRestarts", previous.maxRecoveryRestarts()),
+                    getInt(monitor, "restartCooldownSeconds", previous.restartCooldownSeconds())
+            );
             return new Discord(LoginRetry.fromMap(
                     asMap(map.get("loginRetry")),
                     defaults.getLoginRetry()
-            ));
+            ), monitoring);
         }
 
         public static Discord defaultValues() {
-            return new Discord(LoginRetry.defaultValues());
+            return new Discord(LoginRetry.defaultValues(), GatewayMonitoringConfig.defaultValues());
         }
 
         public LoginRetry getLoginRetry() {
             return loginRetry;
+        }
+
+        public GatewayMonitoringConfig getMonitoring() {
+            return monitoring;
         }
 
         public static final class LoginRetry {

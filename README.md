@@ -251,6 +251,8 @@ java -jar target/discord-music-bot-1.7.jar
 
 若部署環境不能連外，請連同已驗證的 `runtime-libs/` 一起部署。
 
+Gateway／JVM 資源監控、5 分鐘離線告警及有次數上限的程序管理器設定，請見 [Gateway 監控與恢復策略](deploy/README.md)。
+
 ### 首次啟動
 
 1. 在預定工作目錄執行 JAR。若尚無設定，程式會建立 `config.yml`、`lang/` 與 `lang/web/` 的預設語言檔。
