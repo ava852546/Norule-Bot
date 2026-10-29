@@ -18,17 +18,24 @@ public final class MusicCommandChannelProvisioningService {
     }
 
     public MusicCommandChannelProvisioning tryStart(long guildId) {
+        return tryStartWithResult(guildId).attempt();
+    }
+
+    public StartResult tryStartWithResult(long guildId) {
         MusicCommandChannelProvisioning attempt = new MusicCommandChannelProvisioning(
                 guildId, Status.ATTEMPTING, Instant.now(), null, UUID.randomUUID().toString());
         if (repository.tryInsert(attempt)) {
             LOGGER.info("Music command channel provisioning started: guildId={}", guildId);
-            return attempt;
+            return new StartResult(attempt, null);
         }
         MusicCommandChannelProvisioning existing = repository.find(guildId);
-        LOGGER.info("Music command channel provisioning skipped: guildId={} status={} reason=ALREADY_ATTEMPTED",
-                guildId, existing == null ? Status.ATTEMPTING : existing.status());
-        return null;
+        Status previousStatus = existing == null ? Status.ATTEMPTING : existing.status();
+        LOGGER.debug("Music command channel provisioning skipped: guildId={} status={} reason=ALREADY_ATTEMPTED",
+                guildId, previousStatus);
+        return new StartResult(null, previousStatus);
     }
+
+    public record StartResult(MusicCommandChannelProvisioning attempt, Status previousStatus) {}
 
     public boolean isAttempting(MusicCommandChannelProvisioning attempt) {
         MusicCommandChannelProvisioning current = repository.find(attempt.guildId());

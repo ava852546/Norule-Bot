@@ -1,5 +1,9 @@
 package com.norule.musicbot.discord.bot.gateway.command.music;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.norule.musicbot.domain.music.MusicCommandChannelProvisioning.Status;
 import com.norule.musicbot.service.music.MusicCommandChannelProvisioningService;
 import com.norule.musicbot.storage.sqlite.MusicCommandChannelProvisioningSqliteRepository;
@@ -13,6 +17,7 @@ import net.dv8tion.jda.api.requests.restaction.ChannelAction;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -385,6 +390,112 @@ class MusicCommandChannelProvisionerTest {
         drainScheduler();
         assertNull(repository().find(809L));
         assertEquals(0, fixture.createCalls());
+    }
+
+    @Test
+    void startupLogsOneSummaryAndOnlyDebugForHistoricalSkips() throws Exception {
+        var state = new MusicCommandChannelProvisioningService(repository());
+        state.succeed(state.tryStart(901L));
+        state.fail(state.tryStart(902L), new IllegalStateException("Old failure"));
+        state.tryStart(903L);
+        var success = repository().find(901L);
+        var failure = repository().find(902L);
+        var pending = repository().find(903L);
+        GuildFixture fresh = new GuildFixture(904L, true, true);
+        MusicCommandChannelProvisioner restarted = provisioner(new TestChannelState(), 0L);
+
+        try (var summaryLogs = new CapturedLogs(MusicCommandChannelProvisioner.class);
+             var stateLogs = new CapturedLogs(MusicCommandChannelProvisioningService.class)) {
+            restarted.queueStartupProvisioning(List.of(
+                    new GuildFixture(901L, true, true).guild(),
+                    new GuildFixture(902L, true, true).guild(),
+                    new GuildFixture(903L, true, true).guild(), fresh.guild()), null);
+            drainScheduler();
+
+            assertEquals(List.of("Music command channel provisioning startup summary: checked=4 skipped=3 historicalSuccess=1 historicalFailure=1 attempted=1 errors=0"),
+                    summaryLogs.messages(Level.INFO).stream().filter(message -> message.contains("startup summary")).toList());
+            assertEquals(3, stateLogs.messages(Level.DEBUG).stream()
+                    .filter(message -> message.contains("ALREADY_ATTEMPTED")).count());
+            assertTrue(stateLogs.messages(Level.INFO).stream().noneMatch(message -> message.contains("ALREADY_ATTEMPTED")));
+            assertTrue(stateLogs.messages(Level.WARN).isEmpty());
+        }
+        assertEquals(success, repository().find(901L));
+        assertEquals(failure, repository().find(902L));
+        assertEquals(pending, repository().find(903L));
+        assertEquals(1, fresh.createCalls());
+    }
+
+    @Test
+    void emptyStartupStillLogsOneZeroSummary() {
+        try (var logs = new CapturedLogs(MusicCommandChannelProvisioner.class)) {
+            provisioner(new TestChannelState(), 0L).queueStartupProvisioning(List.of(), null);
+            assertEquals(List.of("Music command channel provisioning startup summary: checked=0 skipped=0 historicalSuccess=0 historicalFailure=0 attempted=0 errors=0"),
+                    logs.messages(Level.INFO));
+        }
+    }
+
+    @Test
+    void failedMembershipRetriesOnlyAfterLeaveAndLogsNewOutcome() throws Exception {
+        GuildFixture fixture = new GuildFixture(905L, false, true);
+        MusicCommandChannelProvisioner provisioner = provisioner(new TestChannelState(), 0L);
+        try (var logs = new CapturedLogs(MusicCommandChannelProvisioningService.class)) {
+            assertTrue(provisioner.queueGuildJoinProvisioning(fixture.guild(), null));
+            drainScheduler();
+            assertEquals(List.of("Music command channel provisioning failed: guildId=905 reason=Missing permission: MANAGE_CHANNEL"),
+                    logs.messages(Level.WARN));
+            var failed = repository().find(905L);
+            fixture.setManageChannels(true);
+            assertFalse(provisioner.queueGuildJoinProvisioning(fixture.guild(), null));
+            assertEquals(failed, repository().find(905L));
+
+            provisioner.guildLeft(905L);
+            assertNull(repository().find(905L));
+            assertTrue(provisioner.queueGuildJoinProvisioning(fixture.guild(), null));
+            drainScheduler();
+            assertEquals(Status.SUCCESS, repository().find(905L).status());
+            assertFalse(failed.attemptId().equals(repository().find(905L).attemptId()));
+            assertTrue(logs.messages(Level.INFO).contains("Music command channel provisioning succeeded: guildId=905"));
+            assertEquals(1, fixture.createCalls());
+        }
+    }
+
+    @Test
+    void rejectedStartupAttemptIsCountedAndPersistedAsFailure() {
+        MusicCommandChannelProvisioner provisioner = provisioner(new TestChannelState(), 0L);
+        schedulers.getLast().shutdown();
+        try (var logs = new CapturedLogs(MusicCommandChannelProvisioner.class)) {
+            provisioner.queueStartupProvisioning(List.of(new GuildFixture(906L, true, true).guild()), null);
+            assertEquals(List.of("Music command channel provisioning startup summary: checked=1 skipped=0 historicalSuccess=0 historicalFailure=0 attempted=1 errors=0"),
+                    logs.messages(Level.INFO));
+            assertEquals(Status.FAILED, repository().find(906L).status());
+        }
+    }
+
+    private static final class CapturedLogs implements AutoCloseable {
+        private final Logger logger;
+        private final Level previousLevel;
+        private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+        private CapturedLogs(Class<?> type) {
+            logger = (Logger) LoggerFactory.getLogger(type);
+            previousLevel = logger.getLevel();
+            logger.setLevel(Level.DEBUG);
+            appender.list = new CopyOnWriteArrayList<>();
+            appender.start();
+            logger.addAppender(appender);
+        }
+
+        private List<String> messages(Level level) {
+            return appender.list.stream().filter(event -> event.getLevel() == level)
+                    .map(ILoggingEvent::getFormattedMessage).toList();
+        }
+
+        @Override
+        public void close() {
+            logger.detachAppender(appender);
+            logger.setLevel(previousLevel);
+            appender.stop();
+        }
     }
 
     private static final class TestChannelState implements MusicCommandChannelProvisioner.ChannelState {
