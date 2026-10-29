@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.app;
 
+import com.norule.musicbot.discord.bot.gateway.command.meta.DevMusicPanelCommandHandler;
+import com.norule.musicbot.service.music.MusicPanelBindingService;
 import com.norule.musicbot.service.music.MusicCommandChannelProvisioningService;
 
 import com.norule.musicbot.config.*;
@@ -178,7 +180,7 @@ public class MusicCommandService extends ListenerAdapter {
                         () -> new MinecraftStatusConfig(this.runtimeConfig.get().getMinecraftStatus())
                 )
         );
-        this.commandHandlers = new CommandHandlerRegistry(this, musicPanelRuntime.musicPanelController(), this.musicPlaybackText, minecraftStatusOps);
+        this.commandHandlers = new CommandHandlerRegistry(this, musicPanelRuntime.musicPanelController(), musicPanelRuntime.musicPanelRefreshService(), this.musicPlaybackText, minecraftStatusOps);
         this.statsEventService = statsEventService;
         this.ticketConfigAdapter = new GuildDomainConfigAdapter(settingsService, runtimeConfig.getDefaultMusic());
         this.ticketOps = new TicketOps(new com.norule.musicbot.discord.bot.ops.ticket.TicketService(ticketConfigAdapter, ticketService, i18nService()));
@@ -288,6 +290,10 @@ public class MusicCommandService extends ListenerAdapter {
     public MusicPanelController musicPanelController() {
         return musicPanelRuntime.musicPanelController();
     }
+
+    public DevMusicPanelCommandHandler devMusicPanelCommandHandler() {
+        return commandHandlers.devMusicPanelCommandHandler();
+    }
     public HoneypotCommandHandler honeypotCommandHandler() {
         return commandHandlers.honeypotCommandHandler();
     }
@@ -325,6 +331,7 @@ public class MusicCommandService extends ListenerAdapter {
     public void onReady(ReadyEvent event) {
         this.jda.set(event.getJDA());
         this.botReadyForSlashCommands.set(true);
+        musicPanelRuntime.musicPanelRefreshService().restorePanels();
         commandRegistrar.syncCommands();
         musicPanelRuntime.musicPanelController().initializeGuilds(event.getJDA().getGuilds());
         ticketOps.onReady(event);
@@ -349,6 +356,10 @@ public class MusicCommandService extends ListenerAdapter {
             musicPanelRuntime.musicPanelRefreshService().clearPanel(
                     event.getGuild().getIdLong(), event.getChannel().getIdLong(), event.getMessageIdLong());
         }
+    }
+
+    public void initializePanelPersistence(MusicPanelBindingService bindings) {
+        musicPanelRuntime.panelStateStore().initializePersistence(bindings);
     }
 
     public void shutdown() {

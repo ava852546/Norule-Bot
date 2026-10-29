@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.panel;
 
+import com.norule.musicbot.service.music.MusicPanelBindingService;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
@@ -10,7 +12,27 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class MusicPanelStateStore {
     private final Map<Long, PanelRef> panelByGuild = new ConcurrentHashMap<>();
     private final Map<Long, PanelNotice> panelNoticeByGuild = new ConcurrentHashMap<>();
+    private MusicPanelBindingService bindings;
 
+    public void initializePersistence(MusicPanelBindingService bindings) {
+        this.bindings = bindings;
+        for (var panel : bindings.load()) {
+            panelByGuild.put(panel.guildId(), new PanelRef(panel.channelId(), panel.messageId()));
+        }
+    }
+
+    private void persist(long guildId, PanelRef ref) {
+        if (bindings != null) {
+            bindings.save(guildId, ref.channelId, ref.messageId);
+        }
+    }
+
+    public void forgetGuild(long guildId) {
+        if (bindings != null) {
+            bindings.forgetGuild(guildId);
+        }
+        clearPanelState(guildId);
+    }
     public Map<Long, PanelRef> panelRefs() {
         return Collections.unmodifiableMap(panelByGuild);
     }
@@ -31,6 +53,7 @@ public final class MusicPanelStateStore {
     public void activatePanelRef(long guildId, PanelRef panelRef, long refreshedAt) {
         panelRef.lastRefreshAt = refreshedAt;
         panelByGuild.put(guildId, panelRef);
+        persist(guildId, panelRef);
     }
 
     public void clearPanelState(long guildId) {

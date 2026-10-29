@@ -207,6 +207,68 @@ class MusicPanelRefreshCoordinatorTest {
         scheduler.advance(750);
     }
 
+    @Test
+    void manualCommandWaitsForAutomaticPatchAndReportsActualDelivery() {
+        requestAndDrain(1);
+        var delivery = new CompletableFuture<Void>();
+        var manual = coordinator.submit(1, () -> CompletableFuture.completedFuture(
+                new MusicPanelRefreshCoordinator.Update(10, 100, snapshot("manual"), () -> {
+                    sent.add("manual");
+                    return delivery;
+                })));
+        scheduler.advance(750);
+        assertFalse(manual.isDone());
+        assertEquals(1, sent.size());
+        flights.getFirst().complete(null);
+        scheduler.advance(750);
+        assertEquals(List.of("1:volume 30", "manual"), sent);
+        assertFalse(manual.isDone());
+        delivery.completeExceptionally(new IllegalStateException("Missing Access"));
+        assertTrue(manual.isCompletedExceptionally());
+        assertEquals(0, scheduler.pending());
+    }
+
+    @Test
+    void rapidManualCreationRequestsResolveSequentiallyAndCreateOnlyOnce() {
+        var creation = new CompletableFuture<MusicPanelRefreshCoordinator.Update>();
+        var created = new java.util.concurrent.atomic.AtomicBoolean();
+        var sends = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.function.Supplier<CompletableFuture<MusicPanelRefreshCoordinator.Update>> prepareManual = () -> {
+            if (created.get()) {
+                return CompletableFuture.completedFuture(null);
+            }
+            sends.incrementAndGet();
+            return creation;
+        };
+        var first = coordinator.submit(1, prepareManual);
+        var second = coordinator.submit(1, prepareManual);
+        scheduler.advance(750);
+        assertEquals(1, sends.get());
+        assertFalse(second.isDone());
+        created.set(true);
+        creation.complete(null);
+        scheduler.advance(750);
+        assertTrue(first.isDone());
+        assertTrue(second.isDone());
+        assertEquals(1, sends.get());
+    }
+
+    @Test
+    void identicalManualUpdateCompletesWithoutPatchAndClosedQueueRejectsCommands() {
+        requestAndDrain(1);
+        flights.getFirst().complete(null);
+        var manual = coordinator.submit(1, () -> CompletableFuture.completedFuture(
+                new MusicPanelRefreshCoordinator.Update(10, 100, snapshot(content), () -> {
+                    fail("Identical content must not PATCH");
+                    return CompletableFuture.completedFuture(null);
+                })));
+        scheduler.advance(750);
+        assertTrue(manual.isDone());
+        assertFalse(manual.isCompletedExceptionally());
+        coordinator.close();
+        assertTrue(coordinator.submit(1, () -> CompletableFuture.completedFuture(null)).isCompletedExceptionally());
+    }
+
     private static MusicPanelSnapshot snapshot(String content) {
         return new MusicPanelSnapshot(new EmbedBuilder().setDescription(content).build(), List.of());
     }

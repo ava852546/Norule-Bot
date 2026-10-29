@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.app;
 
+import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRefreshService;
+import com.norule.musicbot.discord.bot.gateway.command.meta.DevMusicPanelCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.honeypot.HoneypotCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.meta.HelpCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.meta.InfoCommandHandler;
@@ -33,6 +35,7 @@ import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
 import com.norule.musicbot.ops.minecraft.MinecraftStatusOps;
 
 class CommandHandlerRegistry {
+    private final DevMusicPanelCommandHandler devMusicPanelCommandHandler;
     private final SettingsCommandHandler settingsCommandHandler;
     private final HelpCommandHandler helpCommandHandler;
     private final PingCommandHandler pingCommandHandler;
@@ -59,11 +62,13 @@ class CommandHandlerRegistry {
 
     CommandHandlerRegistry(MusicCommandService service,
                            MusicPanelController musicPanelController,
+                           MusicPanelRefreshService panelRefreshService,
                            MusicPlaybackText musicPlaybackText,
                            MinecraftStatusOps minecraftStatusOps) {
         BoolTextHelper boolTextHelper = new BoolTextHelper(service::i18nService);
         WelcomeTextPreviewer welcomeTextPreviewer = new WelcomeTextPreviewer();
 
+        this.devMusicPanelCommandHandler = new DevMusicPanelCommandHandler(service, panelRefreshService);
         this.settingsCommandHandler = new SettingsCommandHandler(service);
         this.helpCommandHandler = new HelpCommandHandler(service);
         this.pingCommandHandler = new PingCommandHandler(service::i18nService);
@@ -96,6 +101,7 @@ class CommandHandlerRegistry {
                 new QuestNotificationService(service.settingsService()), service::i18nService);
     }
 
+    DevMusicPanelCommandHandler devMusicPanelCommandHandler() { return devMusicPanelCommandHandler; }
     SettingsCommandHandler settingsCommandHandler() { return settingsCommandHandler; }
     HelpCommandHandler helpCommandHandler() { return helpCommandHandler; }
     PingCommandHandler pingCommandHandler() { return pingCommandHandler; }

@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.EnumSet;
+import java.util.ArrayDeque;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -54,11 +55,36 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
         }
     }
 
+    /** Manual operations share the same flight barrier as automatic refreshes. */
+    public CompletableFuture<Void> submit(long guildId, Supplier<CompletableFuture<Update>> prepareManual) {
+        while (!closed) {
+            RefreshState state = states.computeIfAbsent(guildId, ignored -> new RefreshState());
+            synchronized (state) {
+                if (states.get(guildId) != state) {
+                    continue;
+                }
+                if (closed) {
+                    break;
+                }
+                if (state.manual.size() >= 20) {
+                    return CompletableFuture.failedFuture(new IllegalStateException("Music panel command queue is full; try again later."));
+                }
+                ManualWork work = new ManualWork(prepareManual, new CompletableFuture<>());
+                state.manual.add(work);
+                schedule(guildId, state);
+                return work.result();
+            }
+        }
+        return CompletableFuture.failedFuture(new IllegalStateException("Music panel scheduler is closed."));
+    }
+
     private void schedule(long guildId, RefreshState state) {
-        if (!closed && !state.inFlight && state.task == null && !state.pending.isEmpty()) {
+        if (!closed && !state.inFlight && state.task == null && (!state.pending.isEmpty() || !state.manual.isEmpty())) {
             try {
                 state.task = scheduler.schedule(() -> drain(guildId, state), DEBOUNCE_MILLIS, TimeUnit.MILLISECONDS);
             } catch (RejectedExecutionException failure) {
+                state.manual.forEach(work -> work.result().completeExceptionally(failure));
+                state.manual.clear();
                 state.pending.clear();
                 states.remove(guildId, state);
                 LOGGER.debug("[NoRule] Music panel refresh scheduler unavailable: guildId={}", guildId, failure);
@@ -75,13 +101,17 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
             }
             state.task = null;
             state.inFlight = true;
-            reasons = Set.copyOf(state.pending);
-            state.pending.clear();
+            state.activeManual = state.manual.poll();
+            reasons = state.activeManual == null ? Set.copyOf(state.pending) : Set.of(RefreshReason.MANUAL);
+            if (state.activeManual == null) {
+                state.pending.clear();
+            }
             generation = state.generation;
         }
         // Rendering may read player locks: never hold the refresh lock while rendering.
         try {
-            prepare.apply(guildId, reasons).whenComplete((update, failure) -> {
+            (state.activeManual == null ? prepare.apply(guildId, reasons) : state.activeManual.prepare().get())
+                    .whenComplete((update, failure) -> {
                 if (failure != null) {
                     finish(guildId, state, generation, null, failure);
                 } else {
@@ -126,11 +156,22 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
                 LOGGER.debug("[NoRule] panel.refresh.sent guildId={}", guildId);
             }
             state.inFlight = false;
+            ManualWork completed = state.activeManual;
+            state.activeManual = null;
             // A failure alone never queues a retry. Only requests arriving during the flight remain.
-            if (closed || (state.lastSent == null && state.pending.isEmpty())) {
+            if (closed || (state.lastSent == null && state.pending.isEmpty() && state.manual.isEmpty())) {
                 states.remove(guildId, state);
             } else {
                 schedule(guildId, state);
+            }
+            if (completed != null) {
+                if (failure != null) {
+                    completed.result().completeExceptionally(failure);
+                } else if (closed || generation != state.generation) {
+                    completed.result().completeExceptionally(new IllegalStateException("Music panel operation was cancelled."));
+                } else {
+                    completed.result().complete(null);
+                }
             }
         }
     }
@@ -161,6 +202,11 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
             state.generation++;
             state.pending.clear();
             state.lastSent = null;
+            state.manual.forEach(work -> work.result().cancel(false));
+            state.manual.clear();
+            if (state.activeManual != null) {
+                state.activeManual.result().cancel(false);
+            }
             if (state.task != null) {
                 state.task.cancel(false);
                 state.task = null;
@@ -187,10 +233,15 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
     }
 
     private static final class RefreshState {
+        private final ArrayDeque<ManualWork> manual = new ArrayDeque<>();
+        private ManualWork activeManual;
         private final EnumSet<RefreshReason> pending = EnumSet.noneOf(RefreshReason.class);
         private ScheduledFuture<?> task;
         private boolean inFlight;
         private long generation;
         private Update lastSent;
+    }
+
+    private record ManualWork(Supplier<CompletableFuture<Update>> prepare, CompletableFuture<Void> result) {
     }
 }

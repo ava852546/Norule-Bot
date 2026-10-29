@@ -41,7 +41,7 @@ final class PanelRefreshFailurePolicy {
     PanelFailure classify(Throwable failure) {
         if (failure instanceof InsufficientPermissionException insufficientPermission) {
             return new PanelFailure(
-                    FailureDisposition.CLEAR_STATE,
+                    FailureDisposition.KEEP_STATE,
                     "MISSING_PERMISSION",
                     insufficientPermission.getPermission()
             );
@@ -52,13 +52,13 @@ final class PanelRefreshFailurePolicy {
                 return new PanelFailure(FailureDisposition.CLEAR_STATE, "UNKNOWN_MESSAGE", null);
             }
             if (response == ErrorResponse.UNKNOWN_CHANNEL) {
-                return new PanelFailure(FailureDisposition.CLEAR_STATE, "UNKNOWN_CHANNEL", null);
+                return new PanelFailure(FailureDisposition.KEEP_STATE, "UNKNOWN_CHANNEL", null);
             }
             if (response == ErrorResponse.MISSING_ACCESS) {
-                return new PanelFailure(FailureDisposition.CLEAR_STATE, "MISSING_ACCESS", null);
+                return new PanelFailure(FailureDisposition.KEEP_STATE, "MISSING_ACCESS", null);
             }
             if (response == ErrorResponse.MISSING_PERMISSIONS) {
-                return new PanelFailure(FailureDisposition.CLEAR_STATE, "MISSING_PERMISSIONS", null);
+                return new PanelFailure(FailureDisposition.KEEP_STATE, "MISSING_PERMISSIONS", null);
             }
         }
         return new PanelFailure(FailureDisposition.UNEXPECTED, "UNEXPECTED_FAILURE", null);
@@ -83,6 +83,7 @@ final class PanelRefreshFailurePolicy {
     }
 
     enum FailureDisposition {
+        KEEP_STATE,
         CLEAR_STATE,
         UNEXPECTED
     }

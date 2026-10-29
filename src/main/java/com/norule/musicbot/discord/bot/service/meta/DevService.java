@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.service.meta;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import com.norule.musicbot.ShortUrlService;
 import com.norule.musicbot.config.domain.RuntimeConfigSnapshot;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
@@ -43,6 +45,7 @@ public final class DevService {
 
     private final IntSupplier activePlaybackGuildCountSupplier;
     private final ShortUrlService shortUrlService;
+    private Function<String, CompletableFuture<String>> musicPanelCommand;
     private volatile RuntimeConfigSnapshot runtimeConfig;
     private final Instant startedAt = Instant.now();
 
@@ -65,6 +68,10 @@ public final class DevService {
         this.runtimeConfig = newConfig;
     }
 
+    public void setMusicPanelCommand(Function<String, CompletableFuture<String>> command) {
+        this.musicPanelCommand = command;
+    }
+
     public boolean isDeveloperCommand(String raw) {
         return raw != null && (raw.equals(DEV_COMMAND_PREFIX) || raw.startsWith(DEV_COMMAND_PREFIX + " "));
     }
@@ -80,6 +87,18 @@ public final class DevService {
                 : raw.substring(DEV_COMMAND_PREFIX.length()).trim();
         String[] split = args.split("\\s+", 2);
         String subcommand = args.isBlank() ? "help" : split[0].toLowerCase(Locale.ROOT);
+        if ("sendmusicpanel".equals(subcommand)) {
+            logDeveloperCommand(event, subcommand, event.isFromGuild() ? "guild" : "dm");
+            if (musicPanelCommand == null) {
+                sendDeveloperPrivateEmbed(event, developerErrorEmbed("Music panel service is unavailable."));
+            } else {
+                musicPanelCommand.apply(split.length == 2 ? split[1].trim() : "").whenComplete((reply, failure) ->
+                        sendDeveloperPrivateEmbed(event, failure == null
+                                ? developerBaseEmbed("Developer Command").setDescription(DiscordEmbedSanitizer.sanitizeDescription(reply))
+                                : developerErrorEmbed("Music panel command failed: " + failure.getMessage())));
+            }
+            return;
+        }
         if ("setting".equals(subcommand)) {
             logDeveloperCommand(event, subcommand, event.isFromGuild() ? "guild" : "dm");
             sendDeveloperSettingsMessage(event);
@@ -160,7 +179,8 @@ public final class DevService {
                 .addField("`&dev ping`", "Check bot responsiveness.", false)
                 .addField("`&dev info`", "Show runtime status.", false)
                 .addField("`&dev guilds`", "Show joined guilds with pagination.", false)
-                .addField("`&dev setting`", "Configure the short URL log channel in a server.", false);
+                .addField("`&dev setting`", "Configure the short URL log channel in a server.", false)
+                .addField("`&dev sendmusicpanel <channelId>`", "Send or update the music panel in a specified channel.", false);
     }
 
     private EmbedBuilder developerPingEmbed(JDA jda) {

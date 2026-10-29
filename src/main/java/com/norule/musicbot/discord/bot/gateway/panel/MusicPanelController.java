@@ -41,14 +41,15 @@ public final class MusicPanelController {
     }
 
     public void initializeGuild(Guild guild) {
-        if (guild == null) {
+        if (guild == null || owner.panelRefs().containsKey(guild.getIdLong())) {
             return;
         }
         commandChannelProvisioner.queueGuildJoinProvisioning(guild, this::initializePanel);
     }
 
     public void initializeGuilds(List<Guild> guilds) {
-        commandChannelProvisioner.queueStartupProvisioning(guilds, this::initializePanel);
+        commandChannelProvisioner.queueStartupProvisioning(guilds.stream()
+                .filter(guild -> !owner.panelRefs().containsKey(guild.getIdLong())).toList(), this::initializePanel);
     }
 
     public void guildLeft(long guildId) {

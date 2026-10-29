@@ -48,6 +48,18 @@ class MusicPanelSnapshotTest {
                 StringSelectMenu.create("queue").addOption("Track A", "a").build())))));
     }
 
+    @Test
+    void ignoresDiscordAssignedNumericIdsButPreservesCustomButtonRouting() {
+        var embed = new EmbedBuilder().setTitle("panel").build();
+        var rendered = new MusicPanelSnapshot(embed, List.of(ActionRow.of(Button.primary("pause", "Pause"))));
+        var received = new MusicPanelSnapshot(embed, List.of(ActionRow.of(
+                Button.primary("pause", "Pause").withUniqueId(2)).withUniqueId(1)));
+        assertTrue(rendered.sameContent(received));
+        assertEquals(1, received.components().getFirst().getUniqueId());
+        assertFalse(rendered.sameContent(new MusicPanelSnapshot(embed, List.of(ActionRow.of(
+                Button.primary("different-route", "Pause").withUniqueId(2)).withUniqueId(1)))));
+    }
+
     private MusicPanelSnapshot snapshot(Consumer<EmbedBuilder> change) {
         EmbedBuilder builder = new EmbedBuilder().setTitle("panel").setDescription("volume 30")
                 .setFooter("footer").addField("queue", "track A", false);
