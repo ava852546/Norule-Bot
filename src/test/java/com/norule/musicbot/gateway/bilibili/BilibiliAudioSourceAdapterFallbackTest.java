@@ -7,7 +7,7 @@ import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioItem;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.track.AudioReference;
-import dev.lavalink.bilibili.BilibiliAudioTrack;
+
 import org.apache.http.client.methods.HttpGet;
 import org.junit.jupiter.api.Test;
 
@@ -47,7 +47,7 @@ class BilibiliAudioSourceAdapterFallbackTest {
         try {
             AudioItem item = adapter.loadItem(null, new AudioReference(VIDEO_URL, null));
 
-            BilibiliAudioTrack track = assertInstanceOf(BilibiliAudioTrack.class, item);
+            BilibiliDashAudioTrack track = assertInstanceOf(BilibiliDashAudioTrack.class, item);
             assertEquals(41_414_165_124L, track.getCid());
             assertEquals("Part 1", track.getInfo().title);
             assertEquals("BV1Na4Q64Eos", track.getInfo().identifier);
@@ -73,12 +73,12 @@ class BilibiliAudioSourceAdapterFallbackTest {
                 resolver(fallbackCalls, 200, BilibiliPagelistMetadataResolverTest.multiPageJson())
         );
         try {
-            BilibiliAudioTrack second = assertInstanceOf(
-                    BilibiliAudioTrack.class,
+            BilibiliDashAudioTrack second = assertInstanceOf(
+                    BilibiliDashAudioTrack.class,
                     adapter.loadItem(null, new AudioReference(VIDEO_URL + "?p=2", null))
             );
-            BilibiliAudioTrack first = assertInstanceOf(
-                    BilibiliAudioTrack.class,
+            BilibiliDashAudioTrack first = assertInstanceOf(
+                    BilibiliDashAudioTrack.class,
                     adapter.loadItem(null, new AudioReference(VIDEO_URL + "?p=1&spm_id_from=test", null))
             );
             AudioPlaylist playlist = assertInstanceOf(
@@ -88,7 +88,7 @@ class BilibiliAudioSourceAdapterFallbackTest {
 
             assertEquals(222L, second.getCid());
             assertEquals(111L, first.getCid());
-            assertEquals(111L, assertInstanceOf(BilibiliAudioTrack.class, playlist.getSelectedTrack()).getCid());
+            assertEquals(111L, assertInstanceOf(BilibiliDashAudioTrack.class, playlist.getSelectedTrack()).getCid());
             assertEquals(1, primaryCalls.get());
             assertEquals(1, fallbackCalls.get());
             assertEquals(2, adapter.cacheStatistics().hits());
@@ -159,7 +159,7 @@ class BilibiliAudioSourceAdapterFallbackTest {
         try {
             for (int attempt = 0; attempt < 10; attempt++) {
                 assertInstanceOf(
-                        BilibiliAudioTrack.class,
+                        BilibiliDashAudioTrack.class,
                         adapter.loadItem(null, new AudioReference(VIDEO_URL, null))
                 );
             }
@@ -272,7 +272,7 @@ class BilibiliAudioSourceAdapterFallbackTest {
             releasePrimary.countDown();
 
             for (Future<AudioItem> future : futures) {
-                assertInstanceOf(BilibiliAudioTrack.class, future.get(2, TimeUnit.SECONDS));
+                assertInstanceOf(BilibiliDashAudioTrack.class, future.get(2, TimeUnit.SECONDS));
             }
             assertEquals(1, primaryCalls.get());
             assertEquals(1, fallbackCalls.get());

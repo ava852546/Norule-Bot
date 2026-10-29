@@ -9,7 +9,7 @@ import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioItem;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.track.AudioReference;
-import dev.lavalink.bilibili.BilibiliAudioTrack;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -73,11 +73,11 @@ class BilibiliAudioSourceAdapterShortUrlTest {
             return new BilibiliShortUrlResolver.RedirectResponse(302, VIDEO_URL + "?token=secret&p=2");
         });
         try {
-            BilibiliAudioTrack second = assertInstanceOf(BilibiliAudioTrack.class,
+            BilibiliDashAudioTrack second = assertInstanceOf(BilibiliDashAudioTrack.class,
                     adapter.loadItem(null, new AudioReference(SHORT_URL, null)));
             assertEquals(222L, second.getCid());
             assertEquals("BV1Na4Q64Eos", second.getInfo().identifier);
-            assertEquals(222L, assertInstanceOf(BilibiliAudioTrack.class,
+            assertEquals(222L, assertInstanceOf(BilibiliDashAudioTrack.class,
                     adapter.loadItem(null, new AudioReference(SHORT_URL, null))).getCid());
             AudioPlaylist playlist = assertInstanceOf(AudioPlaylist.class,
                     adapter.loadItem(null, new AudioReference(VIDEO_URL, null)));
@@ -100,7 +100,7 @@ class BilibiliAudioSourceAdapterShortUrlTest {
         try {
             AudioPlaylist playlist = assertInstanceOf(AudioPlaylist.class,
                     adapter.loadItem(null, new AudioReference(SHORT_URL, null)));
-            assertEquals(111L, assertInstanceOf(BilibiliAudioTrack.class, playlist.getSelectedTrack()).getCid());
+            assertEquals(111L, assertInstanceOf(BilibiliDashAudioTrack.class, playlist.getSelectedTrack()).getCid());
         } finally {
             adapter.shutdown();
         }

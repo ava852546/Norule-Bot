@@ -64,6 +64,10 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
     private volatile String cookie = "";
     private volatile int failureWindowSeconds = 60;
     private volatile int cooldownSeconds = 300;
+    private final java.util.concurrent.atomic.AtomicLong requestsPausedUntil = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong wbiPausedUntil = new java.util.concurrent.atomic.AtomicLong();
+    private volatile int pausedStatus = 412;
+    private final boolean wbiPrimary;
 
     public BilibiliAudioSourceAdapter(MusicConfig.Bilibili config) {
         this(config, null, null);
@@ -103,9 +107,21 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
                 cacheConfig.getMaxEntries()
         );
         this.delegate = new BilibiliAudioSourceManager();
+        this.wbiPrimary = primaryMetadataLoader == null;
         HttpInterfaceManager httpInterfaceManager = configureHttpRuntime();
+        BilibiliWbiMetadataResolver wbi = new BilibiliWbiMetadataResolver(httpInterfaceManager);
         this.primaryMetadataLoader = primaryMetadataLoader == null
-                ? delegate::loadItem
+                ? (manager, reference) -> {
+                    var request = BilibiliVideoIdentifier.from(reference.identifier);
+                    if (request.isEmpty()) return delegate.loadItem(manager, reference);
+                    try {
+                        BilibiliMetadata metadata = wbi.resolve(request.get().bvid(), request.get().page());
+                        metadataCache.put(metadata);
+                        return toAudioItem(metadata, request.get().page());
+                    } catch (java.io.IOException failure) {
+                        throw new FriendlyException("Bilibili WBI metadata failed", FriendlyException.Severity.SUSPICIOUS, failure);
+                    }
+                }
                 : primaryMetadataLoader;
         this.pagelistMetadataResolver = pagelistMetadataResolver == null
                 ? new BilibiliPagelistMetadataResolver(httpInterfaceManager)
@@ -190,17 +206,21 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
 
     @Override
     public boolean isTrackEncodable(AudioTrack track) {
-        return delegate.isTrackEncodable(track);
+        return track instanceof BilibiliDashAudioTrack || delegate.isTrackEncodable(track);
     }
 
     @Override
     public void encodeTrack(AudioTrack track, DataOutput output) throws java.io.IOException {
-        delegate.encodeTrack(track, output);
+        delegate.encodeTrack(track instanceof BilibiliDashAudioTrack dash ? dash.vendorTrack() : track, output);
     }
 
     @Override
     public AudioTrack decodeTrack(AudioTrackInfo trackInfo, DataInput input) throws java.io.IOException {
-        return delegate.decodeTrack(trackInfo, input);
+        AudioTrack decoded = delegate.decodeTrack(trackInfo, input);
+        if (decoded instanceof BilibiliAudioTrack video && video.getType() == BilibiliAudioTrack.TrackType.VIDEO) {
+            return new BilibiliDashAudioTrack(trackInfo, video.getId(), video.getCid(), this);
+        }
+        return decoded;
     }
 
     @Override
@@ -268,6 +288,9 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
                                    AudioReference reference,
                                    BilibiliVideoIdentifier.VideoRequest request) {
         acquireMetadataPermission();
+        if (wbiPrimary && System.currentTimeMillis() < wbiPausedUntil.get()) {
+            return loadPagelistFallback(request, 412);
+        }
         try {
             AudioItem item = primaryMetadataLoader.load(manager, reference);
             if (request.page() == null) {
@@ -276,8 +299,19 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
             logCircuitTransition(circuitBreaker.recordSuccess(), 0);
             return item;
         } catch (Throwable primaryFailure) {
-            if (isPrimaryRiskControlFailure(primaryFailure)) {
-                return loadPagelistFallback(request);
+            if (primaryFailure instanceof Error error) throw error;
+            var report = failureClassifier.classify(primaryFailure, BilibiliFailureStage.METADATA);
+            if (wbiPrimary && report.httpStatus() == 412) {
+                wbiPausedUntil.set(System.currentTimeMillis() + Duration.ofSeconds(Math.max(1, cooldownSeconds)).toMillis());
+            }
+            if (isPrimaryRiskControlFailure(primaryFailure)
+                    || (wbiPrimary && report.category() != BilibiliFailureCategory.BILIBILI_RATE_LIMITED)) {
+                try {
+                    return loadPagelistFallback(request, report.httpStatus());
+                } catch (RuntimeException fallback) {
+                    fallback.addSuppressed(primaryFailure);
+                    throw fallback;
+                }
             }
             circuitBreaker.releaseHalfOpenProbe();
             throw asRuntime(primaryFailure, "Bilibili metadata request failed");
@@ -300,14 +334,14 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
         if (!circuitBreaker.tryAcquirePermission()) {
             throw circuitOpenFailure(BilibiliFailureStage.METADATA);
         }
-        if (!rateLimiter.tryAcquire()) {
+        if (!wbiPrimary && !rateLimiter.tryAcquire()) {
             circuitBreaker.releaseHalfOpenProbe();
             throw localRateLimitFailure();
         }
     }
 
-    private AudioItem loadPagelistFallback(BilibiliVideoIdentifier.VideoRequest request) {
-        if (!rateLimiter.tryAcquire()) {
+    private AudioItem loadPagelistFallback(BilibiliVideoIdentifier.VideoRequest request, int primaryStatus) {
+        if (!wbiPrimary && !rateLimiter.tryAcquire()) {
             circuitBreaker.releaseHalfOpenProbe();
             throw localRateLimitFailure();
         }
@@ -317,9 +351,10 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
             AudioItem item = toAudioItem(metadata, request.page());
             logCircuitTransition(circuitBreaker.recordSuccess(), 0);
             LOGGER.info(
-                    "[NoRule] Bilibili metadata fallback succeeded: videoId={} primaryStatus=412 "
+                    "[NoRule] Bilibili metadata fallback succeeded: videoId={} primaryStatus={} "
                             + "fallback=PAGELIST cid={} page={} degradedMetadata={}",
                     request.bvid(),
+                    primaryStatus,
                     metadata.cid(),
                     metadata.selectedPage(),
                     metadata.degraded()
@@ -331,14 +366,15 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
                     BilibiliFailureStage.METADATA
             );
             if (report.breakerFailure()) {
-                logCircuitTransition(circuitBreaker.recordFailure(report.httpStatus()), report.httpStatus());
+                recordHttpResponse(report.httpStatus());
             } else {
                 circuitBreaker.releaseHalfOpenProbe();
             }
             LOGGER.info(
-                    "[NoRule] Bilibili request rejected: videoId={} stage=METADATA primaryStatus=412 "
+                    "[NoRule] Bilibili request rejected: videoId={} stage=METADATA primaryStatus={} "
                             + "fallback=PAGELIST fallbackStatus={} category={} breakerState={} retryable={}",
                     request.bvid(),
+                    primaryStatus,
                     report.httpStatus(),
                     report.category(),
                     circuitBreaker.state(),
@@ -476,9 +512,11 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
     }
 
     private BilibiliMetadata.Page toPage(AudioTrack track, int fallbackPage) {
-        if (!(track instanceof BilibiliAudioTrack bilibiliTrack) || track.getInfo() == null) {
+        if (track.getInfo() == null || !(track instanceof BilibiliAudioTrack || track instanceof BilibiliDashAudioTrack)) {
             return null;
         }
+        BilibiliAudioTrack bilibiliTrack = track instanceof BilibiliDashAudioTrack dash
+                ? dash.vendorTrack() : (BilibiliAudioTrack) track;
         AudioTrackInfo info = track.getInfo();
         Integer requestedPage = BilibiliVideoIdentifier.from(info.uri)
                 .map(BilibiliVideoIdentifier.VideoRequest::page)
@@ -570,7 +608,17 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
         } catch (IllegalArgumentException ignored) {
             type = BilibiliAudioTrack.TrackType.VIDEO;
         }
-        return new BilibiliAudioTrack(info, type, page.sourceId(), page.cid(), delegate);
+        return type == BilibiliAudioTrack.TrackType.VIDEO
+                ? new BilibiliDashAudioTrack(info, page.sourceId(), page.cid(), this)
+                : new BilibiliAudioTrack(info, type, page.sourceId(), page.cid(), delegate);
+    }
+
+    com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface httpInterface() {
+        return delegate.getHttpInterface();
+    }
+
+    BilibiliAudioTrack vendorVideoTrack(AudioTrackInfo info, String id, Long cid) {
+        return new BilibiliAudioTrack(info, BilibiliAudioTrack.TrackType.VIDEO, id, cid, delegate);
     }
 
     private String canonicalVideoUrl(String bvid) {
@@ -579,14 +627,48 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
 
     private void recordHttpResponse(int status) {
         if (status == 412 || status == 429) {
+            pauseRequests(status, java.time.Duration.ofSeconds(Math.max(1, cooldownSeconds)).toMillis());
             logCircuitTransition(circuitBreaker.recordFailure(status), status);
+        }
+    }
+
+    private void pauseRequests(int status, long millis) {
+        pausedStatus = status;
+        long now = System.currentTimeMillis();
+        requestsPausedUntil.accumulateAndGet(millis > Long.MAX_VALUE - now ? Long.MAX_VALUE : now + millis, Math::max);
+    }
+
+    private void checkRequestCooldown() {
+        if (System.currentTimeMillis() < requestsPausedUntil.get()) {
+            throw new BilibiliRequestException(pausedStatus == 429
+                    ? BilibiliFailureCategory.BILIBILI_RATE_LIMITED : BilibiliFailureCategory.BILIBILI_RISK_CONTROL,
+                    BilibiliFailureStage.METADATA, pausedStatus, "Bilibili requests paused until "
+                    + java.time.Instant.ofEpochMilli(requestsPausedUntil.get()));
+        }
+    }
+
+    static long retryAfterMillis(HttpResponse response) {
+        var header = response.getFirstHeader("Retry-After");
+        if (header == null) return 60_000L;
+        try {
+            long seconds = Math.max(0L, Long.parseLong(header.getValue()));
+            return seconds > Long.MAX_VALUE / 1_000L ? Long.MAX_VALUE : seconds * 1_000L;
+        } catch (NumberFormatException invalidSeconds) {
+            try {
+                return Math.max(0L, java.time.ZonedDateTime.parse(header.getValue(),
+                        java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()
+                        - System.currentTimeMillis());
+            } catch (java.time.format.DateTimeParseException invalidDate) {
+                return 60_000L;
+            }
         }
     }
 
     boolean defersMetadataFailure(HttpUriRequest request) {
         URI uri = request == null ? null : request.getURI();
         String path = uri == null ? null : uri.getPath();
-        return "/x/web-interface/view".equals(path) || "/x/player/pagelist".equals(path);
+        return "/x/web-interface/view".equals(path) || "/x/web-interface/wbi/view".equals(path)
+                || "/x/web-interface/nav".equals(path) || "/x/player/pagelist".equals(path);
     }
 
     private void logCircuitTransition(BilibiliCircuitBreaker.Transition transition, int status) {
@@ -632,10 +714,14 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
 
         @Override
         public void onRequest(HttpClientContext context, HttpUriRequest request, boolean isRepetition) {
+            checkRequestCooldown();
             vendorHttpFilter.onRequest(context, request, isRepetition);
+            request.setHeader("Referer", "https://www.bilibili.com/");
+            request.setHeader("Accept-Encoding", "identity");
             if (!isControlPlaneRequest(request)) {
                 return;
             }
+            if (wbiPrimary && !rateLimiter.tryAcquire()) throw localRateLimitFailure();
             String currentCookie = cookie;
             if (!currentCookie.isBlank()) {
                 request.setHeader("Cookie", currentCookie);
@@ -647,11 +733,23 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
                                          HttpUriRequest request,
                                          HttpResponse response) {
             boolean repeat = vendorHttpFilter.onRequestResponse(context, request, response);
+            if (response != null && response.getStatusLine().getStatusCode() == 429) {
+                pauseRequests(429, retryAfterMillis(response));
+            }
+            if (!isControlPlaneRequest(request) && response != null
+                    && response.getStatusLine().getStatusCode() == 412) {
+                recordHttpResponse(412);
+            }
             if (isControlPlaneRequest(request)
                     && !defersMetadataFailure(request)
                     && response != null
                     && response.getStatusLine() != null) {
-                recordHttpResponse(response.getStatusLine().getStatusCode());
+                int status = response.getStatusLine().getStatusCode();
+                if (status == 429) {
+                    logCircuitTransition(circuitBreaker.recordFailure(status), status);
+                } else {
+                    recordHttpResponse(status);
+                }
             }
             return repeat;
         }
