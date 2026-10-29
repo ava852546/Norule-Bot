@@ -201,10 +201,10 @@ public final class BilibiliPagelistMetadataResolver {
     private record RawPage(int number, long cid, String title, long durationMillis, String thumbnail) {
     }
 
-    private static final class SharedHttpTransport implements PagelistTransport {
+    static final class SharedHttpTransport implements PagelistTransport {
         private final HttpInterfaceManager httpInterfaceManager;
 
-        private SharedHttpTransport(HttpInterfaceManager httpInterfaceManager) {
+        SharedHttpTransport(HttpInterfaceManager httpInterfaceManager) {
             this.httpInterfaceManager = Objects.requireNonNull(httpInterfaceManager, "httpInterfaceManager");
         }
 

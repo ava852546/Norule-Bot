@@ -2305,11 +2305,12 @@ public class MusicPlayerService {
                 + " category=" + failure.category()
                 + " breakerState=" + breakerState
                 + " retryable=" + failure.retryable()
-                + " message=" + safeExceptionMessage(exception);
+                + " message=" + safeExceptionMessage(exception)
+                + " rootCause=" + rootCauseDetails(exception);
         if (failure.retryable()) {
             LOGGER.error(summary, exception);
         } else {
-            LOGGER.warn(summary);
+            LOGGER.warn(summary, exception);
         }
     }
 

@@ -47,7 +47,7 @@ public final class BilibiliFailureClassifier {
         if (httpStatus == 429) {
             return report(BilibiliFailureCategory.BILIBILI_RATE_LIMITED, stage, httpStatus);
         }
-        BilibiliFailureCategory category = stage != BilibiliFailureStage.PLAYBACK
+        BilibiliFailureCategory category = isMetadata(stage)
                 ? BilibiliFailureCategory.BILIBILI_METADATA_FAILED
                 : BilibiliFailureCategory.BILIBILI_PLAYBACK_FAILED;
         boolean retryable = retryableNetworkFailure || httpStatus >= 500;
@@ -67,7 +67,7 @@ public final class BilibiliFailureClassifier {
     }
 
     private BilibiliFailureReport fallback(BilibiliFailureStage stage, boolean retryable) {
-        BilibiliFailureCategory category = stage != BilibiliFailureStage.PLAYBACK
+        BilibiliFailureCategory category = isMetadata(stage)
                 ? BilibiliFailureCategory.BILIBILI_METADATA_FAILED
                 : BilibiliFailureCategory.BILIBILI_PLAYBACK_FAILED;
         return new BilibiliFailureReport(category, stage, 0, retryable, false);
@@ -81,6 +81,7 @@ public final class BilibiliFailureClassifier {
     }
 
     private BilibiliFailureStage inferStage(String message, BilibiliFailureStage fallback) {
+        if (message.contains("audio selection")) return BilibiliFailureStage.AUDIO_SELECTION;
         if (message.contains("metadata")) {
             return BilibiliFailureStage.METADATA;
         }
@@ -88,6 +89,10 @@ public final class BilibiliFailureClassifier {
             return BilibiliFailureStage.PLAYBACK;
         }
         return fallback;
+    }
+
+    private boolean isMetadata(BilibiliFailureStage stage) {
+        return stage == BilibiliFailureStage.METADATA || stage == BilibiliFailureStage.SHORT_URL_RESOLVE;
     }
 
     private int extractHttpStatus(String message) {
