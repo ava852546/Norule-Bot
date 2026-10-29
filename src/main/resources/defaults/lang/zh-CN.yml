@@ -56,7 +56,7 @@ music:
   youtube_premiere_not_started: "这部 YouTube Premiere 尚未开始，目前无法播放。"
   youtube_removed: "这部 YouTube 视频已被移除，目前无法播放。"
   youtube_age_restricted: "这部 YouTube 视频有年龄限制，目前无法播放。"
-  youtube_login_required: "这部 YouTube 视频需要登录，目前无法播放。"
+  youtube_login_required: "此链接需要登录才能播放，机器人只支持无须登录的视频。"
   youtube_payment_required: "这部 YouTube 视频需要付费观看，目前无法播放。"
   youtube_private_video: "这部 YouTube 视频是私人视频，目前无法播放。"
   youtube_region_restricted: "这部 YouTube 视频在你所在的地区不可用，目前无法播放。"

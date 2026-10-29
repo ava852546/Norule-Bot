@@ -75,6 +75,9 @@ import com.norule.musicbot.*;
 
 import moe.kyokobot.libdave.NativeDaveFactory;
 import moe.kyokobot.libdave.jda.LDJDADaveSessionFactory;
+import okhttp3.ConnectionPool;
+import okhttp3.Dispatcher;
+import okhttp3.OkHttpClient;
 import org.yaml.snakeyaml.Yaml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -277,6 +280,13 @@ public final class RuntimeBootstrap {
             jda = new DiscordLoginRetryExecutor().execute(() -> {
                 AudioModuleConfig audioConfig = new AudioModuleConfig()
                         .withDaveSessionFactory(new LDJDADaveSessionFactory(new NativeDaveFactory()));
+                // Preserve JDA's default HTTP pool settings while observing retried 429 responses.
+                Dispatcher httpDispatcher = new Dispatcher();
+                httpDispatcher.setMaxRequestsPerHost(25);
+                OkHttpClient.Builder httpClientBuilder = new OkHttpClient.Builder()
+                        .dispatcher(httpDispatcher)
+                        .connectionPool(new ConnectionPool(5, 10L, TimeUnit.SECONDS))
+                        .addInterceptor(musicCommandListener.rateLimitInterceptor());
                 JDABuilder builder = JDABuilder.createDefault(
                                 token,
                                 GatewayIntent.GUILD_MESSAGES,
@@ -286,6 +296,7 @@ public final class RuntimeBootstrap {
                                 GatewayIntent.GUILD_VOICE_STATES,
                                 GatewayIntent.GUILD_MODERATION
                         )
+                        .setHttpClientBuilder(httpClientBuilder)
                         .setAudioModuleConfig(audioConfig)
                         .setMemberCachePolicy(MemberCachePolicy.VOICE.or(MemberCachePolicy.OWNER))
                         .setChunkingFilter(ChunkingFilter.NONE)

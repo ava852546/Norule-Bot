@@ -56,7 +56,7 @@ music:
   youtube_premiere_not_started: "This YouTube Premiere has not started yet, so it cannot be played."
   youtube_removed: "This YouTube video has been removed and cannot be played."
   youtube_age_restricted: "This YouTube video is age-restricted and cannot be played."
-  youtube_login_required: "This YouTube video requires login and cannot be played right now."
+  youtube_login_required: "This link requires login to play. The bot only supports videos that do not require login."
   youtube_payment_required: "This YouTube video requires payment, so it cannot be played."
   youtube_private_video: "This YouTube video is private and cannot be played."
   youtube_region_restricted: "This YouTube video is not available in this region, so it cannot be played."
