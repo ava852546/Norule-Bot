@@ -350,7 +350,7 @@ public class MusicDataService {
     public List<PlaybackEntry> getRecentHistory(long guildId, int limit) {
         GuildMusicData data = get(guildId);
         synchronized (data) {
-            int max = Math.max(1, Math.min(limit, data.history.size()));
+            int max = Math.min(Math.max(1, limit), data.history.size());
             return new ArrayList<>(data.history.subList(0, max));
         }
     }
@@ -403,7 +403,7 @@ public class MusicDataService {
         }
         GuildMusicData data = get(guildId);
         synchronized (data) {
-            int max = Math.max(1, Math.min(limit, data.history.size()));
+            int max = Math.min(Math.max(1, limit), data.history.size());
             for (int i = 0; i < max; i++) {
                 PlaybackEntry historyEntry = data.history.get(i);
                 if (key.equals(historyEntry.songKey())) {

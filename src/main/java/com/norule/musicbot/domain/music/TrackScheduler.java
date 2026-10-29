@@ -52,7 +52,19 @@ public class TrackScheduler extends AudioEventAdapter {
     }
 
     public synchronized void nextTrack() {
-        startReplacement(queue.poll());
+        nextTrack(true);
+    }
+
+    private void nextTrack(boolean recommendWhenEmpty) {
+        AudioTrack previous = player.getPlayingTrack();
+        if (previous == null) {
+            previous = recoveringTrack;
+        }
+        AudioTrack next = queue.poll();
+        startReplacement(next);
+        if (next == null && recommendWhenEmpty) {
+            notifyQueueExhausted(previous);
+        }
         notifyStateChanged(MusicStateChange.QUEUE_CHANGED);
     }
 
@@ -128,6 +140,18 @@ public class TrackScheduler extends AudioEventAdapter {
         return playbackGeneration;
     }
 
+    public synchronized boolean isIdle(long expectedGeneration) {
+        return playbackGeneration == expectedGeneration && player.getPlayingTrack() == null && queue.isEmpty();
+    }
+
+    public synchronized boolean queueIfIdle(AudioTrack track, long expectedGeneration) {
+        if (track == null || !isIdle(expectedGeneration)) {
+            return false;
+        }
+        queue(track);
+        return true;
+    }
+
     public synchronized boolean isActiveTrack(AudioTrack track, long expectedGeneration) {
         return track != null
                 && (player.getPlayingTrack() == track || recoveringTrack == track)
@@ -162,7 +186,8 @@ public class TrackScheduler extends AudioEventAdapter {
     public synchronized boolean skipIfCurrent(AudioTrack expectedTrack, long expectedGeneration) {
         if (isActiveTrack(expectedTrack, expectedGeneration)) {
             failedTrackAwaitingEnd = expectedTrack;
-            nextTrack();
+            // Failed recommendations must not create an endless autoplay failure loop.
+            nextTrack(false);
             return true;
         }
         return false;
@@ -246,13 +271,17 @@ public class TrackScheduler extends AudioEventAdapter {
         }
 
         startReplacement(null);
+        notifyQueueExhausted(track);
+        notifyStateChanged(MusicStateChange.TRACK_END);
+    }
+
+    private void notifyQueueExhausted(AudioTrack track) {
         if (repeatMode == RepeatMode.OFF && track != null) {
             Consumer<AudioTrack> listener = queueExhaustedListener;
             if (listener != null) {
                 listener.accept(track.makeClone());
             }
         }
-        notifyStateChanged(MusicStateChange.TRACK_END);
     }
 
     @Override
@@ -262,7 +291,7 @@ public class TrackScheduler extends AudioEventAdapter {
         if (listener != null) {
             listener.accept(track, exception);
         } else {
-            nextTrack();
+            nextTrack(false);
         }
         notifyStateChanged(MusicStateChange.RECOVERY);
     }
@@ -274,7 +303,7 @@ public class TrackScheduler extends AudioEventAdapter {
         if (listener != null) {
             listener.accept(track, thresholdMs);
         } else {
-            nextTrack();
+            nextTrack(false);
         }
         notifyStateChanged(MusicStateChange.RECOVERY);
     }
