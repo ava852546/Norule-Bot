@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -55,24 +56,38 @@ public final class MusicCommandChannelProvisioner {
 
     public void queueStartupProvisioning(List<Guild> guilds,
                                          BiConsumer<Guild, TextChannel> onProvisioned) {
-        if (guilds == null || guilds.isEmpty()) {
-            return;
-        }
+        EnumMap<QueueResult, Integer> counts = new EnumMap<>(QueueResult.class);
+        int checked = 0;
         long delayMs = 0L;
-        for (Guild guild : guilds) {
-            if (queueProvisioning(guild, delayMs, onProvisioned)) {
-                delayMs += startupIntervalMs;
+        if (guilds != null) {
+            for (Guild guild : guilds) {
+                if (guild == null) {
+                    continue;
+                }
+                checked++;
+                QueueResult result = queueProvisioning(guild, delayMs, onProvisioned);
+                counts.merge(result, 1, Integer::sum);
+                if (result == QueueResult.QUEUED) {
+                    delayMs += startupIntervalMs;
+                }
             }
         }
+        int historicalSuccess = counts.getOrDefault(QueueResult.SKIPPED_SUCCESS, 0);
+        int historicalFailure = counts.getOrDefault(QueueResult.SKIPPED_FAILED, 0);
+        int skipped = historicalSuccess + historicalFailure + counts.getOrDefault(QueueResult.SKIPPED, 0);
+        int attempted = counts.getOrDefault(QueueResult.QUEUED, 0) + counts.getOrDefault(QueueResult.REJECTED, 0);
+        LOGGER.info("Music command channel provisioning startup summary: checked={} skipped={} historicalSuccess={} historicalFailure={} attempted={} errors={}",
+                checked, skipped, historicalSuccess, historicalFailure, attempted,
+                counts.getOrDefault(QueueResult.ERROR, 0));
     }
 
     public boolean queueProvisioning(Guild guild, BiConsumer<Guild, TextChannel> onProvisioned) {
-        return queueProvisioning(guild, 0L, onProvisioned);
+        return queueProvisioning(guild, 0L, onProvisioned) == QueueResult.QUEUED;
     }
 
     public boolean queueGuildJoinProvisioning(Guild guild,
                                                BiConsumer<Guild, TextChannel> onProvisioned) {
-        return queueProvisioning(guild, startupIntervalMs, onProvisioned);
+        return queueProvisioning(guild, startupIntervalMs, onProvisioned) == QueueResult.QUEUED;
     }
 
     public CompletableFuture<TextChannel> ensureCommandChannel(Guild guild) {
@@ -119,23 +134,28 @@ public final class MusicCommandChannelProvisioner {
         );
     }
 
-    private boolean queueProvisioning(Guild guild,
+    private QueueResult queueProvisioning(Guild guild,
                                       long delayMs,
                                       BiConsumer<Guild, TextChannel> onProvisioned) {
         if (guild == null) {
-            return false;
+            return QueueResult.SKIPPED;
         }
         long guildId = guild.getIdLong();
         MusicCommandChannelProvisioning attempt;
         try {
-            attempt = provisioningState.tryStart(guildId);
+            var result = provisioningState.tryStartWithResult(guildId);
+            attempt = result.attempt();
+            if (attempt == null) {
+                return switch (result.previousStatus()) {
+                    case SUCCESS -> QueueResult.SKIPPED_SUCCESS;
+                    case FAILED -> QueueResult.SKIPPED_FAILED;
+                    case ATTEMPTING -> QueueResult.SKIPPED;
+                };
+            }
         } catch (RuntimeException failure) {
             // Fail closed: Discord must not be called without a durable claim.
             logProvisioningFailure(guild, failure);
-            return false;
-        }
-        if (attempt == null) {
-            return false;
+            return QueueResult.ERROR;
         }
 
         try {
@@ -149,11 +169,15 @@ public final class MusicCommandChannelProvisioner {
                     guildId,
                     delayMs / 1_000.0d
             );
-            return true;
+            return QueueResult.QUEUED;
         } catch (RejectedExecutionException failure) {
             provisioningState.fail(attempt, failure);
-            return false;
+            return QueueResult.REJECTED;
         }
+    }
+
+    private enum QueueResult {
+        QUEUED, REJECTED, SKIPPED_SUCCESS, SKIPPED_FAILED, SKIPPED, ERROR
     }
 
     private void runQueuedProvisioning(Guild scheduledGuild,
