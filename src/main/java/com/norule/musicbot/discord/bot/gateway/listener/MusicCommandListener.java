@@ -11,6 +11,7 @@ import com.norule.musicbot.config.domain.RuntimeConfigSnapshot;
 import com.norule.musicbot.config.GuildSettingsService;
 import com.norule.musicbot.discord.bot.service.stats.MessageStatsEventService;
 import com.norule.musicbot.discord.bot.gateway.InteractionGateway;
+import com.norule.musicbot.discord.bot.gateway.DiscordRateLimitInterceptor;
 import com.norule.musicbot.discord.bot.ops.meta.DevOps;
 import com.norule.musicbot.discord.bot.ops.wordchain.WordChainOps;
 import com.norule.musicbot.discord.bot.service.meta.DevService;
@@ -105,6 +106,10 @@ public class MusicCommandListener extends ListenerAdapter {
 
     public void initializePanelPersistence(MusicPanelBindingService bindings) {
         service.initializePanelPersistence(bindings);
+    }
+
+    public DiscordRateLimitInterceptor rateLimitInterceptor() {
+        return new DiscordRateLimitInterceptor(service::currentJda, service::panelRefs);
     }
 
     public void reloadRuntimeConfig(RuntimeConfigSnapshot newConfig) {

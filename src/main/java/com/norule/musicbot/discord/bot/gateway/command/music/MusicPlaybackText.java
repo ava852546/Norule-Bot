@@ -36,6 +36,9 @@ public final class MusicPlaybackText {
     }
 
     public String mapMusicLoadError(String lang, String rawError) {
+        if ("music.youtube_login_required".equals(YoutubePlaybackErrorMapper.toMessageKey(rawError))) {
+            return youtubeLoginRequired(lang);
+        }
         if (isInternalPlaybackFailure(rawError)) {
             return playbackAdminRequired(lang);
         }
@@ -90,7 +93,6 @@ public final class MusicPlaybackText {
         if (rawError != null && rawError.regionMatches(true, 0, "YOUTUBE_", 0, "YOUTUBE_".length())) {
             return i18n().t(lang, switch (rawError.toUpperCase()) {
                 case "YOUTUBE_BOT_DETECTED" -> "music.youtube_bot_detected";
-                case "YOUTUBE_LOGIN_REQUIRED" -> "music.youtube_login_required";
                 case "YOUTUBE_NO_SUPPORTED_AUDIO_STREAM" -> "music.youtube_no_supported_audio_stream";
                 case "YOUTUBE_PLAYER_CONFIGURATION_ERROR" -> "music.youtube_player_configuration_error";
                 case "YOUTUBE_VIDEO_UNAVAILABLE" -> "music.youtube_unavailable";
@@ -158,6 +160,13 @@ public final class MusicPlaybackText {
                 "This video cannot be played right now. Please contact an administrator.",
                 "\u76ee\u524d\u7121\u6cd5\u64ad\u653e\u6b64\u5f71\u7247\uff0c\u8acb\u806f\u7d61\u7ba1\u7406\u54e1\u3002",
                 "\u76ee\u524d\u65e0\u6cd5\u64ad\u653e\u6b64\u89c6\u9891\uff0c\u8bf7\u8054\u7cfb\u7ba1\u7406\u5458\u3002");
+    }
+
+    private String youtubeLoginRequired(String lang) {
+        return translatedOrFallback(lang, "music.youtube_login_required",
+                "This link requires login to play. The bot only supports videos that do not require login.",
+                "\u6b64\u9023\u7d50\u9700\u8981\u767b\u5165\u624d\u80fd\u64ad\u653e\uff0c\u6a5f\u5668\u4eba\u53ea\u652f\u63f4\u7121\u9808\u767b\u5165\u7684\u5f71\u7247\u3002",
+                "\u6b64\u94fe\u63a5\u9700\u8981\u767b\u5f55\u624d\u80fd\u64ad\u653e\uff0c\u673a\u5668\u4eba\u53ea\u652f\u6301\u65e0\u987b\u767b\u5f55\u7684\u89c6\u9891\u3002");
     }
 
     private String spotifyGeneratedPlaylistUnavailable(String lang) {

@@ -7,14 +7,8 @@ target/
 *.iml
 
 # Runtime data
-/guild-configs/
 /lang/
 /data/
-/guild-moderation/
-/guild-music/
-/guild-tickets/
-/guild-honeypot/
-/ticket-transcripts/
 /cache/
 /lib/
 /runtime-libs/
@@ -53,3 +47,5 @@ index.md
 /web/dashboard/node_modules/
 /src/main/resources/web/dashboard/_nuxt/
 /src/main/resources/web/short-url/_nuxt/
+
+debug.log

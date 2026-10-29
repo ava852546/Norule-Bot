@@ -56,7 +56,7 @@ music:
   youtube_premiere_not_started: "這部 YouTube Premiere 尚未開始，目前無法播放。"
   youtube_removed: "這部 YouTube 影片已被移除，目前無法播放。"
   youtube_age_restricted: "這部 YouTube 影片有年齡限制，目前無法播放。"
-  youtube_login_required: "這部 YouTube 影片需要登入，目前無法播放。"
+  youtube_login_required: "此連結需要登入才能播放，機器人只支援無須登入的影片。"
   youtube_payment_required: "這部 YouTube 影片需要付費觀看，目前無法播放。"
   youtube_private_video: "這部 YouTube 影片是私人影片，目前無法播放。"
   youtube_region_restricted: "這部 YouTube 影片在你所在的地區無法觀看，目前無法播放。"

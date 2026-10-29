@@ -67,7 +67,13 @@ public final class YoutubePlaybackErrorMapper {
                 "geo restricted")) {
             return "music.youtube_region_restricted";
         }
-        if (normalized.contains("requires login")) {
+        if (containsAny(normalized,
+                "requires login",
+                "login required",
+                "sign in to view",
+                "must be signed in")
+                || normalized.equals("youtube_login_required")
+                || normalized.matches(".*\\bcategory=login_required\\b.*")) {
             return "music.youtube_login_required";
         }
         if (containsAny(normalized,
