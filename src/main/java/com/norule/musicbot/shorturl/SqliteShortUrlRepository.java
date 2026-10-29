@@ -260,19 +260,36 @@ public final class SqliteShortUrlRepository implements ShortUrlRepository {
     }
 
     @Override
-    public List<ShortUrlService.ShortUrlEntry> findExpiredBetween(long after, long through) {
+    public List<ShortUrlService.ShortUrlEntry> findUnprocessedExpired(long through) {
         List<ShortUrlService.ShortUrlEntry> entries = new ArrayList<>();
         try (Connection connection = DriverManager.getConnection(jdbcUrl);
              PreparedStatement statement = connection.prepareStatement("SELECT " + SELECT_FIELDS
-                     + " FROM short_urls WHERE expires_at > ? AND expires_at <= ?")) {
-            statement.setLong(1, after);
-            statement.setLong(2, through);
+                     + " FROM short_urls WHERE expired_processed_at IS NULL AND expires_at <= ?")) {
+            statement.setLong(1, through);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) entries.add(mapRow(rows));
             }
             return entries;
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to query expired short URLs", e);
+        }
+    }
+
+    @Override
+    public boolean markExpiredProcessed(ShortUrlService.ShortUrlEntry entry, long processedAt) {
+        String sql = "UPDATE short_urls SET expired_processed_at = ?"
+                + " WHERE code = ? AND created_at = ? AND expires_at = ?"
+                + " AND expires_at <= ? AND expired_processed_at IS NULL";
+        try (Connection connection = DriverManager.getConnection(jdbcUrl);
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, processedAt);
+            statement.setString(2, entry.code());
+            statement.setLong(3, entry.createdAt());
+            statement.setLong(4, entry.expiresAt());
+            statement.setLong(5, processedAt);
+            return statement.executeUpdate() == 1;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to complete short URL expiration", e);
         }
     }
 
@@ -367,8 +384,37 @@ public final class SqliteShortUrlRepository implements ShortUrlRepository {
             statement.execute(CREATE_INDEX);
             statement.execute(CREATE_OWNER_INDEX);
             statement.execute(CREATE_SETTINGS_TABLE);
+            ensureColumn(connection, statement, "expired_processed_at", "INTEGER");
+            initializeExpirationBaseline(connection);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to initialize short url sqlite schema", e);
+        }
+    }
+
+    // The marker and historical baseline commit together, so interrupted initialization is retryable.
+    // Inserting the unique marker also serializes concurrent initializers across instances.
+    private static void initializeExpirationBaseline(Connection connection) throws SQLException {
+        connection.setAutoCommit(false);
+        try (PreparedStatement marker = connection.prepareStatement(
+                "INSERT OR IGNORE INTO short_url_settings (setting_key, setting_value) VALUES (?, ?)")) {
+            long cutoff = System.currentTimeMillis();
+            marker.setString(1, "expired_processed_baseline_v1");
+            marker.setString(2, Long.toString(cutoff));
+            if (marker.executeUpdate() == 1) {
+                try (PreparedStatement baseline = connection.prepareStatement(
+                        "UPDATE short_urls SET expired_processed_at = ?"
+                                + " WHERE expired_processed_at IS NULL AND expires_at <= ?")) {
+                    baseline.setLong(1, cutoff);
+                    baseline.setLong(2, cutoff);
+                    baseline.executeUpdate();
+                }
+            }
+            connection.commit();
+        } catch (SQLException e) {
+            connection.rollback();
+            throw e;
+        } finally {
+            connection.setAutoCommit(true);
         }
     }
 

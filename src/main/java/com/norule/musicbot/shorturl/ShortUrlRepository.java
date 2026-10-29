@@ -57,8 +57,13 @@ public interface ShortUrlRepository {
 
     int cleanupExpired(long nowMillis);
 
-    default List<ShortUrlService.ShortUrlEntry> findExpiredBetween(long after, long through) {
+    default List<ShortUrlService.ShortUrlEntry> findUnprocessedExpired(long through) {
         return List.of();
+    }
+
+    /** Atomically completes this entry's expiration; only the winner may emit the event. */
+    default boolean markExpiredProcessed(ShortUrlService.ShortUrlEntry entry, long processedAt) {
+        return false;
     }
 
     long incrementViewCount(String code);

@@ -18,6 +18,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MySqlShortUrlRepositoryTest {
     @Test
+    void expirationClaimUsesConditionalUpdateAndOnlyReportsAffectedRow() {
+        java.util.List<String> statements = new java.util.ArrayList<>();
+        java.util.List<Map<Integer, Object>> bindings = new java.util.ArrayList<>();
+        var affectedRows = new java.util.concurrent.atomic.AtomicInteger(1);
+        DataSource source = proxy(DataSource.class, (ds, method, args) -> {
+            if (!"getConnection".equals(method.getName())) return defaultValue(method.getReturnType());
+            return proxy(Connection.class, (connection, call, params) -> {
+                if (!"prepareStatement".equals(call.getName())) return defaultValue(call.getReturnType());
+                statements.add((String) params[0]);
+                Map<Integer, Object> values = new HashMap<>();
+                bindings.add(values);
+                return proxy(PreparedStatement.class, (statement, operation, arguments) -> {
+                    if (operation.getName().startsWith("set")) values.put((Integer) arguments[0], arguments[1]);
+                    if ("executeUpdate".equals(operation.getName())) return affectedRows.getAndSet(0);
+                    return defaultValue(operation.getReturnType());
+                });
+            });
+        });
+        var repository = new MySqlShortUrlRepository(source);
+        var entry = new ShortUrlService.ShortUrlEntry("expired", "https://example.com", 1L, 2L);
+        assertTrue(repository.markExpiredProcessed(entry, 10L));
+        assertFalse(repository.markExpiredProcessed(entry, 10L));
+        assertEquals("UPDATE short_urls SET expired_processed_at = ?"
+                + " WHERE code = ? AND created_at = ? AND expires_at = ?"
+                + " AND expires_at <= ? AND expired_processed_at IS NULL", statements.getFirst());
+        assertEquals(Map.of(1, 10L, 2, "expired", 3, 1L, 4, 2L, 5, 10L), bindings.getFirst());
+    }
+
+    @Test
     void managementWritesIncludeOwnerAndCreationIdentityInSqlPredicate() {
         java.util.List<String> statements = new java.util.ArrayList<>();
         java.util.List<Map<Integer, Object>> bindings = new java.util.ArrayList<>();

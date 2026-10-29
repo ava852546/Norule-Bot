@@ -1,5 +1,22 @@
 # 短網址匿名／登入分級政策
 
+## 過期事件持久化與升級
+
+- SQLite／MySQL 初始化時新增可為 NULL 的 `short_urls.expired_processed_at`
+  （INTEGER／BIGINT，epoch 毫秒）。新資料預設 NULL。
+- 首次升級以同一交易寫入 `short_url_settings` 的唯一標記
+  `expired_processed_baseline_v1`，並將初始化當時已過期的歷史資料標記為已處理，
+  不補發歷史日誌。交易失敗會回滾，可於下次啟動重試。
+- 後續啟動不再重建歷史基準；停機期間才到期的資料仍會正常處理。
+- 原排程查詢已到期且尚未處理的資料，以原子條件 UPDATE 核對 code、
+  created_at、expires_at 與 NULL 標記，只有更新一列的執行者輸出
+  `SHORT_URL_EXPIRED`。資料庫更新失敗時仍可重試。
+- 此事件採最多一次輸出；若資料庫提交後、logger 寫入前程序崩潰，可能遺失該筆
+  日誌。資料庫與 logger 無法共同提交，本次未引入額外事件投遞服務。
+- 不更動到期時間、過期頁、代碼佔用、媒體搬移與保存期限；永久刪除仍沿用既有
+  使用者確認與 Owner 檢查。媒體重試不依賴此標記。
+- 共用資料庫的所有實例須一起升級；舊版程式不會遵守此持久化標記。
+
 ## 原有架構與問題
 
 - 獨立 `ShortUrlGatewayServer` 與 Dashboard `ShortUrlWebService` 均接受 `POST /api/short`；兩者共用核心 `ShortUrlService`、SQLite/MySQL repository、domain validation。
