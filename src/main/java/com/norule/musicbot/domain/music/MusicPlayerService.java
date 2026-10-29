@@ -2425,15 +2425,28 @@ public class MusicPlayerService {
             return;
         }
         GuildMusicManager guildMusicManager = musicManagers.get(guildId);
-        if (guildMusicManager == null) {
+        if (guildMusicManager == null || !guildMusicManager.isConnected()) {
             return;
         }
-        String fallbackQuery = buildAutoplayQuery(endedTrack);
-        if (fallbackQuery.isBlank()) {
+        long generation = guildMusicManager.getScheduler().getPlaybackGeneration();
+        if (!guildMusicManager.getScheduler().isIdle(generation)) {
+            return;
+        }
+        String query = buildAutoplayQuery(endedTrack);
+        if (query.isBlank()) {
             setAutoplayNotice(guildId, "NO_MATCH");
             return;
         }
-        loadAutoplayCandidate(guildId, guildMusicManager, endedTrack, YT_SEARCH_PREFIX + fallbackQuery, null, false);
+        // Searching the full song title may return only the seed itself. Broaden once
+        // to the artist before reporting that there are no recommendations.
+        String fallbackQuery = stripNoise(endedTrack.getInfo().author);
+        if (fallbackQuery.length() > 180) {
+            fallbackQuery = fallbackQuery.substring(0, 180);
+        }
+        if (fallbackQuery.equalsIgnoreCase(query)) {
+            fallbackQuery = null;
+        }
+        loadAutoplayCandidate(guildId, guildMusicManager, endedTrack, YT_SEARCH_PREFIX + query, fallbackQuery, generation);
     }
 
     private void loadAutoplayCandidate(long guildId,
@@ -2441,10 +2454,13 @@ public class MusicPlayerService {
                                        AudioTrack seedTrack,
                                        String identifier,
                                        String fallbackQuery,
-                                       boolean allowFallbackToQuery) {
+                                       long generation) {
         playerManager.loadItemOrdered(guildMusicManager, identifier, new AudioLoadResultHandler() {
             @Override
             public void trackLoaded(AudioTrack track) {
+                if (!isAutoplayRequestCurrent(guildId, guildMusicManager, generation)) {
+                    return;
+                }
                 if (isLikelySameTrack(seedTrack, track)) {
                     if (tryFallback()) {
                         return;
@@ -2455,11 +2471,14 @@ public class MusicPlayerService {
                 if (wasRecentlyPlayed(guildId, track) && tryFallback()) {
                     return;
                 }
-                queueAutoplayTrack(guildId, guildMusicManager, track);
+                queueAutoplayTrack(guildId, guildMusicManager, track, generation);
             }
 
             @Override
             public void playlistLoaded(AudioPlaylist playlist) {
+                if (!isAutoplayRequestCurrent(guildId, guildMusicManager, generation)) {
+                    return;
+                }
                 if (playlist.getTracks().isEmpty()) {
                     if (tryFallback()) {
                         return;
@@ -2485,11 +2504,14 @@ public class MusicPlayerService {
                         return;
                     }
                 }
-                queueAutoplayTrack(guildId, guildMusicManager, candidate);
+                queueAutoplayTrack(guildId, guildMusicManager, candidate, generation);
             }
 
             @Override
             public void noMatches() {
+                if (!isAutoplayRequestCurrent(guildId, guildMusicManager, generation)) {
+                    return;
+                }
                 if (tryFallback()) {
                     return;
                 }
@@ -2498,6 +2520,9 @@ public class MusicPlayerService {
 
             @Override
             public void loadFailed(FriendlyException exception) {
+                if (!isAutoplayRequestCurrent(guildId, guildMusicManager, generation)) {
+                    return;
+                }
                 if (tryFallback()) {
                     return;
                 }
@@ -2514,7 +2539,7 @@ public class MusicPlayerService {
             }
 
             private boolean tryFallback() {
-                if (!allowFallbackToQuery || fallbackQuery == null || fallbackQuery.isBlank()) {
+                if (fallbackQuery == null || fallbackQuery.isBlank()) {
                     return false;
                 }
                 loadAutoplayCandidate(
@@ -2523,22 +2548,32 @@ public class MusicPlayerService {
                         seedTrack,
                         YT_SEARCH_PREFIX + fallbackQuery,
                         null,
-                        false
+                        generation
                 );
                 return true;
             }
         });
     }
 
-    private void queueAutoplayTrack(long guildId, GuildMusicManager guildMusicManager, AudioTrack track) {
+    private boolean isAutoplayRequestCurrent(long guildId, GuildMusicManager manager, long generation) {
+        return autoplayEnabledChecker.test(guildId)
+                && manager.isConnected()
+                && manager.getScheduler().isIdle(generation);
+    }
+
+    private void queueAutoplayTrack(long guildId, GuildMusicManager guildMusicManager, AudioTrack track, long generation) {
         YouTubePlaybackPrecheckResult precheck = precheckTrack(track, "youtube");
+        if (!isAutoplayRequestCurrent(guildId, guildMusicManager, generation)) {
+            return;
+        }
         if (!precheck.allowsQueue()) {
             setAutoplayNotice(guildId, "LOAD_FAILED:" + mapYouTubePrecheckFailure(precheck));
             return;
         }
         applyTrackMetadata(track, "autoplay", null, "AutoPlay");
-        clearAutoplayNotice(guildId);
-        queuePlaybackTrack(guildMusicManager, track);
+        if (guildMusicManager.getScheduler().queueIfIdle(preparePlaybackTrack(track), generation)) {
+            clearAutoplayNotice(guildId);
+        }
     }
 
     private void setAutoplayNotice(long guildId, String message) {
