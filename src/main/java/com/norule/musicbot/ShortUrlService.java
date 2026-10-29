@@ -735,9 +735,11 @@ public final class ShortUrlService {
 
     public void cleanupExpired() {
         long now = System.currentTimeMillis();
-        for (ShortUrlEntry expired : repository.findExpiredBetween(lastCleanupAt, now)) {
-            LOG.info("event=SHORT_URL_EXPIRED code={} ownerUserId={} expiredAt={} codeReleased=false",
-                    expired.code(), expired.ownerUserId(), expired.expiresAt());
+        for (ShortUrlEntry expired : repository.findUnprocessedExpired(now)) {
+            if (repository.markExpiredProcessed(expired, now)) {
+                LOG.info("event=SHORT_URL_EXPIRED code={} ownerUserId={} expiredAt={} codeReleased=false",
+                        expired.code(), expired.ownerUserId(), expired.expiresAt());
+            }
         }
         if (imageShareService != null) {
             imageShareService.cleanupExpired();
