@@ -1,5 +1,6 @@
 package com.norule.musicbot.discord.bot.gateway.listener;
 
+import com.norule.musicbot.service.music.MusicPanelBindingService;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 
 import com.norule.musicbot.HoneypotService;
@@ -93,11 +94,17 @@ public class MusicCommandListener extends ListenerAdapter {
                 provisioningState
         );
         this.gateway = new InteractionGateway(service, signals);
-        this.devOps = new DevOps(new DevService(
+        DevService developerCommands = new DevService(
                 runtimeConfig,
                 musicService::getActivePlaybackGuildCount,
                 shortUrlService
-        ));
+        );
+        developerCommands.setMusicPanelCommand(service.devMusicPanelCommandHandler()::execute);
+        this.devOps = new DevOps(developerCommands);
+    }
+
+    public void initializePanelPersistence(MusicPanelBindingService bindings) {
+        service.initializePanelPersistence(bindings);
     }
 
     public void reloadRuntimeConfig(RuntimeConfigSnapshot newConfig) {

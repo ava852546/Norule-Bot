@@ -58,13 +58,41 @@ class PanelRefreshFailurePolicyTest {
     }
 
     @Test
-    void missingAccessClearsStateWithoutAutomaticRetry() {
+    void missingAccessRetainsStateWithoutAutomaticRetry() {
         PanelRefreshFailurePolicy.PanelFailure failure = policy.classify(
                 discordError(ErrorResponse.MISSING_ACCESS, 403)
         );
 
-        assertEquals(PanelRefreshFailurePolicy.FailureDisposition.CLEAR_STATE, failure.disposition());
+        assertEquals(PanelRefreshFailurePolicy.FailureDisposition.KEEP_STATE, failure.disposition());
         assertEquals("MISSING_ACCESS", failure.reason());
+    }
+
+    @Test
+    void onlyUnknownMessageAuthorizesReplacementIncludingWrappedRestFailures() {
+        assertTrue(MusicPanelRefreshService.isUnknownMessage(new java.util.concurrent.CompletionException(
+                discordError(ErrorResponse.UNKNOWN_MESSAGE, 404))));
+        assertFalse(MusicPanelRefreshService.isUnknownMessage(discordError(ErrorResponse.UNKNOWN_CHANNEL, 404)));
+        assertFalse(MusicPanelRefreshService.isUnknownMessage(discordError(ErrorResponse.MISSING_ACCESS, 403)));
+        assertFalse(MusicPanelRefreshService.isUnknownMessage(discordError(ErrorResponse.MISSING_PERMISSIONS, 403)));
+        assertFalse(MusicPanelRefreshService.isUnknownMessage(new java.io.IOException("Discord 5xx or network failure")));
+        assertFalse(MusicPanelRefreshService.isUnknownMessage(new IllegalStateException("429 Retry-After")));
+    }
+
+    @Test
+    void permissionAndChannelFailuresNeverDiscardBindings() {
+        for (ErrorResponse response : java.util.List.of(ErrorResponse.MISSING_PERMISSIONS, ErrorResponse.UNKNOWN_CHANNEL)) {
+            assertEquals(PanelRefreshFailurePolicy.FailureDisposition.KEEP_STATE,
+                    policy.classify(discordError(response, 403)).disposition());
+        }
+        assertEquals(PanelRefreshFailurePolicy.FailureDisposition.KEEP_STATE,
+                policy.classify(new net.dv8tion.jda.api.exceptions.InsufficientPermissionException(
+                        (net.dv8tion.jda.api.entities.Guild) java.lang.reflect.Proxy.newProxyInstance(
+                                getClass().getClassLoader(), new Class<?>[]{net.dv8tion.jda.api.entities.Guild.class},
+                                (instance, method, arguments) -> switch (method.getName()) {
+                                    case "getIdLong" -> 1L;
+                                    case "getId" -> "1";
+                                    default -> "test guild";
+                                }), Permission.MESSAGE_SEND)).disposition());
     }
 
     @Test

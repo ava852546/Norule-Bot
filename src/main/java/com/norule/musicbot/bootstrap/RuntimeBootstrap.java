@@ -51,6 +51,8 @@ import com.norule.musicbot.shorturl.infra.FileSystemImageShareStorage;
 import com.norule.musicbot.shorturl.infra.ShortUrlGatewayServer;
 import com.norule.musicbot.service.shorturl.ImageShareService;
 import com.norule.musicbot.service.music.MusicCommandChannelProvisioningService;
+import com.norule.musicbot.service.music.MusicPanelBindingService;
+import com.norule.musicbot.storage.sqlite.MusicPanelSqliteRepository;
 import com.norule.musicbot.service.shorturl.AnonymousDeviceIdentityService;
 import com.norule.musicbot.service.shorturl.MediaPasswordAttemptGuard;
 import com.norule.musicbot.service.shorturl.MediaQuotaService;
@@ -264,6 +266,9 @@ public final class RuntimeBootstrap {
                 wordChainOps,
                 provisioningState
         );
+        musicCommandListener.initializePanelPersistence(
+                new MusicPanelBindingService(
+                        new MusicPanelSqliteRepository(provisioningDatabase)));
 
         GatewayMonitoringRuntime monitoring = new GatewayMonitoringRuntime(config.getDiscord().getMonitoring(), baseDir);
         GATEWAY_MONITORING.set(monitoring);
