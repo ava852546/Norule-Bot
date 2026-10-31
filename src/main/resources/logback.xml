@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="com.norule.musicbot.discord.bot.infra.DiscordGlobalRateLimitLogFilter" />
         <encoder>
             <pattern>%msg%n</pattern>
         </encoder>

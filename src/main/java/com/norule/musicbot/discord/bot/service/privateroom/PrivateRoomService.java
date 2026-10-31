@@ -14,6 +14,7 @@ import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
 import net.dv8tion.jda.api.events.session.ReadyEvent;
+import net.dv8tion.jda.api.requests.RestAction;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -21,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.BiFunction;
 
 public class PrivateRoomService {
     private static final long ROOM_OWNER_PERMISSION_RAW = Permission.getRaw(
@@ -55,7 +58,13 @@ public class PrivateRoomService {
     }
 
     public void onReady(ReadyEvent event) {
-        reconcileCachedRooms(event.getJDA().getGuilds());
+        onReady(event, (id, action) -> action.submit());
+    }
+
+    public void onReady(ReadyEvent event,
+            BiFunction<Long, RestAction<Void>,
+                    CompletableFuture<Void>> deleteRoom) {
+        reconcileCachedRooms(event.getJDA().getGuilds(), deleteRoom);
     }
 
     public void onGuildVoiceUpdate(GuildVoiceUpdateEvent event) {
@@ -169,7 +178,9 @@ public class PrivateRoomService {
         PRIVATE_CHANNELS.computeIfAbsent(guildId, id -> ConcurrentHashMap.newKeySet()).add(channelId);
     }
 
-    private void reconcileCachedRooms(List<Guild> guilds) {
+    private void reconcileCachedRooms(List<Guild> guilds,
+            BiFunction<Long, RestAction<Void>,
+                    CompletableFuture<Void>> deleteRoom) {
         Map<Long, Guild> guildById = new HashMap<>();
         for (Guild guild : guilds) {
             guildById.put(guild.getIdLong(), guild);
@@ -202,14 +213,16 @@ public class PrivateRoomService {
                 }
                 if (channel.getMembers().isEmpty()) {
                     long targetChannelId = channelId;
-                    channel.delete().queue(
-                            success -> {
+                    deleteRoom.apply(channelId, channel.delete().setCheck(() -> channel.getMembers().isEmpty()))
+                            .thenRun(() -> {
                                 removeManagedPrivateChannel(guildId, targetChannelId);
                                 removeCacheEntry(guildId, targetChannelId);
-                            },
-                            error -> {
-                            }
-                    );
+                            }).exceptionally(error -> {
+                                org.slf4j.LoggerFactory.getLogger(PrivateRoomService.class).debug(
+                                        "Startup private room cleanup deferred: guildId={} channelId={}",
+                                        guildId, targetChannelId, error);
+                                return null;
+                            });
                 }
             }
         }

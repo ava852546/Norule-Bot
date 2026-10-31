@@ -324,7 +324,8 @@ public final class RuntimeBootstrap {
                                         }),
                                 new WordChainMessageListener(wordChainOps),
                                 new VoiceAutoLeaveListener(guildSettingsService, playerService, i18nService),
-                                new PrivateRoomListener(guildSettingsService, i18nService, privateRoomCacheRepository)
+                                new PrivateRoomListener(guildSettingsService, i18nService, privateRoomCacheRepository,
+                                        musicCommandListener.backgroundRest())
                         );
                 if (messageStatsListener != null) {
                     builder.addEventListeners(messageStatsListener);

@@ -1,5 +1,9 @@
 package com.norule.musicbot.discord.bot.gateway.listener;
 
+
+import com.norule.musicbot.discord.bot.gateway.DiscordRateLimitInterceptor;
+
+import com.norule.musicbot.discord.bot.gateway.DiscordBackgroundRestQueue;
 import com.norule.musicbot.discord.bot.service.cache.*;
 import com.norule.musicbot.discord.bot.service.privateroom.PrivateRoomService;
 
@@ -11,14 +15,29 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
 public class PrivateRoomListener extends ListenerAdapter {
     private final PrivateRoomService service;
+    private final DiscordBackgroundRestQueue background;
 
     public PrivateRoomListener(GuildSettingsService settingsService, I18nService i18n, PrivateRoomCacheRepository cacheRepository) {
+        this(settingsService, i18n, cacheRepository, null);
+    }
+
+    public PrivateRoomListener(GuildSettingsService settingsService, I18nService i18n,
+            PrivateRoomCacheRepository cacheRepository,
+            DiscordBackgroundRestQueue background) {
         this.service = new PrivateRoomService(settingsService, i18n, cacheRepository);
+        this.background = background;
     }
 
     @Override
     public void onReady(ReadyEvent event) {
-        service.onReady(event);
+        if (background == null) {
+            service.onReady(event);
+        } else {
+            service.onReady(event, (id, action) -> background.submit("private-room:" + id,
+                    () -> DiscordRateLimitInterceptor.track(
+                            action, "PRIVATE_ROOM_STARTUP_CLEANUP", true, true,
+                            "DELETE", "/channels/" + id).submit()));
+        }
     }
 
     @Override

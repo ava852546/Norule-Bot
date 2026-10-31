@@ -53,13 +53,19 @@ public final class MusicPanelController {
     }
 
     public void initializeGuild(Guild guild) {
-        if (guild != null && modes.resolve(guild).modern()) {
-            refreshService.requestRefresh(guild.getIdLong(), RefreshReason.MANUAL);
+        if (guild != null) {
+            initializeGuilds(List.of(guild));
         }
     }
 
     public void initializeGuilds(List<Guild> guilds) {
-        guilds.forEach(this::initializeGuild);
+        initializeGuilds(guilds, guildId -> owner.musicService().setGuildStateChangeListener(guildId,
+                reason -> refreshService.requestRefresh(guildId, RefreshReason.valueOf(reason.name()))));
+    }
+
+    static void initializeGuilds(List<Guild> guilds, LongConsumer registerListener) {
+        // Startup/cache population only installs local listeners. Provision on demand.
+        guilds.forEach(guild -> registerListener.accept(guild.getIdLong()));
     }
 
     public void guildLeft(long guildId) {

@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.infra;
 
+import com.norule.musicbot.discord.bot.gateway.DiscordRateLimitInterceptor;
+
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.interactions.commands.build.CommandData;
@@ -25,7 +27,9 @@ public final class CommandRegistrar {
 
     public void registerOnReady(JDA jda) {
         List<CommandData> commands = owner.buildCommands();
-        jda.updateCommands().addCommands(commands).queue(
+        DiscordRateLimitInterceptor.track(
+                jda.updateCommands().addCommands(commands), "SLASH_COMMAND_SYNC", false, true,
+                "PUT", "/applications/" + jda.getSelfUser().getApplicationId() + "/commands").queue(
                 success -> log.info("[NoRule] Registered global slash commands: {} command(s)", success.size()),
                 failure -> log.warn("[NoRule] Failed to register global slash commands: {}", failure.getMessage())
         );
@@ -89,7 +93,9 @@ public final class CommandRegistrar {
             return;
         }
         List<CommandData> commands = owner.buildCommands();
-        current.updateCommands().addCommands(commands).queue(
+        DiscordRateLimitInterceptor.track(
+                current.updateCommands().addCommands(commands), "SLASH_COMMAND_SYNC", false, false,
+                "PUT", "/applications/" + current.getSelfUser().getApplicationId() + "/commands").queue(
                 success -> log.info("[NoRule] Slash commands synchronized: {} command(s)", success.size()),
                 failure -> log.warn("[NoRule] Failed to sync global slash commands: {}", failure.getMessage())
         );

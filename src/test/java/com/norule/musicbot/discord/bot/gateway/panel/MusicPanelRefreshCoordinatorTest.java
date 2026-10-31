@@ -273,6 +273,39 @@ class MusicPanelRefreshCoordinatorTest {
         return new MusicPanelSnapshot(new EmbedBuilder().setDescription(content).build(), List.of());
     }
 
+    @Test
+    void playSupersedesQueuedProgressWithoutWaitingForGlobalMaintenancePause() {
+        var now = new java.util.concurrent.atomic.AtomicLong();
+        var foreground = new java.util.concurrent.atomic.AtomicInteger();
+        try (var background = new com.norule.musicbot.discord.bot.gateway.DiscordBackgroundRestQueue(scheduler, now::get);
+             var refresh = new MusicPanelRefreshCoordinator(scheduler, (guildId, reasons) ->
+                     CompletableFuture.completedFuture(new MusicPanelRefreshCoordinator.Update(
+                             10, 100, snapshot(reasons.toString()), () -> {
+                                 if (reasons.equals(Set.of(RefreshReason.PERIODIC_REFRESH))) {
+                                     return background.submit("music-panel:" + guildId, () -> {
+                                         fail("Superseded periodic REST must not run");
+                                         return null;
+                                     });
+                                 }
+                                 foreground.incrementAndGet();
+                                 return CompletableFuture.completedFuture(null);
+                             })))) {
+            background.pause(60_000);
+            refresh.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+            now.addAndGet(TimeUnit.MILLISECONDS.toNanos(750));
+            scheduler.advance(750);
+            assertEquals(1, background.pendingCount());
+            // The same cancellation/admission sequence used by MusicPanelRefreshService.
+            background.cancelPending("music-panel:1");
+            refresh.requestRefresh(1, RefreshReason.PLAY_ADDED);
+            refresh.requestRefresh(2, RefreshReason.BUTTON_INTERACTION);
+            now.addAndGet(TimeUnit.MILLISECONDS.toNanos(750));
+            scheduler.advance(750);
+            assertEquals(2, foreground.get());
+            assertEquals(0, background.pendingCount());
+        }
+    }
+
     /** Virtual time: exercise real scheduling decisions without sleeps or timing-sensitive assertions. */
     static final class ManualScheduler extends ScheduledThreadPoolExecutor {
         private final List<Task> tasks = new ArrayList<>();
