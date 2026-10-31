@@ -1,9 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway;
 
-import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelStateStore;
-import net.dv8tion.jda.api.JDA;
-import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.channel.middleman.GuildChannel;
+import net.dv8tion.jda.api.requests.RestAction;
+import net.dv8tion.jda.api.utils.data.DataObject;
 import okhttp3.Interceptor;
 import okhttp3.Response;
 import org.slf4j.Logger;
@@ -12,94 +10,141 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.function.Supplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.concurrent.TimeUnit;
 
-/** Observes actual HTTP 429 responses, including requests JDA will automatically retry. */
+/** Observes every HTTP attempt, including 429s consumed internally by JDA's rate limiter. */
 public final class DiscordRateLimitInterceptor implements Interceptor {
     private static final Logger LOGGER = LoggerFactory.getLogger(DiscordRateLimitInterceptor.class);
-    private static final Pattern CHANNEL_ROUTE = Pattern.compile("/channels/([0-9]+)(?:/|$)");
-    private static final Pattern GUILD_ROUTE = Pattern.compile("/guilds/([0-9]+)(?:/|$)");
+    // Only explicitly instrumented endpoints are attributed. Never infer a feature from a channel binding.
+    private static final Map<String, Source> SOURCES = new LinkedHashMap<>();
+    private final DiscordBackgroundRestQueue background;
+    private long nextWarning = System.nanoTime();
+    private int suppressed;
 
-    private final Supplier<JDA> jdaSupplier;
-    private final Supplier<Map<Long, MusicPanelStateStore.PanelRef>> panelRefs;
+    public DiscordRateLimitInterceptor(DiscordBackgroundRestQueue background) {
+        this.background = background;
+    }
 
-    public DiscordRateLimitInterceptor(Supplier<JDA> jdaSupplier,
-                                       Supplier<Map<Long, MusicPanelStateStore.PanelRef>> panelRefs) {
-        this.jdaSupplier = jdaSupplier;
-        this.panelRefs = panelRefs;
+    public static <T extends RestAction<?>> T track(T action, String feature, boolean background, boolean startup,
+                                                  String method, String path) {
+        synchronized (SOURCES) {
+            long now = System.nanoTime();
+            SOURCES.values().removeIf(source -> now - source.createdAt > TimeUnit.MINUTES.toNanos(10));
+            if (SOURCES.size() >= 4096) {
+                SOURCES.remove(SOURCES.keySet().iterator().next());
+            }
+            String key = method + " " + path;
+            Source existing = SOURCES.get(key);
+            // Concurrent operations on the same route cannot be distinguished at the HTTP boundary.
+            SOURCES.put(key, new Source(existing == null ? feature : "AMBIGUOUS", background, startup, now));
+        }
+        return action;
     }
 
     @Override
     public Response intercept(Chain chain) throws IOException {
-        Response response = chain.proceed(chain.request());
+        var request = chain.request();
+        String path = request.url().encodedPath().replaceFirst("^/api(?:/v[0-9]+)?", "");
+        String key = request.method() + " " + path;
+        Source source;
+        int attempt;
+        synchronized (SOURCES) {
+            source = SOURCES.get(key);
+            attempt = source == null ? 0 : ++source.attempts;
+        }
+        Response response = chain.proceed(request);
         if (response.code() == 429) {
-            logRateLimit(response);
+            long retryMs = retryAfterMillis(response);
+            // Admission only: JDA owns global/shared/user bucket handling and all HTTP retries.
+            background.pause(retryMs);
+            log(response, path, source, attempt, retryMs);
+        } else {
+            synchronized (SOURCES) {
+                if (source != null) {
+                    SOURCES.remove(key, source);
+                }
+            }
         }
         return response;
     }
 
-    private void logRateLimit(Response response) {
-        String path = response.request().url().encodedPath();
-        String channelId = routeId(CHANNEL_ROUTE, path);
-        String guildId = routeId(GUILD_ROUTE, path);
-        String feature = "DISCORD_REST";
-        for (Map.Entry<Long, MusicPanelStateStore.PanelRef> entry : panelRefs.get().entrySet()) {
-            MusicPanelStateStore.PanelRef panel = entry.getValue();
-            if (Long.toUnsignedString(panel.channelId).equals(channelId)) {
-                guildId = Long.toUnsignedString(entry.getKey());
-                if (path.endsWith("/messages/" + Long.toUnsignedString(panel.messageId))) {
-                    feature = "MUSIC_PANEL";
-                }
-                break;
-            }
+    private synchronized void log(Response response, String path, Source source, int attempt, long retryMs) {
+        long now = System.nanoTime();
+        if (now < nextWarning) {
+            suppressed++;
+            return;
         }
-
-        JDA jda = jdaSupplier.get();
-        GuildChannel channel = jda == null || channelId == null ? null : jda.getGuildChannelById(channelId);
-        Guild guild = channel == null
-                ? (jda == null || guildId == null ? null : jda.getGuildById(guildId))
-                : channel.getGuild();
-        if (guild != null) {
-            guildId = guild.getId();
-        }
-
-        LOGGER.warn("[RateLimit]\nguildId={}\nguildName={}\nchannelId={}\nchannelName={}\nfeature={}\nhttpStatus=429\nretryAfterMs={}",
-                logValue(guildId),
-                logValue(guild == null ? null : guild.getName()),
-                logValue(channelId),
-                logValue(channel == null ? null : channel.getName()),
-                feature,
-                retryAfterMillis(response));
+        String scope = response.header("X-RateLimit-Scope", "unknown");
+        boolean global = "true".equalsIgnoreCase(response.header("X-RateLimit-Global"))
+                || "global".equalsIgnoreCase(scope) || body(response).getBoolean("global", false);
+        LOGGER.warn("[RateLimit] httpStatus=429 method={} route={} feature={} priority={} startup={} automaticRetry={} "
+                        + "scope={} global={} retryAfterMs={} pendingBackground={} inFlightBackground={} suppressedSinceLast={}",
+                response.request().method(), routeTemplate(path), source == null ? "UNATTRIBUTED" : source.feature,
+                source == null || "AMBIGUOUS".equals(source.feature) ? "unknown"
+                        : source.background ? "BACKGROUND" : source.startup ? "CONTROL" : "USER",
+                source == null || "AMBIGUOUS".equals(source.feature) ? "unknown" : source.startup,
+                source == null || "AMBIGUOUS".equals(source.feature) ? "unknown" : attempt > 1,
+                scope.replace('\r', ' ').replace('\n', ' '), global, retryMs,
+                background.pendingCount(), background.inFlightCount(), suppressed);
+        suppressed = 0;
+        nextWarning = now + TimeUnit.SECONDS.toNanos(10);
     }
 
-    private static String routeId(Pattern pattern, String path) {
-        Matcher matcher = pattern.matcher(path);
-        return matcher.find() ? matcher.group(1) : null;
+    static String routeTemplate(String path) {
+        // Never log webhook/interaction tokens, query strings, or literal user data in paths.
+        StringBuilder route = new StringBuilder();
+        for (String part : path.split("/")) {
+            if (part.isEmpty()) continue;
+            boolean known = switch (part) {
+                case "channels", "guilds", "applications", "commands", "messages", "bulk-delete",
+                     "interactions", "webhooks", "callback", "@original", "@me", "users", "members",
+                     "roles", "permissions", "reactions", "pins", "threads" -> true;
+                default -> false;
+            };
+            route.append('/').append(known ? part : "{id}");
+        }
+        return route.toString();
     }
 
-    private static long retryAfterMillis(Response response) {
+    static long retryAfterMillis(Response response) {
+        long retry = -1;
         for (String header : new String[]{"Retry-After", "X-RateLimit-Reset-After"}) {
-            String value = response.header(header);
-            if (value == null) {
-                continue;
-            }
-            try {
-                long millis = new BigDecimal(value).movePointRight(3)
-                        .setScale(0, RoundingMode.CEILING).longValueExact();
-                if (millis >= 0L) {
-                    return millis;
-                }
-            } catch (NumberFormatException | ArithmeticException ignored) {
-                // Try the next Discord rate-limit header without affecting the response or retry.
-            }
+            retry = Math.max(retry, secondsToMillis(response.header(header)));
         }
-        return -1L;
+        return Math.max(retry, secondsToMillis(String.valueOf(body(response).getDouble("retry_after", -1))));
     }
 
-    private static String logValue(String value) {
-        return value == null ? "unknown" : value.replace('\r', ' ').replace('\n', ' ');
+    private static long secondsToMillis(String seconds) {
+        if (seconds == null) return -1;
+        try {
+            return new BigDecimal(seconds).movePointRight(3).setScale(0, RoundingMode.CEILING).longValueExact();
+        } catch (NumberFormatException | ArithmeticException ignored) {
+            return -1;
+        }
+    }
+
+    private static DataObject body(Response response) {
+        try {
+            return DataObject.fromJson(response.peekBody(4096).string());
+        } catch (IOException | RuntimeException ignored) {
+            // Malformed metadata must not affect JDA's original response processing.
+            return DataObject.empty();
+        }
+    }
+
+    private static final class Source {
+        private final String feature;
+        private final boolean background;
+        private final boolean startup;
+        private final long createdAt;
+        private int attempts;
+        private Source(String feature, boolean background, boolean startup, long createdAt) {
+            this.feature = feature;
+            this.background = background;
+            this.startup = startup;
+            this.createdAt = createdAt;
+        }
     }
 }

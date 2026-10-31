@@ -107,7 +107,8 @@ public class TicketService {
 
         public void onReady(ReadyEvent event) {
         this.jda = event.getJDA();
-        worker.execute(this::ensureCategoriesForEnabledGuilds);
+        // Existing ticket actions ensure their categories on demand. A login alone
+        // must not create categories across every enabled guild.
     }
 
         public void onMessageReceived(MessageReceivedEvent event) {
@@ -1659,21 +1660,6 @@ public class TicketService {
         }
 
         return new TicketCategoryPair(open, closed);
-    }
-
-    private void ensureCategoriesForEnabledGuilds() {
-        if (jda == null) {
-            return;
-        }
-        for (Guild guild : jda.getGuilds()) {
-            try {
-                TicketConfig cfg = configAdapter.getTicket(guild.getIdLong());
-                if (cfg.isEnabled()) {
-                    ensureTicketCategories(guild, configAdapter.getLanguage(guild.getIdLong()));
-                }
-            } catch (Exception ignored) {
-            }
-        }
     }
 
     private void autoCloseStaleTickets() {

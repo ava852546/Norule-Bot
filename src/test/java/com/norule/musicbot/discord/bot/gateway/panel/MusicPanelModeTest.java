@@ -113,7 +113,9 @@ class MusicPanelModeTest {
         var fixture = new Discord();
         var modes = new MusicPanelModeResolver(settings);
         var controller = new MusicPanelController(null, null, id -> fail("Unexpected refresh"), null, modes);
-        controller.initializeGuild(fixture.guild); // Unconfigured MODERN: no channel provisioning.
+        var initialized = new AtomicInteger();
+        MusicPanelController.initializeGuilds(List.of(fixture.guild), id -> initialized.incrementAndGet());
+        assertEquals(1, initialized.get()); // Startup installs listeners without channel provisioning.
         assertSame(fixture.channel, controller.resolveOrCreateCommandChannel(fixture.guild, fixture.channel).join());
         assertNull(settings.getMusic(1).getCommandChannelId());
         settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(999L).withPanelMode(MusicPanelMode.LEGACY)));

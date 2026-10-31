@@ -1,6 +1,8 @@
 package com.norule.musicbot.discord.bot.gateway.listener;
 
 import com.norule.musicbot.service.music.MusicPanelBindingService;
+
+import com.norule.musicbot.discord.bot.gateway.DiscordBackgroundRestQueue;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 
 import com.norule.musicbot.HoneypotService;
@@ -33,6 +35,7 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
 public class MusicCommandListener extends ListenerAdapter {
     private final MusicCommandService service;
+    private final DiscordRateLimitInterceptor rateLimits;
     private final InteractionGateway gateway;
     private final DevOps devOps;
 
@@ -102,6 +105,7 @@ public class MusicCommandListener extends ListenerAdapter {
         );
         developerCommands.setMusicPanelCommand(service.devMusicPanelCommandHandler()::execute);
         this.devOps = new DevOps(developerCommands);
+        this.rateLimits = new DiscordRateLimitInterceptor(service.backgroundRest());
     }
 
     public void initializePanelPersistence(MusicPanelBindingService bindings) {
@@ -109,7 +113,11 @@ public class MusicCommandListener extends ListenerAdapter {
     }
 
     public DiscordRateLimitInterceptor rateLimitInterceptor() {
-        return new DiscordRateLimitInterceptor(service::currentJda, service::panelRefs);
+        return rateLimits;
+    }
+
+    public DiscordBackgroundRestQueue backgroundRest() {
+        return service.backgroundRest();
     }
 
     public void reloadRuntimeConfig(RuntimeConfigSnapshot newConfig) {

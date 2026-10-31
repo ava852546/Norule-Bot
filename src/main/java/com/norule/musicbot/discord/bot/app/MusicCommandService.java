@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.app;
 
+import com.norule.musicbot.discord.bot.gateway.DiscordBackgroundRestQueue;
+
 import com.norule.musicbot.discord.bot.gateway.command.meta.DevMusicPanelCommandHandler;
 import com.norule.musicbot.service.music.MusicPanelBindingService;
 import com.norule.musicbot.service.music.MusicCommandChannelProvisioningService;
@@ -126,6 +128,9 @@ public class MusicCommandService extends ListenerAdapter {
         thread.setDaemon(true);
         return thread;
     });
+    private final DiscordBackgroundRestQueue backgroundRest =
+            new DiscordBackgroundRestQueue(scheduler);
+
     private final AtomicReference<JDA> jda = new AtomicReference<>();
     private final CommandRegistrar commandRegistrar;
     private final DiscordCommandCatalog discordCommandCatalog;
@@ -287,6 +292,10 @@ public class MusicCommandService extends ListenerAdapter {
     public ScheduledExecutorService scheduler() {
         return scheduler;
     }
+
+    public DiscordBackgroundRestQueue backgroundRest() {
+        return backgroundRest;
+    }
     public MusicPanelController musicPanelController() {
         return musicPanelRuntime.musicPanelController();
     }
@@ -332,8 +341,7 @@ public class MusicCommandService extends ListenerAdapter {
         this.jda.set(event.getJDA());
         this.botReadyForSlashCommands.set(true);
         musicPanelRuntime.musicPanelRefreshService().restorePanels();
-        commandRegistrar.syncCommands();
-        musicPanelRuntime.musicPanelController().initializeGuilds(event.getJDA().getGuilds());
+        commandRegistrar.registerOnReady(event.getJDA());
         ticketOps.onReady(event);
     }
 
@@ -352,6 +360,7 @@ public class MusicCommandService extends ListenerAdapter {
 
     @Override
     public void onMessageDelete(net.dv8tion.jda.api.events.message.MessageDeleteEvent event) {
+
         prefixCommandRouter.messageDeleted(event.getMessageIdLong());
         if (event.isFromGuild()) {
             musicPanelRuntime.musicPanelRefreshService().clearPanel(
@@ -371,6 +380,7 @@ public class MusicCommandService extends ListenerAdapter {
     public void shutdown() {
         prefixCommandRouter.close();
         musicPanelRuntime.close();
+        backgroundRest.close();
         scheduler.shutdownNow();
     }
 
