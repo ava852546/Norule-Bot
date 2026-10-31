@@ -16,6 +16,9 @@ system:
 
 music:
   panel_mode_label: "Music panel mode"
+  panel_fallback_title: "Music panel configuration issue"
+  panel_fallback_description: "Temporarily using Legacy mode. Use `/settings` to set a valid default music panel channel, or switch to Legacy mode to stop these notices."
+  panel_fallback_footer: "Only visible to you · Notice retained"
   panel_mode_modern: "Modern mode (default)"
   panel_mode_legacy: "Legacy mode"
   panel_mode_modern_description: "Persistent music controls; automatically cleans messages in the configured music channel."

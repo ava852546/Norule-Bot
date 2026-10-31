@@ -2,7 +2,6 @@ package com.norule.musicbot.discord.bot.gateway.command.music;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
-import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver;
 import com.norule.musicbot.discord.bot.gateway.panel.RefreshReason;
 import com.norule.musicbot.domain.music.AudioInputNormalizer;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
@@ -19,7 +18,6 @@ import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
-import net.dv8tion.jda.api.interactions.InteractionHook;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 
 import java.awt.Color;
@@ -30,7 +28,6 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
 
 public final class MusicPlaybackCommandHandler {
     public static final String PLAY_PICK_PREFIX = "play:pick:";
@@ -98,41 +95,21 @@ public final class MusicPlaybackCommandHandler {
         });
     }
     public void handlePlaySlash(SlashCommandInteractionEvent event, String lang) {
-        event.deferReply(true).queue(success -> {
-            sendFallbackNotice(panelController.panelMode(event.getGuild()), event.getHook(),
-                    () -> owner.musicText(lang, "panel_fallback_legacy"), event.getGuild().getIdLong());
+        MusicPlayReply.acknowledge(event, panelController.panelMode(event.getGuild()),
+                () -> MusicPlayReply.fallbackNotice(key -> owner.musicText(lang, key)), reply -> {
             TextChannel fallback = event.getChannelType() == ChannelType.TEXT
                     ? event.getChannel().asTextChannel()
                     : null;
             panelController.resolveOrCreateCommandChannel(event.getGuild(), fallback)
-                    .thenAccept(panelChannel -> handlePlaySlashDeferred(event, lang, panelChannel));
-        }, failure -> {
+                    .thenAccept(panelChannel -> handlePlaySlashDeferred(event, lang, panelChannel, reply));
         });
     }
 
-    static void sendFallbackNotice(MusicPanelModeResolver.Selection mode, InteractionHook hook,
-                                   Supplier<String> text, long guildId) {
-        if (!mode.fallback()) {
-            return;
-        }
-        // A separate ephemeral notice survives search/result edits. Never wait on it to enqueue music.
-        try {
-            hook.sendMessage(text.get()).setEphemeral(true).queue(null, failure -> logNoticeFailure(guildId, failure));
-        } catch (RuntimeException failure) {
-            logNoticeFailure(guildId, failure);
-        }
-    }
-
-    private static void logNoticeFailure(long guildId, Throwable failure) {
-        org.slf4j.LoggerFactory.getLogger(MusicPlaybackCommandHandler.class).debug(
-                "Music panel fallback notice failed: guildId={} reason={}", guildId,
-                MusicPanelModeResolver.failureReason(failure));
-    }
-
-    private void handlePlaySlashDeferred(SlashCommandInteractionEvent event, String lang, TextChannel panelChannel) {
+    private void handlePlaySlashDeferred(SlashCommandInteractionEvent event, String lang, TextChannel panelChannel,
+                                         MusicPlayReply reply) {
         String query = getPlayQuery(event);
         if (query.isBlank()) {
-            event.getHook().editOriginal(owner.i18nService().t(lang, "music.not_found", Map.of("query", ""))).queue();
+            reply.sendText(owner.i18nService().t(lang, "music.not_found", Map.of("query", "")));
             return;
         }
         if (owner.musicService().isUrlLikeInput(query)) {
@@ -140,7 +117,7 @@ public final class MusicPlaybackCommandHandler {
                     event.getGuild(),
                     event.getMember(),
                     query,
-                    text -> event.getHook().editOriginal(text).queue(),
+                    reply::sendText,
                     panelChannel
             );
             return;
@@ -148,29 +125,23 @@ public final class MusicPlaybackCommandHandler {
 
         owner.musicService().searchTopTracks(query, 10, results -> {
             if (results.isEmpty()) {
-                event.getHook().editOriginal(owner.i18nService().t(lang, "music.not_found", Map.of("query", query))).queue();
+                reply.sendText(owner.i18nService().t(lang, "music.not_found", Map.of("query", query)));
                 return;
             }
             String token = UUID.randomUUID().toString().replace("-", "");
-            SearchRequest request = new SearchRequest(
-                    event.getUser().getIdLong(),
-                    panelChannel == null ? null : panelChannel.getIdLong(),
-                    query,
-                    results,
-                    Instant.now().plusSeconds(30),
-                    event.getHook(),
-                    lang
-            );
-            searchRequests.put(token, request);
-            event.getHook().editOriginalEmbeds(new EmbedBuilder()
+            reply.sendSearch(new EmbedBuilder()
                             .setColor(new Color(52, 152, 219))
                             .setTitle(owner.i18nService().t(lang, "music.search_title"))
                             .setDescription(owner.i18nService().t(lang, "music.search_desc", Map.of("seconds", "30")))
-                            .build())
-                    .setComponents(ActionRow.of(buildSearchMenu(token, results, lang)))
-                    .queue(message -> owner.scheduler().schedule(() -> expireSearchMenu(token),
-                            30, TimeUnit.SECONDS));
-        }, error -> event.getHook().editOriginal(playbackText.mapMusicLoadError(lang, error)).queue());
+                            .build(), ActionRow.of(buildSearchMenu(token, results, lang)), message -> {
+                        searchRequests.put(token, new SearchRequest(
+                                event.getUser().getIdLong(),
+                                panelChannel == null ? null : panelChannel.getIdLong(),
+                                query, results, Instant.now().plusSeconds(30),
+                                reply, message.getId(), lang));
+                        owner.scheduler().schedule(() -> expireSearchMenu(token), 30, TimeUnit.SECONDS);
+                    });
+        }, error -> reply.sendText(playbackText.mapMusicLoadError(lang, error)));
     }
     public void handleSkipSlash(SlashCommandInteractionEvent event) {
         event.deferReply(true).queue(success -> handleSkip(event.getGuild(),
@@ -530,15 +501,11 @@ public final class MusicPlaybackCommandHandler {
     }
 
     private void editExpiredSearch(String token, SearchRequest request) {
-        request.hook.editOriginalEmbeds(new EmbedBuilder()
+        request.reply.editSearch(request.messageId, new EmbedBuilder()
                         .setColor(new Color(149, 165, 166))
                         .setTitle(owner.musicText(request.lang, "search_expired_title"))
                         .setDescription(owner.i18nService().t(request.lang, "music.search_expired"))
-                        .build())
-                .setComponents(ActionRow.of(buildSearchMenu(token, request.results, request.lang).asDisabled()))
-                .queue(success -> {
-                }, error -> {
-                });
+                        .build(), ActionRow.of(buildSearchMenu(token, request.results, request.lang).asDisabled()));
     }
 
     private String safe(String s, int max) {
@@ -593,7 +560,8 @@ public final class MusicPlaybackCommandHandler {
         private final String query;
         private final List<AudioTrack> results;
         private final Instant expiresAt;
-        private final InteractionHook hook;
+        private final MusicPlayReply reply;
+        private final String messageId;
         private final String lang;
 
         SearchRequest(long requestUserId,
@@ -601,14 +569,16 @@ public final class MusicPlaybackCommandHandler {
                       String query,
                       List<AudioTrack> results,
                       Instant expiresAt,
-                      InteractionHook hook,
+                      MusicPlayReply reply,
+                      String messageId,
                       String lang) {
             this.requestUserId = requestUserId;
             this.channelId = channelId;
             this.query = query;
             this.results = results;
             this.expiresAt = expiresAt;
-            this.hook = hook;
+            this.reply = reply;
+            this.messageId = messageId;
             this.lang = lang;
         }
     }

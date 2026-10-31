@@ -16,6 +16,9 @@ system:
 
 music:
   panel_mode_label: "音樂面板模式"
+  panel_fallback_title: "音樂面板設定異常"
+  panel_fallback_description: "目前暫時使用傳統模式，請透過 `/settings` 設定有效的預設音樂面板頻道，或切換為傳統模式以停止提醒。"
+  panel_fallback_footer: "僅執行指令者可見 · 保留提示"
   panel_mode_modern: "新版模式（預設）"
   panel_mode_legacy: "傳統模式"
   panel_mode_modern_description: "常駐音樂控制面板，自動清理指定音樂頻道訊息。"

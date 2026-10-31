@@ -1,19 +1,13 @@
 package com.norule.musicbot.discord.bot.gateway.command.music;
 
-import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver;
-import com.norule.musicbot.domain.music.MusicPanelMode;
 import com.norule.musicbot.i18n.I18nService;
-import net.dv8tion.jda.api.interactions.InteractionHook;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -21,34 +15,23 @@ class MusicPanelFallbackNoticeTest {
     @TempDir Path directory;
 
     @Test
-    void everyFallbackPlaySendsItsOwnEphemeralNoticeEvenWhenDeliveryFails() {
-        List<String> sent = new ArrayList<>();
-        var mode = new MusicPanelModeResolver.Selection(MusicPanelMode.MODERN, MusicPanelMode.LEGACY,
-                null, null, "NOT_CONFIGURED");
-        InteractionHook hook = hook(sent);
-        MusicPlaybackCommandHandler.sendFallbackNotice(mode, hook, () -> "notice", 1);
-        MusicPlaybackCommandHandler.sendFallbackNotice(mode, hook, () -> "notice", 1);
-        assertEquals(List.of("notice", "notice"), sent);
-    }
-
-    @Test
-    void validModernAndExplicitLegacyNeverSendTheFallbackNotice() {
-        List<String> sent = new ArrayList<>();
-        for (var mode : List.of(
-                new MusicPanelModeResolver.Selection(MusicPanelMode.MODERN, MusicPanelMode.MODERN, 10L, null, "AVAILABLE"),
-                new MusicPanelModeResolver.Selection(MusicPanelMode.LEGACY, MusicPanelMode.LEGACY, null, null, "LEGACY_MODE"))) {
-            MusicPlaybackCommandHandler.sendFallbackNotice(mode, hook(sent), () -> fail("Unexpected text lookup"), 1);
+    void warningEmbedUsesRequestedCopyAndLocalizedFallbacks() throws Exception {
+        AtomicReference<I18nService> i18n = new AtomicReference<>(I18nService.load(directory, "en"));
+        var resolver = new MusicTextResolver(i18n::get);
+        var embed = MusicPlayReply.fallbackNotice(key -> resolver.musicText("zh-TW", key));
+        assertEquals("音樂面板設定異常", embed.getTitle());
+        assertEquals("目前暫時使用傳統模式，請透過 `/settings` 設定有效的預設音樂面板頻道，或切換為傳統模式以停止提醒。", embed.getDescription());
+        assertEquals("僅執行指令者可見 · 保留提示", embed.getFooter().getText());
+        assertEquals(0xF0B232, embed.getColorRaw());
+        for (String language : List.of("en", "zh-TW", "zh-CN")) {
+            var localized = MusicPlayReply.fallbackNotice(key -> resolver.musicText(language, key));
+            assertFalse(localized.getTitle().startsWith("music."));
+            assertTrue(localized.getDescription().contains("`/settings`"));
+            assertFalse(localized.getFooter().getText().startsWith("music."));
         }
-        assertTrue(sent.isEmpty());
-    }
-
-    @Test
-    void synchronousNoticeFailureCannotInterruptThePlayContinuation() {
-        InteractionHook hook = (InteractionHook) Proxy.newProxyInstance(InteractionHook.class.getClassLoader(),
-                new Class<?>[]{InteractionHook.class}, (o, m, a) -> { throw new IllegalStateException("expired hook"); });
-        var mode = new MusicPanelModeResolver.Selection(MusicPanelMode.MODERN, MusicPanelMode.LEGACY,
-                null, null, "NOT_CONFIGURED");
-        assertDoesNotThrow(() -> MusicPlaybackCommandHandler.sendFallbackNotice(mode, hook, () -> "notice", 1));
+        Files.writeString(directory.resolve("en.yml"), "music:\n  panel_fallback_title: Reloaded title\n");
+        i18n.set(I18nService.load(directory, "en"));
+        assertEquals("Reloaded title", MusicPlayReply.fallbackNotice(key -> resolver.musicText("en", key)).getTitle());
     }
 
     @Test
@@ -72,22 +55,4 @@ class MusicPanelFallbackNoticeTest {
         assertEquals("Reloaded notice", resolver.musicText("en", "panel_fallback_legacy"));
     }
 
-    @SuppressWarnings("unchecked")
-    private InteractionHook hook(List<String> sent) {
-        return (InteractionHook) Proxy.newProxyInstance(InteractionHook.class.getClassLoader(),
-                new Class<?>[]{InteractionHook.class}, (o, m, a) -> {
-                    assertEquals("sendMessage", m.getName());
-                    sent.add((String) a[0]);
-                    return Proxy.newProxyInstance(m.getReturnType().getClassLoader(), new Class<?>[]{m.getReturnType()},
-                            (action, method, arguments) -> {
-                                if (method.getName().equals("setEphemeral")) {
-                                    assertEquals(true, arguments[0]);
-                                    return action;
-                                }
-                                assertEquals("queue", method.getName());
-                                ((Consumer<Throwable>) arguments[1]).accept(new IllegalStateException("delivery failed"));
-                                return null;
-                            });
-                });
-    }
 }
