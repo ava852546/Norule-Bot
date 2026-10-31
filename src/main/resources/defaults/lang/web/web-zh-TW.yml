@@ -409,3 +409,12 @@ logout_confirm_description: "登出後，需要再次透過 Discord 驗證才能
 logout_confirm_question: "確定要登出 NoRule Bot 控制台嗎？"
 logout_confirm_title: "確認登出"
 logout_unsaved_warning: "目前仍有未儲存的設定，登出後這些變更會遺失。"
+
+panel_mode_label: "音樂面板模式"
+panel_default_channel: "預設音樂面板頻道（新版模式）"
+panel_channel_not_configured: "尚未設定"
+panel_mode_modern: "新版模式（預設）"
+panel_mode_legacy: "傳統模式"
+panel_mode_modern_description: "常駐音樂控制面板，自動清理指定音樂頻道訊息。"
+panel_mode_legacy_description: "每次成功點歌後，移除舊音樂面板並在頻道底部建立新面板；不清理一般訊息。"
+panel_fallback_legacy: "預設音樂面板頻道不存在、無法存取或尚未設定，目前暫時使用傳統模式，仍可正常點歌。請透過 /settings 設定有效的預設音樂面板頻道。如果不希望每次點歌都收到提示，可以在設定中切換為 LEGACY 傳統模式。在頻道恢復有效或手動切換為 LEGACY 前，每次 /play 都會顯示此私人提示。"

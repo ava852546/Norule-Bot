@@ -2,6 +2,8 @@ package com.norule.musicbot.config;
 
 import com.norule.musicbot.storage.sqlite.GuildSettingsSqliteRepository;
 import com.norule.musicbot.config.domain.QuestNotificationConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
@@ -14,7 +16,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.LongConsumer;
 import java.util.function.UnaryOperator;
 
 public class GuildSettingsService {
@@ -111,6 +116,14 @@ public class GuildSettingsService {
         }
     }
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(GuildSettingsService.class);
+    private final List<LongConsumer> musicSettingsListeners = new CopyOnWriteArrayList<>();
+
+    public Runnable onMusicSettingsChanged(LongConsumer listener) {
+        musicSettingsListeners.add(listener);
+        return () -> musicSettingsListeners.remove(listener);
+    }
+
     private final Path settingsDir;
     private volatile GuildSettings defaults;
     private final Map<Long, GuildSettings> cache = new ConcurrentHashMap<>();
@@ -181,11 +194,21 @@ public class GuildSettingsService {
         return settingsDir;
     }
 
-    public GuildSettings updateSettings(long guildId, UnaryOperator<GuildSettings> updater) {
+    public synchronized GuildSettings updateSettings(long guildId, UnaryOperator<GuildSettings> updater) {
         GuildSettings current = getSettings(guildId);
         GuildSettings updated = updater.apply(current);
         writeSettings(guildId, updated);
         cache.put(guildId, updated);
+        if (current.getMusic().getPanelMode() != updated.getMusic().getPanelMode()
+                || !Objects.equals(current.getMusic().getCommandChannelId(), updated.getMusic().getCommandChannelId())) {
+            for (var listener : musicSettingsListeners) {
+                try {
+                    listener.accept(guildId);
+                } catch (RuntimeException failure) {
+                    LOGGER.warn("Music settings listener failed: guildId={}", guildId, failure);
+                }
+            }
+        }
         return updated;
     }
 
@@ -315,6 +338,7 @@ public class GuildSettingsService {
         musicMap.put("autoplayEnabled", music.isAutoplayEnabled());
         musicMap.put("defaultRepeatMode", music.getDefaultRepeatMode().name());
         musicMap.put("commandChannelId", toText(music.getCommandChannelId()));
+        musicMap.put("musicPanelMode", music.getPanelMode().name());
         musicMap.put("historyLimit", music.getHistoryLimit());
         musicMap.put("statsRetentionDays", music.getStatsRetentionDays());
         musicMap.put("playlistTrackLimit", music.getPlaylistTrackLimit());

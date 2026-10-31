@@ -31,6 +31,12 @@ public final class MusicTextResolver {
         boolean zhCn = lang != null && lang.startsWith("zh-CN");
         boolean zh = lang != null && lang.startsWith("zh");
         String value = switch (key) {
+            case "panel_mode_label" -> zhCn ? "音乐面板模式" : (zh ? "音樂面板模式" : "Music panel mode");
+            case "panel_mode_modern" -> zhCn ? "新版模式（默认）" : (zh ? "新版模式（預設）" : "Modern mode (default)");
+            case "panel_mode_legacy" -> zhCn ? "传统模式" : (zh ? "傳統模式" : "Legacy mode");
+            case "panel_mode_modern_description" -> zhCn ? "常驻音乐控制面板，自动清理指定音乐频道消息。" : (zh ? "常駐音樂控制面板，自動清理指定音樂頻道訊息。" : "Persistent music controls; automatically cleans messages in the configured music channel.");
+            case "panel_mode_legacy_description" -> zhCn ? "每次成功点歌后，移除旧音乐面板并在频道底部建立新面板；不清理一般消息。" : (zh ? "每次成功點歌後，移除舊音樂面板並在頻道底部建立新面板；不清理一般訊息。" : "After a successful play request, replaces the old music panel at the bottom of the channel. General messages are not cleaned.");
+            case "panel_fallback_legacy" -> zhCn ? "默认音乐面板频道不存在、无法访问或尚未设置，目前暂时使用传统模式，仍可正常点歌。请通过 /settings 设置有效的默认音乐面板频道。如果不希望每次点歌都收到提示，可以在设置中切换为 LEGACY 传统模式。在频道恢复有效或手动切换为 LEGACY 前，每次 /play 都会显示此私人提示。" : (zh ? "預設音樂面板頻道不存在、無法存取或尚未設定，目前暫時使用傳統模式，仍可正常點歌。請透過 /settings 設定有效的預設音樂面板頻道。如果不希望每次點歌都收到提示，可以在設定中切換為 LEGACY 傳統模式。在頻道恢復有效或手動切換為 LEGACY 前，每次 /play 都會顯示此私人提示。" : "The default music panel channel is missing, inaccessible, or not configured. Temporarily using Legacy mode; you can still request music. Use /settings to set a valid default music panel channel. To stop this notice on every /play, switch to Legacy mode in settings. This notice appears on every /play until the channel is valid or Legacy mode is selected.");
             case "volume_usage" -> zhCn ? "请使用 `!volume <1-100>`。" : (zh ? "請使用 `!volume <1-100>`。" : "Use `!volume <1-100>`.");
             case "volume_set" -> zhCn ? "音量已设置为 `{value}%`。" : (zh ? "音量已設定為 `{value}%`。" : "Volume set to `{value}%`.");
             case "playlist_usage" -> zhCn ? "请使用 `!playlist <save|load|add|delete|list|view|export> [name]`、`!playlist list <mine|all>` 或 `!playlist import <code> [name]`。" : (zh ? "請使用 `!playlist <save|load|add|delete|list|view|export> [name]`、`!playlist list <mine|all>` 或 `!playlist import <code> [name]`。" : "Use `!playlist <save|load|add|delete|list|view|export> [name]`, `!playlist list <mine|all>`, or `!playlist import <code> [name]`.");

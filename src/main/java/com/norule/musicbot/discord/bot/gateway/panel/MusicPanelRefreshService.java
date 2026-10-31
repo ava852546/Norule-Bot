@@ -2,7 +2,6 @@ package com.norule.musicbot.discord.bot.gateway.panel;
 
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
-import com.norule.musicbot.discord.bot.gateway.command.music.MusicCommandChannelProvisioner;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.components.buttons.Button;
@@ -28,10 +27,11 @@ public final class MusicPanelRefreshService {
     private final MusicCommandService owner;
     private final MusicPanelStateStore stateStore;
     private final MusicPanelRenderer panelRenderer;
-    private final MusicCommandChannelProvisioner commandChannelProvisioner;
     private final MusicPanelRefreshCoordinator coordinator;
     private final long panelPeriodicRefreshMs;
     private final PanelRefreshFailurePolicy failurePolicy;
+    private final MusicPanelModeResolver modes;
+    private final Map<Long, Long> playChannels = new ConcurrentHashMap<>();
     private final Map<Long, CompletableFuture<MusicPanelStateStore.PanelRef>> panelResolutionByGuild =
             new ConcurrentHashMap<>();
     private volatile boolean closed;
@@ -39,13 +39,12 @@ public final class MusicPanelRefreshService {
     public MusicPanelRefreshService(MusicCommandService owner,
                                     MusicPanelStateStore stateStore,
                                     MusicPanelRenderer panelRenderer,
-                                    MusicCommandChannelProvisioner commandChannelProvisioner,
                                     ScheduledExecutorService scheduler,
-                                    long panelPeriodicRefreshMs) {
+                                    long panelPeriodicRefreshMs, MusicPanelModeResolver modes) {
         this.owner = owner;
+        this.modes = modes;
         this.stateStore = stateStore;
         this.panelRenderer = panelRenderer;
-        this.commandChannelProvisioner = commandChannelProvisioner;
         this.coordinator = new MusicPanelRefreshCoordinator(scheduler, this::prepareRefresh);
         this.panelPeriodicRefreshMs = panelPeriodicRefreshMs;
         this.failurePolicy = new PanelRefreshFailurePolicy();
@@ -177,10 +176,16 @@ public final class MusicPanelRefreshService {
     }
 
     static boolean isUnknownMessage(Throwable failure) {
-        while (failure.getCause() != null && failure.getCause() != failure) {
+        while (failure != null) {
+            if (failure instanceof ErrorResponseException response) {
+                return response.getErrorResponse() == ErrorResponse.UNKNOWN_MESSAGE;
+            }
+            if (failure.getCause() == failure) {
+                break;
+            }
             failure = failure.getCause();
         }
-        return failure instanceof ErrorResponseException response && response.getErrorResponse() == ErrorResponse.UNKNOWN_MESSAGE;
+        return false;
     }
 
     private void resolvePanelWithFeedback(Guild guild, TextChannel channel, String lang, Runnable onSuccess, Consumer<String> onError) {
@@ -285,6 +290,7 @@ public final class MusicPanelRefreshService {
                 activatePanel(guild, panelRef, 0L);
                 result.complete(panelRef);
             } catch (RuntimeException persistenceFailure) {
+                modes.log("MUSIC_PANEL_CREATE_FAILED", guild, panelRef.channelId, panelRef.messageId, "PERSISTENCE_FAILURE");
                 result.completeExceptionally(persistenceFailure);
             }
         }
@@ -322,6 +328,7 @@ public final class MusicPanelRefreshService {
                             try {
                                 activatePanel(guild, panelRef, System.currentTimeMillis());
                             } catch (RuntimeException persistenceFailure) {
+                                modes.log("MUSIC_PANEL_CREATE_FAILED", guild, panelRef.channelId, panelRef.messageId, "PERSISTENCE_FAILURE");
                                 result.completeExceptionally(persistenceFailure);
                                 return;
                             }
@@ -337,10 +344,12 @@ public final class MusicPanelRefreshService {
                                 message.getIdLong()
                         );
                     }, failure -> {
+                        modes.log("MUSIC_PANEL_CREATE_FAILED", guild, channel.getIdLong(), 0, MusicPanelModeResolver.failureReason(failure));
                         handlePanelFailure(guild.getIdLong(), channel.getIdLong(), 0L, failure, false);
                         result.completeExceptionally(failure);
                     });
         } catch (RuntimeException failure) {
+            modes.log("MUSIC_PANEL_CREATE_FAILED", guild, channel.getIdLong(), 0, MusicPanelModeResolver.failureReason(failure));
             handlePanelFailure(guild.getIdLong(), channel.getIdLong(), 0L, failure, false);
             result.completeExceptionally(failure);
         }
@@ -355,7 +364,7 @@ public final class MusicPanelRefreshService {
                 reason -> requestRefresh(guildId, RefreshReason.valueOf(reason.name())));
     }
 
-    private boolean isMusicPanelMessage(Guild guild, Message message) {
+    private static boolean isMusicPanelMessage(Guild guild, Message message) {
         return message != null
                 && message.getAuthor().getIdLong() == guild.getSelfMember().getIdLong()
                 && message.getComponentTree()
@@ -404,32 +413,48 @@ public final class MusicPanelRefreshService {
                 && guild.getAudioManager().getConnectedChannel() != null;
     }
 
-    private CompletableFuture<MusicPanelRefreshCoordinator.Update> prepareRefresh(long guildId, Set<RefreshReason> reasons) {
-        MusicPanelStateStore.PanelRef ref = stateStore.getPanelRef(guildId);
+    public void settingsChanged(long guildId) {
         JDA jda = owner.currentJda();
-        if (jda == null) {
+        Guild guild = jda == null ? null : jda.getGuildById(guildId);
+        if (guild != null) {
+            modes.resolve(guild);
+            requestRefresh(guildId, RefreshReason.MANUAL);
+        }
+    }
+
+    public void playQueued(Guild guild, TextChannel channel) {
+        if (channel != null) {
+            playChannels.put(guild.getIdLong(), channel.getIdLong());
+        }
+        requestRefresh(guild.getIdLong(), RefreshReason.PLAY_ADDED);
+    }
+
+    private CompletableFuture<MusicPanelRefreshCoordinator.Update> prepareRefresh(long guildId, Set<RefreshReason> reasons) {
+        JDA jda = owner.currentJda();
+        Guild guild = jda == null ? null : jda.getGuildById(guildId);
+        if (guild == null || closed) {
+            playChannels.remove(guildId);
             return CompletableFuture.completedFuture(null);
         }
-        Guild guild = jda.getGuildById(guildId);
-        if (guild == null) {
+        var mode = modes.resolve(guild);
+        MusicPanelStateStore.PanelRef ref = stateStore.getPanelRef(guildId);
+        Long playChannelId = reasons.contains(RefreshReason.PLAY_ADDED) ? playChannels.get(guildId) : null;
+        if (!mode.modern() && reasons.contains(RefreshReason.PLAY_ADDED)) {
+            TextChannel target = playChannelId == null ? null : guild.getTextChannelById(playChannelId);
+            if (!MusicPanelModeResolver.usable(target)) {
+                modes.log("MUSIC_PANEL_CREATE_FAILED", guild, playChannelId == null ? 0 : playChannelId, 0, "MISSING_TARGET_CHANNEL");
+                return CompletableFuture.completedFuture(null);
+            }
+            return replaceManagedPanel(guild, target, true);
+        }
+        if (mode.modern() && (ref == null || ref.channelId != mode.channelId())) {
+            return replaceManagedPanel(guild, mode.channel(), false);
+        }
+        // Legacy state changes may edit an existing panel, but never create one.
+        if (ref == null) {
             return CompletableFuture.completedFuture(null);
         }
         boolean periodicOnly = reasons.equals(Set.of(RefreshReason.PERIODIC_REFRESH));
-        if (ref == null) {
-            if (periodicOnly) {
-                return CompletableFuture.completedFuture(null);
-            }
-            return commandChannelProvisioner.ensureCommandChannel(guild).thenCompose(channel -> {
-                if (closed || jda.getGuildById(guildId) == null) {
-                    return CompletableFuture.completedFuture(null);
-                }
-                CompletableFuture<MusicPanelRefreshCoordinator.Update> created = new CompletableFuture<>();
-                resolvePanelWithFeedback(guild, channel, owner.lang(guildId),
-                        () -> created.complete(null),
-                        error -> created.completeExceptionally(new IllegalStateException(error)));
-                return created;
-            });
-        }
         if (periodicOnly && !progressRefreshDue(isProgressActive(guild), stateStore.getLastRefreshAt(guildId),
                 System.currentTimeMillis(), panelPeriodicRefreshMs)) {
             return CompletableFuture.completedFuture(null);
@@ -447,6 +472,68 @@ public final class MusicPanelRefreshService {
         MusicPanelSnapshot snapshot = render(guild, owner.lang(guildId));
         return CompletableFuture.completedFuture(new MusicPanelRefreshCoordinator.Update(
                 ref.channelId, ref.messageId, snapshot, () -> sendUpdate(guildId, channel, ref, snapshot)));
+    }
+
+    private CompletableFuture<MusicPanelRefreshCoordinator.Update> replaceManagedPanel(Guild guild, TextChannel target, boolean legacy) {
+        MusicPanelStateStore.PanelRef old = stateStore.getPanelRef(guild.getIdLong());
+        return deleteManagedPanel(guild, old, modes).thenCompose(ignored -> {
+            if (closed) {
+                return CompletableFuture.completedFuture(null);
+            }
+            // Recheck settings after asynchronous deletion: a switch must not create at a stale destination.
+            var current = modes.resolve(guild);
+            if (!current.modern() && !legacy) {
+                return CompletableFuture.completedFuture(null);
+            }
+            TextChannel destination = current.modern() ? current.channel() : target;
+            if (!MusicPanelModeResolver.usable(destination)) {
+                modes.log("MUSIC_PANEL_CREATE_FAILED", guild, target.getIdLong(), 0, "MISSING_ACCESS");
+                return CompletableFuture.completedFuture(null);
+            }
+            CompletableFuture<MusicPanelStateStore.PanelRef> created = new CompletableFuture<>();
+            if (current.modern() && old == null) {
+                resolveOrCreatePanel(guild, destination, owner.lang(guild.getIdLong()), created);
+            } else {
+                sendNewPanel(guild, destination, owner.lang(guild.getIdLong()), created);
+            }
+            return created.thenApply(ref -> {
+                if (legacy && !current.modern()) {
+                    modes.log("MUSIC_PANEL_LEGACY_RECREATED", guild, ref.channelId, ref.messageId, "PLAY_ADDED");
+                }
+                return (MusicPanelRefreshCoordinator.Update) null;
+            });
+        });
+    }
+
+    static CompletableFuture<Void> deleteManagedPanel(Guild guild, MusicPanelStateStore.PanelRef ref, MusicPanelModeResolver modes) {
+        if (ref == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        TextChannel channel = guild.getTextChannelById(ref.channelId);
+        if (channel == null) {
+            modes.log("MUSIC_PANEL_DELETE_FAILED", guild, ref.channelId, ref.messageId, "UNKNOWN_CHANNEL");
+            return CompletableFuture.completedFuture(null);
+        }
+        try {
+            // A persisted ID alone never authorizes deleting another user's message.
+            return channel.retrieveMessageById(ref.messageId).submit().thenCompose(message -> {
+                if (!isMusicPanelMessage(guild, message)) {
+                    modes.log("MUSIC_PANEL_DELETE_FAILED", guild, ref.channelId, ref.messageId, "NOT_MANAGED_PANEL");
+                    return CompletableFuture.<Void>completedFuture(null);
+                }
+                return message.delete().submit();
+            }).handle((ignored, failure) -> {
+                if (failure != null && !isUnknownMessage(failure)) {
+                    modes.log("MUSIC_PANEL_DELETE_FAILED", guild, ref.channelId, ref.messageId,
+                            MusicPanelModeResolver.failureReason(failure));
+                }
+                return null;
+            });
+        } catch (RuntimeException failure) {
+            modes.log("MUSIC_PANEL_DELETE_FAILED", guild, ref.channelId, ref.messageId,
+                    MusicPanelModeResolver.failureReason(failure));
+            return CompletableFuture.completedFuture(null);
+        }
     }
 
     private MusicPanelSnapshot render(Guild guild, String lang) {
@@ -467,14 +554,22 @@ public final class MusicPanelRefreshService {
                         }
                         result.complete(null);
                     }, failure -> {
-                        if (isUnknownMessage(failure) && stateStore.isActivePanel(guildId, ref.channelId, ref.messageId)) {
-                            createPanelInChannel(channel.getGuild(), channel).whenComplete((created, createFailure) -> {
+                        JDA currentJda = owner.currentJda();
+                        Guild currentGuild = currentJda == null ? null : currentJda.getGuildById(guildId);
+                        var mode = currentGuild == null ? null : modes.resolve(currentGuild);
+                        if (isUnknownMessage(failure) && stateStore.isActivePanel(guildId, ref.channelId, ref.messageId)
+                                && mode != null && mode.modern() && mode.channelId() == channel.getIdLong()) {
+                            createPanelInChannel(currentGuild, channel).whenComplete((created, createFailure) -> {
                                 if (createFailure == null) {
                                     result.complete(null);
                                 } else {
                                     result.completeExceptionally(createFailure);
                                 }
                             });
+                            return;
+                        }
+                        if (isUnknownMessage(failure)) {
+                            result.complete(null);
                             return;
                         }
                         handlePanelFailure(guildId, ref.channelId, ref.messageId, failure, true);
@@ -488,6 +583,7 @@ public final class MusicPanelRefreshService {
     }
 
     public void clearPanel(long guildId) {
+        playChannels.remove(guildId);
         CompletableFuture<MusicPanelStateStore.PanelRef> pending = panelResolutionByGuild.remove(guildId);
         if (pending != null) {
             synchronized (pending) {
@@ -510,6 +606,7 @@ public final class MusicPanelRefreshService {
         coordinator.close();
         panelResolutionByGuild.values().forEach(future -> future.cancel(false));
         panelResolutionByGuild.clear();
+        playChannels.clear();
     }
 
     private Permission missingRefreshPermission(Guild guild, TextChannel channel) {

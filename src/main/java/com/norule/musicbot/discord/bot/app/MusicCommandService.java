@@ -352,10 +352,16 @@ public class MusicCommandService extends ListenerAdapter {
 
     @Override
     public void onMessageDelete(net.dv8tion.jda.api.events.message.MessageDeleteEvent event) {
+        prefixCommandRouter.messageDeleted(event.getMessageIdLong());
         if (event.isFromGuild()) {
             musicPanelRuntime.musicPanelRefreshService().clearPanel(
                     event.getGuild().getIdLong(), event.getChannel().getIdLong(), event.getMessageIdLong());
         }
+    }
+
+    @Override
+    public void onMessageBulkDelete(net.dv8tion.jda.api.events.message.MessageBulkDeleteEvent event) {
+        event.getMessageIds().forEach(id -> prefixCommandRouter.messageDeleted(Long.parseLong(id)));
     }
 
     public void initializePanelPersistence(MusicPanelBindingService bindings) {
@@ -363,7 +369,8 @@ public class MusicCommandService extends ListenerAdapter {
     }
 
     public void shutdown() {
-        musicPanelRuntime.musicPanelRefreshService().close();
+        prefixCommandRouter.close();
+        musicPanelRuntime.close();
         scheduler.shutdownNow();
     }
 
@@ -511,17 +518,7 @@ public class MusicCommandService extends ListenerAdapter {
     }
 
     public boolean isMusicCommandChannelAllowed(Guild guild, long channelId) {
-        Long configured = settingsService.getMusic(guild.getIdLong()).getCommandChannelId();
-        if (configured == null || configured == channelId) {
-            return true;
-        }
-        TextChannel configuredChannel = guild.getTextChannelById(configured);
-        return configuredChannel == null || !guild.getSelfMember().hasPermission(
-                configuredChannel,
-                Permission.VIEW_CHANNEL,
-                Permission.MESSAGE_SEND,
-                Permission.MESSAGE_EMBED_LINKS
-        );
+        return musicPanelRuntime.musicPanelController().isCommandChannelAllowed(guild, channelId);
     }
     public boolean has(Member member, Permission permission) {
         return member != null && member.hasPermission(permission);

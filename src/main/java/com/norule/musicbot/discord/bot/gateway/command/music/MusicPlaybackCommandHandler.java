@@ -2,6 +2,7 @@ package com.norule.musicbot.discord.bot.gateway.command.music;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
+import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver;
 import com.norule.musicbot.discord.bot.gateway.panel.RefreshReason;
 import com.norule.musicbot.domain.music.AudioInputNormalizer;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
@@ -29,6 +30,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 public final class MusicPlaybackCommandHandler {
     public static final String PLAY_PICK_PREFIX = "play:pick:";
@@ -97,6 +99,8 @@ public final class MusicPlaybackCommandHandler {
     }
     public void handlePlaySlash(SlashCommandInteractionEvent event, String lang) {
         event.deferReply(true).queue(success -> {
+            sendFallbackNotice(panelController.panelMode(event.getGuild()), event.getHook(),
+                    () -> owner.musicText(lang, "panel_fallback_legacy"), event.getGuild().getIdLong());
             TextChannel fallback = event.getChannelType() == ChannelType.TEXT
                     ? event.getChannel().asTextChannel()
                     : null;
@@ -104,6 +108,25 @@ public final class MusicPlaybackCommandHandler {
                     .thenAccept(panelChannel -> handlePlaySlashDeferred(event, lang, panelChannel));
         }, failure -> {
         });
+    }
+
+    static void sendFallbackNotice(MusicPanelModeResolver.Selection mode, InteractionHook hook,
+                                   Supplier<String> text, long guildId) {
+        if (!mode.fallback()) {
+            return;
+        }
+        // A separate ephemeral notice survives search/result edits. Never wait on it to enqueue music.
+        try {
+            hook.sendMessage(text.get()).setEphemeral(true).queue(null, failure -> logNoticeFailure(guildId, failure));
+        } catch (RuntimeException failure) {
+            logNoticeFailure(guildId, failure);
+        }
+    }
+
+    private static void logNoticeFailure(long guildId, Throwable failure) {
+        org.slf4j.LoggerFactory.getLogger(MusicPlaybackCommandHandler.class).debug(
+                "Music panel fallback notice failed: guildId={} reason={}", guildId,
+                MusicPanelModeResolver.failureReason(failure));
     }
 
     private void handlePlaySlashDeferred(SlashCommandInteractionEvent event, String lang, TextChannel panelChannel) {
@@ -290,7 +313,7 @@ public final class MusicPlaybackCommandHandler {
                             ? null
                             : event.getGuild().getTextChannelById(request.channelId);
                     if (panelChannel != null) {
-                        panelController.ensurePanelForChannel(event.getGuild(), panelChannel, lang);
+                        panelController.playQueued(event.getGuild(), panelChannel);
                     }
                     panelController.refreshPanel(event.getGuild().getIdLong());
                 },
@@ -372,7 +395,7 @@ public final class MusicPlaybackCommandHandler {
                         member.getIdLong()
                 ));
                 if (panelChannel != null) {
-                    panelController.ensurePanelForChannel(guild, panelChannel, lang);
+                    panelController.playQueued(guild, panelChannel);
                 }
             }
             panelController.refreshPanel(guild.getIdLong());

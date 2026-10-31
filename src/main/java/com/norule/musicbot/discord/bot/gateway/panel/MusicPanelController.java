@@ -16,12 +16,17 @@ public final class MusicPanelController {
     private final MusicCommandService owner;
     private final MusicCommandChannelProvisioner commandChannelProvisioner;
     private final LongConsumer panelRefresher;
+    private final MusicPanelRefreshService refreshService;
+    private final MusicPanelModeResolver modes;
     public MusicPanelController(MusicCommandService owner,
                                 MusicCommandChannelProvisioner commandChannelProvisioner,
-                                LongConsumer panelRefresher) {
+                                LongConsumer panelRefresher,
+                                MusicPanelRefreshService refreshService, MusicPanelModeResolver modes) {
         this.owner = owner;
         this.commandChannelProvisioner = commandChannelProvisioner;
         this.panelRefresher = panelRefresher;
+        this.refreshService = refreshService;
+        this.modes = modes;
     }
 
     public void ensurePanelForChannel(Guild guild, TextChannel channel, String lang) {
@@ -30,34 +35,36 @@ public final class MusicPanelController {
         });
     }
 
+    public MusicPanelModeResolver.Selection panelMode(Guild guild) { return modes.resolve(guild); }
+
+    public boolean isCommandChannelAllowed(Guild guild, long channelId) {
+        var mode = modes.resolve(guild);
+        return !mode.modern() || mode.channelId() == channelId;
+    }
+
     public CompletableFuture<TextChannel> resolveOrCreateCommandChannel(Guild guild, TextChannel fallback) {
-        return commandChannelProvisioner.ensureCommandChannel(guild).handle((channel, failure) -> {
-            if (failure != null) {
-                commandChannelProvisioner.logProvisioningFailure(guild, failure);
-                return commandChannelProvisioner.adoptCommandChannel(guild, fallback) ? fallback : null;
-            }
-            return channel;
-        });
+        var mode = modes.resolve(guild);
+        return CompletableFuture.completedFuture(mode.modern() ? mode.channel()
+                : MusicPanelModeResolver.usable(fallback) ? fallback : null);
+    }
+
+    public void playQueued(Guild guild, TextChannel channel) {
+        refreshService.playQueued(guild, channel);
     }
 
     public void initializeGuild(Guild guild) {
-        if (guild == null || owner.panelRefs().containsKey(guild.getIdLong())) {
-            return;
+        if (guild != null && modes.resolve(guild).modern()) {
+            refreshService.requestRefresh(guild.getIdLong(), RefreshReason.MANUAL);
         }
-        commandChannelProvisioner.queueGuildJoinProvisioning(guild, this::initializePanel);
     }
 
     public void initializeGuilds(List<Guild> guilds) {
-        commandChannelProvisioner.queueStartupProvisioning(guilds.stream()
-                .filter(guild -> !owner.panelRefs().containsKey(guild.getIdLong())).toList(), this::initializePanel);
+        guilds.forEach(this::initializeGuild);
     }
 
     public void guildLeft(long guildId) {
         commandChannelProvisioner.guildLeft(guildId);
-    }
-
-    private void initializePanel(Guild guild, TextChannel channel) {
-        ensurePanelForChannel(guild, channel, owner.lang(guild.getIdLong()));
+        modes.forget(guildId);
     }
 
     public void moveActivePanelToBottom(Guild guild, TextChannel preferredChannel) {
@@ -123,7 +130,7 @@ public final class MusicPanelController {
         if (active == null || active.channelId != channel.getIdLong() || active.messageId != event.getMessageIdLong()) {
             event.reply(owner.i18nService().t(lang, "music.panel_stale")).setEphemeral(true)
                     .queue(success -> {
-                        if (active == null) {
+                        if (active == null && modes.resolve(guild).modern()) {
                             ensurePanelForChannel(guild, channel, lang);
                         }
                     });

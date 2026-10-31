@@ -87,6 +87,7 @@ developers:
 # Music and audio integrations
 # =============================================================================
 music:
+  musicPanelMode: MODERN
   bilibili:
     enabled: true
     # Optional normal session Cookie. Environment: BILIBILI_COOKIE. Never commit a real account Cookie.

@@ -56,8 +56,16 @@ mvn "-Dnorule.build.directory=cache/build-1.8" test
 ```
 
 此時 JAR、依賴、classes 與 surefire-reports 都在 `cache/build-1.8/`。
-部分 HTTP 測試需要 Nuxt 靜態產物，乾淨目錄應先 package 產生資源，再執行完整 test。
-這不代表略過測試：正式驗收必須檢查第二個命令的結果。
+HTTP 測試使用的 `share-expired.html` 與 `url-expired.html` 由 Maven resources 階段直接
+從 `web/src/templates/` 複製，不必先 package 才能在乾淨目錄執行測試。
+完整 Nuxt 靜態應用仍在 prepare-package 建置。
+
+若 VS Code Java 自動建置也寫入 `target/classes`，請在本地工作區設定
+`"java.autobuild.enabled": false`，再依序執行 `mvn clean test-compile` 與
+`mvn clean verify`。不要在同一輸出目錄同時執行多個 Maven／IDE 建置；需要並行工作
+時使用各自的 `norule.build.directory`，且避免同時執行共用 `web/node_modules`／Nuxt
+輸出的前端 package 工作。若 IDE 已留下含 `Unresolved compilation problem` 的 class，
+停用自動建置後先執行一次 clean 重建，不要依據這些 class 的錯誤簽章改寫正常 Java API。
 
 ## 已執行與待執行的驗證
 

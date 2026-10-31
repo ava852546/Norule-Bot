@@ -32,6 +32,7 @@ export interface GuildSummary {
 }
 
 export interface DiscordOption {
+  musicPanelUsable?: boolean
   id: string
   name: string
   mention?: string
@@ -101,6 +102,8 @@ export interface MessageLogSettings {
 }
 
 export interface MusicSettings {
+  musicPanelMode: 'MODERN' | 'LEGACY'
+  musicPanelChannelValid?: boolean
   autoLeaveEnabled: boolean
   autoLeaveMinutes: number
   autoplayEnabled: boolean

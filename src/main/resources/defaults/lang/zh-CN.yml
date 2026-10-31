@@ -15,6 +15,12 @@ system:
   shutdown: "Bot 正在关闭。"
 
 music:
+  panel_mode_label: "音乐面板模式"
+  panel_mode_modern: "新版模式（默认）"
+  panel_mode_legacy: "传统模式"
+  panel_mode_modern_description: "常驻音乐控制面板，自动清理指定音乐频道消息。"
+  panel_mode_legacy_description: "每次成功点歌后，移除旧音乐面板并在频道底部建立新面板；不清理一般消息。"
+  panel_fallback_legacy: "默认音乐面板频道不存在、无法访问或尚未设置，目前暂时使用传统模式，仍可正常点歌。请通过 /settings 设置有效的默认音乐面板频道。如果不希望每次点歌都收到提示，可以在设置中切换为 LEGACY 传统模式。在频道恢复有效或手动切换为 LEGACY 前，每次 /play 都会显示此私人提示。"
   join_first: "请先加入语音频道。"
   same_voice_required: "你必须与 bot 在同一个语音频道。"
   joined: "已加入 {channel}。"
