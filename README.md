@@ -6,7 +6,7 @@ NoRule Bot 是以 Java 21 開發的 Discord 多功能機器人，整合音樂播
 
 ## 版本與技術棧
 
-- 專案版本：`1.7`
+- 專案版本：`1.8`
 - Java：21
 - Discord：JDA `6.5.0`
 - 音訊：Lavaplayer `2.2.7`、youtube-source `1.18.2`、LavaSrc `4.8.3`、bilibili-common `1.0.4`
@@ -225,22 +225,22 @@ runtime-libs/
 target/classes/web/
 ```
 
-目前版本的 JAR 名稱範例是 `target/discord-music-bot-1.7.jar`；自動化腳本應使用版本變數或檔案比對，不要長期硬編碼這個名稱。
+目前版本的 JAR 名稱範例是 `target/discord-music-bot-1.8.jar`；自動化腳本應使用版本變數或檔案比對，不要長期硬編碼這個名稱。
 
 ### Runtime dependencies
 
-這不是 fat JAR。Maven 會把 runtime dependencies 複製到專案工作目錄的 `runtime-libs/`，並把 dependency URL 與 SHA-256 manifest 寫入 JAR 的 `bootstrap/` resources。直接執行主 JAR 時，bootstrap 會驗證目前工作目錄下的 `runtime-libs`、下載缺少或 checksum 不符的 JAR、清理 obsolete/conflicting logging JAR，然後用主 JAR 加 `runtime-libs/*` 重新啟動 JVM。
+這不是 fat JAR。Maven 會把 runtime dependencies 複製到 `target/runtime-libs/`，並把固定來源與 SHA-256 manifest 寫入 JAR 的 `bootstrap/` resources。執行主 JAR 時，輕量 bootstrap 會驗證目前工作目錄下的 `runtime-libs/`、下載缺少或 checksum 不符的 JAR，再由標準 URLClassLoader 在同一 JVM 啟動 Bot，不建立第二個 Java 程序。只載入 manifest 指定的 JAR，保留其他版本與額外 JAR 供回滾；快取鎖持有至程序結束。離線部署時將 `target/runtime-libs/` 複製至執行工作目錄的 `runtime-libs/`。
 
 ```powershell
-java -jar target/discord-music-bot-1.7.jar
+java -jar target/discord-music-bot-1.8.jar
 ```
 
 可用 `runtime-dependencies` 設定下載進度、timeout 與重試；JVM system properties 可覆寫：
 
 | Property | 用途 |
 |---|---|
-| `norule.bootstrap.cleanup-obsolete` | 是否清理 manifest 外的舊 runtime JAR，預設 `true` |
-| `norule.bootstrap.verify-checksums` | 是否驗證 SHA-256，預設 `true` |
+| `norule.bootstrap.cleanup-obsolete` | 相容保留但不再清理；1.8 保留舊 JAR 供回滾 |
+| `norule.bootstrap.verify-checksums` | 必須為 `true`；設定 `false` 會拒絕啟動 |
 | `norule.bootstrap.force-redownload` | 是否強制重新下載，預設 `false` |
 | `norule.bootstrap.progress-enabled` | 是否顯示下載進度 |
 | `norule.bootstrap.progress-interval-ms` | 進度輸出間隔 |
@@ -249,7 +249,7 @@ java -jar target/discord-music-bot-1.7.jar
 | `norule.bootstrap.stall-timeout-ms` | 無資料進度逾時 |
 | `norule.bootstrap.max-retries` | 最大重試次數 |
 
-若部署環境不能連外，請連同已驗證的 `runtime-libs/` 一起部署。
+若部署環境不能連外，請連同已驗證的 `runtime-libs/` 一起部署。建置與測試、正式切換及 1.7 回滾步驟見 [單 JVM 啟動與驗收](deploy/single-jvm-bootstrap.md)。
 
 Gateway／JVM 資源監控、5 分鐘離線告警及有次數上限的程序管理器設定，請見 [Gateway 監控與恢復策略](deploy/README.md)。
 
@@ -266,7 +266,7 @@ Gateway／JVM 資源監控、5 分鐘離線告警及有次數上限的程序管�
 ```powershell
 git pull
 mvn clean package
-java -jar target/discord-music-bot-1.7.jar
+java -jar target/discord-music-bot-1.8.jar
 ```
 
 更新前先備份 `config.yml`、`lang/`、資料庫、guild 資料與媒體儲存目錄，並先比較新版[預設設定](src/main/resources/defaults/config.yml)。不要直接以新版預設檔覆蓋現有 secret 或站台設定。

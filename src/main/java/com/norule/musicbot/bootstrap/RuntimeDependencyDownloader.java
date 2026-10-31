@@ -87,12 +87,7 @@ final class RuntimeDependencyDownloader implements RuntimeDependencyBootstrap.Pr
         String host = safeHost(uri);
         HttpURLConnection connection = null;
         try {
-            connection = (HttpURLConnection) uri.toURL().openConnection();
-            connection.setInstanceFollowRedirects(true);
-            connection.setConnectTimeout(settings.connectTimeoutMs());
-            connection.setReadTimeout(Math.min(settings.readTimeoutMs(), settings.stallTimeoutMs()));
-            connection.setRequestMethod("GET");
-            connection.setRequestProperty("User-Agent", "NoRule-RuntimeDependencyBootstrap/1");
+            connection = openConnection(uri);
             int status = connection.getResponseCode();
             if (status != HttpURLConnection.HTTP_OK) {
                 closeQuietly(connection.getErrorStream());
@@ -114,6 +109,46 @@ final class RuntimeDependencyDownloader implements RuntimeDependencyBootstrap.Pr
                 connection.disconnect();
             }
         }
+    }
+
+    private HttpURLConnection openConnection(URI origin) throws IOException {
+        URI current = origin;
+        for (int redirects = 0; redirects <= 5; redirects++) {
+            HttpURLConnection connection = (HttpURLConnection) current.toURL().openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(settings.connectTimeoutMs());
+            connection.setReadTimeout(Math.min(settings.readTimeoutMs(), settings.stallTimeoutMs()));
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("User-Agent", "NoRule-RuntimeDependencyBootstrap/1");
+            try {
+                int status = connection.getResponseCode();
+                if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308) {
+                    return connection;
+                }
+                String location = connection.getHeaderField("Location");
+                if (location == null) {
+                    throw new IOException("Missing repository redirect location");
+                }
+                URI next = current.resolve(location);
+                if (!isTrustedRedirect(origin, next)) {
+                    throw new IOException("Untrusted repository redirect");
+                }
+                current = next;
+            } catch (IOException | IllegalArgumentException failure) {
+                connection.disconnect();
+                throw new IOException("Repository redirect failed", failure);
+            }
+            connection.disconnect();
+        }
+        throw new IOException("Too many repository redirects");
+    }
+
+    static boolean isTrustedRedirect(URI origin, URI target) {
+        // Keep the pinned repository origin; never follow a downgrade or credential-bearing URL.
+        return origin.getScheme().equalsIgnoreCase(target.getScheme())
+                && origin.getHost() != null && origin.getHost().equalsIgnoreCase(target.getHost())
+                && origin.getPort() == target.getPort()
+                && target.getRawUserInfo() == null && target.getRawFragment() == null;
     }
 
     private void copyResponseBody(InputStream input, OutputStream target, long contentLength,

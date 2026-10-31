@@ -101,7 +101,7 @@ class RuntimeDependencyBootstrapTest {
     }
 
     @Test
-    void removesOldArtifactVersionAndDownloadsCurrentVersion() throws IOException {
+    void preservesOldArtifactVersionAndDownloadsCurrentVersion() throws IOException {
         Path runtimeLibs = createRuntimeLibs();
         Files.writeString(runtimeLibs.resolve("demo-1.0.0.jar"), "old", StandardCharsets.UTF_8);
         RuntimeDependencyBootstrap.DependencyArtifact current = artifact("demo", "2.0.0");
@@ -117,12 +117,12 @@ class RuntimeDependencyBootstrapTest {
                 });
 
         assertEquals(1, downloads.get());
-        assertFalse(Files.exists(runtimeLibs.resolve("demo-1.0.0.jar")));
+        assertTrue(Files.exists(runtimeLibs.resolve("demo-1.0.0.jar")));
         assertEquals("current", Files.readString(runtimeLibs.resolve("demo-2.0.0.jar"), StandardCharsets.UTF_8));
     }
 
     @Test
-    void removesUnknownJarButPreservesNonJarFiles() throws IOException {
+    void preservesUnknownJarsAndNonJarFiles() throws IOException {
         Path runtimeLibs = createRuntimeLibs();
         Files.writeString(runtimeLibs.resolve("demo-2.0.0.jar"), "current", StandardCharsets.UTF_8);
         Files.writeString(runtimeLibs.resolve("user-addon.jar"), "unknown", StandardCharsets.UTF_8);
@@ -134,12 +134,12 @@ class RuntimeDependencyBootstrapTest {
                 settings(true, false, false),
                 RuntimeDependencyBootstrapTest::failUnexpectedDownload);
 
-        assertFalse(Files.exists(runtimeLibs.resolve("user-addon.jar")));
+        assertTrue(Files.exists(runtimeLibs.resolve("user-addon.jar")));
         assertTrue(Files.isRegularFile(runtimeLibs.resolve("user-notes.txt")));
     }
 
     @Test
-    void alwaysRemovesConflictingSlf4jProviders() throws IOException {
+    void preservesConflictingSlf4jProvidersOutsideLoadList() throws IOException {
         Path runtimeLibs = createRuntimeLibs();
         Files.writeString(runtimeLibs.resolve("demo-2.0.0.jar"), "current", StandardCharsets.UTF_8);
         Files.writeString(runtimeLibs.resolve("slf4j-simple-2.0.17.jar"), "conflict", StandardCharsets.UTF_8);
@@ -153,14 +153,14 @@ class RuntimeDependencyBootstrapTest {
                 settings(false, false, false),
                 RuntimeDependencyBootstrapTest::failUnexpectedDownload);
 
-        assertFalse(Files.exists(runtimeLibs.resolve("slf4j-simple-2.0.17.jar")));
-        assertFalse(Files.exists(runtimeLibs.resolve("log4j-slf4j2-impl-2.23.1.jar")));
-        assertFalse(Files.exists(runtimeLibs.resolve("slf4j-reload4j-2.0.17.jar")));
+        assertTrue(Files.exists(runtimeLibs.resolve("slf4j-simple-2.0.17.jar")));
+        assertTrue(Files.exists(runtimeLibs.resolve("log4j-slf4j2-impl-2.23.1.jar")));
+        assertTrue(Files.exists(runtimeLibs.resolve("slf4j-reload4j-2.0.17.jar")));
         assertTrue(Files.isRegularFile(runtimeLibs.resolve("user-addon.jar")));
     }
 
     @Test
-    void keepsOnlyMatchingCurrentLogbackPair() throws IOException {
+    void preservesOlderLogbackPairForRollback() throws IOException {
         Path runtimeLibs = createRuntimeLibs();
         Files.writeString(runtimeLibs.resolve("logback-classic-1.5.38.jar"), "classic", StandardCharsets.UTF_8);
         Files.writeString(runtimeLibs.resolve("logback-core-1.5.38.jar"), "core", StandardCharsets.UTF_8);
@@ -177,8 +177,8 @@ class RuntimeDependencyBootstrapTest {
 
         assertTrue(Files.isRegularFile(runtimeLibs.resolve("logback-classic-1.5.38.jar")));
         assertTrue(Files.isRegularFile(runtimeLibs.resolve("logback-core-1.5.38.jar")));
-        assertFalse(Files.exists(runtimeLibs.resolve("logback-classic-1.4.14.jar")));
-        assertFalse(Files.exists(runtimeLibs.resolve("logback-core-1.4.14.jar")));
+        assertTrue(Files.exists(runtimeLibs.resolve("logback-classic-1.4.14.jar")));
+        assertTrue(Files.exists(runtimeLibs.resolve("logback-core-1.4.14.jar")));
     }
 
     @Test

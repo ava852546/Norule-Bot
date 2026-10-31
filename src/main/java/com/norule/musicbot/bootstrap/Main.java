@@ -3,10 +3,11 @@ package com.norule.musicbot.bootstrap;
 public class Main {
     public static void main(String[] args) {
         try {
-            RuntimeDependencyBootstrap.ensureDependenciesAndRelaunchIfNeeded(args);
-            new RuntimeBootstrap().run();
-        } catch (IllegalStateException ex) {
-            System.out.println("[NoRule] " + ex.getMessage());
+            RuntimeDependencyBootstrap.launch(args);
+        } catch (Throwable failure) {
+            // Unwrap application failures before reaching this JDK-only boundary.
+            System.err.println("[NoRule] Startup failed: " + failure.getClass().getName());
+            failure.printStackTrace(System.err);
             System.exit(1);
         }
     }
