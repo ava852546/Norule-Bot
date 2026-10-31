@@ -1,5 +1,7 @@
 package com.norule.musicbot.config.domain;
 
+import com.norule.musicbot.domain.music.MusicPanelMode;
+
 import com.norule.musicbot.config.BotConfig;
 import com.norule.musicbot.domain.music.YouTubePlaybackBackend;
 
@@ -482,6 +484,7 @@ public final class MusicConfig {
     private final boolean autoplayEnabled;
     private final BotConfig.Music.RepeatMode defaultRepeatMode;
     private final Long commandChannelId;
+    private final MusicPanelMode panelMode;
     private final int historyLimit;
     private final int statsRetentionDays;
     private final int playlistTrackLimit;
@@ -524,11 +527,22 @@ public final class MusicConfig {
                        Spotify spotify,
                        Audio audio,
                        Bilibili bilibili) {
+        this(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId,
+                historyLimit, statsRetentionDays, playlistTrackLimit, youtube, oauth, cipher, spotify, audio,
+                bilibili, MusicPanelMode.MODERN);
+    }
+
+    public MusicConfig(boolean autoLeaveEnabled, int autoLeaveMinutes, boolean autoplayEnabled,
+                       BotConfig.Music.RepeatMode defaultRepeatMode, Long commandChannelId, int historyLimit,
+                       int statsRetentionDays, int playlistTrackLimit, Youtube youtube, Oauth oauth, Cipher cipher,
+                       Spotify spotify, Audio audio, Bilibili bilibili,
+                       MusicPanelMode panelMode) {
         this.autoLeaveEnabled = autoLeaveEnabled;
         this.autoLeaveMinutes = Math.max(0, autoLeaveMinutes);
         this.autoplayEnabled = autoplayEnabled;
         this.defaultRepeatMode = defaultRepeatMode == null ? BotConfig.Music.RepeatMode.OFF : defaultRepeatMode;
         this.commandChannelId = commandChannelId;
+        this.panelMode = panelMode == null ? MusicPanelMode.MODERN : panelMode;
         this.historyLimit = Math.max(1, historyLimit);
         this.statsRetentionDays = Math.max(0, statsRetentionDays);
         this.playlistTrackLimit = Math.max(1, playlistTrackLimit);
@@ -563,7 +577,7 @@ public final class MusicConfig {
                 value.cipher,
                 value.spotify,
                 value.audio,
-                value.bilibili
+                value.bilibili, value.panelMode
         );
     }
 
@@ -584,7 +598,7 @@ public final class MusicConfig {
                 Cipher.fromLegacy(globalValue.getCipher()),
                 Spotify.fromLegacy(globalValue.getSpotify()),
                 Audio.fromLegacy(globalValue.getAudio()),
-                Bilibili.fromLegacy(globalValue.getBilibili())
+                Bilibili.fromLegacy(globalValue.getBilibili()), scopedValue.getPanelMode()
         );
     }
 
@@ -592,6 +606,7 @@ public final class MusicConfig {
     public int getAutoLeaveMinutes() { return autoLeaveMinutes; }
     public boolean isAutoplayEnabled() { return autoplayEnabled; }
     public BotConfig.Music.RepeatMode getDefaultRepeatMode() { return defaultRepeatMode; }
+    public MusicPanelMode getPanelMode() { return panelMode; }
     public Long getCommandChannelId() { return commandChannelId; }
     public int getHistoryLimit() { return historyLimit; }
     public int getStatsRetentionDays() { return statsRetentionDays; }

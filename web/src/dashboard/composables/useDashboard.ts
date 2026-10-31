@@ -80,6 +80,7 @@ function createDefaultSettings(): DashboardSettings {
       ignoredPrefixes: '',
     },
     music: {
+      musicPanelMode: 'MODERN',
       autoLeaveEnabled: true,
       autoLeaveMinutes: 5,
       autoplayEnabled: true,

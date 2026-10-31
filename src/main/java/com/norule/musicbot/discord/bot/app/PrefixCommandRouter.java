@@ -4,9 +4,7 @@ import com.norule.musicbot.config.domain.RuntimeConfigSnapshot;
 import com.norule.musicbot.discord.bot.gateway.command.CommandNames;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelStateStore;
 
-import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.emoji.Emoji;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import org.slf4j.Logger;
@@ -14,24 +12,23 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 class PrefixCommandRouter {
     private static final Logger LOGGER = LoggerFactory.getLogger(PrefixCommandRouter.class);
     private static final String KEY_UNKNOWN_COMMAND = "general.unknown_command";
     private static final String SUCCESS_REACTION = "\u2705";
     private static final String FAILURE_REACTION = "\u274C";
-    private static final long MUSIC_MESSAGE_DELETE_DELAY_SECONDS = 10L;
 
     private final MusicCommandService service;
     private final CommandCooldownService cooldownService;
-    private final Set<Long> scheduledCleanupMessageIds = ConcurrentHashMap.newKeySet();
+    private final MusicMessageCleanupService messageCleanup;
 
     PrefixCommandRouter(MusicCommandService service, CommandCooldownService cooldownService) {
         this.service = service;
         this.cooldownService = cooldownService;
+        this.messageCleanup = new MusicMessageCleanupService(service.scheduler(), message ->
+                isActivePanel(message.getGuild().getIdLong(), message.getChannel().getIdLong(), message.getIdLong()),
+                message -> service.musicPanelController().panelMode(message.getGuild()).modern());
     }
 
     void route(MessageReceivedEvent event) {
@@ -49,7 +46,7 @@ class PrefixCommandRouter {
         boolean musicChannel = isMusicChannel(guild, event.getChannel().getIdLong());
         boolean prefixMusicCommand = invocation != null && isPrefixMusicCommand(invocation.command());
         if ((musicChannel && !isIdleAutoLeaveNotice(event, lang)) || prefixMusicCommand) {
-            scheduleMessageCleanup(guild, event.getMessage());
+            messageCleanup.enqueue(event.getMessage(), musicChannel ? "music-channel" : "prefix-music-command");
         }
         if (event.getAuthor().isBot() || invocation == null) {
             return;
@@ -69,7 +66,7 @@ class PrefixCommandRouter {
                         Map.of("seconds", String.valueOf(cooldownService.toCooldownSeconds(remaining)))
                 ));
                 if (musicChannel || prefixMusicCommand) {
-                    reply.queue(message -> scheduleMessageCleanup(guild, message));
+                    reply.queue(message -> messageCleanup.enqueue(message, "prefix-cooldown-reply"));
                 } else {
                     reply.queue();
                 }
@@ -80,7 +77,7 @@ class PrefixCommandRouter {
         if (isPrefixMusicCommand(cmd) && !service.isMusicCommandChannelAllowed(guild, event.getChannel().getIdLong())) {
             reactToCommand(event, false);
             event.getChannel().sendMessage(service.i18nService().t(lang, "music.command_channel_restricted"))
-                    .queue(message -> scheduleMessageCleanup(guild, message));
+                    .queue(message -> messageCleanup.enqueue(message, "prefix-channel-restriction-reply"));
             return;
         }
 
@@ -105,6 +102,9 @@ class PrefixCommandRouter {
     }
 
     private boolean isMusicChannel(Guild guild, long channelId) {
+        if (!service.musicPanelController().panelMode(guild).modern()) {
+            return false;
+        }
         Long configuredChannelId = service.settingsService().getMusic(guild.getIdLong()).getCommandChannelId();
         if (configuredChannelId != null && configuredChannelId == channelId) {
             return true;
@@ -132,40 +132,12 @@ class PrefixCommandRouter {
                 ));
     }
 
-    private void scheduleMessageCleanup(Guild guild, Message message) {
-        long messageId = message.getIdLong();
-        if (!scheduledCleanupMessageIds.add(messageId)) {
-            return;
-        }
-        service.scheduler().schedule(() -> {
-            try {
-                if (isActivePanel(guild.getIdLong(), message.getChannel().getIdLong(), messageId)) {
-                    return;
-                }
-                boolean botMessage = message.getAuthor().getIdLong() == guild.getSelfMember().getIdLong();
-                if (!botMessage && !guild.getSelfMember().hasPermission(
-                        message.getGuildChannel(),
-                        Permission.MESSAGE_MANAGE
-                )) {
-                    LOGGER.debug(
-                            "[NoRule] Music message cleanup skipped: guildId={} channelId={} messageId={} reason=MISSING_MANAGE_MESSAGES",
-                            guild.getIdLong(),
-                            message.getChannel().getIdLong(),
-                            messageId
-                    );
-                    return;
-                }
-                message.delete().queue(null, error -> LOGGER.debug(
-                        "[NoRule] Failed to delete transient music message: guildId={} channelId={} messageId={}",
-                        guild.getIdLong(),
-                        message.getChannel().getIdLong(),
-                        messageId,
-                        error
-                ));
-            } finally {
-                scheduledCleanupMessageIds.remove(messageId);
-            }
-        }, MUSIC_MESSAGE_DELETE_DELAY_SECONDS, TimeUnit.SECONDS);
+    void messageDeleted(long messageId) {
+        messageCleanup.messageDeleted(messageId);
+    }
+
+    void close() {
+        messageCleanup.close();
     }
 
     private boolean isActivePanel(long guildId, long channelId, long messageId) {

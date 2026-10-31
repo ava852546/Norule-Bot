@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 
+import com.norule.musicbot.domain.music.MusicPanelMode;
+
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.command.CommandOptions;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
@@ -50,6 +52,8 @@ public final class SettingsMusicMenuHandler {
     private static final String A_AUTO_LEAVE_MINUTES = "auto-leave-minutes";
     private static final String A_COMMAND_CHANNEL    = "command-channel";
     private static final String A_PRIVATE_ROOM_CHANNEL = "private-room-channel";
+    private static final String A_PANEL_MODE_MODERN = "panel-mode-modern";
+    private static final String A_PANEL_MODE_LEGACY = "panel-mode-legacy";
 
     private static final String MSG_MENU_EXPIRED   = "settings.music_menu_expired";
     private static final String MSG_SETTINGS_SAVED = "general.settings_saved";
@@ -87,6 +91,11 @@ public final class SettingsMusicMenuHandler {
     }
 
     public void handleMusicMenuSelect(StringSelectInteractionEvent event, String lang) {
+        if (!owner.has(event.getMember(), Permission.MANAGE_SERVER)) {
+            event.reply(owner.i18nService().t(lang, "general.no_permission")).setEphemeral(true).queue();
+            return;
+        }
+
         String token = event.getComponentId().substring(SETTINGS_MUSIC_SELECT_PREFIX.length());
         MusicMenuRequest request = musicMenuRequests.get(token);
         if (request == null || Instant.now().isAfter(request.expiresAt)) {
@@ -105,6 +114,15 @@ public final class SettingsMusicMenuHandler {
         long guildId = event.getGuild().getIdLong();
         String action = event.getValues().isEmpty() ? "" : event.getValues().get(0);
         switch (action) {
+            case A_PANEL_MODE_MODERN, A_PANEL_MODE_LEGACY -> {
+                var mode = A_PANEL_MODE_MODERN.equals(action)
+                        ? MusicPanelMode.MODERN
+                        : MusicPanelMode.LEGACY;
+                owner.settingsService().updateSettings(guildId, settings -> settings.withMusic(settings.getMusic().withPanelMode(mode)));
+                event.editMessageEmbeds(musicMenuEmbed(event.getGuild(), lang, owner.i18nService().t(lang,
+                                MSG_SETTINGS_SAVED, Map.of("key", owner.musicText(lang, "panel_mode_label"), OPTION_VALUE, mode.name()))).build())
+                        .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang))).queue();
+            }
             case A_AUTO_LEAVE_TOGGLE -> {
                 boolean value = !owner.settingsService().getMusic(guildId).isAutoLeaveEnabled();
                 owner.settingsService().updateSettings(guildId, s -> s.withMusic(s.getMusic().withAutoLeaveEnabled(value)));
@@ -217,6 +235,11 @@ public final class SettingsMusicMenuHandler {
     }
 
     public void handleMusicChannelSelect(EntitySelectInteractionEvent event, String lang) {
+        if (!owner.has(event.getMember(), Permission.MANAGE_SERVER)) {
+            event.reply(owner.i18nService().t(lang, "general.no_permission")).setEphemeral(true).queue();
+            return;
+        }
+
         String suffix = event.getComponentId().substring(SETTINGS_MUSIC_CHANNEL_PREFIX.length());
         int idx = suffix.indexOf(':');
         if (idx <= 0 || idx >= suffix.length() - 1) {
@@ -292,6 +315,8 @@ public final class SettingsMusicMenuHandler {
         return StringSelectMenu.create(SETTINGS_MUSIC_SELECT_PREFIX + token)
                 .setPlaceholder(owner.i18nService().t(lang, "settings.music_menu_placeholder"))
                 .addOptions(
+                        SelectOption.of(owner.musicText(lang, "panel_mode_modern"), A_PANEL_MODE_MODERN),
+                        SelectOption.of(owner.musicText(lang, "panel_mode_legacy"), A_PANEL_MODE_LEGACY),
                         SelectOption.of(owner.i18nService().t(lang, K_AUTO_LEAVE_ENABLED), A_AUTO_LEAVE_TOGGLE)
                                 .withDescription(owner.i18nService().t(lang, MSG_MENU_CURRENT,
                                         Map.of(OPTION_VALUE, owner.boolText(lang, music.isAutoLeaveEnabled())))),
@@ -316,6 +341,9 @@ public final class SettingsMusicMenuHandler {
         var music = owner.settingsService().getMusic(guildId);
         var room = owner.settingsService().getPrivateRoom(guildId);
         String body = String.join("\n\n",
+                owner.musicText(lang, "panel_mode_label") + ": "
+                        + owner.musicText(lang, music.getPanelMode() == MusicPanelMode.MODERN
+                        ? "panel_mode_modern" : "panel_mode_legacy"),
                 uiText.quotedSettingLine(lang, K_AUTO_LEAVE_ENABLED, LBL_STATUS,
                         owner.boolText(lang, music.isAutoLeaveEnabled())),
                 uiText.quotedSettingLine(lang, K_AUTO_LEAVE_MINUTES, LBL_VALUE,
@@ -327,6 +355,9 @@ public final class SettingsMusicMenuHandler {
                 uiText.quotedSettingLine(lang, K_PRIVATE_ROOM_CHANNEL, LBL_VALUE,
                         formatVoiceChannel(guild, room.getTriggerVoiceChannelId(), lang))
         );
+        if (owner.musicPanelController().panelMode(guild).fallback()) {
+            body += "\n\n" + owner.musicText(lang, "panel_fallback_legacy");
+        }
         EmbedBuilder eb = new EmbedBuilder()
                 .setColor(new Color(155, 89, 182))
                 .setTitle("🎵 " + owner.i18nService().t(lang, "settings.music_menu_title"))

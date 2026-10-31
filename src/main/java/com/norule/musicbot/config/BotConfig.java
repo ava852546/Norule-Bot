@@ -1,5 +1,7 @@
 package com.norule.musicbot.config;
 
+import com.norule.musicbot.domain.music.MusicPanelMode;
+
 import com.norule.musicbot.config.domain.GatewayMonitoringConfig;
 
 import java.util.ArrayList;
@@ -1619,6 +1621,7 @@ public String getToken() {
         private final boolean autoplayEnabled;
         private final RepeatMode defaultRepeatMode;
         private final Long commandChannelId;
+        private final MusicPanelMode panelMode;
         private final int historyLimit;
         private final int statsRetentionDays;
         private final int playlistTrackLimit;
@@ -1634,6 +1637,7 @@ public String getToken() {
                       boolean autoplayEnabled,
                       RepeatMode defaultRepeatMode,
                       Long commandChannelId,
+                      MusicPanelMode panelMode,
                       int historyLimit,
                        int statsRetentionDays,
                        int playlistTrackLimit,
@@ -1648,6 +1652,7 @@ public String getToken() {
             this.autoplayEnabled = autoplayEnabled;
             this.defaultRepeatMode = defaultRepeatMode;
             this.commandChannelId = commandChannelId;
+            this.panelMode = panelMode == null ? MusicPanelMode.MODERN : panelMode;
             this.historyLimit = Math.max(1, historyLimit);
             this.statsRetentionDays = Math.max(0, statsRetentionDays);
             this.playlistTrackLimit = Math.max(1, playlistTrackLimit);
@@ -1667,6 +1672,7 @@ public String getToken() {
                     getBoolean(map, "autoplayEnabled", defaults.isAutoplayEnabled()),
                     parseRepeatMode(getString(map, "defaultRepeatMode", defaults.getDefaultRepeatMode().name())),
                     getLong(map, "commandChannelId", defaults.getCommandChannelId()),
+                    MusicPanelMode.parse(getString(map, "musicPanelMode", "MODERN")),
                     getInt(map, "historyLimit", defaults.getHistoryLimit()),
                      getInt(map, "statsRetentionDays", defaults.getStatsRetentionDays()),
                      getInt(map, "playlistTrackLimit", defaults.getPlaylistTrackLimit()),
@@ -1680,41 +1686,47 @@ public String getToken() {
         }
 
         public static Music defaultValues() {
-            return new Music(true, 5, true, RepeatMode.OFF, null, 50, 0, 100,
+            return new Music(true, 5, true, RepeatMode.OFF, null, MusicPanelMode.MODERN, 50, 0, 100,
                     Youtube.defaultValues(), Bilibili.defaultValues(), Oauth.defaultValues(), Cipher.defaultValues(),
                     Spotify.defaultValues(), Audio.defaultValues());
         }
 
         public Music withAutoLeaveEnabled(boolean enabled) {
-            return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
+            return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, panelMode, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withAutoLeaveMinutes(int minutes) {
-            return new Music(autoLeaveEnabled, Math.max(1, minutes), autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, Math.max(1, minutes), autoplayEnabled, defaultRepeatMode, commandChannelId, panelMode, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withAutoplayEnabled(boolean enabled) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, enabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, enabled, defaultRepeatMode, commandChannelId, panelMode, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withDefaultRepeatMode(RepeatMode mode) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, mode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, mode, commandChannelId, panelMode, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withCommandChannelId(Long commandChannelId) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, panelMode, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withHistoryLimit(int historyLimit) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, panelMode, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withStatsRetentionDays(int statsRetentionDays) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, panelMode, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public Music withPlaylistTrackLimit(int playlistTrackLimit) {
-            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, panelMode, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
+        }
+
+        public MusicPanelMode getPanelMode() { return panelMode; }
+
+        public Music withPanelMode(MusicPanelMode mode) {
+            return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, mode, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
         public boolean isAutoLeaveEnabled() {

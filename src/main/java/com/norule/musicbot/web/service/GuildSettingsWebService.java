@@ -1,5 +1,7 @@
 package com.norule.musicbot.web.service;
 
+import com.norule.musicbot.domain.music.MusicPanelMode;
+
 import com.norule.musicbot.ModerationService;
 import com.norule.musicbot.config.GuildSettingsService;
 import com.norule.musicbot.domain.music.*;
@@ -290,7 +292,8 @@ public final class GuildSettingsWebService {
 
     private void handleGuildChannelsGet(HttpExchange exchange, Guild guild) throws IOException {
         DataArray textChannels = DataArray.empty();
-        guild.getTextChannels().forEach(ch -> textChannels.add(DataObject.empty().put("id", ch.getId()).put("name", ch.getName()).put("mention", ch.getAsMention())));
+        guild.getTextChannels().forEach(ch -> textChannels.add(DataObject.empty().put("id", ch.getId()).put("name", ch.getName()).put("mention", ch.getAsMention())
+                .put("musicPanelUsable", musicPanelChannelValid(guild, ch.getIdLong()))));
         DataArray voiceChannels = DataArray.empty();
         guild.getVoiceChannels().forEach(ch -> voiceChannels.add(DataObject.empty().put("id", ch.getId()).put("name", ch.getName()).put("mention", ch.getAsMention())));
         owner.sendJson(exchange, 200, DataObject.empty().put("textChannels", textChannels).put("voiceChannels", voiceChannels));
@@ -323,7 +326,7 @@ public final class GuildSettingsWebService {
                 .put("notifications", buildNotificationsPayload(settings))
                 .put("welcome", buildWelcomePayload(settings))
                 .put("messageLogs", buildMessageLogsPayload(settings))
-                .put("music", buildMusicPayload(settings))
+                .put("music", buildMusicPayload(guild, settings))
                 .put("musicStats", buildMusicStatsPayload(guild))
                 .put("privateRoom", buildPrivateRoomPayload(settings))
                 .put("numberChain", buildNumberChainPayload(guild))
@@ -337,7 +340,7 @@ public final class GuildSettingsWebService {
             case "welcome" -> DataObject.empty().put("welcome", buildWelcomePayload(settings));
             case "logs" -> DataObject.empty().put("messageLogs", buildMessageLogsPayload(settings));
             case "music" -> DataObject.empty()
-                    .put("music", buildMusicPayload(settings))
+                    .put("music", buildMusicPayload(guild, settings))
                     .put("musicStats", buildMusicStatsPayload(guild));
             case "privateRoom" -> DataObject.empty().put("privateRoom", buildPrivateRoomPayload(settings));
             case "numberChain" -> DataObject.empty().put("numberChain", buildNumberChainPayload(guild));
@@ -403,7 +406,7 @@ public final class GuildSettingsWebService {
                 .put("ignoredPrefixes", logs.getIgnoredPrefixes());
     }
 
-    private DataObject buildMusicPayload(GuildSettingsService.GuildSettings settings) {
+    private DataObject buildMusicPayload(Guild guild, GuildSettingsService.GuildSettings settings) {
         var music = settings.getMusic();
         return DataObject.empty()
                 .put("autoLeaveEnabled", music.isAutoLeaveEnabled())
@@ -411,8 +414,17 @@ public final class GuildSettingsWebService {
                 .put("autoplayEnabled", music.isAutoplayEnabled())
                 .put("defaultRepeatMode", music.getDefaultRepeatMode().name())
                 .put("commandChannelId", owner.toIdText(music.getCommandChannelId()))
+                .put("musicPanelMode", music.getPanelMode().name())
+                .put("musicPanelChannelValid", musicPanelChannelValid(guild, music.getCommandChannelId()))
                 .put("historyLimit", music.getHistoryLimit())
                 .put("statsRetentionDays", music.getStatsRetentionDays());
+    }
+
+    private boolean musicPanelChannelValid(Guild guild, Long channelId) {
+        var channel = channelId == null ? null : guild.getTextChannelById(channelId);
+        return channel != null && guild.getSelfMember().hasPermission(channel,
+                net.dv8tion.jda.api.Permission.VIEW_CHANNEL, net.dv8tion.jda.api.Permission.MESSAGE_SEND,
+                net.dv8tion.jda.api.Permission.MESSAGE_EMBED_LINKS);
     }
 
     private DataObject buildMusicStatsPayload(Guild guild) {
@@ -513,6 +525,12 @@ public final class GuildSettingsWebService {
             return;
         }
 
+        Map<String, Object> musicInput = owner.asMap(root.get("music"));
+        if (musicInput.containsKey("musicPanelMode")
+                && !java.util.Set.of("MODERN", "LEGACY").contains(String.valueOf(musicInput.get("musicPanelMode")))) {
+            owner.sendJson(exchange, 400, DataObject.empty().put("error", "Invalid music panel mode"));
+            return;
+        }
         GuildSettingsService.GuildSettings updated = owner.settingsService().updateSettings(guild.getIdLong(), current -> {
             String oldLanguage = current.getLanguage();
             String language = owner.stringOrDefault(root, "language", current.getLanguage());
@@ -601,6 +619,7 @@ public final class GuildSettingsWebService {
                         .withAutoplayEnabled(owner.boolOrDefault(mMap, "autoplayEnabled", m.isAutoplayEnabled()))
                         .withDefaultRepeatMode(parseRepeatMode(owner.stringOrDefault(mMap, "defaultRepeatMode", m.getDefaultRepeatMode().name()), m.getDefaultRepeatMode()))
                         .withCommandChannelId(owner.idOrDefault(mMap, "commandChannelId", m.getCommandChannelId()))
+                        .withPanelMode(MusicPanelMode.parse(owner.stringOrDefault(mMap, "musicPanelMode", m.getPanelMode().name())))
                         .withHistoryLimit(owner.intOrDefault(mMap, "historyLimit", m.getHistoryLimit(), 1, 500))
                         .withStatsRetentionDays(owner.intOrDefault(mMap, "statsRetentionDays", m.getStatsRetentionDays(), 0, 3650));
             }
@@ -660,7 +679,9 @@ public final class GuildSettingsWebService {
                     .withTicket(t);
         });
 
-        owner.sendJson(exchange, 200, DataObject.empty().put("ok", true).put("language", updated.getLanguage()));
+        owner.sendJson(exchange, 200, DataObject.empty().put("ok", true).put("language", updated.getLanguage())
+                .put("musicPanelChannelValid", musicPanelChannelValid(guild, updated.getMusic().getCommandChannelId()))
+                .put("musicPanelMode", updated.getMusic().getPanelMode().name()));
     }
 
     private <E extends Enum<E>> E parseRepeatMode(String raw, E fallback) {

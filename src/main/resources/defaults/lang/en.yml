@@ -15,6 +15,12 @@ system:
   shutdown: "Bot is shutting down."
 
 music:
+  panel_mode_label: "Music panel mode"
+  panel_mode_modern: "Modern mode (default)"
+  panel_mode_legacy: "Legacy mode"
+  panel_mode_modern_description: "Persistent music controls; automatically cleans messages in the configured music channel."
+  panel_mode_legacy_description: "After a successful play request, replaces the old music panel at the bottom of the channel. General messages are not cleaned."
+  panel_fallback_legacy: "The default music panel channel is missing, inaccessible, or not configured. Temporarily using Legacy mode; you can still request music. Use /settings to set a valid default music panel channel. To stop this notice on every /play, switch to Legacy mode in settings. This notice appears on every /play until the channel is valid or Legacy mode is selected."
   join_first: "Join a voice channel first."
   same_voice_required: "You must be in the same voice channel as the bot."
   joined: "Joined {channel}."

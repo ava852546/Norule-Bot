@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.service.voice;
 
+import com.norule.musicbot.domain.music.MusicPanelMode;
+
 import com.norule.musicbot.config.*;
 import com.norule.musicbot.domain.music.*;
 import com.norule.musicbot.i18n.*;
@@ -173,6 +175,18 @@ public class VoiceAutoLeaveService {
         }
     }
 
+    private boolean modernCleanupEnabled(Guild guild) {
+        var music = settingsService.getMusic(guild.getIdLong());
+        if (music.getPanelMode() != MusicPanelMode.MODERN) {
+            return false;
+        }
+        Long channelId = music.getCommandChannelId();
+        TextChannel channel = channelId == null ? null : guild.getTextChannelById(channelId);
+        return channel != null && guild.getSelfMember().hasPermission(channel,
+                net.dv8tion.jda.api.Permission.VIEW_CHANNEL, net.dv8tion.jda.api.Permission.MESSAGE_SEND,
+                net.dv8tion.jda.api.Permission.MESSAGE_EMBED_LINKS);
+    }
+
     private void sendIdleLeaveNotice(Guild guild) {
         long guildId = guild.getIdLong();
         Long channelId = settingsService.getMusic(guildId).getCommandChannelId();
@@ -188,7 +202,7 @@ public class VoiceAutoLeaveService {
         }
         String lang = settingsService.getLanguage(guildId);
         channel.sendMessage(i18n.t(lang, "music.auto_leave_idle_notice")).queue(
-                message -> message.delete().queueAfter(
+                message -> message.delete().setCheck(() -> modernCleanupEnabled(guild)).queueAfter(
                         IDLE_LEAVE_NOTICE_DELETE_DELAY_SECONDS,
                         TimeUnit.SECONDS,
                         ignored -> {

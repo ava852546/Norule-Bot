@@ -187,6 +187,14 @@
             <resource>
                 <directory>src/main/resources</directory>
             </resource>
+            <resource>
+                <directory>web/src/templates</directory>
+                <targetPath>web</targetPath>
+                <includes>
+                    <include>share-expired.html</include>
+                    <include>url-expired.html</include>
+                </includes>
+            </resource>
         </resources>
         <plugins>
             <plugin>

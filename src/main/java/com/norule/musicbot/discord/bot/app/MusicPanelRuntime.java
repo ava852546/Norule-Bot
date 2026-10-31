@@ -4,6 +4,7 @@ import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRefreshService;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRenderer;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelStateStore;
+import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver;
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicCommandChannelProvisioner;
 import com.norule.musicbot.service.music.MusicCommandChannelProvisioningService;
 
@@ -16,6 +17,7 @@ class MusicPanelRuntime {
     private final MusicPanelRenderer musicPanelRenderer;
     private final MusicPanelRefreshService musicPanelRefreshService;
     private final MusicPanelController musicPanelController;
+    private final Runnable unsubscribeSettings;
 
     MusicPanelRuntime(MusicCommandService service,
                       ScheduledExecutorService scheduler,
@@ -24,19 +26,28 @@ class MusicPanelRuntime {
         MusicCommandChannelProvisioner commandChannelProvisioner = new MusicCommandChannelProvisioner(service, scheduler, provisioningState);
         this.panelStateStore = new MusicPanelStateStore();
         this.musicPanelRenderer = new MusicPanelRenderer(service, this.panelStateStore);
+        MusicPanelModeResolver modes = new MusicPanelModeResolver(service.settingsService());
         this.musicPanelRefreshService = new MusicPanelRefreshService(
                 service,
                 this.panelStateStore,
                 this.musicPanelRenderer,
-                commandChannelProvisioner,
                 scheduler,
-                panelPeriodicRefreshMs
+                panelPeriodicRefreshMs,
+                modes
         );
         this.musicPanelController = new MusicPanelController(
                 service,
                 commandChannelProvisioner,
-                service::refreshPanel
+                service::refreshPanel,
+                this.musicPanelRefreshService,
+                modes
         );
+        this.unsubscribeSettings = service.settingsService().onMusicSettingsChanged(musicPanelRefreshService::settingsChanged);
+    }
+
+    void close() {
+        unsubscribeSettings.run();
+        musicPanelRefreshService.close();
     }
 
     MusicPanelStateStore panelStateStore() { return panelStateStore; }
