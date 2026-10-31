@@ -3,19 +3,25 @@ package com.norule.musicbot.bootstrap;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
-import java.lang.management.ManagementFactory;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URI;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.security.CodeSource;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.ProtectionDomain;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,7 +30,6 @@ import java.util.Map;
 import java.util.Set;
 
 final class RuntimeDependencyBootstrap {
-    static final String RELAUNCHED_PROPERTY = "norule.bootstrap.relaunched";
     static final String DEPENDENCY_MANIFEST_RESOURCE = "/bootstrap/runtime-dependencies.txt";
     static final String CLEANUP_OBSOLETE_PROPERTY = "norule.bootstrap.cleanup-obsolete";
     static final String VERIFY_CHECKSUMS_PROPERTY = "norule.bootstrap.verify-checksums";
@@ -36,7 +41,10 @@ final class RuntimeDependencyBootstrap {
     static final String STALL_TIMEOUT_PROPERTY = "norule.bootstrap.stall-timeout-ms";
     static final String MAX_RETRIES_PROPERTY = "norule.bootstrap.max-retries";
     static final String RUNTIME_LIB_DIRECTORY = "runtime-libs";
-    private static final String ENABLE_NATIVE_ACCESS_ARG = "--enable-native-access=ALL-UNNAMED";
+    private static final String APPLICATION_MAIN = "com.norule.musicbot.bootstrap.BotMain";
+    // Intentionally retained until JVM termination: BotMain returns while JDA is still running.
+    private static URLClassLoader runtimeLoader;
+    private static CacheLease runtimeLease;
     private static final String SHA_256 = "SHA-256";
     private static final System.Logger LOGGER = System.getLogger(RuntimeDependencyBootstrap.class.getName());
 
@@ -49,37 +57,59 @@ final class RuntimeDependencyBootstrap {
     private RuntimeDependencyBootstrap() {
     }
 
-    // S3516: changed from boolean to void — return true was dead code after System.exit()
-    static void ensureDependenciesAndRelaunchIfNeeded(String[] args) {
-        if (Boolean.getBoolean(RELAUNCHED_PROPERTY)) {
-            return;
-        }
-
+    static void launch(String[] args) throws Throwable {
         Path launcherPath = findLauncherPath();
-        if (launcherPath == null || !Files.isRegularFile(launcherPath)) {
+        if (Files.isDirectory(launcherPath)) {
+            // IDE / exec:java already supplies the Maven runtime classpath.
+            invokeMain(Main.class.getClassLoader(), APPLICATION_MAIN, args);
             return;
         }
-
         List<DependencyArtifact> artifacts = loadRuntimeDependencyManifest();
         if (artifacts.isEmpty()) {
-            LOGGER.log(System.Logger.Level.INFO, "[NoRule] Runtime dependency manifest is empty, skip lib bootstrap.");
-            return;
+            throw new IllegalStateException("Packaged runtime dependency manifest is empty");
         }
-
         Path workingDir = Path.of(".").toAbsolutePath().normalize();
         Path libDir = workingDir.resolve(RUNTIME_LIB_DIRECTORY);
         try {
-            BootstrapSettings settings = BootstrapSettings.fromConfig(workingDir.resolve("config.yml"));
+            String configuredPath = System.getenv("BOT_CONFIG_PATH");
+            Path configPath = configuredPath == null || configuredPath.isBlank()
+                    ? workingDir.resolve("config.yml") : Path.of(configuredPath);
+            BootstrapSettings settings = BootstrapSettings.fromConfig(configPath);
+            runtimeLease = CacheLease.acquire(libDir);
             synchronizeRuntimeDependencies(libDir, artifacts, settings,
                     new RuntimeDependencyDownloader(settings,
                             message -> LOGGER.log(System.Logger.Level.INFO, message)));
-            int exitCode = relaunchWithLibClasspath(launcherPath, libDir, args);
-            System.exit(exitCode);
+            runtimeLoader = createRuntimeLoader(launcherPath, libDir, artifacts);
         } catch (IOException e) {
+            if (runtimeLease != null) {
+                runtimeLease.close();
+                runtimeLease = null;
+            }
             throw new UncheckedIOException("Failed to synchronize runtime dependencies in ./" + RUNTIME_LIB_DIRECTORY, e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while relaunching with lib classpath", e);
+        }
+        LOGGER.log(System.Logger.Level.INFO, "[NoRule] Starting bot in the current JVM with verified runtime dependencies.");
+        // Do not close the loader or lease here, including on an application failure:
+        // shutdown hooks and existing workers may still need classes/resources.
+        invokeMain(runtimeLoader, APPLICATION_MAIN, args);
+    }
+
+    static URLClassLoader createRuntimeLoader(Path launcher, Path libDir, List<DependencyArtifact> artifacts)
+            throws IOException {
+        List<URL> urls = new ArrayList<>();
+        urls.add(launcher.toUri().toURL());
+        for (DependencyArtifact artifact : removeConflictingProviders(artifacts)) {
+            urls.add(artifactPath(libDir, artifact).toUri().toURL());
+        }
+        return new URLClassLoader("NoRuleRuntime", urls.toArray(URL[]::new), ClassLoader.getPlatformClassLoader());
+    }
+
+    static void invokeMain(ClassLoader loader, String className, String[] args) throws Throwable {
+        Thread.currentThread().setContextClassLoader(loader);
+        try {
+            Class.forName(className, true, loader).getMethod("main", String[].class)
+                    .invoke(null, (Object) args);
+        } catch (InvocationTargetException failure) {
+            throw failure.getCause();
         }
     }
 
@@ -91,7 +121,7 @@ final class RuntimeDependencyBootstrap {
             }
             DependencyArtifact artifact = parseManifestLine(line.trim());
             String fileName = buildJarFileName(artifact);
-            if (unique.putIfAbsent(fileName, artifact) != null) {
+            if (unique.putIfAbsent(normalizeFileName(fileName), artifact) != null) {
                 throw new IllegalArgumentException("Duplicate runtime dependency target file: " + fileName);
             }
         }
@@ -140,7 +170,7 @@ final class RuntimeDependencyBootstrap {
     private static List<DependencyArtifact> loadRuntimeDependencyManifest() {
         InputStream input = RuntimeDependencyBootstrap.class.getResourceAsStream(DEPENDENCY_MANIFEST_RESOURCE);
         if (input == null) {
-            return List.of();
+            throw new IllegalStateException("Packaged runtime dependency manifest is missing");
         }
         try (input) {
             List<String> lines = new String(input.readAllBytes(), StandardCharsets.UTF_8).lines().toList();
@@ -169,7 +199,7 @@ final class RuntimeDependencyBootstrap {
                 "[NoRule] Preparing runtime dependencies: total=" + activeArtifacts.size());
         try {
             downloadRequiredArtifacts(libDir, activeArtifacts, settings, downloader, stats);
-            stats.removed = cleanupRuntimeJars(libDir, activeArtifacts, settings.cleanupObsolete());
+            // Only manifest URLs are loaded. Preserve old/extra JARs for rollback.
             verifySynchronizedArtifacts(libDir, activeArtifacts, settings);
         } catch (IOException e) {
             logSummary(stats);
@@ -237,7 +267,7 @@ final class RuntimeDependencyBootstrap {
             DependencyArtifact artifact = artifacts.get(artifactIndex);
             int displayIndex = artifactIndex + 1;
             String fileName = buildJarFileName(artifact);
-            Path target = libDir.resolve(fileName);
+            Path target = artifactPath(libDir, artifact);
             if (!requiresDownload(target, artifact.sha256(), settings)) {
                 Files.deleteIfExists(partFile(target));
                 stats.reused++;
@@ -315,44 +345,11 @@ final class RuntimeDependencyBootstrap {
         return target.resolveSibling(target.getFileName().toString() + ".part");
     }
 
-    private static int cleanupRuntimeJars(Path libDir, List<DependencyArtifact> artifacts, boolean cleanupObsolete)
-            throws IOException {
-        Set<String> expectedNames = new HashSet<>();
-        for (DependencyArtifact artifact : artifacts) {
-            expectedNames.add(normalizeFileName(buildJarFileName(artifact)));
-        }
-
-        int deleted = 0;
-        try (var entries = Files.list(libDir)) {
-            for (Path entry : entries.toList()) {
-                String fileName = entry.getFileName().toString();
-                if (!Files.isRegularFile(entry) || !isJarFileName(fileName)) {
-                    continue;
-                }
-                boolean conflictingProvider = isConflictingProviderJar(fileName);
-                boolean obsoleteLogback = isObsoleteLogbackJar(fileName, expectedNames);
-                boolean obsolete = cleanupObsolete && !expectedNames.contains(normalizeFileName(fileName));
-                if (conflictingProvider || obsoleteLogback || obsolete) {
-                    Files.delete(entry);
-                    deleted++;
-                    LOGGER.log(System.Logger.Level.INFO, "[NoRule] Deleted obsolete runtime dependency: " + fileName);
-                }
-            }
-        }
-        return deleted;
-    }
-
-    private static boolean isObsoleteLogbackJar(String fileName, Set<String> expectedNames) {
-        String lowerName = fileName.toLowerCase(Locale.ROOT);
-        boolean logbackJar = lowerName.startsWith("logback-classic-") || lowerName.startsWith("logback-core-");
-        return logbackJar && !expectedNames.contains(normalizeFileName(fileName));
-    }
-
     private static void verifySynchronizedArtifacts(Path libDir, List<DependencyArtifact> artifacts,
             BootstrapSettings settings) throws IOException {
         for (DependencyArtifact artifact : artifacts) {
             String fileName = buildJarFileName(artifact);
-            Path target = libDir.resolve(fileName);
+            Path target = artifactPath(libDir, artifact);
             if (!Files.isRegularFile(target)) {
                 throw new IOException("Runtime dependency is missing after synchronization: " + fileName);
             }
@@ -362,61 +359,70 @@ final class RuntimeDependencyBootstrap {
         }
     }
 
-    private static int relaunchWithLibClasspath(Path launcherJar, Path libDir, String[] appArgs) throws IOException, InterruptedException {
-        List<String> command = new ArrayList<>();
-        command.add(resolveJavaExecutable().toString());
-        command.addAll(ManagementFactory.getRuntimeMXBean().getInputArguments());
-        if (shouldAppendNativeAccessArg(command)) {
-            command.add(ENABLE_NATIVE_ACCESS_ARG);
-        }
-        command.add("-D" + RELAUNCHED_PROPERTY + "=true");
-        command.add("-cp");
-        command.add(launcherJar.toAbsolutePath() + java.io.File.pathSeparator + libDir.toAbsolutePath() + java.io.File.separator + "*");
-        command.add(Main.class.getName());
-        // S3012: replaced manual for-loop copy with Collections.addAll
-        Collections.addAll(command, appArgs);
-
-        ProcessBuilder builder = new ProcessBuilder(command);
-        builder.inheritIO();
-        Process child = builder.start();
-        return child.waitFor();
-    }
-
-    private static boolean shouldAppendNativeAccessArg(List<String> jvmArgs) {
-        if (Runtime.version().feature() < 22) {
-            return false;
-        }
-        for (String arg : jvmArgs) {
-            if (arg == null) {
-                continue;
-            }
-            if (arg.startsWith("--enable-native-access")) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static Path resolveJavaExecutable() {
-        Path javaHome = Path.of(System.getProperty("java.home"));
-        String executable = isWindows() ? "java.exe" : "java";
-        return javaHome.resolve("bin").resolve(executable);
-    }
-
     private static Path findLauncherPath() {
         try {
             ProtectionDomain domain = Main.class.getProtectionDomain();
             if (domain == null) {
-                return null;
+                throw new IllegalStateException("Launcher protection domain is unavailable");
             }
             CodeSource source = domain.getCodeSource();
             if (source == null) {
-                return null;
+                throw new IllegalStateException("Launcher code source is unavailable");
             }
             URI uri = source.getLocation().toURI();
             return Path.of(uri).toAbsolutePath().normalize();
         } catch (Exception e) {
-            return null;
+            throw new IllegalStateException("Cannot locate launcher", e);
+        }
+    }
+
+    private static Path artifactPath(Path libDir, DependencyArtifact artifact) throws IOException {
+        Path root = libDir.toAbsolutePath().normalize();
+        Path target = root.resolve(buildJarFileName(artifact)).normalize();
+        if (!root.equals(target.getParent()) || Files.isSymbolicLink(target)
+                || (Files.exists(target, LinkOption.NOFOLLOW_LINKS) && !Files.isRegularFile(target))) {
+            throw new IOException("Unsafe runtime dependency cache target: " + target.getFileName());
+        }
+        return target;
+    }
+
+    /** An exclusive process-lifetime lease; the OS releases it after shutdown hooks finish. */
+    static final class CacheLease implements AutoCloseable {
+        private final FileChannel channel;
+        private final FileLock lock;
+
+        private CacheLease(FileChannel channel, FileLock lock) {
+            this.channel = channel;
+            this.lock = lock;
+        }
+
+        static CacheLease acquire(Path directory) throws IOException {
+            if (Files.isSymbolicLink(directory)) {
+                throw new IOException("Runtime dependency directory must not be a symbolic link");
+            }
+            Files.createDirectories(directory);
+            Path lockPath = directory.resolve(".bootstrap.lock");
+            FileChannel channel = FileChannel.open(lockPath, StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
+            try {
+                FileLock lock = channel.tryLock();
+                if (lock == null) {
+                    throw new IOException("Runtime dependency cache is in use; use a separate working directory");
+                }
+                return new CacheLease(channel, lock);
+            } catch (IOException | OverlappingFileLockException failure) {
+                channel.close();
+                throw new IOException("Cannot acquire runtime dependency cache lease", failure);
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            try {
+                lock.release();
+            } finally {
+                channel.close();
+            }
         }
     }
 
@@ -465,23 +471,8 @@ final class RuntimeDependencyBootstrap {
         return value != null && value.matches("[0-9a-fA-F]{64}");
     }
 
-    private static boolean isJarFileName(String fileName) {
-        return fileName.toLowerCase(Locale.ROOT).endsWith(".jar");
-    }
-
     private static boolean isConflictingProviderArtifact(String artifactId) {
         return CONFLICTING_SLF4J_PROVIDERS.contains(artifactId.toLowerCase(Locale.ROOT));
-    }
-
-    private static boolean isConflictingProviderJar(String fileName) {
-        String lowerName = fileName.toLowerCase(Locale.ROOT);
-        for (String artifactId : CONFLICTING_SLF4J_PROVIDERS) {
-            if ((lowerName.equals(artifactId + ".jar") || lowerName.startsWith(artifactId + "-"))
-                    && lowerName.endsWith(".jar")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static String normalizeFileName(String fileName) {
@@ -511,6 +502,28 @@ final class RuntimeDependencyBootstrap {
 
     record DependencyArtifact(String groupId, String artifactId, String version, String classifier, String extension,
             RuntimeRepository repository, String sha256) {
+        DependencyArtifact {
+            if (groupId == null || !groupId.matches("[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*")) {
+                throw new IllegalArgumentException("Invalid runtime dependency groupId");
+            }
+            validateCoordinatePart(artifactId, "artifactId");
+            validateCoordinatePart(version, "version");
+            if (classifier == null) {
+                throw new IllegalArgumentException("Invalid runtime dependency classifier");
+            }
+            if (!classifier.isEmpty()) {
+                validateCoordinatePart(classifier, "classifier");
+            }
+            if (!"jar".equals(extension) || repository == null || !isSha256(sha256)) {
+                throw new IllegalArgumentException("Invalid runtime dependency metadata");
+            }
+        }
+
+        private static void validateCoordinatePart(String value, String field) {
+            if (value == null || !value.matches("[A-Za-z0-9_][A-Za-z0-9_.+-]*")) {
+                throw new IllegalArgumentException("Invalid runtime dependency " + field);
+            }
+        }
     }
 
     record BootstrapSettings(boolean cleanupObsolete, boolean verifyChecksums, boolean forceRedownload,
@@ -551,9 +564,12 @@ final class RuntimeDependencyBootstrap {
         }
 
         private static BootstrapSettings fromValues(Map<String, String> values) {
+            if (!readBooleanProperty(VERIFY_CHECKSUMS_PROPERTY, true)) {
+                throw new IllegalStateException("Runtime SHA-256 verification cannot be disabled");
+            }
             return new BootstrapSettings(
-                    readBooleanProperty(CLEANUP_OBSOLETE_PROPERTY, true),
-                    readBooleanProperty(VERIFY_CHECKSUMS_PROPERTY, true),
+                    false,
+                    true,
                     readBooleanProperty(FORCE_REDOWNLOAD_PROPERTY, false),
                     readBooleanSetting(values, "progress-enabled", PROGRESS_ENABLED_PROPERTY,
                             DEFAULT_PROGRESS_ENABLED),

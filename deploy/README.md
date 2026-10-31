@@ -48,10 +48,10 @@ JDA 自動重連保持啟用，不因離線 5 分鐘就重啟。`recoveryEnabled
 沿用目前的 Java 21 egg 與 Startup Command，不需要在容器內安裝 systemd、Docker daemon 或額外 shell supervisor。範例（依實際 JAR 位置調整，保留既有 JVM 記憶體參數）：
 
 ```sh
-java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.7.jar
+java -Dfile.encoding=UTF-8 -jar target/discord-music-bot-1.8.jar
 ```
 
-確認 egg 的停止命令為 `stop`（或使用能送出正常終止訊號的設定），讓人工停止走既有清理流程。JAR dependency bootstrap 會將子 JVM 退出碼原樣傳回給容器入口。不要用 `|| true`、無限 `while` 或額外 restart script 吃掉退出碼，也不要配置固定排程反覆重啟已被額度保護的 Bot。
+確認 egg 的停止命令為 `stop`（或使用能送出正常終止訊號的設定），讓人工停止走既有清理流程。1.8 的 dependency bootstrap 與 Bot 使用同一 JVM，退出碼直接交給容器入口；不再啟動或等待子 JVM。不要用 `|| true`、無限 `while` 或額外 restart script 吃掉退出碼，也不要配置固定排程反覆重啟已被額度保護的 Bot。
 
 Wings 的 crash detection 應由節點管理員檢查。官方設定位於節點的 `/etc/pterodactyl/config.yml`，並非 Bot 的 `config.yml`：
 

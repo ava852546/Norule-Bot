@@ -29,6 +29,38 @@ class RuntimeDependencyDownloaderTest {
     Path tempDir;
 
     @Test
+    void rejectsCrossOriginCredentialAndDowngradeRedirects() {
+        var origin = java.net.URI.create("https://repo.maven.apache.org/maven2/demo.jar");
+        assertTrue(RuntimeDependencyDownloader.isTrustedRedirect(origin,
+                origin.resolve("/maven2/redirected.jar")));
+        for (String target : List.of("http://repo.maven.apache.org/demo.jar",
+                "https://evil.example/demo.jar", "https://repo.maven.apache.org:444/demo.jar",
+                "https://secret@repo.maven.apache.org/demo.jar")) {
+            assertFalse(RuntimeDependencyDownloader.isTrustedRedirect(origin, java.net.URI.create(target)));
+        }
+    }
+
+    @Test
+    void refusesUntrustedRedirectWithoutRequestingItsDestination() throws IOException {
+        AtomicInteger redirectedRequests = new AtomicInteger();
+        try (TestServer destination = startServer(exchange -> {
+            redirectedRequests.incrementAndGet();
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        }); TestServer origin = startServer(exchange -> {
+            exchange.getResponseHeaders().add("Location", destination.baseUrl() + "/demo.jar");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        })) {
+            var downloader = new RuntimeDependencyDownloader(settings(100, 0),
+                    Map.of(RuntimeRepository.MAVEN_CENTRAL, origin.baseUrl()), ignored -> { },
+                    System::nanoTime, ignored -> { });
+            assertThrows(IOException.class, () -> downloader.download(artifact(), tempDir.resolve("redirect.part"), 1, 1));
+            assertEquals(0, redirectedRequests.get());
+        }
+    }
+
+    @Test
     void formatsPercentageWhenContentLengthIsKnown() {
         String message = RuntimeDependencyDownloader.formatProgress(
                 12, 58, "file.jar", "central", 5_000L, 20_000L, 2_000.0, 2.5);
