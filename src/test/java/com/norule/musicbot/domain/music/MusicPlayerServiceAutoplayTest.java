@@ -233,6 +233,53 @@ class MusicPlayerServiceAutoplayTest {
         assertTrue(loads.isEmpty());
     }
 
+    @Test
+    void idleSubscriberDoesNotReplacePanelSubscriberAndCanUnsubscribe() {
+        var panel = new ArrayList<MusicStateChange>();
+        var idle = new ArrayList<MusicStateChange>();
+        service.setGuildStateChangeListener(GUILD_ID, panel::add);
+        Runnable unsubscribe = service.addStateChangeListener((id, change) -> idle.add(change));
+        service.togglePause(guild);
+        assertEquals(List.of(MusicStateChange.PAUSE), panel);
+        assertEquals(panel, idle);
+        unsubscribe.run();
+        service.togglePause(guild);
+        assertEquals(2, panel.size());
+        assertEquals(1, idle.size());
+    }
+
+    @Test
+    void pendingOrdinaryLoadsProtectIdleUntilEveryCallbackCompletes() {
+        service.queueTrackByIdentifier(guild, "ytsearch:first", "youtube", ignored -> {});
+        service.queueTrackByIdentifier(guild, "ytsearch:second", "youtube", ignored -> {});
+        assertTrue(service.isPlaybackTransitioning(guild));
+        loads.get(0).noMatches();
+        assertTrue(service.isPlaybackTransitioning(guild));
+        loads.get(1).loadFailed(new FriendlyException("fixture", FriendlyException.Severity.COMMON, null));
+        assertTrue(!service.isPlaybackTransitioning(guild));
+    }
+
+    @Test
+    void stopInvalidatesPendingLoadsSoLateResultsCannotRestartPlayback() {
+        service.queueTrackByIdentifier(guild, "ytsearch:first", "youtube", ignored -> {});
+        assertTrue(service.isPlaybackTransitioning(guild));
+        service.stop(guild);
+        assertTrue(!service.isPlaybackTransitioning(guild));
+        loads.getFirst().trackLoaded(track("late_______", "Late result"));
+        assertNull(current);
+        assertTrue(service.getQueueSnapshot(guild).isEmpty());
+    }
+
+    @Test
+    void autoplayFallbackRemainsProtectedUntilItFinishes() {
+        finish(startSeed());
+        assertTrue(service.isPlaybackTransitioning(guild));
+        loads.getFirst().noMatches();
+        assertTrue(service.isPlaybackTransitioning(guild));
+        loads.getLast().noMatches();
+        assertTrue(!service.isPlaybackTransitioning(guild));
+    }
+
     private AudioTrack startSeed() {
         AudioTrack seed = track("seed_______", "Seed song");
         manager.getScheduler().queue(seed);

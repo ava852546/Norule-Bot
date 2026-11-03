@@ -323,7 +323,7 @@ public final class RuntimeBootstrap {
                                             return snapshot == null ? 500L : snapshot.getNumberChainReactionDelayMillis();
                                         }),
                                 new WordChainMessageListener(wordChainOps),
-                                new VoiceAutoLeaveListener(guildSettingsService, playerService, i18nService),
+                                new VoiceAutoLeaveListener(guildSettingsService, playerService, I18N_SERVICE::get),
                                 new PrivateRoomListener(guildSettingsService, i18nService, privateRoomCacheRepository,
                                         musicCommandListener.backgroundRest())
                         );

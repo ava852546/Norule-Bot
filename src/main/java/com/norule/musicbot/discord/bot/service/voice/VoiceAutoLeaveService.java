@@ -1,182 +1,263 @@
 package com.norule.musicbot.discord.bot.service.voice;
 
+import com.norule.musicbot.config.domain.MusicConfig;
 import com.norule.musicbot.domain.music.MusicPanelMode;
-
-import com.norule.musicbot.config.*;
-import com.norule.musicbot.domain.music.*;
-import com.norule.musicbot.i18n.*;
-
+import com.norule.musicbot.domain.music.MusicPlayerService;
+import com.norule.musicbot.domain.music.MusicStateChange;
+import com.norule.musicbot.i18n.I18nService;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
-import net.dv8tion.jda.api.events.session.ReadyEvent;
-import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
+import java.util.function.LongFunction;
 
 public class VoiceAutoLeaveService {
     private static final Logger LOGGER = LoggerFactory.getLogger(VoiceAutoLeaveService.class);
     private static final long IDLE_LEAVE_NOTICE_DELETE_DELAY_SECONDS = 30L;
+    private static final long EMPTY_CHANNEL_SECONDS = 10;
+    private static final long IDLE_PLAYBACK_SECONDS = 600;
 
-    private enum LeaveReason {
-        EMPTY_CHANNEL,
-        IDLE_PLAYBACK
+    private enum LeaveReason { EMPTY_CHANNEL, IDLE_PLAYBACK }
+
+    private static final class PendingLeave {
+        private ScheduledFuture<?> future;
     }
 
-    private static class PendingLeave {
-        private final LeaveReason reason;
-        private final ScheduledFuture<?> future;
+    // All timer state and disconnect operations are confined to scheduler.
+    private static final class ChannelState {
+        private final long channelId;
+        private final Map<LeaveReason, PendingLeave> timers = new EnumMap<>(LeaveReason.class);
+        private boolean disconnecting;
 
-        private PendingLeave(LeaveReason reason, ScheduledFuture<?> future) {
-            this.reason = reason;
-            this.future = future;
-        }
+        private ChannelState(long channelId) { this.channelId = channelId; }
     }
 
-    private final GuildSettingsService settingsService;
+    private final LongFunction<MusicConfig> musicConfigs;
+    private final LongFunction<String> languages;
     private final MusicPlayerService playerService;
-    private final I18nService i18n;
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-    private final Map<Long, PendingLeave> pendingLeaves = new ConcurrentHashMap<>();
-    private final AtomicBoolean monitorStarted = new AtomicBoolean(false);
-    private volatile JDA jda;
+    private final Supplier<I18nService> i18n;
+    private final ScheduledExecutorService scheduler;
+    private final Map<Long, ChannelState> states = new HashMap<>();
+    private final Runnable unsubscribePlayback;
+    private JDA jda;
+    private boolean monitorStarted;
 
-    public VoiceAutoLeaveService(GuildSettingsService settingsService, MusicPlayerService playerService, I18nService i18n) {
-        this.settingsService = settingsService;
+    public VoiceAutoLeaveService(LongFunction<MusicConfig> musicConfigs, LongFunction<String> languages,
+                                 MusicPlayerService playerService,
+                                 Supplier<I18nService> i18n) {
+        this(musicConfigs, languages, playerService, i18n, Executors.newSingleThreadScheduledExecutor());
+    }
+
+    VoiceAutoLeaveService(LongFunction<MusicConfig> musicConfigs, LongFunction<String> languages,
+                          MusicPlayerService playerService,
+                          Supplier<I18nService> i18n, ScheduledExecutorService scheduler) {
+        this.musicConfigs = musicConfigs;
+        this.languages = languages;
         this.playerService = playerService;
         this.i18n = i18n;
-    }
-    public void onReady(ReadyEvent event) {
-        this.jda = event.getJDA();
-        startMonitorIfNeeded();
-    }
-    public void onGuildVoiceUpdate(GuildVoiceUpdateEvent event) {
-        this.jda = event.getJDA();
-        startMonitorIfNeeded();
-        evaluateGuild(event.getGuild());
+        this.scheduler = scheduler;
+        unsubscribePlayback = playerService.addStateChangeListener(this::onPlaybackStateChanged);
     }
 
-    private void startMonitorIfNeeded() {
-        if (!monitorStarted.compareAndSet(false, true)) {
-            return;
+    public void close() {
+        unsubscribePlayback.run();
+        submit(() -> {
+            for (long id : List.copyOf(states.keySet())) clear(id, "SHUTDOWN");
+            scheduler.shutdownNow();
+        });
+    }
+
+    private void submit(Runnable task) {
+        try {
+            scheduler.execute(task);
+        } catch (RejectedExecutionException error) {
+            if (!scheduler.isShutdown()) throw error;
         }
-        scheduler.scheduleAtFixedRate(this::evaluateAllGuilds, 20, 20, TimeUnit.SECONDS);
+    }
+
+    public void onConnected(JDA current) {
+        submit(() -> {
+            jda = current;
+            if (!monitorStarted) {
+                monitorStarted = true;
+                scheduler.scheduleAtFixedRate(this::evaluateAllGuilds, 20, 20, TimeUnit.SECONDS);
+            }
+            evaluateAllGuilds();
+        });
+    }
+
+    public void onVoiceUpdate(Guild guild, boolean selfMoved) {
+        AudioChannel channel = currentBotChannel(guild);
+        boolean hasHumans = channel != null && humanCount(channel) > 0;
+        submit(() -> {
+            long id = guild.getIdLong();
+            if (selfMoved) clear(id, "CHANNEL_CHANGED");
+            // Preserve a human return even if they leave again before the queued check runs.
+            ChannelState state = states.get(id);
+            if (hasHumans && state != null) cancel(id, state, LeaveReason.EMPTY_CHANNEL, "USER_JOINED");
+            evaluateSafely(guild);
+        });
+    }
+
+    private void onPlaybackStateChanged(long guildId, MusicStateChange change) {
+        submit(() -> {
+            if (jda == null) return;
+            Guild guild = jda.getGuildById(guildId);
+            if (guild == null) return;
+            // Preserve resume/start transitions even if another pause follows before this task runs.
+            if (change == MusicStateChange.RESUME || change == MusicStateChange.TRACK_START) {
+                ChannelState state = states.get(guildId);
+                if (state != null) cancel(guildId, state, LeaveReason.IDLE_PLAYBACK, "PLAYBACK_ACTIVE");
+            }
+            evaluateSafely(guild);
+        });
     }
 
     private void evaluateAllGuilds() {
-        JDA current = this.jda;
-        if (current == null) {
-            return;
-        }
-        for (Guild guild : current.getGuilds()) {
+        if (jda == null) return;
+        states.keySet().removeIf(id -> {
+            if (jda.getGuildById(id) != null) return false;
+            states.get(id).timers.values().forEach(timer -> timer.future.cancel(false));
+            return true;
+        });
+        for (Guild guild : jda.getGuilds()) evaluateSafely(guild);
+    }
+
+    private void evaluateSafely(Guild guild) {
+        try {
             evaluateGuild(guild);
+        } catch (RuntimeException error) {
+            LOGGER.warn("[VoiceAutoLeave] event=CHECK_FAILED guildId={}", guild.getIdLong(), error);
         }
     }
 
     private void evaluateGuild(Guild guild) {
-        long guildId = guild.getIdLong();
-        var cfg = settingsService.getMusic(guildId);
-        if (!cfg.isAutoLeaveEnabled()) {
-            cancel(guildId);
+        long id = guild.getIdLong();
+        AudioChannel channel = currentBotChannel(guild);
+        if (channel == null || !musicConfigs.apply(id).isAutoLeaveEnabled()) {
+            clear(id, "DISABLED_OR_DISCONNECTED");
             return;
         }
-
-        AudioChannel botChannel = currentBotChannel(guild);
-        if (botChannel == null) {
-            cancel(guildId);
-            return;
+        ChannelState state = states.get(id);
+        if (state != null && state.channelId != channel.getIdLong()) {
+            clear(id, "CHANNEL_CHANGED");
+            state = null;
         }
-
-        LeaveReason reason = detectLeaveReason(guild, botChannel);
-        if (reason == null) {
-            cancel(guildId);
-            return;
+        if (state == null) {
+            state = new ChannelState(channel.getIdLong());
+            states.put(id, state);
         }
-
-        PendingLeave existing = pendingLeaves.get(guildId);
-        if (existing != null) {
-            if (existing.reason == reason) {
-                return;
-            }
-            existing.future.cancel(false);
-            pendingLeaves.remove(guildId);
-        }
-
-        ScheduledFuture<?> future = scheduler.schedule(
-                () -> executeScheduledLeave(guildId, reason),
-                Math.max(1, cfg.getAutoLeaveMinutes()),
-                TimeUnit.MINUTES
-        );
-        pendingLeaves.put(guildId, new PendingLeave(reason, future));
+        if (state.disconnecting) return;
+        updateTimer(guild, state, LeaveReason.EMPTY_CHANNEL, humanCount(channel) == 0,
+                EMPTY_CHANNEL_SECONDS, "USER_JOINED");
+        updateTimer(guild, state, LeaveReason.IDLE_PLAYBACK, idlePlayback(guild),
+                IDLE_PLAYBACK_SECONDS, "PLAYBACK_ACTIVE");
     }
 
-    private void executeScheduledLeave(long guildId, LeaveReason expectedReason) {
-        JDA current = this.jda;
-        if (current == null) {
-            pendingLeaves.remove(guildId);
-            return;
+    private void updateTimer(Guild guild, ChannelState state, LeaveReason reason, boolean eligible,
+                             long seconds, String cancellation) {
+        long id = guild.getIdLong();
+        if (!eligible) {
+            cancel(id, state, reason, cancellation);
+        } else if (!state.timers.containsKey(reason)) {
+            PendingLeave timer = new PendingLeave();
+            state.timers.put(reason, timer);
+            timer.future = scheduler.schedule(() -> executeScheduledLeave(id, state, reason, timer),
+                    seconds, TimeUnit.SECONDS);
+            LOGGER.info("[VoiceAutoLeave] event=TIMER_STARTED guildId={} reason={} delaySeconds={}", id, reason, seconds);
         }
-        Guild guild = current.getGuildById(guildId);
+    }
+
+    private void executeScheduledLeave(long id, ChannelState state, LeaveReason reason, PendingLeave timer) {
+        if (states.get(id) != state || state.disconnecting || state.timers.get(reason) != timer) return;
+        Guild guild = jda == null ? null : jda.getGuildById(id);
         if (guild == null) {
-            pendingLeaves.remove(guildId);
+            clear(id, "GUILD_UNAVAILABLE");
             return;
         }
-
-        AudioChannel botChannel = currentBotChannel(guild);
-        if (botChannel == null) {
-            pendingLeaves.remove(guildId);
-            return;
-        }
-
-        LeaveReason reasonNow = detectLeaveReason(guild, botChannel);
-        if (reasonNow == expectedReason) {
+        try {
+            AudioChannel channel = currentBotChannel(guild);
+            if (channel == null || !musicConfigs.apply(id).isAutoLeaveEnabled()) {
+                clear(id, "DISABLED_OR_DISCONNECTED");
+                return;
+            }
+            if (channel.getIdLong() != state.channelId) {
+                clear(id, "CHANNEL_CHANGED");
+                evaluateSafely(guild);
+                return;
+            }
+            long humans = humanCount(channel);
+            // Recheck only this timer's condition; playback must never postpone an empty-channel exit.
+            if (reason == LeaveReason.EMPTY_CHANNEL ? humans > 0 : !idlePlayback(guild)) {
+                cancel(id, state, reason, reason == LeaveReason.EMPTY_CHANNEL ? "USER_JOINED" : "PLAYBACK_ACTIVE");
+                return;
+            }
+            state.disconnecting = true;
+            state.timers.values().forEach(pending -> pending.future.cancel(false));
+            state.timers.clear();
             playerService.stop(guild);
             playerService.leaveChannel(guild);
-            if (reasonNow == LeaveReason.IDLE_PLAYBACK) {
+            LOGGER.info("[VoiceAutoLeave] event=DISCONNECTED guildId={} reason={} humanCount={} idleSeconds={}",
+                    id, reason, humans, reason == LeaveReason.IDLE_PLAYBACK ? IDLE_PLAYBACK_SECONDS : 0);
+        } catch (RuntimeException error) {
+            clear(id, "DISCONNECT_FAILED");
+            LOGGER.warn("[VoiceAutoLeave] event=DISCONNECT_FAILED guildId={} reason={}", id, reason, error);
+            return;
+        }
+        if (reason == LeaveReason.IDLE_PLAYBACK) {
+            try {
                 sendIdleLeaveNotice(guild);
+            } catch (RuntimeException error) {
+                LOGGER.warn("[VoiceAutoLeave] event=NOTICE_FAILED guildId={}", id, error);
             }
         }
-        pendingLeaves.remove(guildId);
     }
 
     private AudioChannel currentBotChannel(Guild guild) {
-        if (!guild.getAudioManager().isConnected() || guild.getSelfMember().getVoiceState() == null) {
-            return null;
-        }
-        return (AudioChannel) guild.getSelfMember().getVoiceState().getChannel();
+        var voice = guild.getSelfMember().getVoiceState();
+        return voice == null ? null : voice.getChannel();
     }
 
-    private LeaveReason detectLeaveReason(Guild guild, AudioChannel botChannel) {
-        boolean hasNonBot = botChannel.getMembers().stream().anyMatch(member -> !member.getUser().isBot());
-        if (!hasNonBot) {
-            return LeaveReason.EMPTY_CHANNEL;
-        }
-
-        boolean idlePlayback = playerService.getCurrentTitle(guild) == null && playerService.getQueueSnapshot(guild).isEmpty();
-        if (idlePlayback) {
-            return LeaveReason.IDLE_PLAYBACK;
-        }
-        return null;
+    private long humanCount(AudioChannel channel) {
+        return channel.getMembers().stream().filter(member -> !member.getUser().isBot()).count();
     }
 
-    private void cancel(long guildId) {
-        PendingLeave pending = pendingLeaves.remove(guildId);
-        if (pending != null) {
-            pending.future.cancel(false);
+    private boolean idlePlayback(Guild guild) {
+        if (playerService.isPlaybackTransitioning(guild)) return false;
+        return playerService.isPaused(guild)
+                || (playerService.getCurrentTitle(guild) == null && playerService.getQueueSnapshot(guild).isEmpty());
+    }
+
+    private void cancel(long id, ChannelState state, LeaveReason reason, String cause) {
+        PendingLeave timer = state.timers.remove(reason);
+        if (timer != null) {
+            timer.future.cancel(false);
+            LOGGER.info("[VoiceAutoLeave] event=TIMER_CANCELLED guildId={} reason={} timerReason={}", id, cause, reason);
+        }
+    }
+
+    private void clear(long id, String cause) {
+        ChannelState state = states.remove(id);
+        if (state != null) {
+            for (LeaveReason reason : LeaveReason.values()) cancel(id, state, reason, cause);
         }
     }
 
     private boolean modernCleanupEnabled(Guild guild) {
-        var music = settingsService.getMusic(guild.getIdLong());
+        var music = musicConfigs.apply(guild.getIdLong());
         if (music.getPanelMode() != MusicPanelMode.MODERN) {
             return false;
         }
@@ -189,7 +270,7 @@ public class VoiceAutoLeaveService {
 
     private void sendIdleLeaveNotice(Guild guild) {
         long guildId = guild.getIdLong();
-        Long channelId = settingsService.getMusic(guildId).getCommandChannelId();
+        Long channelId = musicConfigs.apply(guildId).getCommandChannelId();
         if (channelId == null) {
             channelId = playerService.getLastCommandChannelId(guildId);
         }
@@ -200,8 +281,8 @@ public class VoiceAutoLeaveService {
         if (channel == null || !channel.canTalk()) {
             return;
         }
-        String lang = settingsService.getLanguage(guildId);
-        channel.sendMessage(i18n.t(lang, "music.auto_leave_idle_notice")).queue(
+        String lang = languages.apply(guildId);
+        channel.sendMessage(i18n.get().t(lang, "music.auto_leave_idle_notice")).queue(
                 message -> message.delete().setCheck(() -> modernCleanupEnabled(guild)).queueAfter(
                         IDLE_LEAVE_NOTICE_DELETE_DELAY_SECONDS,
                         TimeUnit.SECONDS,
@@ -225,9 +306,3 @@ public class VoiceAutoLeaveService {
         );
     }
 }
-
-
-
-
-
-
