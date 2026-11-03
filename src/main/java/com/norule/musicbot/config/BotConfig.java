@@ -1733,6 +1733,7 @@ public String getToken() {
             return autoLeaveEnabled;
         }
 
+        /** Legacy config compatibility only; no longer exposed as an editable setting. */
         public int getAutoLeaveMinutes() {
             return autoLeaveMinutes;
         }

@@ -54,6 +54,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
 import java.util.function.BiConsumer;
@@ -115,6 +116,8 @@ public class MusicPlayerService {
     private final Map<YoutubeFailureCategory, LongAdder> youtubePlaybackFailureCounters =
             createYoutubeFailureCounters();
     private final Map<Long, GuildMusicManager> musicManagers = new ConcurrentHashMap<>();
+    private final List<BiConsumer<Long, MusicStateChange>> stateChangeListeners = new CopyOnWriteArrayList<>();
+    private final Map<Long, Set<Object>> pendingPlaybackLoads = new ConcurrentHashMap<>();
     private final Map<Long, Consumer<MusicStateChange>> guildStateListeners = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastCommandChannelByGuild = new ConcurrentHashMap<>();
     private final Map<Long, String> autoplayNoticeByGuild = new ConcurrentHashMap<>();
@@ -713,6 +716,84 @@ public class MusicPlayerService {
         this.playbackFailureListener = playbackFailureListener;
     }
 
+    /** Additional runtime subscribers; leaves the existing per-guild panel subscriber intact. */
+    public Runnable addStateChangeListener(BiConsumer<Long, MusicStateChange> listener) {
+        stateChangeListeners.add(listener);
+        return () -> stateChangeListeners.remove(listener);
+    }
+
+    public boolean isPlaybackTransitioning(Guild guild) {
+        var loads = pendingPlaybackLoads.get(guild.getIdLong());
+        return (loads != null && !loads.isEmpty()) || trackRecoveryService.isRecoveryInProgress(guild.getIdLong());
+    }
+
+    private Object beginPlaybackLoad(long guildId) {
+        Object token = new Object();
+        pendingPlaybackLoads.compute(guildId, (id, loads) -> {
+            if (loads == null) loads = ConcurrentHashMap.newKeySet();
+            loads.add(token);
+            return loads;
+        });
+        notifyStateChanged(guildId);
+        return token;
+    }
+
+    private void endPlaybackLoad(long guildId, Object token) {
+        pendingPlaybackLoads.computeIfPresent(guildId, (id, loads) -> {
+            loads.remove(token);
+            return loads.isEmpty() ? null : loads;
+        });
+        notifyStateChanged(guildId);
+    }
+
+    private boolean isPlaybackLoadCurrent(long guildId, Object token) {
+        var loads = pendingPlaybackLoads.get(guildId);
+        return loads != null && loads.contains(token);
+    }
+
+    private void loadPlaybackItem(long guildId, GuildMusicManager manager, String identifier, AudioLoadResultHandler handler) {
+        Object token = beginPlaybackLoad(guildId);
+        try {
+            playerManager.loadItemOrdered(manager, identifier, new AudioLoadResultHandler() {
+                @Override
+                public void trackLoaded(AudioTrack track) {
+                    try {
+                        if (isPlaybackLoadCurrent(guildId, token)) handler.trackLoaded(track);
+                    } finally {
+                        endPlaybackLoad(guildId, token);
+                    }
+                }
+                @Override
+                public void playlistLoaded(AudioPlaylist playlist) {
+                    try {
+                        if (isPlaybackLoadCurrent(guildId, token)) handler.playlistLoaded(playlist);
+                    } finally {
+                        endPlaybackLoad(guildId, token);
+                    }
+                }
+                @Override
+                public void noMatches() {
+                    try {
+                        if (isPlaybackLoadCurrent(guildId, token)) handler.noMatches();
+                    } finally {
+                        endPlaybackLoad(guildId, token);
+                    }
+                }
+                @Override
+                public void loadFailed(FriendlyException error) {
+                    try {
+                        if (isPlaybackLoadCurrent(guildId, token)) handler.loadFailed(error);
+                    } finally {
+                        endPlaybackLoad(guildId, token);
+                    }
+                }
+            });
+        } catch (RuntimeException error) {
+            endPlaybackLoad(guildId, token);
+            throw error;
+        }
+    }
+
     public void setGuildStateListener(long guildId, Runnable listener) {
         setGuildStateChangeListener(guildId, listener == null ? null : ignored -> listener.run());
     }
@@ -747,6 +828,7 @@ public class MusicPlayerService {
     }
 
     public void leaveChannel(Guild guild) {
+        pendingPlaybackLoads.remove(guild.getIdLong());
         GuildMusicManager manager = musicManagers.get(guild.getIdLong());
         trackRecoveryService.cancel(guild.getIdLong());
         if (manager != null) {
@@ -914,7 +996,7 @@ public class MusicPlayerService {
                 return;
             }
         }
-        playerManager.loadItemOrdered(guildMusicManager, identifier, new AudioLoadResultHandler() {
+        loadPlaybackItem(guildId, guildMusicManager, identifier, new AudioLoadResultHandler() {
             @Override
             public void trackLoaded(AudioTrack track) {
                 YouTubePlaybackPrecheckResult precheck = precheckTrack(track, sourceLabel);
@@ -1101,27 +1183,33 @@ public class MusicPlayerService {
                                                 Long requesterId,
                                                 String requesterName,
                                                 int spotifyRateLimitRetryAttempt) {
+        Object loadToken = beginPlaybackLoad(guildId);
         try {
             spotifyPlaylistInspector.inspect(userInput, "queue/load guild=" + guildId, spotifyConfig)
                     .whenComplete((inspection, error) -> {
-                        if (error != null) {
-                            LOGGER.warn(
-                                    "[NoRule] Spotify playlist preflight failed unexpectedly: context=queue/load guild={} input={} reason={}",
+                        try {
+                            if (!isPlaybackLoadCurrent(guildId, loadToken)) return;
+                            if (error != null) {
+                                LOGGER.warn(
+                                        "[NoRule] Spotify playlist preflight failed unexpectedly: context=queue/load guild={} input={} reason={}",
+                                        guildId,
+                                        sanitizeInputForLog(userInput),
+                                        rootCauseDetails(error)
+                                );
+                            } else if (handleSpotifyPlaylistInspection(
+                                    inspection,
                                     guildId,
-                                    sanitizeInputForLog(userInput),
-                                    rootCauseDetails(error)
-                            );
-                        } else if (handleSpotifyPlaylistInspection(
-                                inspection,
-                                guildId,
-                                requesterId,
-                                messageSender
-                        )) {
-                            return;
+                                    requesterId,
+                                    messageSender
+                            )) {
+                                return;
+                            }
+                            load(guildId, guildMusicManager, messageSender, userInput, identifier, sourceLabel,
+                                    allowFallback, requesterId, requesterName, spotifyRateLimitRetryAttempt,
+                                    inspection == null ? SpotifyPlaylistInspector.Inspection.unavailable() : inspection);
+                        } finally {
+                            endPlaybackLoad(guildId, loadToken);
                         }
-                        load(guildId, guildMusicManager, messageSender, userInput, identifier, sourceLabel,
-                                allowFallback, requesterId, requesterName, spotifyRateLimitRetryAttempt,
-                                inspection == null ? SpotifyPlaylistInspector.Inspection.unavailable() : inspection);
                     });
         } catch (RuntimeException exception) {
             LOGGER.warn(
@@ -1130,9 +1218,15 @@ public class MusicPlayerService {
                     sanitizeInputForLog(userInput),
                     rootCauseDetails(exception)
             );
-            load(guildId, guildMusicManager, messageSender, userInput, identifier, sourceLabel,
-                    allowFallback, requesterId, requesterName, spotifyRateLimitRetryAttempt,
-                    SpotifyPlaylistInspector.Inspection.unavailable());
+            try {
+                if (isPlaybackLoadCurrent(guildId, loadToken)) {
+                    load(guildId, guildMusicManager, messageSender, userInput, identifier, sourceLabel,
+                            allowFallback, requesterId, requesterName, spotifyRateLimitRetryAttempt,
+                            SpotifyPlaylistInspector.Inspection.unavailable());
+                }
+            } finally {
+                endPlaybackLoad(guildId, loadToken);
+            }
         }
     }
 
@@ -1481,6 +1575,7 @@ public class MusicPlayerService {
     }
 
     public void stop(Guild guild) {
+        pendingPlaybackLoads.remove(guild.getIdLong());
         GuildMusicManager manager = getGuildMusicManager(guild);
         trackRecoveryService.cancel(guild.getIdLong());
         manager.getScheduler().clear();
@@ -1874,6 +1969,9 @@ public class MusicPlayerService {
     }
 
     private void notifyStateChanged(long guildId, MusicStateChange reason) {
+        for (BiConsumer<Long, MusicStateChange> subscriber : stateChangeListeners) {
+            subscriber.accept(guildId, reason);
+        }
         Consumer<MusicStateChange> listener = guildStateListeners.get(guildId);
         if (listener != null) {
             listener.accept(reason);
@@ -2456,7 +2554,7 @@ public class MusicPlayerService {
                                        String identifier,
                                        String fallbackQuery,
                                        long generation) {
-        playerManager.loadItemOrdered(guildMusicManager, identifier, new AudioLoadResultHandler() {
+        loadPlaybackItem(guildId, guildMusicManager, identifier, new AudioLoadResultHandler() {
             @Override
             public void trackLoaded(AudioTrack track) {
                 if (!isAutoplayRequestCurrent(guildId, guildMusicManager, generation)) {

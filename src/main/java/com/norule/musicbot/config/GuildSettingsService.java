@@ -334,7 +334,6 @@ public class GuildSettingsService {
         BotConfig.Music music = settings.getMusic();
         Map<String, Object> musicMap = new LinkedHashMap<>();
         musicMap.put("autoLeaveEnabled", music.isAutoLeaveEnabled());
-        musicMap.put("autoLeaveMinutes", music.getAutoLeaveMinutes());
         musicMap.put("autoplayEnabled", music.isAutoplayEnabled());
         musicMap.put("defaultRepeatMode", music.getDefaultRepeatMode().name());
         musicMap.put("commandChannelId", toText(music.getCommandChannelId()));

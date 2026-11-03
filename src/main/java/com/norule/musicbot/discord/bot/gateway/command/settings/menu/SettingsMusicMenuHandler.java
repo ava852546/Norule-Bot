@@ -9,12 +9,9 @@ import com.norule.musicbot.discord.bot.gateway.command.settings.view.SettingsUiT
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
-import net.dv8tion.jda.api.components.label.Label;
 import net.dv8tion.jda.api.components.selections.EntitySelectMenu;
 import net.dv8tion.jda.api.components.selections.SelectOption;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
-import net.dv8tion.jda.api.components.textinput.TextInput;
-import net.dv8tion.jda.api.components.textinput.TextInputStyle;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.ChannelType;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
@@ -23,13 +20,11 @@ import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.EntitySelectInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
-import net.dv8tion.jda.api.modals.Modal;
 
 import java.awt.Color;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -42,14 +37,12 @@ public final class SettingsMusicMenuHandler {
     private static final String OPTION_VALUE = CommandOptions.VALUE;
 
     private static final String K_AUTO_LEAVE_ENABLED  = "settings.key_music_autoLeaveEnabled";
-    private static final String K_AUTO_LEAVE_MINUTES  = "settings.key_music_autoLeaveMinutes";
     private static final String K_AUTOPLAY_ENABLED    = "settings.key_music_autoplayEnabled";
     private static final String K_COMMAND_CHANNEL     = "settings.key_music_commandChannelId";
     private static final String K_PRIVATE_ROOM_CHANNEL = "settings.key_privateRoom_triggerVoiceChannelId";
 
     private static final String A_AUTO_LEAVE_TOGGLE  = "auto-leave-toggle";
     private static final String A_AUTOPLAY_TOGGLE    = "autoplay-toggle";
-    private static final String A_AUTO_LEAVE_MINUTES = "auto-leave-minutes";
     private static final String A_COMMAND_CHANNEL    = "command-channel";
     private static final String A_PRIVATE_ROOM_CHANNEL = "private-room-channel";
     private static final String A_PANEL_MODE_MODERN = "panel-mode-modern";
@@ -144,19 +137,6 @@ public final class SettingsMusicMenuHandler {
                         .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)))
                         .queue();
             }
-            case A_AUTO_LEAVE_MINUTES -> {
-                int currentMinutes = owner.settingsService().getMusic(guildId).getAutoLeaveMinutes();
-                TextInput input = TextInput.create("minutes", TextInputStyle.SHORT)
-                        .setRequired(true)
-                        .setPlaceholder("1-60")
-                        .setValue(String.valueOf(currentMinutes))
-                        .build();
-                Modal modal = Modal.create(SETTINGS_MUSIC_MODAL_PREFIX + token + ":" + A_AUTO_LEAVE_MINUTES,
-                                owner.i18nService().t(lang, "settings.music_menu_minutes_title"))
-                        .addComponents(Label.of(owner.i18nService().t(lang, "settings.music_menu_minutes_hint"), input))
-                        .build();
-                event.replyModal(modal).queue();
-            }
             case A_COMMAND_CHANNEL, A_PRIVATE_ROOM_CHANNEL -> {
                 String componentId = SETTINGS_MUSIC_CHANNEL_PREFIX + token + ":" + action;
                 EntitySelectMenu.Builder channelBuilder = EntitySelectMenu
@@ -197,7 +177,6 @@ public final class SettingsMusicMenuHandler {
             return;
         }
         String token = suffix.substring(0, idx);
-        String action = suffix.substring(idx + 1);
         MusicMenuRequest request = musicMenuRequests.get(token);
         if (request == null || Instant.now().isAfter(request.expiresAt)) {
             musicMenuRequests.remove(token);
@@ -208,30 +187,7 @@ public final class SettingsMusicMenuHandler {
             event.reply(owner.i18nService().t(lang, KEY_DELETE_ONLY_REQUESTER)).setEphemeral(true).queue();
             return;
         }
-        if (!A_AUTO_LEAVE_MINUTES.equals(action)) {
-            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
-            return;
-        }
-        String text = Objects.requireNonNull(event.getValue("minutes")).getAsString().trim();
-        int minutes;
-        try {
-            minutes = Integer.parseInt(text);
-        } catch (Exception ignored) {
-            event.reply(owner.i18nService().t(lang, "settings.music_menu_minutes_invalid")).setEphemeral(true).queue();
-            return;
-        }
-        if (minutes < 1 || minutes > 60) {
-            event.reply(owner.i18nService().t(lang, "settings.music_menu_minutes_invalid")).setEphemeral(true).queue();
-            return;
-        }
-        owner.settingsService().updateSettings(event.getGuild().getIdLong(),
-                s -> s.withMusic(s.getMusic().withAutoLeaveMinutes(minutes)));
-        String changed = owner.i18nService().t(lang, MSG_SETTINGS_SAVED,
-                Map.of("key", owner.i18nService().t(lang, K_AUTO_LEAVE_MINUTES), OPTION_VALUE, String.valueOf(minutes)));
-        event.replyEmbeds(musicMenuEmbed(event.getGuild(), lang, changed).build())
-                .addComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)))
-                .setEphemeral(true)
-                .queue();
+        event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
     }
 
     public void handleMusicChannelSelect(EntitySelectInteractionEvent event, String lang) {
@@ -320,9 +276,6 @@ public final class SettingsMusicMenuHandler {
                         SelectOption.of(owner.i18nService().t(lang, K_AUTO_LEAVE_ENABLED), A_AUTO_LEAVE_TOGGLE)
                                 .withDescription(owner.i18nService().t(lang, MSG_MENU_CURRENT,
                                         Map.of(OPTION_VALUE, owner.boolText(lang, music.isAutoLeaveEnabled())))),
-                        SelectOption.of(owner.i18nService().t(lang, K_AUTO_LEAVE_MINUTES), A_AUTO_LEAVE_MINUTES)
-                                .withDescription(owner.i18nService().t(lang, MSG_MENU_CURRENT,
-                                        Map.of(OPTION_VALUE, String.valueOf(music.getAutoLeaveMinutes())))),
                         SelectOption.of(owner.i18nService().t(lang, K_AUTOPLAY_ENABLED), A_AUTOPLAY_TOGGLE)
                                 .withDescription(owner.i18nService().t(lang, MSG_MENU_CURRENT,
                                         Map.of(OPTION_VALUE, owner.boolText(lang, music.isAutoplayEnabled())))),
@@ -346,8 +299,7 @@ public final class SettingsMusicMenuHandler {
                         ? "panel_mode_modern" : "panel_mode_legacy"),
                 uiText.quotedSettingLine(lang, K_AUTO_LEAVE_ENABLED, LBL_STATUS,
                         owner.boolText(lang, music.isAutoLeaveEnabled())),
-                uiText.quotedSettingLine(lang, K_AUTO_LEAVE_MINUTES, LBL_VALUE,
-                        String.valueOf(music.getAutoLeaveMinutes())),
+                owner.i18nService().t(lang, "settings.music_auto_leave_policy"),
                 uiText.quotedSettingLine(lang, K_AUTOPLAY_ENABLED, LBL_STATUS,
                         owner.boolText(lang, music.isAutoplayEnabled())),
                 uiText.quotedSettingLine(lang, K_COMMAND_CHANNEL, LBL_VALUE,

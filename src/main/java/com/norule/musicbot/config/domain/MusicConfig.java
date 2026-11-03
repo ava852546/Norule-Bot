@@ -603,6 +603,7 @@ public final class MusicConfig {
     }
 
     public boolean isAutoLeaveEnabled() { return autoLeaveEnabled; }
+    /** Legacy config compatibility only; voice auto-leave now uses fixed independent timeouts. */
     public int getAutoLeaveMinutes() { return autoLeaveMinutes; }
     public boolean isAutoplayEnabled() { return autoplayEnabled; }
     public BotConfig.Music.RepeatMode getDefaultRepeatMode() { return defaultRepeatMode; }

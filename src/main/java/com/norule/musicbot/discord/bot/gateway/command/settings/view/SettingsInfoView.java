@@ -95,7 +95,7 @@ public final class SettingsInfoView {
         );
         String musicInfo = joinLines(
                 line(lang, "settings.info_key_auto_leave_enabled", compare(moduleSwitchTextCode(lang, music.isAutoLeaveEnabled()))),
-                line(lang, "settings.info_key_auto_leave_minutes", compare(String.valueOf(music.getAutoLeaveMinutes()))),
+                i18n.get().t(lang, "settings.music_auto_leave_policy"),
                 line(lang, "settings.info_key_autoplay_enabled", compare(moduleSwitchTextCode(lang, settingsService.getMusic(guildId).isAutoplayEnabled()))),
                 line(lang, "settings.info_key_default_repeat_mode", compare(music.getDefaultRepeatMode().name())),
                 line(lang, "settings.info_key_music_command_channel", compare(formatTextChannelInfo(guild, music.getCommandChannelId())))

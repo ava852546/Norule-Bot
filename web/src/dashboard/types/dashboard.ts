@@ -105,7 +105,6 @@ export interface MusicSettings {
   musicPanelMode: 'MODERN' | 'LEGACY'
   musicPanelChannelValid?: boolean
   autoLeaveEnabled: boolean
-  autoLeaveMinutes: number
   autoplayEnabled: boolean
   defaultRepeatMode: 'OFF' | 'SINGLE' | 'ALL'
   commandChannelId: string

@@ -420,6 +420,7 @@ settings:
   key_messageLogs_moderationLogChannelId: "管理事件日志频道"
   key_messageLogs_commandUsageChannelId: "指令使用日志频道"
   key_messageLogs_channelLifecycleChannelId: "频道事件日志频道"
+  music_auto_leave_policy: "自动离开：无真人 10 秒；未播放或暂停 10 分钟。"
   key_music_autoLeaveEnabled: "音乐自动离开启用"
   key_music_autoLeaveMinutes: "音乐自动离开分钟数"
   key_music_autoplayEnabled: "音乐自动推荐启用"
