@@ -68,11 +68,7 @@ jobs:
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: Norule-Bot-Build
-          path: |
-            target/*.jar
-            target/runtime-libs/
-            target/classes/bootstrap/runtime-dependencies.txt
-            target/classes/bootstrap/runtime-dependency-checksums.txt
+          name: Norule-Bot-1.8
+          path: target/discord-music-bot-1.8.jar
           if-no-files-found: error
           retention-days: 14
