@@ -13,8 +13,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -112,13 +114,39 @@ class RuntimeDependencyDownloaderTest {
 
     @Test
     void retriesAfterContinuousNoByteStall() throws IOException {
+        verifiesBodyFailure(true, true);
+    }
+
+    @Test
+    void deletesPartFileAfterContinuousNoByteStallExhaustsRetries() throws IOException {
+        verifiesBodyFailure(true, false);
+    }
+
+    @Test
+    void retriesAfterPrematureResponseClose() throws IOException {
+        verifiesBodyFailure(false, true);
+    }
+
+    @Test
+    void deletesPartFileAfterPrematureResponseCloseExhaustsRetries() throws IOException {
+        verifiesBodyFailure(false, false);
+    }
+
+    private void verifiesBodyFailure(boolean stall, boolean recover) throws IOException {
         byte[] expected = "complete jar".getBytes(StandardCharsets.UTF_8);
         AtomicInteger requests = new AtomicInteger();
+        CountDownLatch releaseResponses = new CountDownLatch(1);
+        String failureKind = stall ? "StallTimeoutException" : "IncompleteDownloadException";
+        // Keep real sockets for timeout coverage. The latch, rather than elapsed server sleep,
+        // guarantees that a stalled response cannot turn into EOF on a busy CI runner.
         TestServer testServer = startServer(exchange -> {
-            if (requests.incrementAndGet() == 1) {
+            if (requests.incrementAndGet() == 1 || !recover) {
                 exchange.sendResponseHeaders(200, expected.length);
+                exchange.getResponseBody().write(expected, 0, 1);
                 exchange.getResponseBody().flush();
-                sleep(250L);
+                if (stall) {
+                    await(releaseResponses);
+                }
                 exchange.close();
                 return;
             }
@@ -129,22 +157,45 @@ class RuntimeDependencyDownloaderTest {
         try (testServer) {
             List<String> messages = new ArrayList<>();
             List<Long> retryDelays = new ArrayList<>();
+            var settings = settings(stall ? 1_000 : 30_000, recover ? 1 : 2);
+            Path runtimeLibs = Files.createDirectories(tempDir.resolve("body-failure-runtime-libs"));
+            Path part = runtimeLibs.resolve("demo-2.0.0.jar.part");
+            Path jar = runtimeLibs.resolve("demo-2.0.0.jar");
             RuntimeDependencyDownloader downloader = new RuntimeDependencyDownloader(
-                    settings(50, 1), Map.of(RuntimeRepository.MAVEN_CENTRAL, testServer.baseUrl()),
+                    settings, Map.of(RuntimeRepository.MAVEN_CENTRAL, testServer.baseUrl()),
                     messages::add, System::nanoTime,
-                    retryDelays::add);
-            Path runtimeLibs = Files.createDirectories(tempDir.resolve("stall-runtime-libs"));
+                    delay -> {
+                        // Check cleanup at each retry boundary, before another attempt can overwrite it.
+                        assertFalse(Files.exists(part));
+                        assertFalse(Files.exists(jar));
+                        retryDelays.add(delay);
+                    });
 
-            RuntimeDependencyBootstrap.synchronizeRuntimeDependencies(
-                    runtimeLibs, List.of(artifact()), settings(50, 1), downloader);
+            if (recover) {
+                RuntimeDependencyBootstrap.synchronizeRuntimeDependencies(
+                        runtimeLibs, List.of(artifact()), settings, downloader);
+                assertEquals("complete jar", Files.readString(jar, StandardCharsets.UTF_8));
+            } else {
+                IOException failure = assertThrows(IOException.class,
+                        () -> RuntimeDependencyBootstrap.synchronizeRuntimeDependencies(
+                                runtimeLibs, List.of(artifact()), settings, downloader));
+                assertTrue(failure.getMessage().contains("exception=" + failureKind), failure.getMessage());
+                assertTrue(failure.getMessage().contains("retries=2/2"), failure.getMessage());
+                assertFalse(Files.exists(jar));
+            }
 
-            assertEquals(2, requests.get());
-            assertEquals(List.of(1_000L), retryDelays);
-            assertEquals("complete jar", Files.readString(
-                    runtimeLibs.resolve("demo-2.0.0.jar"), StandardCharsets.UTF_8));
-            assertFalse(Files.exists(runtimeLibs.resolve("demo-2.0.0.jar.part")));
-            assertTrue(messages.stream().anyMatch(message -> message.contains("exception=StallTimeoutException")
-                    && message.contains("retry 1/1")));
+            assertEquals(recover ? 2 : 3, requests.get());
+            assertEquals(recover ? List.of(1_000L) : List.of(1_000L, 2_000L), retryDelays);
+            assertFalse(Files.exists(part));
+            List<String> failures = messages.stream().filter(message -> message.contains("Download failed")).toList();
+            assertEquals(settings.maxRetries(), failures.size());
+            for (int retry = 1; retry <= settings.maxRetries(); retry++) {
+                String message = failures.get(retry - 1);
+                assertTrue(message.contains("exception=" + failureKind), message);
+                assertTrue(message.contains("retry " + retry + "/" + settings.maxRetries()), message);
+            }
+        } finally {
+            releaseResponses.countDown();
         }
     }
 
@@ -271,9 +322,11 @@ class RuntimeDependencyDownloaderTest {
         return new TestServer(server, executor);
     }
 
-    private static void sleep(long milliseconds) throws IOException {
+    private static void await(CountDownLatch latch) throws IOException {
         try {
-            Thread.sleep(milliseconds);
+            if (!latch.await(30, TimeUnit.SECONDS)) {
+                throw new IOException("Timed out waiting for test to release response");
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("Test server interrupted", e);
