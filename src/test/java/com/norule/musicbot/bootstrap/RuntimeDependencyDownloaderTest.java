@@ -5,8 +5,12 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,6 +20,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -136,34 +141,66 @@ class RuntimeDependencyDownloaderTest {
         byte[] expected = "complete jar".getBytes(StandardCharsets.UTF_8);
         AtomicInteger requests = new AtomicInteger();
         CountDownLatch releaseResponses = new CountDownLatch(1);
+        Semaphore firstByteReceived = new Semaphore(0);
+        AtomicLong clock = new AtomicLong();
         String failureKind = stall ? "StallTimeoutException" : "IncompleteDownloadException";
         // Keep real sockets for timeout coverage. The latch, rather than elapsed server sleep,
         // guarantees that a stalled response cannot turn into EOF on a busy CI runner.
-        TestServer testServer = startServer(exchange -> {
+        TestServer testServer = startSocketServer(socket -> {
+            BufferedReader request = new BufferedReader(new InputStreamReader(
+                    socket.getInputStream(), StandardCharsets.US_ASCII));
+            while (true) {
+                String line = request.readLine();
+                if (line == null || line.isEmpty()) {
+                    break;
+                }
+            }
+            var response = socket.getOutputStream();
+            response.write(("HTTP/1.1 200 OK\r\nContent-Length: " + expected.length
+                    + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
             if (requests.incrementAndGet() == 1 || !recover) {
-                exchange.sendResponseHeaders(200, expected.length);
-                exchange.getResponseBody().write(expected, 0, 1);
-                exchange.getResponseBody().flush();
+                response.write(expected, 0, 1);
+                response.flush();
+                // Wait until the client has consumed body data before closing. Otherwise
+                // HttpURLConnection can transparently retry a connection lost before its first read.
+                try {
+                    if (!firstByteReceived.tryAcquire(30, TimeUnit.SECONDS)) {
+                        throw new IOException("Client did not consume partial response");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Test server interrupted", e);
+                }
                 if (stall) {
                     await(releaseResponses);
                 }
-                exchange.close();
+                // Send FIN with an incomplete body instead of HttpServer's platform-dependent
+                // abort of a fixed-length response, which can produce a TCP reset on Windows.
+                socket.shutdownOutput();
                 return;
             }
-            exchange.sendResponseHeaders(200, expected.length);
-            exchange.getResponseBody().write(expected);
-            exchange.close();
+            response.write(expected);
+            response.flush();
         });
         try (testServer) {
             List<String> messages = new ArrayList<>();
             List<Long> retryDelays = new ArrayList<>();
-            var settings = settings(stall ? 1_000 : 30_000, recover ? 1 : 2);
+            var settings = new RuntimeDependencyBootstrap.BootstrapSettings(
+                    true, false, false, true, 2_000, 10_000, 30_000,
+                    stall ? 1_000 : 30_000, recover ? 1 : 2);
             Path runtimeLibs = Files.createDirectories(tempDir.resolve("body-failure-runtime-libs"));
             Path part = runtimeLibs.resolve("demo-2.0.0.jar.part");
             Path jar = runtimeLibs.resolve("demo-2.0.0.jar");
             RuntimeDependencyDownloader downloader = new RuntimeDependencyDownloader(
                     settings, Map.of(RuntimeRepository.MAVEN_CENTRAL, testServer.baseUrl()),
-                    messages::add, System::nanoTime,
+                    message -> {
+                        messages.add(message);
+                        if (message.contains("downloaded=1 bytes")) {
+                            firstByteReceived.release();
+                        }
+                    },
+                    // Advance the progress clock without waiting, so every first byte signals the server.
+                    () -> clock.getAndAdd(TimeUnit.SECONDS.toNanos(2)),
                     delay -> {
                         // Check cleanup at each retry boundary, before another attempt can overwrite it.
                         assertFalse(Files.exists(part));
@@ -319,7 +356,40 @@ class RuntimeDependencyDownloaderTest {
         server.setExecutor(executor);
         server.createContext("/", exchange -> handler.handle(exchange));
         server.start();
-        return new TestServer(server, executor);
+        return new TestServer("http://127.0.0.1:" + server.getAddress().getPort(),
+                () -> server.stop(0), executor);
+    }
+
+    private static TestServer startSocketServer(SocketHandler handler) throws IOException {
+        ServerSocket server = new ServerSocket();
+        server.bind(new InetSocketAddress("127.0.0.1", 0));
+        ExecutorService executor = Executors.newCachedThreadPool();
+        executor.submit(() -> {
+            while (!server.isClosed()) {
+                try {
+                    Socket socket = server.accept();
+                    executor.submit(() -> {
+                        try (socket) {
+                            socket.setSoTimeout(30_000);
+                            handler.handle(socket);
+                        }
+                        return null;
+                    });
+                } catch (IOException e) {
+                    if (!server.isClosed()) {
+                        throw e;
+                    }
+                }
+            }
+            return null;
+        });
+        return new TestServer("http://127.0.0.1:" + server.getLocalPort(), () -> {
+            try {
+                server.close();
+            } catch (IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }, executor);
     }
 
     private static void await(CountDownLatch latch) throws IOException {
@@ -338,14 +408,15 @@ class RuntimeDependencyDownloaderTest {
         void handle(HttpExchange exchange) throws IOException;
     }
 
-    private record TestServer(HttpServer server, ExecutorService executor) implements AutoCloseable {
-        private String baseUrl() {
-            return "http://127.0.0.1:" + server.getAddress().getPort();
-        }
+    @FunctionalInterface
+    private interface SocketHandler {
+        void handle(Socket socket) throws IOException;
+    }
 
+    private record TestServer(String baseUrl, Runnable stop, ExecutorService executor) implements AutoCloseable {
         @Override
         public void close() {
-            server.stop(0);
+            stop.run();
             executor.shutdownNow();
         }
     }
