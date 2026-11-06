@@ -9,6 +9,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MusicPanelStateStoreTest {
     @Test
+    void rateLimitDiagnosticsOnlyRecordTheMatchingManagedMessageRoute() {
+        var store = new MusicPanelStateStore();
+        store.putPanelRef(1, new MusicPanelStateStore.PanelRef(10, 100));
+        store.putPanelRef(2, new MusicPanelStateStore.PanelRef(20, 200));
+        var scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+        var panels = new MusicPanelRefreshService(null, store, null, scheduler, 0, null);
+        try {
+            panels.observeRateLimit("PATCH", "/channels/10/messages/100");
+            assertEquals("PANEL_ROUTE_429", store.diagnosticError(1).reason());
+            assertNull(store.diagnosticError(2));
+            panels.observeRateLimit("PATCH", "/channels/20/messages/999");
+            panels.observeRateLimit("GET", "/channels/20/messages/200");
+            assertNull(store.diagnosticError(2));
+            assertEquals(100, store.getPanelRef(1).messageId);
+            assertEquals(0, store.getLastRefreshAt(1));
+        } finally {
+            panels.close();
+            scheduler.shutdownNow();
+        }
+    }
+    @Test
     void unknownMessageClearsTheMatchingStoredReference() {
         MusicPanelStateStore store = new MusicPanelStateStore();
         store.putPanelRef(1L, new MusicPanelStateStore.PanelRef(10L, 100L));

@@ -22,6 +22,15 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MusicPlayerServiceInputRoutingTest {
+    @Test
+    void diagnosticsNeverInitializePlayerOrClaimRestartedPlaybackIsActive() throws Exception {
+        assertEquals("UNINITIALIZED", service.diagnosticPlayback(123).state());
+        assertEquals("UNINITIALIZED", service.diagnosticPlayback(456).state());
+        var field = MusicPlayerService.class.getDeclaredField("musicManagers");
+        field.setAccessible(true);
+        assertTrue(((java.util.Map<?, ?>) field.get(service)).isEmpty());
+        assertTrue(identifiers.isEmpty());
+    }
     @TempDir
     Path tempDir;
     private MusicPlayerService service;

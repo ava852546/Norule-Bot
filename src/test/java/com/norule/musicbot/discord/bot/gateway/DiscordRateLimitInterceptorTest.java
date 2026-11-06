@@ -15,6 +15,24 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 class DiscordRateLimitInterceptorTest {
+    @Test
+    void diagnosticObserverSeesJdaHandled429AndCannotChangeResponseOrRetries() throws Exception {
+        try (var clock = new DiscordBackgroundRestQueueTest.VirtualScheduler();
+             var queue = new DiscordBackgroundRestQueue(clock, clock::nanos)) {
+            var calls = new AtomicInteger();
+            var interceptor = new DiscordRateLimitInterceptor(queue, (method, path) -> {
+                assertEquals("PATCH", method);
+                assertEquals("/channels/123/messages/456", path);
+                calls.incrementAndGet();
+                throw new IllegalStateException("Diagnostic observer unavailable");
+            });
+            var response = response(429, "shared", "{\"retry_after\":1}");
+            assertSame(response, interceptor.intercept(chain(response)));
+            assertEquals(1, calls.get());
+            interceptor.intercept(chain(response(200, "shared", "{}")));
+            assertEquals(1, calls.get());
+        }
+    }
     @ParameterizedTest
     @ValueSource(strings = {"global", "shared", "user"})
     void actual429PausesNewMaintenanceAndResumesWithoutRetryingOrConsumingBody(String scope) throws Exception {

@@ -1,11 +1,10 @@
 package com.norule.musicbot.discord.bot.app;
 
+import com.norule.musicbot.discord.bot.gateway.command.meta.DevMusicInfoCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.DiscordBackgroundRestQueue;
-
 import com.norule.musicbot.discord.bot.gateway.command.meta.DevMusicPanelCommandHandler;
 import com.norule.musicbot.service.music.MusicPanelBindingService;
 import com.norule.musicbot.service.music.MusicCommandChannelProvisioningService;
-
 import com.norule.musicbot.config.*;
 import com.norule.musicbot.config.domain.MinecraftStatusConfig;
 import com.norule.musicbot.config.domain.GuildDomainConfigAdapter;
@@ -46,7 +45,6 @@ import com.norule.musicbot.discord.bot.service.stats.MessageStatsEventService;
 import com.norule.musicbot.domain.music.*;
 import com.norule.musicbot.i18n.*;
 import com.norule.musicbot.gateway.minecraft.McSrvStatGateway;
-
 import com.norule.musicbot.*;
 import com.norule.musicbot.discord.bot.infra.CommandRegistrar;
 import com.norule.musicbot.ops.minecraft.MinecraftStatusOps;
@@ -300,6 +298,9 @@ public class MusicCommandService extends ListenerAdapter {
         return musicPanelRuntime.musicPanelController();
     }
 
+    public DevMusicInfoCommandHandler devMusicInfoCommandHandler() {
+        return commandHandlers.devMusicInfoCommandHandler();
+    }
     public DevMusicPanelCommandHandler devMusicPanelCommandHandler() {
         return commandHandlers.devMusicPanelCommandHandler();
     }
@@ -379,6 +380,8 @@ public class MusicCommandService extends ListenerAdapter {
 
     public void shutdown() {
         prefixCommandRouter.close();
+        musicService.setDiagnosticsListener(ignored -> {});
+        commandHandlers.devMusicInfoCommandHandler().close();
         musicPanelRuntime.close();
         backgroundRest.close();
         scheduler.shutdownNow();

@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command;
 
 public final class CommandNames {
+    public static final String CMD_DEV_MUSICINFO = "musicinfo";
     private CommandNames() {
     }
 

@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.panel;
 
+import net.dv8tion.jda.api.exceptions.RateLimitedException;
+import com.norule.musicbot.domain.music.MusicDiagnostics;
 import com.norule.musicbot.discord.bot.gateway.DiscordRateLimitInterceptor;
 
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
@@ -666,6 +668,24 @@ public final class MusicPanelRefreshService {
         }
     }
 
+    public record Diagnostics(MusicPanelModeResolver.Selection mode, MusicPanelStateStore.PanelRef panel,
+                              long refreshedAt, boolean pending, MusicDiagnostics.Error error) {}
+    public void observeRateLimit(String method, String path) {
+        if (!"PATCH".equals(method) || !path.matches("/channels/[0-9]+/messages/[0-9]+")) return;
+        // This proves only a managed-message route hit 429; it cannot prove the originating feature.
+        stateStore.panelRefs().forEach((guildId, ref) -> {
+            if (path.equals("/channels/" + Long.toUnsignedString(ref.channelId) + "/messages/" + Long.toUnsignedString(ref.messageId))) {
+                stateStore.recordDiagnosticError(guildId, "PANEL_ROUTE_429");
+            }
+        });
+    }
+
+    public Diagnostics diagnostics(Guild guild) {
+        return new Diagnostics(modes.inspect(guild), stateStore.getPanelRef(guild.getIdLong()),
+                stateStore.getLastRefreshAt(guild.getIdLong()), coordinator.hasPending(guild.getIdLong()),
+                stateStore.diagnosticError(guild.getIdLong()));
+    }
+
     public void close() {
         closed = true;
         coordinator.close();
@@ -686,6 +706,11 @@ public final class MusicPanelRefreshService {
                                        Throwable failure,
                                        boolean clearStaleState) {
         PanelRefreshFailurePolicy.PanelFailure classified = failurePolicy.classify(failure);
+        Throwable diagnosticFailure = failure;
+        while (diagnosticFailure.getCause() != null && diagnosticFailure.getCause() != diagnosticFailure) diagnosticFailure = diagnosticFailure.getCause();
+        boolean limited = diagnosticFailure instanceof RateLimitedException
+                || diagnosticFailure instanceof ErrorResponseException response && response.getResponse() != null && response.getResponse().isRateLimit();
+        stateStore.recordDiagnosticError(guildId, limited ? "DISCORD_API_429" : classified.reason());
         if (classified.disposition() == PanelRefreshFailurePolicy.FailureDisposition.UNEXPECTED) {
             LOGGER.error(
                     "[NoRule] Music panel refresh failed unexpectedly: guildId={} channelId={} messageId={}",

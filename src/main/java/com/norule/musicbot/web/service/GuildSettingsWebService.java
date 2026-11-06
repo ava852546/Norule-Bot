@@ -246,26 +246,31 @@ public final class GuildSettingsWebService {
     }
 
     private void handleMusicPlay(HttpExchange exchange, Guild guild, Member member, Map<String, String> form) throws IOException {
+        var diagnosticRequest = owner.musicService().recordDiagnosticRequest(guild.getIdLong(), null, member.getIdLong(), "WebUI", "RECEIVED");
         String query = form.getOrDefault("query", "").trim();
         if (query.isBlank()) {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             owner.sendJson(exchange, 400, DataObject.empty().put("error", "Missing query"));
             return;
         }
         var memberVoiceState = member.getVoiceState();
         if (memberVoiceState == null || !memberVoiceState.inAudioChannel()) {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             owner.sendJson(exchange, 400, DataObject.empty().put("error", "You must join a voice channel first"));
             return;
         }
         AudioChannel memberChannel = memberVoiceState.getChannel();
         var botVoiceState = guild.getSelfMember().getVoiceState();
         if (botVoiceState != null && botVoiceState.inAudioChannel() && !botVoiceState.getChannel().getId().equals(memberChannel.getId())) {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             owner.sendJson(exchange, 400, DataObject.empty().put("error", "Bot is in " + botVoiceState.getChannel().getAsMention() + ". Join that channel first."));
             return;
         }
         if (botVoiceState == null || !botVoiceState.inAudioChannel()) {
             owner.musicService().joinChannel(guild, memberChannel);
         }
-        owner.musicService().loadAndPlay(guild, msg -> { }, query, member.getIdLong(), member.getEffectiveName());
+        owner.musicService().loadAndPlay(guild, msg -> owner.musicService().completeDiagnosticRequest(diagnosticRequest,
+                "NO_MATCH".equals(msg) || msg.startsWith("LOAD_FAILED:") ? "REJECTED" : "ACCEPTED"), query, member.getIdLong(), member.getEffectiveName());
         owner.sendJson(exchange, 200, DataObject.empty().put("ok", true).put("message", "Queued: " + query));
     }
 

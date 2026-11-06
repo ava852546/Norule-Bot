@@ -1,5 +1,6 @@
 package com.norule.musicbot.discord.bot.service.meta;
 
+
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import com.norule.musicbot.ShortUrlService;
@@ -47,6 +48,8 @@ public final class DevService {
     private final ShortUrlService shortUrlService;
     private Function<String, CompletableFuture<String>> musicPanelCommand;
     private volatile RuntimeConfigSnapshot runtimeConfig;
+    private Function<String, CompletableFuture<EmbedBuilder>> musicInfoCommand;
+    public void setMusicInfoCommand(Function<String, CompletableFuture<EmbedBuilder>> command) { musicInfoCommand = command; }
     private final Instant startedAt = Instant.now();
 
     public DevService(RuntimeConfigSnapshot runtimeConfig, IntSupplier activePlaybackGuildCountSupplier) {
@@ -87,6 +90,17 @@ public final class DevService {
                 : raw.substring(DEV_COMMAND_PREFIX.length()).trim();
         String[] split = args.split("\\s+", 2);
         String subcommand = args.isBlank() ? "help" : split[0].toLowerCase(Locale.ROOT);
+        if ("musicinfo".equals(subcommand)) {
+            logDeveloperCommand(event, subcommand, event.isFromGuild() ? "guild" : "dm");
+            if (musicInfoCommand == null) {
+                sendDeveloperPrivateEmbed(event, developerErrorEmbed("Music diagnostics service is unavailable."));
+            } else {
+                musicInfoCommand.apply(split.length == 2 ? split[1].trim() : "").whenComplete((reply, failure) ->
+                        sendDeveloperPrivateEmbed(event, failure == null ? reply
+                                : developerErrorEmbed("Music diagnostics service is unavailable.")));
+            }
+            return;
+        }
         if ("sendmusicpanel".equals(subcommand)) {
             logDeveloperCommand(event, subcommand, event.isFromGuild() ? "guild" : "dm");
             if (musicPanelCommand == null) {
@@ -176,6 +190,7 @@ public final class DevService {
         return developerBaseEmbed("Developer Commands")
                 .setDescription("Prefix: `&dev`")
                 .addField("`&dev help`", "Show this command list.", false)
+                .addField("`&dev musicinfo <serverID>`", "Read music diagnostics for a joined guild.", false)
                 .addField("`&dev ping`", "Check bot responsiveness.", false)
                 .addField("`&dev info`", "Show runtime status.", false)
                 .addField("`&dev guilds`", "Show joined guilds with pagination.", false)

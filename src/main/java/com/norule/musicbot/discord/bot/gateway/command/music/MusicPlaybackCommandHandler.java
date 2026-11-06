@@ -1,5 +1,6 @@
 package com.norule.musicbot.discord.bot.gateway.command.music;
 
+import com.norule.musicbot.domain.music.MusicDiagnostics.Event;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
 import com.norule.musicbot.discord.bot.gateway.panel.RefreshReason;
@@ -95,20 +96,23 @@ public final class MusicPlaybackCommandHandler {
         });
     }
     public void handlePlaySlash(SlashCommandInteractionEvent event, String lang) {
+        var diagnosticRequest = owner.musicService().recordDiagnosticRequest(event.getGuild().getIdLong(), event.getChannel().getIdLong(),
+                event.getUser().getIdLong(), "/play", "RECEIVED");
         MusicPlayReply.acknowledge(event, panelController.panelMode(event.getGuild()),
                 () -> MusicPlayReply.fallbackNotice(key -> owner.musicText(lang, key)), reply -> {
             TextChannel fallback = event.getChannelType() == ChannelType.TEXT
                     ? event.getChannel().asTextChannel()
                     : null;
             panelController.resolveOrCreateCommandChannel(event.getGuild(), fallback)
-                    .thenAccept(panelChannel -> handlePlaySlashDeferred(event, lang, panelChannel, reply));
+                    .thenAccept(panelChannel -> handlePlaySlashDeferred(event, lang, panelChannel, reply, diagnosticRequest));
         });
     }
 
     private void handlePlaySlashDeferred(SlashCommandInteractionEvent event, String lang, TextChannel panelChannel,
-                                         MusicPlayReply reply) {
+                                         MusicPlayReply reply, Event diagnosticRequest) {
         String query = getPlayQuery(event);
         if (query.isBlank()) {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             reply.sendText(owner.i18nService().t(lang, "music.not_found", Map.of("query", "")));
             return;
         }
@@ -118,16 +122,18 @@ public final class MusicPlaybackCommandHandler {
                     event.getMember(),
                     query,
                     reply::sendText,
-                    panelChannel
+                    panelChannel, diagnosticRequest
             );
             return;
         }
 
         owner.musicService().searchTopTracks(query, 10, results -> {
             if (results.isEmpty()) {
+                owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
                 reply.sendText(owner.i18nService().t(lang, "music.not_found", Map.of("query", query)));
                 return;
             }
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "AWAITING_SELECTION");
             String token = UUID.randomUUID().toString().replace("-", "");
             reply.sendSearch(new EmbedBuilder()
                             .setColor(new Color(52, 152, 219))
@@ -141,7 +147,10 @@ public final class MusicPlaybackCommandHandler {
                                 reply, message.getId(), lang));
                         owner.scheduler().schedule(() -> expireSearchMenu(token), 30, TimeUnit.SECONDS);
                     });
-        }, error -> reply.sendText(playbackText.mapMusicLoadError(lang, error)));
+        }, error -> {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
+            reply.sendText(playbackText.mapMusicLoadError(lang, error));
+        });
     }
     public void handleSkipSlash(SlashCommandInteractionEvent event) {
         event.deferReply(true).queue(success -> handleSkip(event.getGuild(),
@@ -169,6 +178,8 @@ public final class MusicPlaybackCommandHandler {
                 });
     }
     public void handleTextCommand(MessageReceivedEvent event, Guild guild, String cmd, String arg, String lang) {
+        var diagnosticRequest = "play".equals(cmd) ? owner.musicService().recordDiagnosticRequest(guild.getIdLong(), event.getChannel().getIdLong(),
+                event.getAuthor().getIdLong(), "prefix play", "RECEIVED") : null;
         switch (cmd) {
             case "volume" -> handleTextVolume(event, guild, arg, lang);
             case "speed" -> handleTextSpeed(event, guild, arg, lang);
@@ -181,7 +192,7 @@ public final class MusicPlaybackCommandHandler {
                     event.getMember(),
                     arg,
                     text -> event.getChannel().sendMessage(text).queue(),
-                    event.getChannel().asTextChannel()
+                    event.getChannel().asTextChannel(), diagnosticRequest
             );
             case "skip" -> handleSkip(guild,
                     text -> event.getChannel().sendMessage(text)
@@ -226,15 +237,19 @@ public final class MusicPlaybackCommandHandler {
             event.reply(owner.i18nService().t(lang, "music.not_found", Map.of("query", request.query))).setEphemeral(true).queue();
             return;
         }
+        var diagnosticRequest = owner.musicService().recordDiagnosticRequest(event.getGuild().getIdLong(), event.getChannel().getIdLong(),
+                event.getUser().getIdLong(), "play:pick", "RECEIVED");
         AudioTrack picked = request.results.get(index);
         Member member = event.getMember();
         if (member == null || member.getVoiceState() == null || member.getVoiceState().getChannel() == null) {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             event.editMessage(owner.i18nService().t(lang, "music.join_first")).setComponents(List.of()).queue();
             return;
         }
         AudioChannel memberChannel = member.getVoiceState().getChannel();
         AudioChannel botChannel = event.getGuild().getAudioManager().getConnectedChannel();
         if (botChannel != null && botChannel.getIdLong() != memberChannel.getIdLong()) {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             event.editMessage(owner.i18nService().t(lang, "music.join_bot_voice_channel",
                             Map.of("channel", botChannel.getAsMention())))
                     .setComponents(List.of())
@@ -256,6 +271,7 @@ public final class MusicPlaybackCommandHandler {
                 identifier,
                 sourceLabel,
                 response -> {
+                    owner.musicService().completeDiagnosticRequest(diagnosticRequest, "NO_MATCH".equals(response) || response != null && response.startsWith("LOAD_FAILED:") ? "REJECTED" : "ACCEPTED");
                     if ("NO_MATCH".equals(response)) {
                         event.getHook().editOriginal(owner.i18nService().t(
                                 lang,
@@ -318,13 +334,15 @@ public final class MusicPlaybackCommandHandler {
                 });
     }
 
-    private void directPlay(Guild guild, Member member, String query, MusicCommandService.TextSink sink, TextChannel panelChannel) {
+    private void directPlay(Guild guild, Member member, String query, MusicCommandService.TextSink sink, TextChannel panelChannel, Event diagnosticRequest) {
         String lang = owner.lang(guild.getIdLong());
         if (query == null || query.isBlank()) {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             sink.send(owner.i18nService().t(lang, "music.not_found", Map.of("query", "")));
             return;
         }
         if (member == null || member.getVoiceState() == null || member.getVoiceState().getChannel() == null) {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             sink.send(owner.i18nService().t(lang, "music.join_first"));
             return;
         }
@@ -332,12 +350,14 @@ public final class MusicPlaybackCommandHandler {
         AudioChannel memberChannel = member.getVoiceState().getChannel();
         AudioChannel botConnected = guild.getAudioManager().getConnectedChannel();
         if (botConnected != null && botConnected.getIdLong() != memberChannel.getIdLong()) {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             sink.send(owner.i18nService().t(lang, "music.join_bot_voice_channel",
                     Map.of("channel", botConnected.getAsMention())));
             return;
         }
         if (!guild.getSelfMember().hasPermission(memberChannel, Permission.VOICE_CONNECT, Permission.VOICE_SPEAK)) {
             String missing = formatMissingPermissions(guild.getSelfMember(), memberChannel, Permission.VOICE_CONNECT, Permission.VOICE_SPEAK);
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             sink.send(owner.i18nService().t(lang, "general.missing_permissions", Map.of("permissions", missing)));
             return;
         }
@@ -352,6 +372,7 @@ public final class MusicPlaybackCommandHandler {
         boolean wasIdle = owner.musicService().getCurrentTitle(guild) == null;
         int queuedBefore = owner.musicService().getQueueSnapshot(guild).size();
         owner.musicService().loadAndPlay(guild, response -> {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "NO_MATCH".equals(response) || response.startsWith("LOAD_FAILED:") ? "REJECTED" : "ACCEPTED");
             if ("NO_MATCH".equals(response)) {
                 sink.send(owner.i18nService().t(lang, "music.not_found", Map.of("query", query)));
             } else if (response.startsWith("LOAD_FAILED:")) {

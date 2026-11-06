@@ -35,6 +35,8 @@ public class TrackScheduler extends AudioEventAdapter {
     private AudioTrack recoveryAwaitingFrame;
     private AudioTrack scheduledTrack;
     private Consumer<AudioTrack> recoveryFrameListener;
+    private Consumer<AudioTrack> diagnosticFrameListener;
+    private volatile AudioTrack diagnosticConfirmedTrack;
 
     public TrackScheduler(AudioPlayer player) {
         this.player = player;
@@ -203,8 +205,14 @@ public class TrackScheduler extends AudioEventAdapter {
         recoveryFrameListener = listener;
     }
 
+    public synchronized void setDiagnosticFrameListener(Consumer<AudioTrack> listener) { diagnosticFrameListener = listener; }
+
     /** Called only for a valid frame already obtained by the ordinary audio send flow. */
     synchronized void observeAudioFrame(AudioTrack track) {
+        if (track != null && player.getPlayingTrack() == track && diagnosticConfirmedTrack != track) {
+            diagnosticConfirmedTrack = track;
+            if (diagnosticFrameListener != null) diagnosticFrameListener.accept(track);
+        }
         if (track == null || track != recoveryAwaitingFrame || player.getPlayingTrack() != track) {
             return;
         }
@@ -214,6 +222,7 @@ public class TrackScheduler extends AudioEventAdapter {
 
     @Override
     public void onTrackStart(AudioPlayer player, AudioTrack track) {
+        diagnosticConfirmedTrack = null;
         Consumer<AudioTrack> startListener = trackStartListener;
         if (startListener != null && track != null) {
             startListener.accept(track);

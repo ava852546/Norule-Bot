@@ -22,12 +22,19 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
     // Only explicitly instrumented endpoints are attributed. Never infer a feature from a channel binding.
     private static final Map<String, Source> SOURCES = new LinkedHashMap<>();
     private final DiscordBackgroundRestQueue background;
+    private final java.util.function.BiConsumer<String, String> rateLimitObserver;
     private static final AtomicLong ATTEMPTS = new AtomicLong();
     private final Map<String, Long> nextWarnings = new LinkedHashMap<>();
     private final Map<String, Integer> suppressed = new LinkedHashMap<>();
 
     public DiscordRateLimitInterceptor(DiscordBackgroundRestQueue background) {
+        this(background, (method, path) -> {});
+    }
+
+    public DiscordRateLimitInterceptor(DiscordBackgroundRestQueue background,
+                                       java.util.function.BiConsumer<String, String> rateLimitObserver) {
         this.background = background;
+        this.rateLimitObserver = rateLimitObserver;
     }
 
     public static <T extends RestAction<?>> T track(T action, String feature, boolean background, boolean startup,
@@ -70,6 +77,12 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
             // Admission only: JDA owns global/shared/user bucket handling and all HTTP retries.
             background.pause(retryMs);
             log(response, path, source, attempt, attemptId, retryMs);
+            try {
+                rateLimitObserver.accept(request.method(), path);
+            } catch (RuntimeException unavailable) {
+                // Diagnostic observers must never alter JDA response handling or retry behavior.
+                LOGGER.debug("Rate-limit diagnostic observer unavailable");
+            }
         } else {
             synchronized (SOURCES) {
                 if (source != null) {

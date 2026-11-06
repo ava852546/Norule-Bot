@@ -693,6 +693,7 @@ public class MusicPlayerService {
                     () -> guild.getAudioManager().getConnectedChannel() != null
             );
             manager.getScheduler().setStateChangeListener(reason -> notifyStateChanged(id, reason));
+            manager.getScheduler().setDiagnosticFrameListener(track -> confirmDiagnosticPlayback(id, track));
             manager.getScheduler().setRecoveryFrameListener(track -> {
                 TrackLoadContext context = readContext(track);
                 LOGGER.info("[NoRule] Recovery audio frame observed: guildId={} videoId={} correlationId={} attempt={} stage=AUDIO_FRAME",
@@ -710,6 +711,54 @@ public class MusicPlayerService {
 
     public void setAutoplayEnabledChecker(LongPredicate autoplayEnabledChecker) {
         this.autoplayEnabledChecker = autoplayEnabledChecker == null ? (id -> true) : autoplayEnabledChecker;
+    }
+
+    private volatile Consumer<MusicDiagnostics.Event> diagnosticsListener = ignored -> {};
+    private final Map<Long, MusicDiagnostics.Error> diagnosticErrors = new ConcurrentHashMap<>();
+    private volatile java.util.function.LongFunction<java.util.List<MusicDiagnostics.Timer>> leaveTimers = ignored -> null;
+
+    public void setDiagnosticsListener(Consumer<MusicDiagnostics.Event> listener) { diagnosticsListener = listener; }
+    public void setDiagnosticLeaveTimers(java.util.function.LongFunction<java.util.List<MusicDiagnostics.Timer>> timers) { leaveTimers = timers; }
+    public java.util.List<MusicDiagnostics.Timer> diagnosticLeaveTimers(long guildId) { return leaveTimers.apply(guildId); }
+    public MusicDiagnostics.Error diagnosticError(long guildId) { return diagnosticErrors.get(guildId); }
+    public MusicDiagnostics.Event recordDiagnosticRequest(long guildId, Long channelId, Long requesterId, String source, String outcome) {
+        var event = new MusicDiagnostics.Event(guildId, "REQUEST", java.time.Instant.now(), channelId,
+                requesterId, source, null, null, outcome);
+        publishDiagnostic(event);
+        return event;
+    }
+    public void completeDiagnosticRequest(MusicDiagnostics.Event request, String outcome) {
+        if (request != null) publishDiagnostic(new MusicDiagnostics.Event(request.guildId(), request.kind(), request.at(),
+                request.channelId(), request.requesterId(), request.source(), null, null, outcome));
+    }
+    private void publishDiagnostic(MusicDiagnostics.Event event) {
+        try { diagnosticsListener.accept(event); }
+        catch (RuntimeException failure) { LOGGER.warn("Music diagnostic event delivery failed: guildId={}", event.guildId()); }
+    }
+    private void confirmDiagnosticPlayback(long guildId, AudioTrack track) {
+        TrackLoadContext context = readContext(track);
+        String url = MusicDiagnostics.publicSongUrl(context == null ? null : context.originalInput());
+        if (url == null) url = MusicDiagnostics.publicSongUrl(track.getInfo().uri);
+        publishDiagnostic(new MusicDiagnostics.Event(guildId, "START", java.time.Instant.now(), null,
+                context == null ? null : context.requesterId(), context == null ? "unknown" : context.sourceName(),
+                trackTitle(track), url, "AUDIO_FRAME_CONFIRMED"));
+    }
+    /** Never creates a manager, installs a send handler, loads tracks, or notifies listeners. */
+    public MusicDiagnostics.Playback diagnosticPlayback(long guildId) {
+        GuildMusicManager manager = musicManagers.get(guildId);
+        if (manager == null) return new MusicDiagnostics.Playback("UNINITIALIZED", null, 0, 0, false, null, null, 0);
+        AudioPlayer player = manager.getPlayer();
+        AudioTrack track = player.getPlayingTrack();
+        var loads = pendingPlaybackLoads.get(guildId);
+        boolean loading = (loads != null && !loads.isEmpty()) || trackRecoveryService.isRecoveryInProgress(guildId);
+        String state = track == null ? (loading ? "LOADING" : "IDLE")
+                : trackRecoveryService.isRecoveryInProgress(guildId) ? "LOADING" : player.isPaused() ? "PAUSED"
+                : track.getState() == com.sedmelluq.discord.lavaplayer.track.AudioTrackState.LOADING ? "LOADING"
+                : track.getState() == com.sedmelluq.discord.lavaplayer.track.AudioTrackState.FINISHED ? "IDLE" : "PLAYING";
+        return new MusicDiagnostics.Playback(state, track == null ? null : trackTitle(track),
+                track == null ? 0 : Math.max(0, track.getPosition()), track == null ? 0 : track.getDuration(),
+                track != null && track.getInfo().isStream, player.getVolume(), manager.getScheduler().getRepeatModeName(),
+                manager.getScheduler().snapshotQueue().size());
     }
 
     public void setPlaybackFailureListener(BiConsumer<Long, PlaybackFailure> playbackFailureListener) {
@@ -781,6 +830,8 @@ public class MusicPlayerService {
                 }
                 @Override
                 public void loadFailed(FriendlyException error) {
+                    diagnosticErrors.put(guildId, new MusicDiagnostics.Error(java.time.Instant.now(), "LOAD_FAILED",
+                            FAILURE_CLASSIFIER.classify(error).name()));
                     try {
                         if (isPlaybackLoadCurrent(guildId, token)) handler.loadFailed(error);
                     } finally {
@@ -2004,6 +2055,10 @@ public class MusicPlayerService {
     }
 
     private void handleTrackException(long guildId, AudioTrack track, Throwable exception) {
+        boolean diagnosticYoutubeFailure = isYoutubeTrack(track) || YOUTUBE_FAILURE_CLASSIFIER.isYoutubeSourceFailure(exception);
+        diagnosticErrors.put(guildId, new MusicDiagnostics.Error(java.time.Instant.now(),
+                diagnosticYoutubeFailure ? "YOUTUBE_PLAYBACK_FAILED" : "PLAYBACK_FAILED",
+                diagnosticYoutubeFailure ? YOUTUBE_FAILURE_CLASSIFIER.classify(exception).category().name() : FAILURE_CLASSIFIER.classify(exception).name()));
         TrackLoadContext failureContext = readContext(track);
         if (failureContext == null && track != null) {
             String identifier = resolveRecoveryIdentifier(track, track.getIdentifier());

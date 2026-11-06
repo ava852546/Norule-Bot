@@ -1,5 +1,6 @@
 package com.norule.musicbot.bootstrap;
 
+import com.norule.musicbot.storage.sqlite.MusicDiagnosticsSqliteRepository;
 import com.norule.musicbot.config.*;
 import com.norule.musicbot.config.domain.DictionaryCacheConfig;
 import com.norule.musicbot.config.domain.GuildDomainConfigAdapter;
@@ -70,7 +71,6 @@ import com.norule.musicbot.storage.sqlite.SqlitePrivateRoomCacheRepository;
 import com.norule.musicbot.storage.mysql.MySqlDuplicateMessageCacheRepository;
 import com.norule.musicbot.storage.mysql.MySqlMessageLogCacheRepository;
 import com.norule.musicbot.storage.mysql.MySqlPrivateRoomCacheRepository;
-
 import com.norule.musicbot.*;
 
 import moe.kyokobot.libdave.NativeDaveFactory;
@@ -267,6 +267,11 @@ public final class RuntimeBootstrap {
                 wordChainOps,
                 provisioningState
         );
+        try {
+            musicCommandListener.initializeMusicDiagnostics(new MusicDiagnosticsSqliteRepository(provisioningDatabase));
+        } catch (RuntimeException unavailable) {
+            logInfo("[NoRule] Music diagnostics persistence unavailable; runtime history remains available.");
+        }
         musicCommandListener.initializePanelPersistence(
                 new MusicPanelBindingService(
                         new MusicPanelSqliteRepository(provisioningDatabase)));

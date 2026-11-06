@@ -67,6 +67,7 @@ class VoiceAutoLeaveServiceTest {
         Room room = room(1, 0);
         room.playing = true;
         service.onConnected(jda);
+        assertEquals("EMPTY_CHANNEL", service.diagnosticTimers(1).getFirst().reason());
         var started = events.stream().filter(e -> e.event().equals("TIMER_STARTED")).findFirst().orElseThrow();
         assertEquals("EMPTY_CHANNEL", started.reason());
         assertEquals(1L, started.guildId());
@@ -118,6 +119,7 @@ class VoiceAutoLeaveServiceTest {
         room.humans = 1;
         service.onVoiceUpdate(room.guild, false);
         stale.action.run(); // Simulate a cancelled callback that had already begun execution.
+        assertTrue(service.diagnosticTimers(1).stream().noneMatch(timer -> timer.reason().equals("EMPTY_CHANNEL")));
         clock.advance(1);
         assertEquals(0, room.leaves);
     }

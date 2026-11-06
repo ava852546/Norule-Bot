@@ -1,5 +1,6 @@
 package com.norule.musicbot.discord.bot.gateway.panel;
 
+import com.norule.musicbot.domain.music.MusicDiagnostics;
 import com.norule.musicbot.service.music.MusicPanelBindingService;
 
 import java.util.ArrayList;
@@ -13,6 +14,11 @@ public final class MusicPanelStateStore {
     private final Map<Long, PanelRef> panelByGuild = new ConcurrentHashMap<>();
     private final Map<Long, PanelNotice> panelNoticeByGuild = new ConcurrentHashMap<>();
     private MusicPanelBindingService bindings;
+    private final Map<Long, MusicDiagnostics.Error> errors = new ConcurrentHashMap<>();
+    public void recordDiagnosticError(long guildId, String reason) {
+        errors.put(guildId, new MusicDiagnostics.Error(java.time.Instant.now(), "PANEL_API_FAILED", reason));
+    }
+    public MusicDiagnostics.Error diagnosticError(long guildId) { return errors.get(guildId); }
 
     public void initializePersistence(MusicPanelBindingService bindings) {
         this.bindings = bindings;

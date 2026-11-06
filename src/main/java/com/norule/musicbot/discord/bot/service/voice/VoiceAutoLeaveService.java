@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.service.voice;
 
+import java.util.concurrent.ConcurrentHashMap;
+import com.norule.musicbot.domain.music.MusicDiagnostics;
 import com.norule.musicbot.config.domain.MusicConfig;
 import com.norule.musicbot.domain.music.MusicPanelMode;
 import com.norule.musicbot.domain.music.MusicPlayerService;
@@ -59,6 +61,18 @@ public class VoiceAutoLeaveService {
     private final Supplier<I18nService> i18n;
     private final ScheduledExecutorService scheduler;
     private final Map<Long, ChannelState> states = new HashMap<>();
+    private final Map<Long, Map<LeaveReason, MusicDiagnostics.Timer>> diagnosticTimers = new ConcurrentHashMap<>();
+    public List<MusicDiagnostics.Timer> diagnosticTimers(long guildId) {
+        return List.copyOf(diagnosticTimers.getOrDefault(guildId, Map.of()).values());
+    }
+    private void removeDiagnosticTimer(long guildId, LeaveReason reason) {
+        diagnosticTimers.computeIfPresent(guildId, (id, current) -> {
+            var copy = new EnumMap<LeaveReason, MusicDiagnostics.Timer>(LeaveReason.class);
+            copy.putAll(current);
+            copy.remove(reason);
+            return copy.isEmpty() ? null : Map.copyOf(copy);
+        });
+    }
     private final Runnable unsubscribePlayback;
     private JDA jda;
     private boolean monitorStarted;
@@ -91,6 +105,7 @@ public class VoiceAutoLeaveService {
         this.scheduler = scheduler;
         this.events = events;
         unsubscribePlayback = playerService.addStateChangeListener(this::onPlaybackStateChanged);
+        playerService.setDiagnosticLeaveTimers(this::diagnosticTimers);
     }
 
     public void close() {
@@ -152,6 +167,7 @@ public class VoiceAutoLeaveService {
         states.keySet().removeIf(id -> {
             if (jda.getGuildById(id) != null) return false;
             states.get(id).timers.values().forEach(timer -> timer.future.cancel(false));
+            diagnosticTimers.remove(id);
             return true;
         });
         for (Guild guild : jda.getGuilds()) evaluateSafely(guild);
@@ -198,6 +214,12 @@ public class VoiceAutoLeaveService {
             state.timers.put(reason, timer);
             timer.future = scheduler.schedule(() -> executeScheduledLeave(id, state, reason, timer),
                     seconds, TimeUnit.SECONDS);
+            diagnosticTimers.compute(id, (key, current) -> {
+                var copy = new EnumMap<LeaveReason, MusicDiagnostics.Timer>(LeaveReason.class);
+                if (current != null) copy.putAll(current);
+                copy.put(reason, new MusicDiagnostics.Timer(reason.name(), Instant.now().plusSeconds(seconds)));
+                return Map.copyOf(copy);
+            });
             emit("TIMER_STARTED", reason.name(), guild, id, state, null, null, seconds);
         }
     }
@@ -229,6 +251,7 @@ public class VoiceAutoLeaveService {
             state.disconnecting = true;
             state.timers.values().forEach(pending -> pending.future.cancel(false));
             state.timers.clear();
+            diagnosticTimers.remove(id);
             playerService.stop(guild);
             playerService.leaveChannel(guild);
             emit("DISCONNECTED", reason.name(), guild, id, state, humans,
@@ -265,6 +288,7 @@ public class VoiceAutoLeaveService {
 
     private void cancel(long id, ChannelState state, LeaveReason reason, String cause) {
         PendingLeave timer = state.timers.remove(reason);
+        removeDiagnosticTimer(id, reason);
         if (timer != null) {
             timer.future.cancel(false);
             emit("TIMER_CANCELLED", cause, jda == null ? null : jda.getGuildById(id),
@@ -273,6 +297,7 @@ public class VoiceAutoLeaveService {
     }
 
     private void clear(long id, String cause) {
+        diagnosticTimers.remove(id);
         ChannelState state = states.remove(id);
         if (state != null) {
             for (LeaveReason reason : LeaveReason.values()) cancel(id, state, reason, cause);

@@ -18,6 +18,25 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DevMusicPanelAuthorizationTest {
     @Test
+    void musicInfoUsesWhitelistInDmAndGuildAndReloadRevokesAccess() {
+        DevService service = new DevService(config(List.of(1L)), () -> 0);
+        AtomicInteger calls = new AtomicInteger();
+        service.setMusicInfoCommand(argument -> {
+            assertEquals("123456789", argument);
+            calls.incrementAndGet();
+            return new CompletableFuture<>();
+        });
+        service.handleMessage(event(2, false), "&dev musicinfo 123456789");
+        service.handleMessage(event(2, true), "&dev musicinfo 123456789");
+        assertEquals(0, calls.get());
+        service.handleMessage(event(1, false), "&dev musicinfo 123456789");
+        service.handleMessage(event(1, true), "&dev musicinfo 123456789");
+        assertEquals(2, calls.get());
+        service.reloadRuntimeConfig(config(List.of()));
+        service.handleMessage(event(1, false), "&dev musicinfo 123456789");
+        assertEquals(2, calls.get());
+    }
+    @Test
     void existingDeveloperAuthorizationAppliesInDmAndGuildAndReloadRevokesAccess() {
         DevService service = new DevService(config(List.of(1L)), () -> 0);
         AtomicInteger calls = new AtomicInteger();

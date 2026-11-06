@@ -1,10 +1,9 @@
 package com.norule.musicbot.discord.bot.gateway.listener;
 
+import com.norule.musicbot.storage.sqlite.MusicDiagnosticsSqliteRepository;
 import com.norule.musicbot.service.music.MusicPanelBindingService;
-
 import com.norule.musicbot.discord.bot.gateway.DiscordBackgroundRestQueue;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
-
 import com.norule.musicbot.HoneypotService;
 import com.norule.musicbot.ModerationService;
 import com.norule.musicbot.ShortUrlService;
@@ -104,10 +103,14 @@ public class MusicCommandListener extends ListenerAdapter {
                 shortUrlService
         );
         developerCommands.setMusicPanelCommand(service.devMusicPanelCommandHandler()::execute);
+        developerCommands.setMusicInfoCommand(service.devMusicInfoCommandHandler()::execute);
         this.devOps = new DevOps(developerCommands);
-        this.rateLimits = new DiscordRateLimitInterceptor(service.backgroundRest());
+        this.rateLimits = new DiscordRateLimitInterceptor(service.backgroundRest(), service.devMusicInfoCommandHandler()::observeRateLimit);
     }
 
+    public void initializeMusicDiagnostics(MusicDiagnosticsSqliteRepository repository) {
+        service.devMusicInfoCommandHandler().initialize(repository);
+    }
     public void initializePanelPersistence(MusicPanelBindingService bindings) {
         service.initializePanelPersistence(bindings);
     }

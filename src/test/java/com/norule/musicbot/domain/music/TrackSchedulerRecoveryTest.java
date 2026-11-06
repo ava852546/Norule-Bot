@@ -15,6 +15,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TrackSchedulerRecoveryTest {
     @Test
+    void diagnosticStartRequiresRealFrameAndNeverConfirmsStaleOrFailedTrack() {
+        FakePlayer player = new FakePlayer();
+        TrackScheduler scheduler = new TrackScheduler(player.proxy);
+        var confirmed = new java.util.ArrayList<AudioTrack>();
+        scheduler.setDiagnosticFrameListener(confirmed::add);
+        FakeTrack failed = new FakeTrack("failed", true), good = new FakeTrack("good", true);
+        scheduler.queue(failed.proxy);
+        scheduler.onTrackStart(player.proxy, failed.proxy);
+        assertTrue(confirmed.isEmpty());
+        scheduler.clear();
+        scheduler.queue(good.proxy);
+        scheduler.nextTrack();
+        scheduler.onTrackStart(player.proxy, good.proxy);
+        scheduler.observeAudioFrame(failed.proxy);
+        assertTrue(confirmed.isEmpty());
+        scheduler.observeAudioFrame(good.proxy);
+        scheduler.observeAudioFrame(good.proxy);
+        assertEquals(java.util.List.of(good.proxy), confirmed);
+        scheduler.onTrackException(player.proxy, good.proxy, new FriendlyException("failure", FriendlyException.Severity.COMMON, null));
+        assertEquals(java.util.List.of(good.proxy), confirmed);
+    }
+    @Test
     void submittedReplacementNeedsValidFrameAndOrdinarySendFlowObservesItOnlyOnce() {
         FakePlayer player = new FakePlayer();
         TrackScheduler scheduler = new TrackScheduler(player.proxy);

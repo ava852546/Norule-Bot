@@ -854,3 +854,37 @@ quest_notifications:
 
 
 
+dev_musicinfo:
+  usage: 'Usage: &dev musicinfo <serverID>'
+  invalid_id: 'Invalid Guild ID. Use a numeric Discord Guild ID.'
+  not_found: 'Guild not found. The bot must be in that guild.'
+  unavailable: 'Diagnostic data is currently unavailable.'
+  none: 'No record'
+  unknown: 'Unknown / unavailable'
+  no_url: 'No public URL'
+  stream: 'Live / unknown duration'
+  no_timer: 'Not running'
+  panel: 'Music panel'
+  request: 'Last request'
+  started: 'Last successful playback'
+  playback: 'Playback'
+  voice: 'Voice connection'
+  errors: 'Recent errors'
+  panel_OK: 'Normal (last successful update; message not revalidated)'
+  panel_PENDING: 'Waiting for update'
+  panel_FAILED: 'Update failed'
+  panel_INVALID_CHANNEL: 'Configured channel invalid / temporary fallback'
+  panel_NOT_CREATED: 'Not created'
+  panel_UNVERIFIED: 'Restored binding; message not yet verified'
+  state_PLAYING: 'Playing'
+  state_PAUSED: 'Paused'
+  state_LOADING: 'Loading / recovering'
+  state_IDLE: 'Idle'
+  state_FAILED: 'Playback failed'
+  state_UNINITIALIZED: 'Not initialized'
+  panel_body: "Configured: {configured}\nEffective: {effective}\nReason: {reason}\nConfigured channel: {configuredChannel}\nActual channel: {actualChannel}\nMessage (cached): {jump}\nStatus: {status}\nLast update: {updated}"
+  request_body: "Channel: {channel}\nRequester ID: {requester}\nTime: {time}\nEntry: {source}\nResult: {result}"
+  started_body: "Song: {title}\nSource: {source}\nPublic URL: {url}\nStarted: {time}"
+  playback_body: "State: {state}\nSong: {title}\nProgress: {progress}\nVolume: {volume}\nRepeat: {repeat}\nAutoplay: {autoplay}\nQueued: {queued}"
+  voice_body: "State: {state}\nChannel: {channel}\nHumans (cached): {humans}\nBots (cached): {bots}\nAuto-leave: {timers}"
+  errors_body: "Playback: {playback}\nPanel / Discord API: {panel}\nRecovery: {recovery}"

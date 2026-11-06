@@ -1,5 +1,8 @@
 package com.norule.musicbot.discord.bot.app;
 
+import com.norule.musicbot.discord.bot.ops.music.MusicDiagnosticsOps;
+import com.norule.musicbot.service.music.MusicDiagnosticsHistoryService;
+import com.norule.musicbot.discord.bot.gateway.command.meta.DevMusicInfoCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelRefreshService;
 import com.norule.musicbot.discord.bot.gateway.command.meta.DevMusicPanelCommandHandler;
 import com.norule.musicbot.discord.bot.gateway.command.honeypot.HoneypotCommandHandler;
@@ -36,6 +39,7 @@ import com.norule.musicbot.ops.minecraft.MinecraftStatusOps;
 
 class CommandHandlerRegistry {
     private final DevMusicPanelCommandHandler devMusicPanelCommandHandler;
+    private final DevMusicInfoCommandHandler devMusicInfoCommandHandler;
     private final SettingsCommandHandler settingsCommandHandler;
     private final HelpCommandHandler helpCommandHandler;
     private final PingCommandHandler pingCommandHandler;
@@ -69,6 +73,13 @@ class CommandHandlerRegistry {
         WelcomeTextPreviewer welcomeTextPreviewer = new WelcomeTextPreviewer();
 
         this.devMusicPanelCommandHandler = new DevMusicPanelCommandHandler(service, panelRefreshService);
+        var diagnosticsHistory = new MusicDiagnosticsHistoryService();
+        service.musicService().setDiagnosticsListener(diagnosticsHistory::record);
+        this.devMusicInfoCommandHandler = new DevMusicInfoCommandHandler(
+                service::currentJda, service::i18nService, () -> service.runtimeConfigSnapshot().getDefaultLanguage(),
+                id -> service.settingsService().readSettings(id).getLanguage(),
+                id -> service.settingsService().readSettings(id).getMusic().isAutoplayEnabled(), panelRefreshService, diagnosticsHistory,
+                new MusicDiagnosticsOps(service.musicService(), diagnosticsHistory));
         this.settingsCommandHandler = new SettingsCommandHandler(service);
         this.helpCommandHandler = new HelpCommandHandler(service);
         this.pingCommandHandler = new PingCommandHandler(service::i18nService);
@@ -101,6 +112,7 @@ class CommandHandlerRegistry {
                 new QuestNotificationService(service.settingsService()), service::i18nService);
     }
 
+    DevMusicInfoCommandHandler devMusicInfoCommandHandler() { return devMusicInfoCommandHandler; }
     DevMusicPanelCommandHandler devMusicPanelCommandHandler() { return devMusicPanelCommandHandler; }
     SettingsCommandHandler settingsCommandHandler() { return settingsCommandHandler; }
     HelpCommandHandler helpCommandHandler() { return helpCommandHandler; }

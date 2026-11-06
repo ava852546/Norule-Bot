@@ -37,6 +37,24 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 class MusicPanelModeTest {
+    @Test
+    void diagnosticInspectionDoesNotChangeModesOrResolverTransitionCache() throws Exception {
+        var settings = settings();
+        var fixture = new Discord();
+        var modes = new MusicPanelModeResolver(settings);
+        assertTrue(modes.inspect(fixture.guild).fallback());
+        assertFalse(Files.exists(directory.resolve("guilds/1.yml")));
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+        assertTrue(modes.inspect(fixture.guild).modern());
+        fixture.channelExists = false;
+        assertTrue(modes.inspect(fixture.guild).fallback());
+        assertEquals(MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withPanelMode(MusicPanelMode.LEGACY)));
+        assertEquals(MusicPanelMode.LEGACY, modes.inspect(fixture.guild).effective());
+        var field = MusicPanelModeResolver.class.getDeclaredField("selections");
+        field.setAccessible(true);
+        assertTrue(((Map<?, ?>) field.get(modes)).isEmpty());
+    }
     @TempDir Path directory;
 
     private BotConfig defaults() {

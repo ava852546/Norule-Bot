@@ -234,11 +234,15 @@ public final class PlaylistCommandHandler {
     }
 
     private void handleSlashLoad(SlashCommandInteractionEvent event, String lang, String playlistName) {
+        var diagnosticRequest = owner.musicService().recordDiagnosticRequest(event.getGuild().getIdLong(), event.getChannel().getIdLong(),
+                event.getUser().getIdLong(), "/playlist load", "RECEIVED");
         if (playlistName.isBlank()) {
             event.reply(owner.musicText(lang, "playlist_name_required")).setEphemeral(true).queue();
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             return;
         }
         if (!ensureMemberReadyForPlaylistLoad(event.getGuild(), event.getMember(), text -> event.reply(text).setEphemeral(true).queue())) {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             return;
         }
         AudioChannel memberChannel = event.getMember().getVoiceState().getChannel();
@@ -254,6 +258,7 @@ public final class PlaylistCommandHandler {
                 event.getMember().getEffectiveName(),
                 owner.musicText(lang, "playlist_source")
         );
+        owner.musicService().completeDiagnosticRequest(diagnosticRequest, queued <= 0 ? "REJECTED" : "SUBMITTED");
         if (queued <= 0) {
             event.reply(owner.musicText(lang, "playlist_load_missing", Map.of("name", playlistName))).setEphemeral(true).queue();
             return;
@@ -377,11 +382,15 @@ public final class PlaylistCommandHandler {
     }
 
     private void handleTextLoad(MessageReceivedEvent event, Guild guild, String lang, String playlistName) {
+        var diagnosticRequest = owner.musicService().recordDiagnosticRequest(guild.getIdLong(), event.getChannel().getIdLong(),
+                event.getAuthor().getIdLong(), "prefix playlist load", "RECEIVED");
         if (playlistName.isBlank()) {
             event.getChannel().sendMessage(owner.musicUx(lang, "playlist_usage")).queue();
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             return;
         }
         if (!ensureMemberReadyForPlaylistLoad(guild, event.getMember(), text -> event.getChannel().sendMessage(text).queue())) {
+            owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             return;
         }
         AudioChannel memberChannel = event.getMember().getVoiceState().getChannel();
@@ -390,6 +399,7 @@ public final class PlaylistCommandHandler {
             owner.musicService().joinChannel(guild, memberChannel);
         }
         int queued = owner.musicService().loadPlaylist(guild, playlistName, ignored -> { }, event.getAuthor().getIdLong(), event.getMember().getEffectiveName());
+        owner.musicService().completeDiagnosticRequest(diagnosticRequest, queued <= 0 ? "REJECTED" : "SUBMITTED");
         if (queued <= 0) {
             event.getChannel().sendMessage(owner.musicUx(lang, "playlist_load_missing", Map.of("name", playlistName))).queue();
             return;

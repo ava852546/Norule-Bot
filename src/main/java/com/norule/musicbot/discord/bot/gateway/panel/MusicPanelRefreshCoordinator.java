@@ -249,6 +249,14 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
         }
     }
 
+    public boolean hasPending(long guildId) {
+        RefreshState state = states.get(guildId);
+        if (state == null) return false;
+        synchronized (state) {
+            return state.inFlight || !state.pending.isEmpty() || !state.manual.isEmpty();
+        }
+    }
+
     public String diagnostics(long guildId) {
         RefreshState state = states.get(guildId);
         if (state == null) return "pendingRefresh=false inFlight=false coalescedCount=0";

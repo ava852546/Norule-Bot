@@ -843,3 +843,37 @@ quest_notifications:
 
 
 
+dev_musicinfo:
+  usage: '用法：&dev musicinfo <serverID>'
+  invalid_id: '伺服器 ID 格式錯誤，請輸入數字格式的 Discord Guild ID。'
+  not_found: '找不到伺服器，Bot 必須已加入該伺服器。'
+  unavailable: '目前無法取得診斷資料。'
+  none: '尚無紀錄'
+  unknown: '未知／目前無法取得'
+  no_url: '無公開網址'
+  stream: '直播／未知時長'
+  no_timer: '未啟動'
+  panel: '🎛️ 音樂面板'
+  request: '📨 最後點歌'
+  started: '🎶 最後成功播放'
+  playback: '▶️ 播放狀態'
+  voice: '🔊 語音連線'
+  errors: '⚠️ 最近錯誤'
+  panel_OK: '正常（最後更新成功；未重新驗證訊息）'
+  panel_PENDING: '等待更新'
+  panel_FAILED: '更新失敗'
+  panel_INVALID_CHANNEL: '設定頻道無效／臨時降級'
+  panel_NOT_CREATED: '尚未建立'
+  panel_UNVERIFIED: '已還原面板位置，訊息尚未驗證'
+  state_PLAYING: '播放中'
+  state_PAUSED: '暫停'
+  state_LOADING: '載入中／正在復原'
+  state_IDLE: '閒置'
+  state_FAILED: '播放失敗'
+  state_UNINITIALIZED: '尚未初始化'
+  panel_body: "設定模式：{configured}\n實際模式：{effective}\n原因：{reason}\n設定頻道：{configuredChannel}\n實際面板頻道：{actualChannel}\n面板訊息（快取）：{jump}\n面板狀態：{status}\n最後更新：{updated}"
+  request_body: "點歌頻道：{channel}\n點歌者 ID：{requester}\n點歌時間：{time}\n點歌來源：{source}\n請求結果：{result}"
+  started_body: "歌曲：{title}\n來源：{source}\n歌曲網址：{url}\n開始播放：{time}"
+  playback_body: "狀態：{state}\n目前歌曲：{title}\n播放進度：{progress}\n音量：{volume}\n循環模式：{repeat}\n自動推薦：{autoplay}\n等待佇列：{queued}"
+  voice_body: "連線狀態：{state}\n語音頻道：{channel}\n真人數量（快取）：{humans}\n機器人數量（快取）：{bots}\n自動退出計時：{timers}"
+  errors_body: "最近播放錯誤：{playback}\n最近面板／Discord API 錯誤：{panel}\n備援狀態：{recovery}"

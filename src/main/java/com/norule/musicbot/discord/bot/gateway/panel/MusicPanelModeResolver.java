@@ -29,16 +29,25 @@ public final class MusicPanelModeResolver {
         this.settings = settings;
     }
 
-    public Selection resolve(Guild guild) {
-        var music = settings.getMusic(guild.getIdLong());
-        Long channelId = music.getCommandChannelId();
+    /** Cache-only evaluation without logging transitions or updating the resolver state. */
+    public Selection inspect(Guild guild) {
+        return selection(guild, settings.readSettings(guild.getIdLong()).getMusic());
+    }
+
+    private Selection selection(Guild guild, com.norule.musicbot.config.BotConfig.Music music) {
+        Long id = music.getCommandChannelId();
         boolean legacy = music.getPanelMode() == MusicPanelMode.LEGACY;
-        TextChannel channel = legacy || channelId == null ? null : guild.getTextChannelById(channelId);
-        String reason = legacy ? "LEGACY_MODE" : channelId == null ? "NOT_CONFIGURED"
+        TextChannel channel = legacy || id == null ? null : guild.getTextChannelById(id);
+        String reason = legacy ? "LEGACY_MODE" : id == null ? "NOT_CONFIGURED"
                 : channel == null ? "UNKNOWN_CHANNEL" : usable(channel) ? "AVAILABLE" : "MISSING_ACCESS";
-        boolean available = "AVAILABLE".equals(reason);
-        Selection current = new Selection(music.getPanelMode(), music.getPanelMode().effective(available),
-                channelId, available ? channel : null, reason);
+        return new Selection(music.getPanelMode(), music.getPanelMode().effective("AVAILABLE".equals(reason)), id,
+                "AVAILABLE".equals(reason) ? channel : null, reason);
+    }
+
+    public Selection resolve(Guild guild) {
+        Selection current = selection(guild, settings.getMusic(guild.getIdLong()));
+        Long channelId = current.channelId();
+        String reason = current.reason();
         selections.compute(guild.getIdLong(), (id, previous) -> {
             if (previous != null && previous.configured() != current.configured()) {
                 log("MUSIC_PANEL_MODE_CHANGED", id, channelId, 0, current, "SETTINGS_UPDATED");

@@ -233,7 +233,17 @@ public class GuildSettingsService {
         cache.clear();
     }
 
+    /** Diagnostic read: never creates files, persists defaults, or changes runtime caches. */
+    public GuildSettings readSettings(long guildId) {
+        GuildSettings existing = cache.get(guildId);
+        return existing == null ? loadSettings(guildId, false) : existing;
+    }
+
     private GuildSettings loadOrCreateSettings(long guildId) {
+        return loadSettings(guildId, true);
+    }
+
+    private GuildSettings loadSettings(long guildId, boolean createTemplate) {
         Path guildFile = settingsDir.resolve(guildId + ".yml");
         if (sqliteRepository != null) {
             String payload = sqliteRepository.findGuildPayload(guildId);
@@ -250,7 +260,7 @@ public class GuildSettingsService {
         }
 
         if (!Files.exists(guildFile)) {
-            writeTemplate(guildFile, guildId);
+            if (createTemplate) writeTemplate(guildFile, guildId);
             return defaults;
         }
 
