@@ -133,12 +133,12 @@ class MusicPanelModeTest {
         assertEquals(1, fixture.deletes);
         assertFalse(deletion.isDone());
         fixture.deleteResult.complete(null);
-        assertTrue(deletion.isDone());
+        assertTrue(deletion.join());
         fixture.authorId = 999;
-        MusicPanelRefreshService.deleteManagedPanel(fixture.guild, new MusicPanelStateStore.PanelRef(10, 100), modes).join();
+        assertFalse(MusicPanelRefreshService.deleteManagedPanel(fixture.guild, new MusicPanelStateStore.PanelRef(10, 100), modes).join());
         fixture.authorId = 1000;
         fixture.panelComponents = false;
-        MusicPanelRefreshService.deleteManagedPanel(fixture.guild, new MusicPanelStateStore.PanelRef(10, 100), modes).join();
+        assertFalse(MusicPanelRefreshService.deleteManagedPanel(fixture.guild, new MusicPanelStateStore.PanelRef(10, 100), modes).join());
         assertEquals(1, fixture.deletes);
     }
 
@@ -151,11 +151,36 @@ class MusicPanelModeTest {
             var fixture = new Discord();
             fixture.retrieveFailure = failure;
             AtomicInteger continuation = new AtomicInteger();
-            MusicPanelRefreshService.deleteManagedPanel(fixture.guild, new MusicPanelStateStore.PanelRef(10, 100),
-                    new MusicPanelModeResolver(settings())).thenRun(continuation::incrementAndGet).join();
+            boolean deleted = MusicPanelRefreshService.deleteManagedPanel(fixture.guild, new MusicPanelStateStore.PanelRef(10, 100),
+                    new MusicPanelModeResolver(settings())).thenApply(result -> {
+                        continuation.incrementAndGet();
+                        return result;
+                    }).join();
+            assertEquals(MusicPanelRefreshService.isUnknownMessage(failure), deleted);
             assertEquals(1, continuation.get());
             assertEquals(0, fixture.deletes);
         }
+    }
+
+    @Test
+    void failedDeleteDoesNotAuthorizeReplacementAndMissingMessageDoes() {
+        var fixture = new Discord();
+        var modes = new MusicPanelModeResolver(settings());
+        AtomicInteger creates = new AtomicInteger();
+        var replacement = MusicPanelRefreshService.deleteManagedPanel(fixture.guild,
+                new MusicPanelStateStore.PanelRef(10, 100), modes).thenAccept(deleted -> {
+            if (deleted) creates.incrementAndGet();
+        });
+        fixture.deleteResult.completeExceptionally(new IllegalStateException("network unavailable"));
+        replacement.join();
+        assertEquals(0, creates.get());
+        fixture.retrieveFailure = ErrorResponseException.create(ErrorResponse.UNKNOWN_MESSAGE,
+                new Response(new IOException("404"), Set.of()));
+        assertTrue(MusicPanelRefreshService.deleteManagedPanel(fixture.guild,
+                new MusicPanelStateStore.PanelRef(10, 100), modes).join());
+        fixture.channelExists = false;
+        assertFalse(MusicPanelRefreshService.deleteManagedPanel(fixture.guild,
+                new MusicPanelStateStore.PanelRef(10, 100), modes).join());
     }
 
     @Test

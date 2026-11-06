@@ -36,7 +36,7 @@ class MusicPanelRefreshCoordinatorTest {
                             flights.add(future);
                             return future;
                         }));
-            });
+            }, scheduler::nanos);
 
     @AfterEach
     void close() {
@@ -204,7 +204,7 @@ class MusicPanelRefreshCoordinatorTest {
 
     private void requestAndDrain(long guildId) {
         coordinator.requestRefresh(guildId, RefreshReason.MANUAL);
-        scheduler.advance(750);
+        scheduler.advance(3_000);
     }
 
     @Test
@@ -220,7 +220,7 @@ class MusicPanelRefreshCoordinatorTest {
         assertFalse(manual.isDone());
         assertEquals(1, sent.size());
         flights.getFirst().complete(null);
-        scheduler.advance(750);
+        scheduler.advance(3_000);
         assertEquals(List.of("1:volume 30", "manual"), sent);
         assertFalse(manual.isDone());
         delivery.completeExceptionally(new IllegalStateException("Missing Access"));
@@ -262,7 +262,7 @@ class MusicPanelRefreshCoordinatorTest {
                     fail("Identical content must not PATCH");
                     return CompletableFuture.completedFuture(null);
                 })));
-        scheduler.advance(750);
+        scheduler.advance(3_000);
         assertTrue(manual.isDone());
         assertFalse(manual.isCompletedExceptionally());
         coordinator.close();
@@ -271,6 +271,133 @@ class MusicPanelRefreshCoordinatorTest {
 
     private static MusicPanelSnapshot snapshot(String content) {
         return new MusicPanelSnapshot(new EmbedBuilder().setDescription(content).build(), List.of());
+    }
+
+    @Test
+    void continuousChangesRespectThreeSecondIntervalAndEventuallyShowLatestState() {
+        coordinator.requestRefresh(1, RefreshReason.TRACK_START);
+        scheduler.advance(750);
+        flights.getLast().complete(null);
+        for (int i = 1; i <= 9; i++) {
+            content = "track " + i;
+            coordinator.requestRefresh(1, RefreshReason.QUEUE_CHANGED);
+            scheduler.advance(1_000);
+            flights.getLast().complete(null);
+        }
+        scheduler.advance(3_000);
+        flights.getLast().complete(null);
+        assertEquals(4, sent.size());
+        assertEquals("1:track 9", sent.getLast());
+        assertEquals(0, scheduler.pending());
+    }
+
+    @Test
+    void minimumIntervalIsNotOnlyADebounceAndRendersAtDeliveryTime() {
+        coordinator.requestRefresh(1, RefreshReason.TRACK_START);
+        scheduler.advance(750);
+        flights.getFirst().complete(null);
+        content = "track B";
+        coordinator.requestRefresh(1, RefreshReason.TRACK_START);
+        scheduler.advance(750);
+        assertEquals(1, sent.size());
+        content = "track C";
+        coordinator.requestRefresh(1, RefreshReason.QUEUE_CHANGED);
+        scheduler.advance(2_249);
+        assertEquals(1, sent.size());
+        scheduler.advance(1);
+        assertEquals(List.of("1:volume 30", "1:track C"), sent);
+    }
+
+    @Test
+    void highPriorityReplacesUnsentProgressAndBackgroundCannotDisplaceIt() {
+        coordinator.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+        coordinator.requestRefresh(1, RefreshReason.PAUSE);
+        coordinator.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+        coordinator.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+        scheduler.advance(750);
+        assertEquals(Set.of(RefreshReason.PAUSE), renderedReasons);
+        assertEquals(1, sent.size());
+    }
+
+    @Test
+    void longJdaRateLimitWaitKeepsOneFlightAndOnePendingLatestState() {
+        requestAndDrain(1);
+        for (int i = 0; i < 10_000; i++) {
+            content = "track " + i;
+            coordinator.requestRefresh(1, RefreshReason.TRACK_START);
+            coordinator.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+        }
+        scheduler.advance(60_000);
+        assertEquals(1, sent.size());
+        assertEquals(0, scheduler.pending());
+        assertTrue(coordinator.diagnostics(1).contains("pendingRefresh=true inFlight=true"));
+        flights.getFirst().complete(null); // JDA, rather than an application retry, completes the edit.
+        scheduler.advance(750);
+        assertEquals(List.of("1:volume 30", "1:track 9999"), sent);
+        assertEquals(Set.of(RefreshReason.TRACK_START), renderedReasons);
+    }
+
+    @Test
+    void failedFirstEditStillThrottlesSubsequentEventsWithoutAutomaticRetry() {
+        coordinator.requestRefresh(1, RefreshReason.MANUAL);
+        scheduler.advance(750);
+        flights.getFirst().completeExceptionally(new IllegalStateException("network failure"));
+        coordinator.requestRefresh(1, RefreshReason.MANUAL);
+        scheduler.advance(750);
+        assertEquals(1, sent.size());
+        scheduler.advance(2_250);
+        assertEquals(2, sent.size());
+    }
+
+    @Test
+    void oldDeliveryCannotOverwriteSnapshotRecordedForReplacementPanel() {
+        requestAndDrain(1);
+        messageId = 200;
+        content = "new panel";
+        coordinator.recordCreated(1, new MusicPanelRefreshCoordinator.Update(10, 200, snapshot(content), null));
+        flights.getFirst().complete(null);
+        requestAndDrain(1);
+        assertEquals(1, sent.size());
+        assertEquals(0, scheduler.pending());
+    }
+
+    @Test
+    void intervalStartsAgainWhenBackgroundWorkActuallyEntersRestAfterLongAdmissionWait() {
+        requestAndDrain(1);
+        scheduler.advance(60_000); // The background supplier has not submitted HTTP yet.
+        coordinator.submitted(1);
+        content = "latest";
+        coordinator.requestRefresh(1, RefreshReason.TRACK_START);
+        flights.getFirst().complete(null);
+        scheduler.advance(2_999);
+        assertEquals(1, sent.size());
+        scheduler.advance(1);
+        assertEquals(List.of("1:volume 30", "1:latest"), sent);
+    }
+
+    @Test
+    void aNewPanelCreationAlsoSpacesSubsequentEditsAndLegacyReplacementWork() {
+        coordinator.recordCreated(1, new MusicPanelRefreshCoordinator.Update(10, 100, snapshot(content), null));
+        content = "new song";
+        coordinator.requestRefresh(1, RefreshReason.PLAY_ADDED);
+        scheduler.advance(750);
+        assertTrue(sent.isEmpty());
+        scheduler.advance(2_250);
+        assertEquals(List.of("1:new song"), sent);
+    }
+
+    @Test
+    void discardedQueuedPayloadDoesNotReplaceTheLastSuccessfulSnapshot() {
+        requestAndDrain(1);
+        flights.getFirst().complete(null);
+        content = "stale queued progress";
+        requestAndDrain(1);
+        coordinator.discardPrepared(1);
+        flights.getLast().complete(null);
+        content = "volume 30";
+        requestAndDrain(1);
+        assertEquals(2, sent.size());
+        assertEquals(0, scheduler.pending());
     }
 
     @Test
@@ -289,7 +416,7 @@ class MusicPanelRefreshCoordinatorTest {
                                  }
                                  foreground.incrementAndGet();
                                  return CompletableFuture.completedFuture(null);
-                             })))) {
+                             })), scheduler::nanos)) {
             background.pause(60_000);
             refresh.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
             now.addAndGet(TimeUnit.MILLISECONDS.toNanos(750));
@@ -299,8 +426,8 @@ class MusicPanelRefreshCoordinatorTest {
             background.cancelPending("music-panel:1");
             refresh.requestRefresh(1, RefreshReason.PLAY_ADDED);
             refresh.requestRefresh(2, RefreshReason.BUTTON_INTERACTION);
-            now.addAndGet(TimeUnit.MILLISECONDS.toNanos(750));
-            scheduler.advance(750);
+            now.addAndGet(TimeUnit.MILLISECONDS.toNanos(3_000));
+            scheduler.advance(3_000);
             assertEquals(2, foreground.get());
             assertEquals(0, background.pendingCount());
         }
@@ -313,6 +440,10 @@ class MusicPanelRefreshCoordinatorTest {
 
         ManualScheduler() {
             super(1);
+        }
+
+        long nanos() {
+            return TimeUnit.MILLISECONDS.toNanos(now);
         }
 
         @Override
