@@ -5,12 +5,13 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,9 +20,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -137,102 +137,135 @@ class RuntimeDependencyDownloaderTest {
         verifiesBodyFailure(false, false);
     }
 
-    private void verifiesBodyFailure(boolean stall, boolean recover) throws IOException {
+    @Test
+    void retriesAfterRealSocketStall() throws IOException {
         byte[] expected = "complete jar".getBytes(StandardCharsets.UTF_8);
         AtomicInteger requests = new AtomicInteger();
-        CountDownLatch releaseResponses = new CountDownLatch(1);
-        Semaphore firstByteReceived = new Semaphore(0);
-        AtomicLong clock = new AtomicLong();
-        String failureKind = stall ? "StallTimeoutException" : "IncompleteDownloadException";
-        // Keep real sockets for timeout coverage. The latch, rather than elapsed server sleep,
-        // guarantees that a stalled response cannot turn into EOF on a busy CI runner.
-        TestServer testServer = startSocketServer(socket -> {
-            BufferedReader request = new BufferedReader(new InputStreamReader(
-                    socket.getInputStream(), StandardCharsets.US_ASCII));
-            while (true) {
-                String line = request.readLine();
-                if (line == null || line.isEmpty()) {
-                    break;
-                }
-            }
-            var response = socket.getOutputStream();
-            response.write(("HTTP/1.1 200 OK\r\nContent-Length: " + expected.length
-                    + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
-            if (requests.incrementAndGet() == 1 || !recover) {
-                response.write(expected, 0, 1);
-                response.flush();
-                // Wait until the client has consumed body data before closing. Otherwise
-                // HttpURLConnection can transparently retry a connection lost before its first read.
-                try {
-                    if (!firstByteReceived.tryAcquire(30, TimeUnit.SECONDS)) {
-                        throw new IOException("Client did not consume partial response");
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new IOException("Test server interrupted", e);
-                }
-                if (stall) {
-                    await(releaseResponses);
-                }
-                // Send FIN with an incomplete body instead of HttpServer's platform-dependent
-                // abort of a fixed-length response, which can produce a TCP reset on Windows.
-                socket.shutdownOutput();
+        CountDownLatch releaseResponse = new CountDownLatch(1);
+        TestServer testServer = startServer(exchange -> {
+            if (requests.incrementAndGet() == 1) {
+                exchange.sendResponseHeaders(200, expected.length);
+                exchange.getResponseBody().flush();
+                await(releaseResponse);
+                exchange.close();
                 return;
             }
-            response.write(expected);
-            response.flush();
+            exchange.sendResponseHeaders(200, expected.length);
+            exchange.getResponseBody().write(expected);
+            exchange.close();
         });
         try (testServer) {
             List<String> messages = new ArrayList<>();
             List<Long> retryDelays = new ArrayList<>();
-            var settings = new RuntimeDependencyBootstrap.BootstrapSettings(
-                    true, false, false, true, 2_000, 10_000, 30_000,
-                    stall ? 1_000 : 30_000, recover ? 1 : 2);
-            Path runtimeLibs = Files.createDirectories(tempDir.resolve("body-failure-runtime-libs"));
-            Path part = runtimeLibs.resolve("demo-2.0.0.jar.part");
-            Path jar = runtimeLibs.resolve("demo-2.0.0.jar");
             RuntimeDependencyDownloader downloader = new RuntimeDependencyDownloader(
-                    settings, Map.of(RuntimeRepository.MAVEN_CENTRAL, testServer.baseUrl()),
-                    message -> {
-                        messages.add(message);
-                        if (message.contains("downloaded=1 bytes")) {
-                            firstByteReceived.release();
-                        }
-                    },
-                    // Advance the progress clock without waiting, so every first byte signals the server.
-                    () -> clock.getAndAdd(TimeUnit.SECONDS.toNanos(2)),
-                    delay -> {
-                        // Check cleanup at each retry boundary, before another attempt can overwrite it.
-                        assertFalse(Files.exists(part));
-                        assertFalse(Files.exists(jar));
-                        retryDelays.add(delay);
-                    });
+                    settings(1_000, 1), Map.of(RuntimeRepository.MAVEN_CENTRAL, testServer.baseUrl()),
+                    messages::add, System::nanoTime,
+                    retryDelays::add);
+            Path runtimeLibs = Files.createDirectories(tempDir.resolve("stall-runtime-libs"));
 
-            if (recover) {
-                RuntimeDependencyBootstrap.synchronizeRuntimeDependencies(
-                        runtimeLibs, List.of(artifact()), settings, downloader);
-                assertEquals("complete jar", Files.readString(jar, StandardCharsets.UTF_8));
-            } else {
-                IOException failure = assertThrows(IOException.class,
-                        () -> RuntimeDependencyBootstrap.synchronizeRuntimeDependencies(
-                                runtimeLibs, List.of(artifact()), settings, downloader));
-                assertTrue(failure.getMessage().contains("exception=" + failureKind), failure.getMessage());
-                assertTrue(failure.getMessage().contains("retries=2/2"), failure.getMessage());
-                assertFalse(Files.exists(jar));
-            }
+            RuntimeDependencyBootstrap.synchronizeRuntimeDependencies(
+                    runtimeLibs, List.of(artifact()), settings(1_000, 1), downloader);
 
-            assertEquals(recover ? 2 : 3, requests.get());
-            assertEquals(recover ? List.of(1_000L) : List.of(1_000L, 2_000L), retryDelays);
-            assertFalse(Files.exists(part));
-            List<String> failures = messages.stream().filter(message -> message.contains("Download failed")).toList();
-            assertEquals(settings.maxRetries(), failures.size());
-            for (int retry = 1; retry <= settings.maxRetries(); retry++) {
-                String message = failures.get(retry - 1);
-                assertTrue(message.contains("exception=" + failureKind), message);
-                assertTrue(message.contains("retry " + retry + "/" + settings.maxRetries()), message);
-            }
+            assertEquals(2, requests.get());
+            assertEquals(List.of(1_000L), retryDelays);
+            assertEquals("complete jar", Files.readString(
+                    runtimeLibs.resolve("demo-2.0.0.jar"), StandardCharsets.UTF_8));
+            assertFalse(Files.exists(runtimeLibs.resolve("demo-2.0.0.jar.part")));
+            assertTrue(messages.stream().anyMatch(message -> message.contains("exception=StallTimeoutException")
+                    && message.contains("retry 1/1")));
         } finally {
-            releaseResponses.countDown();
+            releaseResponse.countDown();
+        }
+    }
+
+    private void verifiesBodyFailure(boolean stall, boolean recover) throws IOException {
+        byte[] expected = "complete jar".getBytes(StandardCharsets.UTF_8);
+        AtomicInteger requests = new AtomicInteger();
+        AtomicInteger closedStreams = new AtomicInteger();
+        AtomicInteger disconnected = new AtomicInteger();
+        AtomicLong clock = new AtomicLong();
+        List<String> messages = new ArrayList<>();
+        List<Long> retryDelays = new ArrayList<>();
+        var settings = settings(1_000, recover ? 1 : 2);
+        Path runtimeLibs = Files.createDirectories(tempDir.resolve("body-failure-runtime-libs"));
+        Path part = runtimeLibs.resolve("demo-2.0.0.jar.part");
+        Path jar = runtimeLibs.resolve("demo-2.0.0.jar");
+        String failureKind = stall ? "StallTimeoutException" : "IncompleteDownloadException";
+        RuntimeDependencyDownloader downloader = new RuntimeDependencyDownloader(
+                settings, Map.of(RuntimeRepository.MAVEN_CENTRAL, "http://repository.test"),
+                messages::add, clock::get,
+                delay -> {
+                    assertFalse(Files.exists(part));
+                    assertFalse(Files.exists(jar));
+                    assertEquals(requests.get(), closedStreams.get());
+                    assertEquals(requests.get(), disconnected.get());
+                    retryDelays.add(delay);
+                }, uri -> {
+                    boolean fail = requests.incrementAndGet() == 1 || !recover;
+                    return new HttpURLConnection(uri.toURL()) {
+                        @Override
+                        public int getResponseCode() { return HTTP_OK; }
+
+                        @Override
+                        public long getContentLengthLong() { return expected.length; }
+
+                        @Override
+                        public InputStream getInputStream() {
+                            return new FilterInputStream(new ByteArrayInputStream(
+                                    fail ? new byte[] { expected[0] } : expected)) {
+                                @Override
+                                public int read(byte[] bytes, int offset, int length) throws IOException {
+                                    if (fail && in.available() == 0 && stall) {
+                                        // One full read timeout with no intervening byte; no wall-clock sleep.
+                                        clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(settings.stallTimeoutMs()));
+                                        throw new SocketTimeoutException("Controlled no-byte timeout");
+                                    }
+                                    return super.read(bytes, offset, length);
+                                }
+
+                                @Override
+                                public void close() throws IOException {
+                                    super.close();
+                                    closedStreams.incrementAndGet();
+                                }
+                            };
+                        }
+
+                        @Override
+                        public void disconnect() { disconnected.incrementAndGet(); }
+
+                        @Override
+                        public boolean usingProxy() { return false; }
+
+                        @Override
+                        public void connect() { /* In-memory response is already connected. */ }
+                    };
+                });
+        if (recover) {
+            RuntimeDependencyBootstrap.synchronizeRuntimeDependencies(
+                    runtimeLibs, List.of(artifact()), settings, downloader);
+            assertEquals("complete jar", Files.readString(jar, StandardCharsets.UTF_8));
+        } else {
+            IOException failure = assertThrows(IOException.class,
+                    () -> RuntimeDependencyBootstrap.synchronizeRuntimeDependencies(
+                            runtimeLibs, List.of(artifact()), settings, downloader));
+            assertTrue(failure.getMessage().contains("exception=" + failureKind), failure.getMessage());
+            assertTrue(failure.getMessage().contains("retries=2/2"), failure.getMessage());
+            assertFalse(Files.exists(jar));
+        }
+        assertEquals(recover ? 2 : 3, requests.get());
+        assertEquals(requests.get(), closedStreams.get());
+        assertEquals(requests.get(), disconnected.get());
+        assertEquals(recover ? List.of(1_000L) : List.of(1_000L, 2_000L), retryDelays);
+        assertFalse(Files.exists(part));
+        assertEquals(stall ? TimeUnit.SECONDS.toNanos(settings.maxRetries() + (recover ? 0 : 1)) : 0,
+                clock.get());
+        List<String> failures = messages.stream().filter(message -> message.contains("Download failed")).toList();
+        assertEquals(settings.maxRetries(), failures.size());
+        for (int retry = 1; retry <= settings.maxRetries(); retry++) {
+            String message = failures.get(retry - 1);
+            assertTrue(message.contains("exception=" + failureKind), message);
+            assertTrue(message.contains("retry " + retry + "/" + settings.maxRetries()), message);
         }
     }
 
@@ -356,46 +389,13 @@ class RuntimeDependencyDownloaderTest {
         server.setExecutor(executor);
         server.createContext("/", exchange -> handler.handle(exchange));
         server.start();
-        return new TestServer("http://127.0.0.1:" + server.getAddress().getPort(),
-                () -> server.stop(0), executor);
-    }
-
-    private static TestServer startSocketServer(SocketHandler handler) throws IOException {
-        ServerSocket server = new ServerSocket();
-        server.bind(new InetSocketAddress("127.0.0.1", 0));
-        ExecutorService executor = Executors.newCachedThreadPool();
-        executor.submit(() -> {
-            while (!server.isClosed()) {
-                try {
-                    Socket socket = server.accept();
-                    executor.submit(() -> {
-                        try (socket) {
-                            socket.setSoTimeout(30_000);
-                            handler.handle(socket);
-                        }
-                        return null;
-                    });
-                } catch (IOException e) {
-                    if (!server.isClosed()) {
-                        throw e;
-                    }
-                }
-            }
-            return null;
-        });
-        return new TestServer("http://127.0.0.1:" + server.getLocalPort(), () -> {
-            try {
-                server.close();
-            } catch (IOException e) {
-                throw new java.io.UncheckedIOException(e);
-            }
-        }, executor);
+        return new TestServer(server, executor);
     }
 
     private static void await(CountDownLatch latch) throws IOException {
         try {
             if (!latch.await(30, TimeUnit.SECONDS)) {
-                throw new IOException("Timed out waiting for test to release response");
+                throw new IOException("Timed out waiting for response release");
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -408,15 +408,14 @@ class RuntimeDependencyDownloaderTest {
         void handle(HttpExchange exchange) throws IOException;
     }
 
-    @FunctionalInterface
-    private interface SocketHandler {
-        void handle(Socket socket) throws IOException;
-    }
+    private record TestServer(HttpServer server, ExecutorService executor) implements AutoCloseable {
+        private String baseUrl() {
+            return "http://127.0.0.1:" + server.getAddress().getPort();
+        }
 
-    private record TestServer(String baseUrl, Runnable stop, ExecutorService executor) implements AutoCloseable {
         @Override
         public void close() {
-            stop.run();
+            server.stop(0);
             executor.shutdownNow();
         }
     }
