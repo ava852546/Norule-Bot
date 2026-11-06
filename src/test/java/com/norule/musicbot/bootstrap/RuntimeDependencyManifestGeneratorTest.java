@@ -2,6 +2,9 @@ package com.norule.musicbot.bootstrap;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -58,6 +61,55 @@ class RuntimeDependencyManifestGeneratorTest {
 
         assertEquals(RuntimeRepository.LAVALINK_RELEASES,
                 RuntimeDependencyManifestGenerator.resolveRepository(artifact));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "MAVEN_CENTRAL, central-8fac3ebd6edbaca3c794783fa38088af0aa128e7",
+            "LAVALINK_RELEASES, lavalink-releases-30024d3cb07e8f2cc1a12c5ebf2de1a59c4127c4",
+            "TOPIWTF_RELEASES, topiwtf-releases-2c759bccfc78c076a7e542c5047c6af37660969c"
+    })
+    void resolvesHashedAndMixedMarkers(RuntimeRepository repository, String resolverId) throws IOException {
+        Path artifact = createResolverMarker("demo-1.0.0.jar", "demo-1.0.0.jar>" + resolverId + "=");
+        assertEquals(repository, RuntimeDependencyManifestGenerator.resolveRepository(artifact));
+
+        artifact = createResolverMarker("demo-1.0.0.jar",
+                "demo-1.0.0.jar>" + repository.id() + "=",
+                "demo-1.0.0.jar>" + resolverId + "=");
+        assertEquals(repository, RuntimeDependencyManifestGenerator.resolveRepository(artifact));
+    }
+
+    @Test
+    void preservesPreferenceAcrossLegacyHashedAndUnknownMarkers() throws IOException {
+        Path artifact = createResolverMarker("demo-1.0.0.jar",
+                "demo-1.0.0.jar>enterprise-mirror=",
+                "demo-1.0.0.jar>lavalink-releases=",
+                "demo-1.0.0.jar>central-8fac3ebd6edbaca3c794783fa38088af0aa128e7=");
+        assertEquals(RuntimeRepository.MAVEN_CENTRAL,
+                RuntimeDependencyManifestGenerator.resolveRepository(artifact));
+
+        artifact = createResolverMarker("demo-1.0.0.jar",
+                "demo-1.0.0.jar>central-malicious=",
+                "demo-1.0.0.jar>topiwtf-releases-2c759bccfc78c076a7e542c5047c6af37660969c=",
+                "demo-1.0.0.jar>lavalink-releases=");
+        assertEquals(RuntimeRepository.LAVALINK_RELEASES,
+                RuntimeDependencyManifestGenerator.resolveRepository(artifact));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"central-malicious", "central-0000000000000000000000000000000000000000", ""})
+    void rejectsUntrustedSourceEvenWhenAnotherArtifactHasCentralMarker(String repositoryId) throws IOException {
+        Path artifact = createResolverMarker("demo-1.0.0.jar",
+                "demo-1.0.0.pom>central=",
+                "other-1.0.0.jar>central-8fac3ebd6edbaca3c794783fa38088af0aa128e7=",
+                "demo-1.0.0.jar>" + repositoryId + "=");
+        assertThrows(IOException.class, () -> RuntimeDependencyManifestGenerator.resolveRepository(artifact));
+    }
+
+    @Test
+    void rejectsMissingMarker() {
+        assertThrows(IOException.class,
+                () -> RuntimeDependencyManifestGenerator.resolveRepository(tempDir.resolve("demo.jar")));
     }
 
     @Test

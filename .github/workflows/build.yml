@@ -37,6 +37,34 @@ jobs:
       - name: Build and Test Norule-Bot
         run: mvn -B --no-transfer-progress clean package
 
+      - name: Verify Runtime Dependency Artifacts
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          target = Path('target')
+          manifest = target / 'classes/bootstrap/runtime-dependencies.txt'
+          checksums = target / 'classes/bootstrap/runtime-dependency-checksums.txt'
+          entries = [line.split('|') for line in manifest.read_text().splitlines()
+                     if line and not line.startswith('#')]
+          assert entries, 'Runtime dependency manifest is empty'
+          for group, artifact, version, classifier, extension, repository, checksum in entries:
+              assert repository in {'central', 'lavalink-releases', 'topiwtf-releases'}, repository
+              name = f'{artifact}-{version}' + (f'-{classifier}' if classifier else '') + f'.{extension}'
+              jar = target / 'runtime-libs' / name
+              assert hashlib.sha256(jar.read_bytes()).hexdigest() == checksum, name
+          jars = list(target.glob('*.jar'))
+          assert jars, 'Main JAR is missing'
+          for jar in jars:
+              with ZipFile(jar) as packaged:
+                  for source in (manifest, checksums):
+                      assert packaged.read('bootstrap/' + source.name) == source.read_bytes(), source.name
+          print(f'Verified {len(entries)} runtime dependencies and packaged manifests')
+          PY
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -44,5 +72,7 @@ jobs:
           path: |
             target/*.jar
             target/runtime-libs/
+            target/classes/bootstrap/runtime-dependencies.txt
+            target/classes/bootstrap/runtime-dependency-checksums.txt
           if-no-files-found: error
           retention-days: 14

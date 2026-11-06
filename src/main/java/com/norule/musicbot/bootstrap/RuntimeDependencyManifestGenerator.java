@@ -124,7 +124,7 @@ public final class RuntimeDependencyManifestGenerator {
             }
             String repositoryId = trimmed.substring(prefix.length(), trimmed.length() - 1);
             try {
-                repositories.add(RuntimeRepository.fromId(repositoryId));
+                repositories.add(RuntimeRepository.fromResolverId(repositoryId));
             } catch (IllegalArgumentException ignored) {
                 unknownRepositoryIds.add(repositoryId);
             }
