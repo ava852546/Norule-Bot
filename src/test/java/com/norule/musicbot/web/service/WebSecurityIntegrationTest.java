@@ -13,6 +13,51 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WebSecurityIntegrationTest {
     @Test
+    void pendingLoginRequiresPostBodyProofAndCallbackRequiresBrowserCookie() throws Exception {
+        WebControlServer owner = newOwner();
+        try {
+            WebSessionService sessions = new WebSessionService(owner.sessionManager());
+            WebAuthService auth = new WebAuthService(owner, sessions);
+            String request = sessions.issuePendingLogin("/dashboard", "source-device", System.currentTimeMillis() + 60_000);
+            TestHttpExchange stolenLink = new TestHttpExchange("GET", "/auth/login?request=" + request, null);
+            auth.handleAuthLogin(stolenLink);
+            assertEquals(401, stolenLink.responseCode());
+            TestHttpExchange wrongProof = new TestHttpExchange("POST", "/auth/login?request=" + request,
+                    "browserProof=attacker".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            auth.handleAuthLogin(wrongProof);
+            assertEquals(401, wrongProof.responseCode());
+            TestHttpExchange login = new TestHttpExchange("POST", "/auth/login?request=" + request,
+                    "browserProof=source-device".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            auth.handleAuthLogin(login);
+            assertTrue(login.responseCode() >= 300 && login.responseCode() < 400);
+            assertTrue(login.getResponseHeaders().getFirst("Set-Cookie").contains("HttpOnly"));
+            String state = owner.parseUrlEncoded(java.net.URI.create(login.getResponseHeaders().getFirst("Location")).getRawQuery()).get("state");
+            TestHttpExchange stolenCallback = new TestHttpExchange("GET", "/auth/callback?state=" + state + "&code=attacker", null);
+            auth.handleAuthCallback(stolenCallback);
+            assertEquals(401, stolenCallback.responseCode());
+            assertTrue(owner.sessionManager().sessions().isEmpty());
+            TestHttpExchange replay = new TestHttpExchange("POST", "/auth/login?request=" + request,
+                    "browserProof=source-device".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            auth.handleAuthLogin(replay);
+            assertEquals(401, replay.responseCode());
+            TestHttpExchange directLogin = new TestHttpExchange("GET", "/auth/login", null);
+            auth.handleAuthLogin(directLogin);
+            assertTrue(directLogin.responseCode() >= 300 && directLogin.responseCode() < 400);
+            owner.shortUrlService().updateOptions(new ShortUrlService.Options(
+                    true, 60_000, 60_000, "https://short.example.com", 7, false));
+            TestHttpExchange crossOrigin = new TestHttpExchange("GET",
+                    "/auth/login?returnTo=https%3A%2F%2Fshort.example.com%2Fmy", null);
+            auth.handleAuthLogin(crossOrigin);
+            java.net.URI destination = java.net.URI.create(crossOrigin.getResponseHeaders().getFirst("Location"));
+            assertEquals("short.example.com", destination.getHost());
+            assertEquals("/api/short/session/login", destination.getPath());
+            assertEquals("https://short.example.com/my", owner.parseUrlEncoded(destination.getRawQuery()).get("returnTo"));
+        } finally {
+            owner.shutdown();
+        }
+    }
+
+    @Test
     void numberChainResetWithoutCsrfStopsBeforeMutation() throws Exception {
         WebControlServer owner = newOwner();
         try {

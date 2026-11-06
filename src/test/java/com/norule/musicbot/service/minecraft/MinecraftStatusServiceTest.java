@@ -8,6 +8,12 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -100,6 +106,37 @@ class MinecraftStatusServiceTest {
         assertEquals("UPSTREAM_ERROR", result.errorCode());
         assertEquals(1, gateway.callCount);
         assertEquals(MinecraftServerType.BEDROCK, gateway.lastType);
+    }
+
+    @Test
+    void boundsCacheAndClearsExpiredEntriesAndDisabledCache() throws Exception {
+        RecordingGateway gateway = new RecordingGateway();
+        gateway.response = new McSrvStatResponse(false, "1.2.3.4", 25565, "", 0, 0, List.of(), false);
+        AtomicInteger ttl = new AtomicInteger(60);
+        long[] now = {1_000_000L};
+        Clock clock = new Clock() {
+            public ZoneId getZone() { return ZoneOffset.UTC; }
+            public Clock withZone(ZoneId zone) { return this; }
+            public Instant instant() { return Instant.ofEpochMilli(now[0]); }
+        };
+        MinecraftStatusService service = new MinecraftStatusService(gateway,
+                () -> new MinecraftStatusConfig("test", 1000, ttl.get()), clock);
+        for (int i = 0; i < 1100; i++) {
+            assertTrue(service.query("server" + i + ".example.com", "JAVA").success());
+        }
+        var field = MinecraftStatusService.class.getDeclaredField("cache");
+        field.setAccessible(true);
+        Map<?, ?> cache = (Map<?, ?>) field.get(service);
+        assertTrue(cache.size() <= 1024);
+        now[0] += 60_001L;
+        assertTrue(service.query("fresh.example.com", "JAVA").success());
+        assertEquals(1, cache.size());
+        ttl.set(0);
+        int calls = gateway.callCount;
+        assertTrue(service.query("fresh.example.com", "JAVA").success());
+        assertTrue(service.query("fresh.example.com", "JAVA").success());
+        assertEquals(calls + 2, gateway.callCount);
+        assertTrue(cache.isEmpty());
     }
 
     private static final class RecordingGateway implements MinecraftStatusGateway {

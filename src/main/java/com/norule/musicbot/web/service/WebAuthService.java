@@ -25,14 +25,23 @@ public final class WebAuthService {
     }
 
     public void handleAuthLogin(HttpExchange exchange) throws IOException {
-        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+        boolean posted = "POST".equalsIgnoreCase(exchange.getRequestMethod());
+        if (!posted && !"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
             owner.sendText(exchange, 405, "Method Not Allowed");
             return;
         }
         WebSettings web = owner.webSettings();
         Map<String, String> query = owner.parseUrlEncoded(exchange.getRequestURI().getRawQuery());
-        WebSessionManager.PendingLogin pendingLogin = webSessionService.consumePendingLogin(
-                query.getOrDefault("request", ""));
+        String requestId = query.getOrDefault("request", "");
+        WebSessionManager.PendingLogin pendingLogin = null;
+        if (posted && !requestId.isBlank()) {
+            Map<String, String> form = owner.parseUrlEncoded(owner.readBody(exchange, 4096));
+            pendingLogin = webSessionService.consumePendingLogin(requestId, form.getOrDefault("browserProof", ""));
+        }
+        if ((posted || query.containsKey("request")) && pendingLogin == null) {
+            owner.sendText(exchange, 401, "Invalid login request");
+            return;
+        }
         String requestedReturnTo = pendingLogin == null
                 ? query.getOrDefault("returnTo", "") : pendingLogin.returnTo;
         String returnTo = sanitizeReturnTo(
@@ -40,10 +49,19 @@ public final class WebAuthService {
                 owner.resolveHomeUrl(web),
                 owner.shortUrlService().publicBaseUrl()
         );
+        if (pendingLogin == null && requiresSessionHandoff(returnTo, owner.resolveHomeUrl(web),
+                owner.shortUrlService().publicBaseUrl())) {
+            // Visit the destination host first so it can prove the initiating browser.
+            String loginUrl = URI.create(owner.shortUrlService().publicBaseUrl())
+                    .resolve("/api/short/session/login").toString();
+            owner.redirect(exchange, loginUrl + "?returnTo=" + owner.encode(returnTo));
+            return;
+        }
         String anonymousDeviceToken = pendingLogin == null ? "" : pendingLogin.anonymousDeviceToken;
         String state = UUID.randomUUID().toString().replace("-", "");
-        webSessionService.putOAuthState(
-                state, System.currentTimeMillis() + OAUTH_STATE_TTL_MILLIS, returnTo, anonymousDeviceToken);
+        webSessionService.putOAuthState(exchange,
+                state, System.currentTimeMillis() + OAUTH_STATE_TTL_MILLIS, returnTo, anonymousDeviceToken,
+                owner.isSecureCookie(web));
 
         String authorizeUrl = "https://discord.com/oauth2/authorize"
                 + "?response_type=code"
@@ -69,7 +87,7 @@ public final class WebAuthService {
             return;
         }
 
-        WebSessionManager.OAuthState stateData = webSessionService.popOAuthState(state);
+        WebSessionManager.OAuthState stateData = webSessionService.popOAuthState(exchange, state);
         if (stateData == null || stateData.expiresAtMillis < System.currentTimeMillis()) {
             owner.sendText(exchange, 401, "OAuth state expired");
             return;
@@ -117,7 +135,12 @@ public final class WebAuthService {
             if (requiresSessionHandoff(destination, owner.resolveHomeUrl(web),
                     owner.shortUrlService().publicBaseUrl())) {
                 String ticket = webSessionService.issueSessionHandoff(
-                        session, System.currentTimeMillis() + SESSION_HANDOFF_TTL_MILLIS);
+                        session, System.currentTimeMillis() + SESSION_HANDOFF_TTL_MILLIS,
+                        stateData.anonymousDeviceToken);
+                if (ticket.isBlank()) {
+                    owner.redirect(exchange, owner.resolveHomeUrl(web));
+                    return;
+                }
                 destination = appendQueryParameter(destination, "__nr_auth", ticket);
             }
             owner.redirect(exchange, destination);

@@ -192,6 +192,7 @@
                 <targetPath>web</targetPath>
                 <includes>
                     <include>share-expired.html</include>
+                    <include>auth-login.html</include>
                     <include>url-expired.html</include>
                 </includes>
             </resource>

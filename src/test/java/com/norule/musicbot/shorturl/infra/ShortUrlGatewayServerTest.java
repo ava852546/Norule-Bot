@@ -37,6 +37,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShortUrlGatewayServerTest {
     @Test
+    void loginProofIsPostedInUncachedEscapedFormAndNeverRedirected() throws Exception {
+        var gateway = new ShortUrlGatewayServer(new ShortUrlService(new OwnerRepository()),
+                BotConfig.ShortUrl::defaultValues);
+        var form = ShortUrlGatewayServer.class.getDeclaredMethod("sendLoginForm",
+                com.sun.net.httpserver.HttpExchange.class, String.class, String.class);
+        form.setAccessible(true);
+        var exchange = new com.norule.musicbot.web.TestHttpExchange("GET", "/api/short/session/login", null);
+        form.invoke(gateway, exchange, "https://dash.example.com/auth/login?request=opaque", "secret\"<device>");
+        assertEquals(200, exchange.responseCode());
+        assertNull(exchange.getResponseHeaders().getFirst("Location"));
+        assertEquals("no-store", exchange.getResponseHeaders().getFirst("Cache-Control"));
+        assertEquals("no-referrer", exchange.getResponseHeaders().getFirst("Referrer-Policy"));
+        assertTrue(exchange.responseBodyUtf8().contains("method=\"post\""));
+        assertTrue(exchange.responseBodyUtf8().contains("secret&quot;&lt;device&gt;"));
+        assertFalse(exchange.responseBodyUtf8().contains("{{LOGIN_URL}}"));
+        var legacy = new com.norule.musicbot.web.TestHttpExchange("GET", "/api/short/session/login", null);
+        form.invoke(gateway, legacy, "/auth/login?returnTo=%2Fmy", "device");
+        assertEquals("/auth/login?returnTo=%2Fmy", legacy.getResponseHeaders().getFirst("Location"));
+    }
+
+    @Test
     void mediaFailuresCleanTemporaryFilesReleasePermitsAndThenReturn429(@TempDir Path tempDir) throws Exception {
         int port;
         try (ServerSocket socket = new ServerSocket(0)) {

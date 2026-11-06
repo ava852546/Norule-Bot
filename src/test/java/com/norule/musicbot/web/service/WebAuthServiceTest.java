@@ -44,11 +44,13 @@ class WebAuthServiceTest {
                 "https://s.norule.me/abc123?stats", "anonymous-device-token",
                 System.currentTimeMillis() + 60_000L);
 
-        WebSessionManager.PendingLogin pending = sessions.consumePendingLogin(requestId);
+        assertNull(sessions.consumePendingLogin(requestId, ""));
+        assertNull(sessions.consumePendingLogin(requestId, "attacker-device-token"));
+        WebSessionManager.PendingLogin pending = sessions.consumePendingLogin(requestId, "anonymous-device-token");
 
         assertNotNull(pending);
         assertEquals("https://s.norule.me/abc123?stats", pending.returnTo);
         assertEquals("anonymous-device-token", pending.anonymousDeviceToken);
-        assertNull(sessions.consumePendingLogin(requestId));
+        assertNull(sessions.consumePendingLogin(requestId, "anonymous-device-token"));
     }
 }

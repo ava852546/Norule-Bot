@@ -13,12 +13,14 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.time.Clock;
 import java.util.function.Supplier;
 
 public final class MinecraftStatusService {
     private static final String DEFAULT_USER_AGENT = "NoRuleBot/1.0 contact: admin@norule.me";
     private static final int DEFAULT_REQUEST_TIMEOUT_MILLIS = 15_000;
     private static final int DEFAULT_INTERNAL_CACHE_SECONDS = 60;
+    private static final int MAX_CACHE_ENTRIES = 1024;
 
     public record QueryResult(boolean success,
                               MinecraftServerStatus status,
@@ -41,12 +43,17 @@ public final class MinecraftStatusService {
     private final MinecraftStatusGateway gateway;
     private final Supplier<MinecraftStatusConfig> configSupplier;
     private final Map<CacheKey, CacheEntry> cache = new ConcurrentHashMap<>();
+    private final Clock clock;
 
     public MinecraftStatusService(MinecraftStatusGateway gateway, MinecraftStatusConfig config) {
         this(gateway, () -> config);
     }
 
     public MinecraftStatusService(MinecraftStatusGateway gateway, Supplier<MinecraftStatusConfig> configSupplier) {
+        this(gateway, configSupplier, Clock.systemUTC());
+    }
+
+    MinecraftStatusService(MinecraftStatusGateway gateway, Supplier<MinecraftStatusConfig> configSupplier, Clock clock) {
         if (gateway == null) {
             throw new IllegalArgumentException("gateway cannot be null");
         }
@@ -55,6 +62,7 @@ public final class MinecraftStatusService {
         }
         this.gateway = gateway;
         this.configSupplier = configSupplier;
+        this.clock = Objects.requireNonNull(clock);
     }
 
     public QueryResult query(String rawAddress, String rawType) {
@@ -70,8 +78,16 @@ public final class MinecraftStatusService {
         }
 
         CacheKey cacheKey = new CacheKey(address.value(), serverType);
-        long now = System.currentTimeMillis();
-        CacheEntry cachedEntry = cache.get(cacheKey);
+        long now = clock.millis();
+        int cacheSeconds = Math.max(0, config.getInternalCacheSeconds());
+        CacheEntry cachedEntry;
+        synchronized (cache) {
+            if (cacheSeconds == 0) {
+                cache.clear();
+            }
+            cache.values().removeIf(entry -> entry.expiresAtMillis <= now);
+            cachedEntry = cache.get(cacheKey);
+        }
         if (cachedEntry != null && cachedEntry.expiresAtMillis > now) {
             return QueryResult.success(cachedEntry.status.withCached(true));
         }
@@ -79,9 +95,15 @@ public final class MinecraftStatusService {
         try {
             McSrvStatResponse upstream = gateway.fetchStatus(address.value(), serverType, config);
             MinecraftServerStatus status = mapToDomainStatus(address.value(), serverType, upstream);
-            int cacheSeconds = Math.max(0, config.getInternalCacheSeconds());
             if (cacheSeconds > 0) {
-                cache.put(cacheKey, new CacheEntry(status.withCached(false), now + cacheSeconds * 1000L));
+                synchronized (cache) {
+                    long completedAt = clock.millis();
+                    cache.values().removeIf(entry -> entry.expiresAtMillis <= completedAt);
+                    if (!cache.containsKey(cacheKey) && cache.size() >= MAX_CACHE_ENTRIES) {
+                        cache.remove(cache.keySet().iterator().next());
+                    }
+                    cache.put(cacheKey, new CacheEntry(status.withCached(false), completedAt + cacheSeconds * 1000L));
+                }
             }
             return QueryResult.success(status);
         } catch (InterruptedException exception) {

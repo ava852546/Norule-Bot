@@ -383,7 +383,19 @@ public final class ShortUrlGatewayServer {
             sendText(exchange, 503, "Authentication unavailable");
             return;
         }
-        redirect(exchange, loginUrl);
+        sendLoginForm(exchange, loginUrl, deviceToken);
+    }
+
+    private void sendLoginForm(HttpExchange exchange, String loginUrl, String browserProof) throws IOException {
+        if (!parseUrlEncoded(URI.create(loginUrl).getRawQuery()).containsKey("request")) {
+            redirect(exchange, loginUrl);
+            return;
+        }
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        exchange.getResponseHeaders().set("Referrer-Policy", "no-referrer");
+        exchange.getResponseHeaders().set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'");
+        sendHtml(exchange, 200, renderTemplateString(loadTemplate("web/auth-login.html"), Map.of(
+                "{{LOGIN_URL}}", htmlEscape(loginUrl), "{{BROWSER_PROOF}}", htmlEscape(browserProof))));
     }
 
     private void handleSessionLogout(HttpExchange exchange) throws IOException {
@@ -714,13 +726,14 @@ public final class ShortUrlGatewayServer {
         String userId = authenticatedUserId(exchange);
         if (userId.isBlank()) {
             String returnTo = shortUrlService.toPublicUrl(code) + "?stats";
-            String loginUrl = authenticationLoginUrlFactory.apply(
-                    returnTo, readCookie(exchange, ANONYMOUS_DEVICE_COOKIE));
+            AnonymousDeviceIdentityService.DeviceIdentity device = ensureAnonymousDevice(exchange);
+            String deviceToken = device == null ? readCookie(exchange, ANONYMOUS_DEVICE_COOKIE) : device.token();
+            String loginUrl = authenticationLoginUrlFactory.apply(returnTo, deviceToken);
             if (loginUrl == null || loginUrl.isBlank()) {
                 sendText(exchange, 503, "Authentication unavailable");
                 return;
             }
-            redirect(exchange, loginUrl);
+            sendLoginForm(exchange, loginUrl, deviceToken);
             return;
         }
         ShortUrlStatistics statistics = shortUrlService.findStatisticsForOwner(code, userId);
@@ -1160,6 +1173,8 @@ public final class ShortUrlGatewayServer {
             case RETENTION_TOO_LONG -> sendImageError(exchange, 400, "RETENTION_TOO_LONG", "The requested retention is outside the allowed range");
             case PASSWORD_REQUIRED -> sendImageError(exchange, 400, "MEDIA_PASSWORD_REQUIRED", "啟用密碼保護時必須設定密碼。");
             case INVALID_PASSWORD -> sendImageError(exchange, 400, "INVALID_PASSWORD", "Password length is outside the configured range");
+            case ACCESS_POLICY_CONFLICT -> sendImageError(exchange, 409, "MEDIA_ACCESS_POLICY_CONFLICT",
+                    "An active share of this media already exists with different password or expiration settings");
             case UPLOAD_RATE_LIMITED -> sendRateLimited(exchange, 60L);
             case DAILY_QUOTA_EXCEEDED -> sendRateLimited(exchange, 24L * 60L * 60L);
             case ACTIVE_STORAGE_QUOTA_EXCEEDED -> sendImageError(exchange, 413, "MEDIA_ACTIVE_STORAGE_QUOTA_EXCEEDED", "Active storage quota exceeded");
