@@ -3,6 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": "^22.22.3 || ^24.15.0 || >=26.0.0"
+  },
   "scripts": {
     "dev": "nuxt dev --host 127.0.0.1",
     "dev:dashboard": "nuxt dev dashboard --host 127.0.0.1 --port 5173",
@@ -17,15 +20,15 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
-    "nuxt": "4.5.2",
-    "vue": "3.5.41",
-    "vue-router": "5.2.0"
+    "nuxt": "4.6.4",
+    "vue": "3.5.45",
+    "vue-router": "5.4.0"
   },
   "devDependencies": {
-    "@types/node": "^24.10.0",
+    "@types/node": "^24.19.2",
     "typescript": "6.0.3",
-    "vite": "^8.2.1",
-    "vitest": "^4.1.11",
-    "vue-tsc": "^3.3.9"
+    "vite": "^8.3.6",
+    "vitest": "^4.1.12",
+    "vue-tsc": "^3.3.14"
   }
 }
