@@ -224,18 +224,22 @@ public final class DeleteMessagesCommandHandler {
     }
 
     private int performDeleteRequest(Guild guild, DeleteRequest req) {
+        Member requester = guild == null ? null : guild.retrieveMemberById(req.requestUserId).complete();
+        if (requester == null) {
+            return 0;
+        }
         Duration lookback = req.lookback;
         if (req.channelId != null) {
             TextChannel channel = guild.getTextChannelById(req.channelId);
-            if (channel == null || !canManageMessages(channel)) {
+            if (channel == null || !canManageMessages(channel, requester)) {
                 return 0;
             }
             List<Message> targets = findMessagesForDeletion(channel, req.targetUserId, req.amount, 25, lookback);
-            return performDelete(channel, targets);
+            return canManageMessages(channel, requester) ? performDelete(channel, targets) : 0;
         }
         int total = 0;
         for (TextChannel channel : guild.getTextChannels()) {
-            if (!canManageMessages(channel)) {
+            if (!canManageMessages(channel, requester)) {
                 continue;
             }
             Integer remaining = req.amount == null ? null : req.amount - total;
@@ -243,7 +247,9 @@ public final class DeleteMessagesCommandHandler {
                 break;
             }
             List<Message> targets = findMessagesForDeletion(channel, req.targetUserId, remaining, 25, lookback);
-            total += performDelete(channel, targets);
+            if (canManageMessages(channel, requester)) {
+                total += performDelete(channel, targets);
+            }
         }
         return total;
     }
@@ -410,9 +416,11 @@ public final class DeleteMessagesCommandHandler {
         return "Time not provided. Using default range: last " + formatted + ".";
     }
 
-    private boolean canManageMessages(TextChannel channel) {
+    private boolean canManageMessages(TextChannel channel, Member requester) {
         Member self = channel.getGuild().getSelfMember();
-        return self.hasAccess(channel)
+        return requester != null && requester.hasAccess(channel)
+                && requester.hasPermission(channel, Permission.MESSAGE_HISTORY, Permission.MESSAGE_MANAGE)
+                && self.hasAccess(channel)
                 && self.hasPermission(channel, Permission.MESSAGE_HISTORY, Permission.MESSAGE_MANAGE);
     }
 

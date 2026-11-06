@@ -39,6 +39,7 @@ public final class ImageShareService {
         RETENTION_TOO_LONG,
         PASSWORD_REQUIRED,
         INVALID_PASSWORD,
+        ACCESS_POLICY_CONFLICT,
         UPLOAD_RATE_LIMITED,
         DAILY_QUOTA_EXCEEDED,
         ACTIVE_STORAGE_QUOTA_EXCEEDED,
@@ -289,6 +290,10 @@ public final class ImageShareService {
                 existingBlob, now, upload.passwordProtected(), effectivePassword,
                 customExpiration, retention, expiresAt, quotaSubject);
         boolean createsShare = existingReusable == null;
+        if (existingReusable != null && !hasSameAccessAndExpiration(existingReusable,
+                upload.passwordProtected(), effectivePassword, customExpiration, retention, expiresAt, quotaSubject)) {
+            return new UploadResult(null, UploadError.ACCESS_POLICY_CONFLICT);
+        }
         long logicalAdditionalBytes = createsShare ? upload.content().length : 0L;
         long physicalAdditionalBytes = addsManagedStorage(existingBlob)
                 ? upload.content().length : 0L;
@@ -315,6 +320,10 @@ public final class ImageShareService {
         ImageShare reusable = findReusableShare(blob, now, upload.passwordProtected(), effectivePassword,
                 customExpiration, retention, expiresAt, quotaSubject);
         if (reusable != null) {
+            if (!hasSameAccessAndExpiration(reusable, upload.passwordProtected(), effectivePassword,
+                    customExpiration, retention, expiresAt, quotaSubject)) {
+                return new UploadResult(null, UploadError.ACCESS_POLICY_CONFLICT);
+            }
             return new UploadResult(hydrate(reusable), null);
         }
         String passwordHash = upload.passwordProtected() ? hashPassword(effectivePassword) : "";
@@ -350,6 +359,10 @@ public final class ImageShareService {
                     ImageShare concurrent = findReusableShare(blob, now, upload.passwordProtected(),
                             effectivePassword, customExpiration, retention, expiresAt, quotaSubject);
                     if (concurrent != null) {
+                        if (!hasSameAccessAndExpiration(concurrent, upload.passwordProtected(), effectivePassword,
+                                customExpiration, retention, expiresAt, quotaSubject)) {
+                            return new UploadResult(null, UploadError.ACCESS_POLICY_CONFLICT);
+                        }
                         return new UploadResult(hydrate(concurrent), null);
                     }
                     continue;

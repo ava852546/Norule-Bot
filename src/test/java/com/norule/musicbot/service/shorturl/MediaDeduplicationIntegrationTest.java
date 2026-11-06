@@ -261,6 +261,35 @@ class MediaDeduplicationIntegrationTest {
         assertThrows(IllegalStateException.class, () -> images.save(invalidReference));
     }
 
+    @Test
+    void ownedDuplicateRejectsDifferentPoliciesAndPreservesOriginalShare() throws Exception {
+        Fixture fixture = fixture("policy.db");
+        QuotaSubject owner = owner("policy-owner");
+        long hour = 3_600_000L;
+        ImageShare original = upload(fixture.service(), PNG_A, owner);
+        var protectedUpload = fixture.service().create(new ImageShareService.Upload(PNG_A, true, "1234", hour), owner);
+        var differentRetention = fixture.service().create(new ImageShareService.Upload(PNG_A, false, "", hour * 2), owner);
+        var absoluteExpiry = fixture.service().create(new ImageShareService.Upload(
+                PNG_A, false, "", 0, fixture.clock().millis() + hour / 2), owner);
+        assertEquals(ImageShareService.UploadError.ACCESS_POLICY_CONFLICT, protectedUpload.error());
+        assertEquals(ImageShareService.UploadError.ACCESS_POLICY_CONFLICT, differentRetention.error());
+        assertEquals(ImageShareService.UploadError.ACCESS_POLICY_CONFLICT, absoluteExpiry.error());
+        assertEquals(original.code(), upload(fixture.service(), PNG_A, owner).code());
+        assertFalse(fixture.service().resolve(original.code()).isPasswordProtected());
+        assertEquals(original.expiresAt(), fixture.service().resolve(original.code()).expiresAt());
+        assertEquals(1L, count(fixture.database(), "short_url_images"));
+        assertEquals(1L, count(fixture.database(), "media_blobs"));
+
+        QuotaSubject protectedOwner = owner("protected-owner");
+        var protectedShare = fixture.service().create(new ImageShareService.Upload(PNG_A, true, "1234", hour), protectedOwner);
+        assertTrue(protectedShare.isSuccess());
+        assertEquals(protectedShare.imageShare().code(), fixture.service().create(
+                new ImageShareService.Upload(PNG_A, true, "1234", hour), protectedOwner).imageShare().code());
+        assertEquals(ImageShareService.UploadError.ACCESS_POLICY_CONFLICT, fixture.service().create(
+                new ImageShareService.Upload(PNG_A, true, "5678", hour), protectedOwner).error());
+        assertEquals(original.blobId(), protectedShare.imageShare().blobId());
+    }
+
     private ImageShare concurrentUpload(ImageShareService service, QuotaSubject owner,
                                         CountDownLatch ready, CountDownLatch start) throws Exception {
         ready.countDown();

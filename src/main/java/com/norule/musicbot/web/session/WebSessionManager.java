@@ -63,7 +63,13 @@ public final class WebSessionManager {
         exchange.getResponseHeaders().add("Set-Cookie", cookie);
     }
 
-    public void clearSessionCookie(HttpExchange exchange, boolean secureCookie) {
+    public synchronized void clearSessionCookie(HttpExchange exchange, boolean secureCookie) {
+        WebSession current = requireSession(exchange);
+        if (current != null) {
+            // Handoffs and sessions on both hosts share this login instance.
+            sessions.entrySet().removeIf(entry -> entry.getValue() == current);
+            sessionHandoffs.entrySet().removeIf(entry -> entry.getValue().session == current);
+        }
         String cookie = SESSION_COOKIE + "=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
                 + (secureCookie ? "; Secure" : "");
         exchange.getResponseHeaders().add("Set-Cookie", cookie);
@@ -78,6 +84,7 @@ public final class WebSessionManager {
     }
 
     public static class OAuthState {
+        public final String browserToken;
         public final long expiresAtMillis;
         public final String returnTo;
         public final String anonymousDeviceToken;
@@ -91,6 +98,11 @@ public final class WebSessionManager {
         }
 
         public OAuthState(long expiresAtMillis, String returnTo, String anonymousDeviceToken) {
+            this(expiresAtMillis, returnTo, anonymousDeviceToken, "");
+        }
+
+        public OAuthState(long expiresAtMillis, String returnTo, String anonymousDeviceToken, String browserToken) {
+            this.browserToken = browserToken;
             this.expiresAtMillis = expiresAtMillis;
             this.returnTo = returnTo == null ? "" : returnTo;
             this.anonymousDeviceToken = anonymousDeviceToken == null ? "" : anonymousDeviceToken;
@@ -110,10 +122,12 @@ public final class WebSessionManager {
     }
 
     public static class SessionHandoff {
+        public final String browserToken;
         public final WebSession session;
         public final long expiresAtMillis;
 
-        public SessionHandoff(WebSession session, long expiresAtMillis) {
+        public SessionHandoff(WebSession session, long expiresAtMillis, String browserToken) {
+            this.browserToken = browserToken;
             this.session = session;
             this.expiresAtMillis = expiresAtMillis;
         }

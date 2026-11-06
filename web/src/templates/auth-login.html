@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in</title>
+</head>
+<body>
+  <form method="post" action="{{LOGIN_URL}}">
+    <input type="hidden" name="browserProof" value="{{BROWSER_PROOF}}">
+    <button type="submit">Continue to Discord</button>
+  </form>
+  <script>document.forms[0].submit()</script>
+</body>
+</html>

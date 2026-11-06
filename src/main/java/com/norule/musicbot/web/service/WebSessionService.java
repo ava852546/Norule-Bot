@@ -8,6 +8,7 @@ import java.util.Base64;
 import java.util.UUID;
 
 public final class WebSessionService {
+    private static final String LOGIN_COOKIE = "nr_oauth_browser";
     private static final int CSRF_TOKEN_BYTES = 32;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
@@ -17,24 +18,22 @@ public final class WebSessionService {
         this.sessionManager = sessionManager;
     }
 
-    public void putOAuthState(String state, long expiresAtMillis) {
-        putOAuthState(state, expiresAtMillis, "");
+    public void putOAuthState(HttpExchange exchange, String state, long expiresAtMillis,
+                              String returnTo, String anonymousDeviceToken, boolean secureCookie) {
+        String browserToken = newCsrfToken();
+        sessionManager.oauthStates().put(state, new WebSessionManager.OAuthState(
+                expiresAtMillis, returnTo, anonymousDeviceToken, browserToken));
+        exchange.getResponseHeaders().add("Set-Cookie", LOGIN_COOKIE + "=" + browserToken
+                + "; Path=/auth; Max-Age=300; HttpOnly; SameSite=Lax" + (secureCookie ? "; Secure" : ""));
     }
 
-    public void putOAuthState(String state, long expiresAtMillis, String returnTo) {
-        putOAuthState(state, expiresAtMillis, returnTo, "");
-    }
-
-    public void putOAuthState(String state,
-                              long expiresAtMillis,
-                              String returnTo,
-                              String anonymousDeviceToken) {
-        sessionManager.oauthStates().put(
-                state, new WebSessionManager.OAuthState(expiresAtMillis, returnTo, anonymousDeviceToken));
-    }
-
-    public WebSessionManager.OAuthState popOAuthState(String state) {
-        return sessionManager.oauthStates().remove(state);
+    public WebSessionManager.OAuthState popOAuthState(HttpExchange exchange, String state) {
+        WebSessionManager.OAuthState pending = sessionManager.oauthStates().get(state);
+        if (pending == null || pending.browserToken.isBlank()
+                || !pending.browserToken.equals(readCookie(exchange, LOGIN_COOKIE))) {
+            return null;
+        }
+        return sessionManager.oauthStates().remove(state, pending) ? pending : null;
     }
 
     public String issuePendingLogin(String returnTo, String anonymousDeviceToken, long expiresAtMillis) {
@@ -44,12 +43,17 @@ public final class WebSessionService {
         return requestId;
     }
 
-    public WebSessionManager.PendingLogin consumePendingLogin(String requestId) {
+    public WebSessionManager.PendingLogin consumePendingLogin(String requestId, String browserProof) {
         if (requestId == null || requestId.isBlank()) {
             return null;
         }
-        WebSessionManager.PendingLogin pending = sessionManager.pendingLogins().remove(requestId.trim());
-        return pending == null || pending.expiresAtMillis < System.currentTimeMillis() ? null : pending;
+        WebSessionManager.PendingLogin pending = sessionManager.pendingLogins().get(requestId.trim());
+        if (pending == null || pending.expiresAtMillis < System.currentTimeMillis()
+                || pending.anonymousDeviceToken.isBlank()
+                || !pending.anonymousDeviceToken.equals(browserProof)) {
+            return null;
+        }
+        return sessionManager.pendingLogins().remove(requestId.trim(), pending) ? pending : null;
     }
 
     public WebSessionManager.WebSession requireSession(HttpExchange exchange) {
@@ -78,13 +82,22 @@ public final class WebSessionService {
         return session;
     }
 
-    public String issueSessionHandoff(WebSessionManager.WebSession session, long expiresAtMillis) {
-        if (session == null) {
+    public String issueSessionHandoff(WebSessionManager.WebSession session, long expiresAtMillis, String browserToken) {
+        synchronized (sessionManager) {
+            if (session == null || !sessionManager.sessions().containsValue(session)) {
+                return "";
+            }
+            return createSessionHandoff(session, expiresAtMillis, browserToken);
+        }
+    }
+
+    private String createSessionHandoff(WebSessionManager.WebSession session, long expiresAtMillis, String browserToken) {
+        if (session == null || browserToken == null || browserToken.isBlank()) {
             return "";
         }
         String ticket = UUID.randomUUID().toString().replace("-", "");
         sessionManager.sessionHandoffs().put(
-                ticket, new WebSessionManager.SessionHandoff(session, expiresAtMillis));
+                ticket, new WebSessionManager.SessionHandoff(session, expiresAtMillis, browserToken));
         return ticket;
     }
 
@@ -92,13 +105,22 @@ public final class WebSessionService {
                                          String ticket,
                                          boolean secureCookie,
                                          int sessionExpireMinutes) {
+        synchronized (sessionManager) {
+            return consumeSessionHandoff(exchange, ticket, secureCookie, sessionExpireMinutes);
+        }
+    }
+
+    private String consumeSessionHandoff(HttpExchange exchange, String ticket, boolean secureCookie, int sessionExpireMinutes) {
         if (ticket == null || ticket.isBlank()) {
             return "";
         }
-        WebSessionManager.SessionHandoff handoff = sessionManager.sessionHandoffs().remove(ticket.trim());
+        WebSessionManager.SessionHandoff handoff = sessionManager.sessionHandoffs().get(ticket.trim());
         long now = System.currentTimeMillis();
         if (handoff == null || handoff.expiresAtMillis < now
-                || handoff.session == null || handoff.session.expiresAtMillis < now) {
+                || handoff.session == null || handoff.session.expiresAtMillis < now
+                || handoff.browserToken.isBlank()
+                || !handoff.browserToken.equals(readCookie(exchange, "nr_anon_device"))
+                || !sessionManager.sessionHandoffs().remove(ticket.trim(), handoff)) {
             return "";
         }
         String sessionId = UUID.randomUUID().toString().replace("-", "");
@@ -109,6 +131,19 @@ public final class WebSessionService {
 
     public void clearSessionCookie(HttpExchange exchange, boolean secureCookie) {
         sessionManager.clearSessionCookie(exchange, secureCookie);
+    }
+
+    private static String readCookie(HttpExchange exchange, String name) {
+        String cookie = exchange.getRequestHeaders().getFirst("Cookie");
+        if (cookie != null) {
+            for (String part : cookie.split(";")) {
+                String[] pair = part.trim().split("=", 2);
+                if (pair.length == 2 && name.equals(pair[0])) {
+                    return pair[1].trim();
+                }
+            }
+        }
+        return "";
     }
 
     private String newCsrfToken() {
