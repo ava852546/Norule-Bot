@@ -16,16 +16,15 @@ class JvmResourceMonitorTest {
         logs.start();
         logger.addAppender(logs);
         try (JvmResourceMonitor monitor = new JvmResourceMonitor()) {
-            monitor.sample();
-            String sample = logs.list.stream().map(ILoggingEvent::getFormattedMessage)
-                    .filter(message -> message.contains("event=RESOURCE_SAMPLE")).findFirst().orElseThrow();
-            assertTrue(sample.contains("processCpuPercent="));
-            assertTrue(sample.contains("heapUsedBytes="));
-            assertTrue(sample.contains("gcCollections="));
-            assertTrue(sample.contains("gcPauseAvailable="));
-            assertTrue(sample.contains("gcPauseMaxMillis="));
-            assertTrue(sample.contains("RUNNABLE="));
-            assertTrue(sample.contains("WAITING="));
+            var sample = monitor.sample();
+            assertTrue(sample.heapUsed() > 0);
+            assertTrue(sample.heapCommitted() >= sample.heapUsed());
+            assertTrue(sample.gcCollections() >= 0);
+            assertTrue(sample.liveThreads() > 0);
+            assertTrue(sample.threadStates().containsKey(Thread.State.RUNNABLE));
+            assertTrue(sample.threadStates().containsKey(Thread.State.WAITING));
+            assertTrue(monitor.sample().gcCollections() >= 0);
+            assertTrue(logs.list.stream().noneMatch(event -> event.getLevel() == ch.qos.logback.classic.Level.INFO));
         } finally {
             logger.detachAppender(logs);
             logs.stop();

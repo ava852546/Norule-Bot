@@ -30,6 +30,7 @@ class VoiceAutoLeaveServiceTest {
     private VoiceAutoLeaveService service;
     private final Map<Long, Room> rooms = new HashMap<>();
     private JDA jda;
+    private final List<com.norule.musicbot.domain.monitoring.VoiceAutoLeaveEvent> events = new ArrayList<>();
 
     @BeforeEach
     void setup() {
@@ -39,7 +40,7 @@ class VoiceAutoLeaveServiceTest {
                 null, null, null, null, null, null, null, null, null, null, null, null, null);
         settings = new GuildSettingsService(directory.resolve("guilds"), defaults);
         service = new VoiceAutoLeaveService(id -> MusicConfig.fromLegacy(settings.getMusic(id), null),
-                settings::getLanguage, player, () -> null, clock);
+                settings::getLanguage, player, () -> null, clock, events::add);
         jda = stub(JDA.class, call -> switch (call.name) {
             case "getGuilds" -> rooms.values().stream().map(room -> room.guild).toList();
             case "getGuildById" -> rooms.get(((Number) call.args[0]).longValue()).guild;
@@ -59,6 +60,39 @@ class VoiceAutoLeaveServiceTest {
         Room room = new Room(id, humans);
         rooms.put(id, room);
         return room;
+    }
+
+    @Test
+    void publishesStructuredEventsWithActualCountsAndKeepsTenSecondDeadline() {
+        Room room = room(1, 0);
+        room.playing = true;
+        service.onConnected(jda);
+        var started = events.stream().filter(e -> e.event().equals("TIMER_STARTED")).findFirst().orElseThrow();
+        assertEquals("EMPTY_CHANNEL", started.reason());
+        assertEquals(1L, started.guildId());
+        assertEquals(0L, started.humanCount());
+        assertEquals(10L, started.delaySeconds());
+        clock.advance(9);
+        assertTrue(events.stream().noneMatch(e -> e.event().equals("DISCONNECTED")));
+        clock.advance(1);
+        var disconnected = events.stream().filter(e -> e.event().equals("DISCONNECTED")).findFirst().orElseThrow();
+        assertEquals(started.channelId(), disconnected.channelId());
+        assertEquals(0L, disconnected.humanCount());
+        assertEquals(0L, disconnected.idleSeconds());
+        assertEquals(1, room.leaves);
+    }
+
+    @Test
+    void returningHumanPublishesCancellationAndPreventsDisconnection() {
+        Room room = room(1, 0);
+        room.playing = true;
+        service.onConnected(jda);
+        clock.advance(9);
+        room.humans = 1;
+        service.onVoiceUpdate(room.guild, false);
+        clock.advance(1);
+        assertEquals(0, room.leaves);
+        assertTrue(events.stream().anyMatch(e -> e.event().equals("TIMER_CANCELLED") && e.reason().equals("USER_JOINED")));
     }
 
     @Test

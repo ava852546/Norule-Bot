@@ -31,15 +31,15 @@ final class BotConfigParser {
 
         try (InputStream inputStream = Files.newInputStream(path)) {
             Yaml yaml = new Yaml();
-            Object rootObject = yaml.load(inputStream);
+            Object rootObject;
+            try {
+                rootObject = yaml.load(inputStream);
+            } catch (RuntimeException invalid) {
+                throw new IllegalStateException("Invalid config.yml; check YAML syntax (content omitted).");
+            }
             Map<String, Object> root = asMap(rootObject);
 
-            String tokenFromConfig = getString(root, "token", "");
-            String tokenFromEnv = environment.apply("DISCORD_TOKEN");
-            String token = !tokenFromConfig.isBlank() ? tokenFromConfig : nullToEmpty(tokenFromEnv);
-            if (token.isBlank()) {
-                throw new IllegalStateException("依賴檢查完成，請到 config.yml 輸入 token，或設定 DISCORD_TOKEN。");
-            }
+            String token = DiscordTokenSource.read(path, environment);
 
             BotConfig.Discord discord = BotConfig.Discord.fromMap(asMap(root.get("discord")), null);
             String prefix = getString(root, "prefix", "!");

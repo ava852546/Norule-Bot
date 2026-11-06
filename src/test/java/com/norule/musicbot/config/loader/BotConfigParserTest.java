@@ -218,9 +218,10 @@ class BotConfigParserTest {
         Path configPath = tempDir.resolve("config-" + System.nanoTime() + ".yml");
         Files.writeString(
                 configPath,
-                "token: \"test-token\"\n" + extraYaml,
+                extraYaml,
                 StandardCharsets.UTF_8
         );
+        Files.writeString(tempDir.resolve("token"), "test-token", StandardCharsets.UTF_8);
         return new BotConfigParser(environment::get).parse(configPath);
     }
 }

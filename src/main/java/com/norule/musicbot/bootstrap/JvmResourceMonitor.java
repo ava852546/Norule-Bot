@@ -1,5 +1,6 @@
 package com.norule.musicbot.bootstrap;
 
+import com.norule.musicbot.domain.monitoring.JvmResourceSample;
 import com.sun.management.OperatingSystemMXBean;
 import jdk.jfr.consumer.RecordingStream;
 import org.slf4j.Logger;
@@ -10,6 +11,7 @@ import java.lang.management.MemoryUsage;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.EnumMap;
 
 /** Uses JDK instrumentation only; JFR GCPhasePause measures stop-the-world pauses. */
@@ -55,7 +57,7 @@ final class JvmResourceMonitor implements AutoCloseable {
         }
     }
 
-    void sample() {
+    JvmResourceSample sample() {
         MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
         MemoryUsage nonHeap = ManagementFactory.getMemoryMXBean().getNonHeapMemoryUsage();
         var os = ManagementFactory.getOperatingSystemMXBean();
@@ -78,15 +80,15 @@ final class JvmResourceMonitor implements AutoCloseable {
         long collections = collectionCount();
         long collectionMillis = collectionMillis();
         PauseSample pauses = drainPauses();
-        LOGGER.info("[JVM] event=RESOURCE_SAMPLE processCpuPercent={} systemCpuPercent={} heapUsedBytes={} heapCommittedBytes={} heapMaxBytes={} nonHeapUsedBytes={} gcCollections={} gcCollectionMillis={} gcPauseAvailable={} gcPauseCount={} gcPauseTotalMillis={} gcPauseMaxMillis={} liveThreads={} daemonThreads={} peakThreads={} threadStates={}",
-                percent(processCpu), percent(systemCpu), heap.getUsed(), heap.getCommitted(), heap.getMax(),
-                nonHeap.getUsed(), Math.max(0, collections - previousCollections),
-                Math.max(0, collectionMillis - previousCollectionMillis), pauseRecordingAvailable,
-                pauses.count(), pauseRecordingAvailable ? pauses.totalNanos() / 1_000_000.0 : "UNAVAILABLE",
-                pauseRecordingAvailable ? pauses.maxNanos() / 1_000_000.0 : "UNAVAILABLE",
-                threads.getThreadCount(), threads.getDaemonThreadCount(), threads.getPeakThreadCount(), states);
+        var sample = new JvmResourceSample(Instant.now(),
+                processCpu, systemCpu, heap.getUsed(), heap.getCommitted(), heap.getMax(), nonHeap.getUsed(),
+                Math.max(0, collections - previousCollections), Math.max(0, collectionMillis - previousCollectionMillis),
+                pauseRecordingAvailable, pauses.count(), pauses.totalNanos() / 1_000_000.0,
+                pauses.maxNanos() / 1_000_000.0, threads.getThreadCount(), threads.getDaemonThreadCount(),
+                threads.getPeakThreadCount(), states);
         previousCollections = collections;
         previousCollectionMillis = collectionMillis;
+        return sample;
     }
 
     private synchronized void recordPause(long duration) {
@@ -104,10 +106,6 @@ final class JvmResourceMonitor implements AutoCloseable {
     }
 
     private record PauseSample(long count, long totalNanos, long maxNanos) {}
-
-    private static Object percent(double load) {
-        return load < 0 ? "UNAVAILABLE" : Math.round(load * 10_000.0) / 100.0;
-    }
 
     private static long collectionCount() {
         return ManagementFactory.getGarbageCollectorMXBeans().stream()

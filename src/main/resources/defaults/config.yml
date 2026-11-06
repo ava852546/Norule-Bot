@@ -1,11 +1,37 @@
 # =============================================================================
-# Core runtime
+# 核心執行環境
 # =============================================================================
 
-# Discord Bot Token (or set DISCORD_TOKEN env var)
-token: ""
+# 文字指令前綴
+prefix: "!"
 
-# Discord API login resilience
+# 啟用除錯日誌
+debug: false
+
+# 執行階段依賴下載設定
+runtime-dependencies:
+  progress-enabled: true
+  progress-interval-ms: 2000
+  connect-timeout-ms: 10000
+  read-timeout-ms: 60000
+  stall-timeout-ms: 15000
+  max-retries: 3
+
+# 限制斜線指令註冊的伺服器 ID（空白表示全域）
+commandGuildId: ""
+
+# 預設語言
+defaultLanguage: "zh-TW"
+
+# 指令冷卻時間（秒）
+commandCooldownSeconds: 3
+
+# 數字接龍反應延遲（毫秒）
+numberChainReactionDelayMillis: 500
+
+# =============================================================================
+# Discord 連線與監控
+# =============================================================================
 discord:
   loginRetry:
     enabled: true
@@ -16,60 +42,33 @@ discord:
     resourceIntervalSeconds: 60
     offlineWarningSeconds: 300
     warningRepeatSeconds: 300
-    # Enable only under an external process manager (Pterodactyl/Wings; exit code 75).
+    # 僅在外部程序管理器可接手重啟時啟用（Pterodactyl/Wings；退出碼 75）。
     recoveryEnabled: false
     restartAfterSeconds: 1800
-    # Also waits at least 2 * JDA max reconnect delay + 60 seconds without progress.
+    # 無進展時間也須至少達到 JDA 最大重連延遲的兩倍加 60 秒。
     stalledReconnectSeconds: 1800
-    # Persistent budget: data/monitoring/gateway-recovery.count; manual reset only.
+    # 持久化額度：data/monitoring/gateway-recovery.count；僅允許手動重設。
     maxRecoveryRestarts: 3
     restartCooldownSeconds: 60
 
-# Command prefix
-prefix: "!"
+  # ---------------------------------------------------------------------------
+  # Discord 運行日誌；與 monitoring 的監控邏輯設定分開。
+  # ---------------------------------------------------------------------------
+  logging:
+    jvmHeartbeat:
+      # 頻道 ID 使用字串；0、空白或未設定表示停用。
+      channelId: "0"
+      # UPDATE_LATEST 更新本 Bot 的心跳訊息；NEW_MESSAGE 每次新增一則。
+      deliveryMode: UPDATE_LATEST
+    voiceAutoLeave:
+      channelId: "0"
 
-# Enable debug logging
-debug: false
-
-# Runtime dependency bootstrap download behavior
-runtime-dependencies:
-  progress-enabled: true
-  progress-interval-ms: 2000
-  connect-timeout-ms: 10000
-  read-timeout-ms: 60000
-  stall-timeout-ms: 15000
-  max-retries: 3
-
-# Restrict slash command registration to a guild ID (empty = global)
-commandGuildId: ""
 
 # =============================================================================
-# Data and resource paths
-# =============================================================================
-data:
-  guildSettingsDir: "guild/configs"
-  languageDir: "lang"
-  musicDir: "guild/music"
-  moderationDir: "guild/moderation"
-  ticketDir: "guild/tickets"
-  ticketTranscriptDir: "ticket-transcripts"
-  honeypotDir: "guild/honeypot"
-  logDir: "logs"
-
-# Default language
-defaultLanguage: "zh-TW"
-
-# Command cooldown in seconds
-commandCooldownSeconds: 3
-
-# Number-chain reaction delay in milliseconds
-numberChainReactionDelayMillis: 500
-
-# =============================================================================
-# Bot identity and access
+# Bot 身分與開發者存取
 # =============================================================================
 
-# Bot profile / presence
+# Bot 個人資料與上線狀態
 bot:
   description: 'NoRule Music Bot | /help'
   presenceStatus: "ONLINE"
@@ -77,20 +76,20 @@ bot:
   activities:
     - "LISTENING|NoRule Music Bot"
 
-# Developer whitelist IDs
+# 開發者白名單 ID
 developers:
   ids: []
-  # Destination channel for /report (bug reports & feedback). 0 or unset disables the command.
+  # /report 錯誤回報與意見接收頻道；0 或未設定表示停用。
   developerChannelId: 0
 
 # =============================================================================
-# Music and audio integrations
+# 音樂與音訊
 # =============================================================================
 music:
   musicPanelMode: MODERN
   bilibili:
     enabled: true
-    # Optional normal session Cookie. Environment: BILIBILI_COOKIE. Never commit a real account Cookie.
+    # 選用的一般工作階段 Cookie；環境變數 BILIBILI_COOKIE；不得提交真實帳號 Cookie。
     cookie: ""
     metadataCache:
       enabled: true
@@ -106,33 +105,33 @@ music:
       windowSeconds: 60
       cooldownSeconds: 300
   youtube:
-    # Startup-only playback extraction backend for direct/search/Spotify/playlist/recovery tracks.
-    # COMPANION never changes backend unless companion.fallbackToSource is explicitly enabled.
-    # youtube-source still supplies search and metadata in both modes.
-    # Supported backends: YOUTUBE_SOURCE or COMPANION.
-    # youtube_source, YOUTUBE_SOURCE, and youtube-source are accepted; invalid values fall back safely.
+    # 啟動時決定直接連結、搜尋、Spotify、歌單與恢復曲目的播放擷取後端。
+    # COMPANION 僅在明確啟用 companion.fallbackToSource 時切換後端。
+    # 兩種模式皆由 youtube-source 提供搜尋與中繼資料。
+    # 支援的後端：YOUTUBE_SOURCE 或 COMPANION。
+    # 接受 youtube_source、YOUTUBE_SOURCE 與 youtube-source；無效值安全退回預設。
     playbackBackend: YOUTUBE_SOURCE
-    # Invidious Companion is used only for YouTube audio playback; youtube-source still handles search and metadata.
+    # Invidious Companion 僅負責 YouTube 音訊播放；搜尋與中繼資料仍由 youtube-source 處理。
     companion:
-      # Must be true before COMPANION can make API requests. Environment: YOUTUBE_COMPANION_ENABLED.
+      # 須啟用才允許 COMPANION 發出 API 請求；環境變數 YOUTUBE_COMPANION_ENABLED。
       enabled: false
-      # Companion origin or base URL. A bare origin uses the official default /companion base path.
-      # Environment: YOUTUBE_COMPANION_URL.
+      # Companion 來源或基底網址；僅填來源時使用預設 /companion 路徑。
+      # 環境變數：YOUTUBE_COMPANION_URL。
       url: "http://127.0.0.1:8282"
-      # Must match Companion SERVER_SECRET_KEY (exactly 16 alphanumeric characters). Never log or commit a real secret.
-      # Environment: YOUTUBE_COMPANION_SECRET.
+      # 須符合 Companion SERVER_SECRET_KEY（恰為 16 個英數字元）；不得記錄或提交真實秘密。
+      # 環境變數：YOUTUBE_COMPANION_SECRET。
       secret: ""
-      # On Companion timeout, offline, or HTTP 5xx, try youtube-source once. Environment: YOUTUBE_COMPANION_FALLBACK_TO_SOURCE.
-      # Explicit cross-backend fallback; opt in only. Failures otherwise stay on COMPANION.
+      # Companion 逾時、離線或 HTTP 5xx 時嘗試 youtube-source 一次；環境變數 YOUTUBE_COMPANION_FALLBACK_TO_SOURCE。
+      # 跨後端備援須明確啟用；否則失敗後仍使用 COMPANION。
       fallbackToSource: false
-      # TCP connection timeout for Companion metadata and playback proxy requests.
-      # Environment: YOUTUBE_COMPANION_CONNECT_TIMEOUT_MILLIS.
+      # Companion 中繼資料與播放代理請求的 TCP 連線逾時。
+      # 環境變數：YOUTUBE_COMPANION_CONNECT_TIMEOUT_MILLIS。
       connectTimeoutMillis: 5000
-      # Overall player API timeout and playback proxy socket timeout.
-      # Environment: YOUTUBE_COMPANION_REQUEST_TIMEOUT_MILLIS.
+      # 播放器 API 整體逾時及播放代理通訊端逾時。
+      # 環境變數：YOUTUBE_COMPANION_REQUEST_TIMEOUT_MILLIS。
       requestTimeoutMillis: 10000
-    # Optional strict queue precheck using youtube-source plugin GET /youtube/stream/{videoId}.
-    # Enable only when lavalinkBaseUrl/lavalinkPassword point to a Lavalink node with youtube-plugin installed.
+    # 選用嚴格入列預檢，使用 youtube-source 外掛 GET /youtube/stream/{videoId}。
+    # 僅在 lavalinkBaseUrl/lavalinkPassword 指向已安裝 youtube-plugin 的節點時啟用。
     strictPrecheck:
       enabled: false
       cacheTtlHours: 24
@@ -147,10 +146,10 @@ music:
     enabled: false
     refreshToken: ""
   cipher:
-    # Controls standalone local/remote Cipher in the YOUTUBE_SOURCE path.
-    # false forbids that integration, including fallback and recovery.
-    # Does NOT disable Invidious Companion internal signature/decipher handling.
-    # Environment variables cannot override enabled=false.
+    # 控制 YOUTUBE_SOURCE 路徑中的獨立本機或遠端 Cipher。
+    # false 禁止此整合，包含備援與恢復。
+    # 不影響 Invidious Companion 內部的簽章與解碼處理。
+    # 環境變數不得覆寫 enabled=false。
     enabled: false
     server: "http://localhost:8001"
     password: ""
@@ -170,7 +169,7 @@ music:
       connect-timeout-ms: 5000
       read-timeout-ms: 10000
       max-redirects: 3
-      # Direct HTTP stays unavailable until at least one trusted host is listed.
+      # 至少列出一個可信任主機後才可使用直接 HTTP。
       allowed-hosts: []
     recovery:
       enabled: true
@@ -179,7 +178,7 @@ music:
       stuck-threshold-ms: 20000
 
 # =============================================================================
-# Word-chain dictionary integrations
+# 外部整合：單字接龍字典
 # =============================================================================
 dictionary:
   connectTimeoutSeconds: 3
@@ -204,11 +203,11 @@ dictionary:
   merriamWebster:
     enabled: true
     endpoint: "https://www.dictionaryapi.com/api/v3/references/collegiate/json/"
-    # MERRIAM_WEBSTER_API_KEY takes precedence over this value.
+    # 環境變數 MERRIAM_WEBSTER_API_KEY 優先於此值。
     apiKey: ""
 
 # =============================================================================
-# Web dashboard
+# Web 控制台
 # =============================================================================
 web:
   enabled: false
@@ -222,7 +221,20 @@ web:
   discordRedirectUri: "https://dash.example.com/auth/callback"
 
 # =============================================================================
-# Shared persistence
+# 資料與資源路徑
+# =============================================================================
+data:
+  guildSettingsDir: "guild/configs"
+  languageDir: "lang"
+  musicDir: "guild/music"
+  moderationDir: "guild/moderation"
+  ticketDir: "guild/tickets"
+  ticketTranscriptDir: "ticket-transcripts"
+  honeypotDir: "guild/honeypot"
+  logDir: "logs"
+
+# =============================================================================
+# 資料庫與儲存
 # =============================================================================
 database:
   storage: "sqlite"
@@ -235,7 +247,7 @@ database:
     path: "data/norule.db"
 
 # =============================================================================
-# Short URL service
+# 短網址
 # =============================================================================
 # 啟用媒體分享時必須設定下方 secrets，或使用環境變數
 # SHORT_URL_QUOTA_HMAC_SECRET 與 SHORT_URL_DEVICE_HMAC_SECRET（環境變數優先）。
@@ -247,42 +259,42 @@ shortUrl:
   allowPrivateTargets: false
   dedupe: true
   ttlDays: 7
-  # Applies only to NEW anonymous HTTP URLs; existing expiry timestamps are preserved.
-  # Authenticated HTTP URLs have no automatic expiration; ttlDays remains for internal callers.
+  # 僅適用於新建匿名 HTTP 網址；保留既有到期時間。
+  # 已登入使用者的 HTTP 網址不自動到期；ttlDays 仍供內部呼叫使用。
   anonymous:
     expirationEnabled: false
     expirationDays: 30
     turnstile:
       enabled: false
       siteKey: ""
-      # Secret is read only from TURNSTILE_SECRET; never store it in this file.
+      # 秘密僅從 TURNSTILE_SECRET 讀取；不得存於此檔。
   cleanupIntervalMinutes: 10
   abuseProtection:
     rateLimit:
       enabled: true
-      # Anonymous uploads use the strict IP bucket.
+      # 匿名上傳使用嚴格 IP 配額。
       mediaRequestsPerMinutePerIp: 10
-      # Authenticated uploads still share an IP abuse ceiling, but the user bucket is authoritative.
+      # 登入上傳仍共用 IP 防濫用上限，並以使用者配額為準。
       mediaAuthenticatedRequestsPerMinutePerIp: 60
       mediaRequestsPerMinutePerUser: 20
-      # Counts every authenticated HTTP upload request, including dedup/share reuse.
+      # 計入每次登入 HTTP 上傳請求，包含去重與分享重用。
       mediaRequestsPerDayPerUser: 200
-      # Anonymous short URL requests: all three rolling windows apply.
+      # 匿名短網址請求同時套用三種滾動時間視窗。
       shortUrlRequestsPerMinutePerIp: 10
       shortUrlRequestsPerHourPerIp: 30
       shortUrlRequestsPerDayPerIp: 100
       shortUrlRequestsPerMinutePerUser: 20
       shortUrlAuthenticatedRequestsPerMinutePerIp: 60
-      # Shared by short URL create/list/stats/management requests (not public assets/session).
+      # 短網址建立、清單、統計與管理請求共用；不含公開資源與工作階段。
       shortUrlApiRequestsPerDayPerUser: 200
       mediaConcurrencyPerIp: 2
       mediaConcurrencyPerUser: 3
-      # Only requests arriving from these proxies may supply X-Forwarded-For.
+      # 僅信任由下列代理送達請求的 X-Forwarded-For。
       trustedProxyCidrs:
         - "127.0.0.1/32"
         - "::1/128"
     creation:
-      # Legacy additional request/successful-create protection. Kept for compatibility.
+      # 保留舊版額外請求與成功建立保護，以維持相容性。
       enabled: true
       anonymous:
         maxRequestsPerMinute: 10
@@ -337,7 +349,7 @@ shortUrl:
         filesystemStopPercent: 80
 
 # =============================================================================
-# Minecraft status
+# 其他服務：Minecraft 狀態
 # =============================================================================
 minecraftStatus:
   userAgent: "NoRuleBot/1.0 contact: admin@norule.me"

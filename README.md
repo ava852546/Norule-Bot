@@ -256,7 +256,7 @@ Gateway／JVM 資源監控、5 分鐘離線告警及有次數上限的程序管�
 ### 首次啟動
 
 1. 在預定工作目錄執行 JAR。若尚無設定，程式會建立 `config.yml`、`lang/` 與 `lang/web/` 的預設語言檔。
-2. 沒有 token 時程式會在依賴與設定初始化後停止；請在 `config.yml` 設定 `token`。只有 YAML token 空白時，程式才會改用 `DISCORD_TOKEN`。
+2. 在實際載入的 `config.yml` 同目錄建立無副檔名的 UTF-8 純文字檔 `token`，只貼上 Bot Token；也可設定優先權更高的 `DISCORD_TOKEN` 環境變數。缺少憑證時會在初始化後停止，不會登入 Discord。舊版 YAML Token 的安全遷移與 Docker／Pterodactyl 路徑請見[部署說明](deploy/README.md)。
 3. 再次啟動。其他 `data`、guild 設定、日誌、歌單、管理、客服單、honeypot 與 transcript 路徑會由對應服務在啟用／使用時建立。
 
 可用 `BOT_CONFIG_PATH` 指向另一份主要 YAML。相對資料路徑以程序的工作目錄解析，因此服務化部署時應固定 `WorkingDirectory`。
@@ -276,7 +276,6 @@ java -jar target/discord-music-bot-1.8.jar
 完整、可解析的設定與所有預設值都在 [`src/main/resources/defaults/config.yml`](src/main/resources/defaults/config.yml)。README 只列啟動最常用的骨架，避免複製一份容易過期的完整 schema：
 
 ```yaml
-token: ""
 prefix: "!"
 defaultLanguage: "zh-TW"
 commandGuildId: ""       # 空白時註冊 global commands；開發時可填 guild ID
