@@ -8,10 +8,10 @@ NoRule Bot 是以 Java 21 開發的 Discord 多功能機器人，整合音樂播
 
 - 專案版本：`1.8`
 - Java：21
-- Discord：JDA `6.5.0`
-- 音訊：Lavaplayer `2.2.7`、youtube-source `1.18.2`、LavaSrc `4.8.3`、bilibili-common `1.0.4`
+- Discord：JDA `6.7.0`
+- 音訊：Lavaplayer `2.2.7`、youtube-source `1.18.2`、LavaSrc `4.8.3`、bilibili-common `1.0.6`
 - 後端：JDK `HttpServer`、SQLite / MySQL、SnakeYAML、Jackson
-- 前端：Nuxt `4.5.2`、Vue `3.5.41`、TypeScript `6.0.3`、Vite `8.x`
+- 前端：Nuxt `4.6.4`、Vue `3.5.45`、TypeScript `6.0.3`、Vite `8.x`
 - 授權：GPL-3.0，詳見 [LICENSE](LICENSE)
 
 ## 主要功能
@@ -187,7 +187,7 @@ target/classes/web/            Maven 建置產物，不可直接修改
 
 - 執行環境：JDK 21。
 - Java 建置：Maven；建議使用 Maven 3.9 以上。本專案沒有 Maven Wrapper，也沒有在 POM 中硬性鎖定 Maven 版本。
-- 前端建置：Node.js `^20.19.0` 或 `>=22.12.0`。此範圍來自目前 `package-lock.json` 內的 Nuxt/Vite 工具鏈；正式執行已完成建置的 JAR 時不需要 Node.js 或 Nuxt server。
+- 前端建置：Node.js `^22.22.3 || ^24.15.0 || >=26.0.0`。此範圍與 `web/package.json` 的 engines 及 Nuxt 4.6 工具鏈一致；正式執行已完成建置的 JAR 時不需要 Node.js 或 Nuxt server。
 
 Windows 本機可明確指定 JDK 21：
 

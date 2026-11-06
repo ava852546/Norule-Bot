@@ -7,7 +7,7 @@ const customCode = ref('')
 const clientError = ref('')
 const host = ref('此網域')
 const { status, result, error, create } = useShortUrl()
-const clipboard = useClipboard()
+const { state: copyState, copy } = useClipboard()
 const { authenticated, turnstileEnabled, turnstileSiteKey } = useShortUrlSession()
 const verificationToken = ref('')
 const verificationAttempt = ref(0)
@@ -61,7 +61,7 @@ async function submit() {
       <p v-else>匿名建立會自動產生短碼。<a href="/api/short/session/login">登入後可自訂短碼及查看自己的統計。</a></p>
       <ShortUrlVerification v-if="verificationRequired" :key="verificationAttempt" :site-key="turnstileSiteKey" @verified="verificationToken = $event" />
     </form>
-    <NrResultCard :status="shownStatus" title="短網址建立完成" :url="result?.shortUrl" :meta="result ? `前往 ${result.targetUrl}` : ''" :error="shownError" :copy-state="clipboard.state.value" @copy="result && clipboard.copy(result.shortUrl)" />
+    <NrResultCard :status="shownStatus" title="短網址建立完成" :url="result?.shortUrl" :meta="result ? `前往 ${result.targetUrl}` : ''" :error="shownError" :copy-state="copyState" @copy="result && copy(result.shortUrl)" />
   </div>
 </template>
 
