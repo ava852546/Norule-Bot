@@ -78,7 +78,6 @@ import moe.kyokobot.libdave.jda.LDJDADaveSessionFactory;
 import okhttp3.ConnectionPool;
 import okhttp3.Dispatcher;
 import okhttp3.OkHttpClient;
-import org.yaml.snakeyaml.Yaml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import net.dv8tion.jda.api.JDA;
@@ -96,7 +95,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintStream;
-import java.io.Reader;
 import java.net.http.HttpClient;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -273,7 +271,7 @@ public final class RuntimeBootstrap {
                 new MusicPanelBindingService(
                         new MusicPanelSqliteRepository(provisioningDatabase)));
 
-        GatewayMonitoringRuntime monitoring = new GatewayMonitoringRuntime(config.getDiscord().getMonitoring(), baseDir);
+        GatewayMonitoringRuntime monitoring = new GatewayMonitoringRuntime(config.getDiscord().getMonitoring(), baseDir, config.getDiscord().getLogging());
         GATEWAY_MONITORING.set(monitoring);
         JDA jda;
         try {
@@ -323,7 +321,7 @@ public final class RuntimeBootstrap {
                                             return snapshot == null ? 500L : snapshot.getNumberChainReactionDelayMillis();
                                         }),
                                 new WordChainMessageListener(wordChainOps),
-                                new VoiceAutoLeaveListener(guildSettingsService, playerService, I18N_SERVICE::get),
+                                new VoiceAutoLeaveListener(guildSettingsService, playerService, I18N_SERVICE::get, monitoring.operationalLogs()::publish),
                                 new PrivateRoomListener(guildSettingsService, i18nService, privateRoomCacheRepository,
                                         musicCommandListener.backgroundRest())
                         );
@@ -931,11 +929,6 @@ public final class RuntimeBootstrap {
             candidates.add(parentConfig);
         }
 
-        Path withToken = firstConfigWithToken(new ArrayList<>(candidates));
-        if (withToken != null) {
-            return withToken;
-        }
-
         for (Path candidate : candidates) {
             if (Files.exists(candidate)) {
                 return candidate;
@@ -1325,28 +1318,6 @@ public final class RuntimeBootstrap {
 
     private static void logDebug(String message, Throwable throwable) {
         LOGGER.debug(message, throwable);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Path firstConfigWithToken(List<Path> candidates) {
-        Yaml yaml = new Yaml();
-        for (Path candidate : candidates) {
-            if (!Files.exists(candidate)) {
-                continue;
-            }
-            try (Reader reader = Files.newBufferedReader(candidate, StandardCharsets.UTF_8)) {
-                Object obj = yaml.load(reader);
-                if (obj instanceof Map<?, ?> map) {
-                    Object token = ((Map<String, Object>) map).get("token");
-                    if (token != null && !String.valueOf(token).trim().isBlank()) {
-                        return candidate;
-                    }
-                }
-            } catch (Exception ignored) { // Ignore malformed YAML and continue checking next candidate.
-                logDebug("[NoRule] Skip invalid config candidate: " + candidate, ignored);
-            }
-        }
-        return null;
     }
 
     private static final class TeeOutputStream extends OutputStream {

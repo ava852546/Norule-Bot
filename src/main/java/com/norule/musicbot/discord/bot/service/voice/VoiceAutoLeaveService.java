@@ -4,6 +4,7 @@ import com.norule.musicbot.config.domain.MusicConfig;
 import com.norule.musicbot.domain.music.MusicPanelMode;
 import com.norule.musicbot.domain.music.MusicPlayerService;
 import com.norule.musicbot.domain.music.MusicStateChange;
+import com.norule.musicbot.domain.monitoring.VoiceAutoLeaveEvent;
 import com.norule.musicbot.i18n.I18nService;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
@@ -12,6 +13,7 @@ import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -23,6 +25,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.function.LongFunction;
+import java.util.function.Consumer;
 
 public class VoiceAutoLeaveService {
     private static final Logger LOGGER = LoggerFactory.getLogger(VoiceAutoLeaveService.class);
@@ -39,12 +42,17 @@ public class VoiceAutoLeaveService {
     // All timer state and disconnect operations are confined to scheduler.
     private static final class ChannelState {
         private final long channelId;
+        private final String channelName;
         private final Map<LeaveReason, PendingLeave> timers = new EnumMap<>(LeaveReason.class);
         private boolean disconnecting;
 
-        private ChannelState(long channelId) { this.channelId = channelId; }
+        private ChannelState(long channelId, String channelName) {
+            this.channelId = channelId;
+            this.channelName = channelName;
+        }
     }
 
+    private final Consumer<VoiceAutoLeaveEvent> events;
     private final LongFunction<MusicConfig> musicConfigs;
     private final LongFunction<String> languages;
     private final MusicPlayerService playerService;
@@ -61,14 +69,27 @@ public class VoiceAutoLeaveService {
         this(musicConfigs, languages, playerService, i18n, Executors.newSingleThreadScheduledExecutor());
     }
 
+    public VoiceAutoLeaveService(LongFunction<MusicConfig> musicConfigs, LongFunction<String> languages,
+            MusicPlayerService playerService, Supplier<I18nService> i18n,
+            Consumer<VoiceAutoLeaveEvent> events) {
+        this(musicConfigs, languages, playerService, i18n, Executors.newSingleThreadScheduledExecutor(), events);
+    }
+
     VoiceAutoLeaveService(LongFunction<MusicConfig> musicConfigs, LongFunction<String> languages,
                           MusicPlayerService playerService,
                           Supplier<I18nService> i18n, ScheduledExecutorService scheduler) {
+        this(musicConfigs, languages, playerService, i18n, scheduler, ignored -> {});
+    }
+
+    VoiceAutoLeaveService(LongFunction<MusicConfig> musicConfigs, LongFunction<String> languages,
+                          MusicPlayerService playerService, Supplier<I18nService> i18n,
+                          ScheduledExecutorService scheduler, Consumer<VoiceAutoLeaveEvent> events) {
         this.musicConfigs = musicConfigs;
         this.languages = languages;
         this.playerService = playerService;
         this.i18n = i18n;
         this.scheduler = scheduler;
+        this.events = events;
         unsubscribePlayback = playerService.addStateChangeListener(this::onPlaybackStateChanged);
     }
 
@@ -157,7 +178,7 @@ public class VoiceAutoLeaveService {
             state = null;
         }
         if (state == null) {
-            state = new ChannelState(channel.getIdLong());
+            state = new ChannelState(channel.getIdLong(), channel.getName());
             states.put(id, state);
         }
         if (state.disconnecting) return;
@@ -177,7 +198,7 @@ public class VoiceAutoLeaveService {
             state.timers.put(reason, timer);
             timer.future = scheduler.schedule(() -> executeScheduledLeave(id, state, reason, timer),
                     seconds, TimeUnit.SECONDS);
-            LOGGER.info("[VoiceAutoLeave] event=TIMER_STARTED guildId={} reason={} delaySeconds={}", id, reason, seconds);
+            emit("TIMER_STARTED", reason.name(), guild, id, state, null, null, seconds);
         }
     }
 
@@ -210,11 +231,12 @@ public class VoiceAutoLeaveService {
             state.timers.clear();
             playerService.stop(guild);
             playerService.leaveChannel(guild);
-            LOGGER.info("[VoiceAutoLeave] event=DISCONNECTED guildId={} reason={} humanCount={} idleSeconds={}",
-                    id, reason, humans, reason == LeaveReason.IDLE_PLAYBACK ? IDLE_PLAYBACK_SECONDS : 0);
+            emit("DISCONNECTED", reason.name(), guild, id, state, humans,
+                    reason == LeaveReason.IDLE_PLAYBACK ? IDLE_PLAYBACK_SECONDS : 0L, null);
         } catch (RuntimeException error) {
             clear(id, "DISCONNECT_FAILED");
             LOGGER.warn("[VoiceAutoLeave] event=DISCONNECT_FAILED guildId={} reason={}", id, reason, error);
+            emit("ERROR", "DISCONNECT_FAILED", guild, id, state, null, null, null);
             return;
         }
         if (reason == LeaveReason.IDLE_PLAYBACK) {
@@ -245,7 +267,8 @@ public class VoiceAutoLeaveService {
         PendingLeave timer = state.timers.remove(reason);
         if (timer != null) {
             timer.future.cancel(false);
-            LOGGER.info("[VoiceAutoLeave] event=TIMER_CANCELLED guildId={} reason={} timerReason={}", id, cause, reason);
+            emit("TIMER_CANCELLED", cause, jda == null ? null : jda.getGuildById(id),
+                    id, state, null, null, null);
         }
     }
 
@@ -253,6 +276,19 @@ public class VoiceAutoLeaveService {
         ChannelState state = states.remove(id);
         if (state != null) {
             for (LeaveReason reason : LeaveReason.values()) cancel(id, state, reason, cause);
+        }
+    }
+
+    private void emit(String event, String reason, Guild guild, long guildId, ChannelState state,
+                      Long humans, Long idle, Long delay) {
+        try {
+            var channel = guild == null ? null : currentBotChannel(guild);
+            if (channel != null && channel.getIdLong() != state.channelId) channel = null;
+            if (humans == null && channel != null) humans = humanCount(channel);
+            events.accept(new VoiceAutoLeaveEvent(Instant.now(), event, reason, guildId,
+                    guild == null ? null : guild.getName(), state.channelId, state.channelName, humans, idle, delay));
+        } catch (RuntimeException failure) {
+            LOGGER.debug("[VoiceAutoLeave] Operational event delivery failed");
         }
     }
 

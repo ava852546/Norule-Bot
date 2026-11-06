@@ -1,7 +1,9 @@
 package com.norule.musicbot.bootstrap;
 
 import com.norule.musicbot.config.domain.GatewayMonitoringConfig;
+import com.norule.musicbot.config.domain.OperationalLoggingConfig;
 import com.norule.musicbot.discord.bot.gateway.listener.GatewayLifecycleListener;
+import com.norule.musicbot.discord.bot.infra.DiscordOperationalLogPublisher;
 import com.norule.musicbot.service.monitoring.GatewayMonitorService;
 import net.dv8tion.jda.api.JDA;
 import org.slf4j.Logger;
@@ -21,6 +23,7 @@ final class GatewayMonitoringRuntime implements AutoCloseable {
     private final GatewayLifecycleListener listener;
     private final GatewayRecoveryBudget recoveryBudget;
     private final int cooldownSeconds;
+    private final DiscordOperationalLogPublisher operationalLogs;
     private final JvmResourceMonitor jvm = new JvmResourceMonitor();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2, task -> {
         Thread thread = new Thread(task, "NoRuleMonitoring");
@@ -29,13 +32,15 @@ final class GatewayMonitoringRuntime implements AutoCloseable {
         return thread;
     });
 
-    GatewayMonitoringRuntime(GatewayMonitoringConfig config, Path baseDir) {
+    GatewayMonitoringRuntime(GatewayMonitoringConfig config, Path baseDir,
+            OperationalLoggingConfig logging) {
+        operationalLogs = new DiscordOperationalLogPublisher(logging, baseDir);
         monitor = new GatewayMonitorService(config);
         listener = new GatewayLifecycleListener(monitor);
         recoveryBudget = new GatewayRecoveryBudget(baseDir.resolve("data/monitoring/gateway-recovery.count"),
                 config.maxRecoveryRestarts());
         cooldownSeconds = config.restartCooldownSeconds();
-        scheduler.scheduleWithFixedDelay(() -> safely(jvm::sample),
+        scheduler.scheduleWithFixedDelay(() -> safely(() -> operationalLogs.publish(jvm.sample())),
                 config.resourceIntervalSeconds(), config.resourceIntervalSeconds(), TimeUnit.SECONDS);
     }
 
@@ -43,7 +48,12 @@ final class GatewayMonitoringRuntime implements AutoCloseable {
         return listener;
     }
 
+    DiscordOperationalLogPublisher operationalLogs() {
+        return operationalLogs;
+    }
+
     void watch(JDA jda) {
+        operationalLogs.connected(jda);
         scheduler.scheduleWithFixedDelay(() -> safely(() -> {
             if (monitor.checkOffline(jda.getStatus().name(), jda.getMaxReconnectDelay())) {
                 LOGGER.warn("[Gateway] event=RECOVERY_COOLDOWN seconds={}", cooldownSeconds);
@@ -88,5 +98,6 @@ final class GatewayMonitoringRuntime implements AutoCloseable {
         monitor.stop();
         scheduler.shutdownNow();
         jvm.close();
+        operationalLogs.close();
     }
 }

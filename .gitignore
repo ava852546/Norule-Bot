@@ -49,3 +49,6 @@ index.md
 /src/main/resources/web/short-url/_nuxt/
 
 debug.log
+
+# Discord Bot credentials
+token

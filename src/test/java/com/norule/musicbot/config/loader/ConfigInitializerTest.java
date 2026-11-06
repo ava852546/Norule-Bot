@@ -75,21 +75,20 @@ class ConfigInitializerTest {
 
         Map<String, Object> root = readMap(configPath);
         assertEquals(List.of(
-                "token",
-                "discord",
                 "prefix",
                 "debug",
                 "runtime-dependencies",
                 "commandGuildId",
-                "data",
                 "defaultLanguage",
                 "commandCooldownSeconds",
                 "numberChainReactionDelayMillis",
+                "discord",
                 "bot",
                 "developers",
                 "music",
                 "dictionary",
                 "web",
+                "data",
                 "database",
                 "shortUrl",
                 "minecraftStatus"
@@ -151,9 +150,9 @@ class ConfigInitializerTest {
         assertFalse(spotify.containsKey("customTokenEndpoint"));
 
         String normalized = Files.readString(configPath, StandardCharsets.UTF_8);
-        assertTrue(normalized.contains("# Startup-only YouTube playback backend"));
-        assertTrue(normalized.contains("# Enable Companion API use."));
-        assertTrue(normalized.contains("# Companion SERVER_SECRET_KEY"));
+        assertTrue(normalized.contains("# 啟動時決定直接連結"));
+        assertTrue(normalized.contains("# 須啟用才允許 COMPANION"));
+        assertTrue(normalized.contains("# 須符合 Companion SERVER_SECRET_KEY"));
         assertTrue(normalized.contains("enabled: true # OAuth 啟用註解"));
         assertTrue(normalized.contains("# Cipher 伺服器註解\n    server: 'http://cipher.example.com'"));
         initializer.initialize(configPath);
@@ -197,7 +196,8 @@ class ConfigInitializerTest {
         initializer.initialize(configPath);
 
         String updated = Files.readString(configPath, StandardCharsets.UTF_8);
-        assertTrue(updated.contains("# " + tokenComment + "\ntoken: 'test-token' # " + inlineComment));
+        assertFalse(updated.contains("token:"));
+        assertEquals("test-token", Files.readString(tempDir.resolve("token"), StandardCharsets.UTF_8));
         assertTrue(updated.contains("# " + prefixComment + "\nprefix: '?'"));
         assertTrue(updated.contains("# " + activityComment));
         assertTrue(updated.contains("# " + youtubeComment + "\n  youtube:"));

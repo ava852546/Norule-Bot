@@ -10,9 +10,7 @@ import org.yaml.snakeyaml.representer.Representer;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStreamWriter;
 import java.io.Reader;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -66,7 +64,8 @@ public final class ConfigInitializer {
             if (currentConfig.isEmpty()) {
                 currentConfig = new LinkedHashMap<>();
             }
-            boolean migrated = migrateLegacyConfig(currentConfig);
+            boolean migrated = DiscordTokenSource.migrate(configPath, currentConfig);
+            migrated |= migrateLegacyConfig(currentConfig);
 
             String languageDir = resolveConfiguredPath(currentConfig, defaultConfig, "languageDir", "lang");
             Path baseDir = parent == null ? Path.of(".") : parent;
@@ -78,10 +77,13 @@ public final class ConfigInitializer {
             String rendered = restoreComments(currentYaml, withHelpfulComments(dumpYaml(merged)));
             boolean needsCommentUpgrade = !hasYamlComment(currentYaml);
             if (migrated || !merged.equals(currentConfig) || needsCommentUpgrade) {
-                backupConfig(configPath);
+                backupConfig(configPath, currentConfig);
                 writeYaml(configPath, rendered);
             }
-        } catch (Exception ignored) {
+        } catch (IllegalStateException failure) {
+            throw failure;
+        } catch (Exception failure) {
+            throw new IllegalStateException("[NoRule] Config update stopped. Check YAML syntax and file permissions; migrate any legacy YAML token to the 'token' file manually before restarting.");
         }
     }
 
@@ -215,7 +217,7 @@ public final class ConfigInitializer {
         return result;
     }
 
-    private void backupConfig(Path configPath) {
+    private void backupConfig(Path configPath, Map<String, Object> config) {
         if (!Files.exists(configPath)) {
             return;
         }
@@ -226,14 +228,40 @@ public final class ConfigInitializer {
             String base = dot > 0 ? fileName.substring(0, dot) : fileName;
             String ext = dot > 0 ? fileName.substring(dot) : "";
             Path backup = configPath.resolveSibling(base + ".backup-" + timestamp + ext);
-            Files.copy(configPath, backup, StandardCopyOption.REPLACE_EXISTING);
+            writeYaml(backup, new Yaml().dump(redactSecrets(config)));
         } catch (Exception ignored) {
         }
     }
 
+    private static Object redactSecrets(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> clean = new LinkedHashMap<>();
+            map.forEach((key, item) -> {
+                String name = key.toString();
+                String lower = name.toLowerCase(java.util.Locale.ROOT);
+                if (lower.equals("token")) return;
+                boolean secret = lower.contains("secret") || lower.contains("password")
+                        || lower.contains("token") || lower.contains("cookie")
+                        || lower.equals("apikey") || lower.equals("spdc") || lower.equals("jdbcurl");
+                clean.put(name, secret ? "[REDACTED]" : redactSecrets(item));
+            });
+            return clean;
+        }
+        if (value instanceof List<?> list) return list.stream().map(ConfigInitializer::redactSecrets).toList();
+        return value;
+    }
+
     private void writeYaml(Path file, String yamlText) throws IOException {
-        try (Writer writer = new OutputStreamWriter(Files.newOutputStream(file), StandardCharsets.UTF_8)) {
-            writer.write(yamlText);
+        Path temporary = Files.createTempFile(file.toAbsolutePath().getParent(), ".config-", ".tmp");
+        try {
+            Files.writeString(temporary, yamlText, StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
+                Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
         }
     }
 
@@ -453,106 +481,12 @@ public final class ConfigInitializer {
     }
 
     private String withHelpfulComments(String yamlText) {
-        if (yamlText == null || yamlText.isBlank()) {
+        try (InputStream in = ConfigInitializer.class.getClassLoader().getResourceAsStream("defaults/config.yml")) {
+            if (in != null) return restoreComments(new String(in.readAllBytes(), StandardCharsets.UTF_8), yamlText);
+            return yamlText;
+        } catch (IOException failure) {
             return yamlText;
         }
-        List<String> lines = yamlText.lines().toList();
-        List<String> out = new ArrayList<>(lines.size() + 24);
-        boolean inYoutubeCompanion = false;
-
-        for (String line : lines) {
-            String trimmed = line.trim();
-            int indentation = line.length() - line.stripLeading().length();
-            if (inYoutubeCompanion && !trimmed.isBlank() && indentation <= 4
-                    && !"companion:".equals(trimmed)) {
-                inYoutubeCompanion = false;
-            }
-            if (trimmed.startsWith("token:")) {
-                out.add("# Discord Bot Token (or set DISCORD_TOKEN env var)");
-            } else if ("discord:".equals(trimmed)) {
-                out.add("");
-                out.add("# Discord API login resilience");
-            } else if (trimmed.startsWith("prefix:")) {
-                out.add("");
-                out.add("# Command prefix");
-            } else if (trimmed.startsWith("debug:")) {
-                out.add("");
-                out.add("# Enable debug logging");
-            } else if ("runtime-dependencies:".equals(trimmed)) {
-                out.add("");
-                out.add("# Runtime dependency bootstrap download behavior");
-            } else if (trimmed.startsWith("commandGuildId:")) {
-                out.add("");
-                out.add("# Restrict slash command registration to a guild ID (empty = global)");
-            } else if ("data:".equals(trimmed)) {
-                out.add("");
-                out.add("# Data and resource paths");
-            } else if (trimmed.startsWith("defaultLanguage:")) {
-                out.add("");
-                out.add("# Default language");
-            } else if (trimmed.startsWith("commandCooldownSeconds:")) {
-                out.add("");
-                out.add("# Command cooldown in seconds");
-            } else if (trimmed.startsWith("numberChainReactionDelayMillis:")) {
-                out.add("");
-                out.add("# Number-chain reaction delay in milliseconds");
-            } else if ("bot:".equals(trimmed)) {
-                out.add("");
-                out.add("# Bot profile / presence");
-            } else if ("developers:".equals(trimmed)) {
-                out.add("");
-                out.add("# Developer whitelist IDs");
-            } else if ("music:".equals(trimmed)) {
-                out.add("");
-                out.add("# Global music integrations");
-            } else if ("youtube:".equals(trimmed) && line.startsWith("  ")) {
-                out.add("  # YouTube source options");
-            } else if (trimmed.startsWith("playbackBackend:") && indentation == 4) {
-                out.add("    # Startup-only YouTube playback backend: YOUTUBE_SOURCE or COMPANION.");
-                out.add("    # Invalid values fall back to YOUTUBE_SOURCE.");
-            } else if ("companion:".equals(trimmed) && indentation == 4) {
-                inYoutubeCompanion = true;
-                out.add("    # Invidious Companion playback proxy settings; search and metadata still use youtube-source.");
-            } else if (inYoutubeCompanion && trimmed.startsWith("enabled:")) {
-                out.add("      # Enable Companion API use. Environment: YOUTUBE_COMPANION_ENABLED.");
-            } else if (inYoutubeCompanion && trimmed.startsWith("url:")) {
-                out.add("      # Companion origin/base URL; a bare origin uses /companion. Environment: YOUTUBE_COMPANION_URL.");
-            } else if (inYoutubeCompanion && trimmed.startsWith("secret:")) {
-                out.add("      # Companion SERVER_SECRET_KEY (16 alphanumeric characters). Environment: YOUTUBE_COMPANION_SECRET.");
-            } else if (inYoutubeCompanion && trimmed.startsWith("fallbackToSource:")) {
-                out.add("      # Retry once with youtube-source after Companion timeout/offline/5xx.");
-            } else if (inYoutubeCompanion && trimmed.startsWith("connectTimeoutMillis:")) {
-                out.add("      # Companion TCP connection timeout in milliseconds.");
-            } else if (inYoutubeCompanion && trimmed.startsWith("requestTimeoutMillis:")) {
-                out.add("      # Companion player request and proxy socket timeout in milliseconds.");
-            } else if ("strictPrecheck:".equals(trimmed) && line.startsWith("    ")) {
-                out.add("    # Optional Lavalink youtube-source stream precheck before queueing a YouTube video");
-            } else if ("spotify:".equals(trimmed) && line.startsWith("  ")) {
-                out.add("  # Spotify source options");
-            } else if ("audio:".equals(trimmed) && line.startsWith("  ")) {
-                out.add("  # Direct HTTP safety and playback recovery options");
-            } else if ("dictionary:".equals(trimmed)) {
-                out.add("");
-                out.add("# English word-chain dictionary providers");
-            } else if (trimmed.startsWith("apiKey:") && line.startsWith("    ")) {
-                out.add("    # MERRIAM_WEBSTER_API_KEY takes precedence over this value.");
-            } else if ("web:".equals(trimmed)) {
-                out.add("");
-                out.add("# Web control panel");
-            } else if ("database:".equals(trimmed)) {
-                out.add("");
-                out.add("# Shared database settings");
-            } else if ("shortUrl:".equals(trimmed)) {
-                out.add("");
-                out.add("# Short URL service");
-            } else if ("minecraftStatus:".equals(trimmed)) {
-                out.add("");
-                out.add("# Minecraft status query settings");
-            }
-            out.add(line);
-        }
-
-        return String.join("\n", out) + "\n";
     }
 
     private record CommentSnapshot(

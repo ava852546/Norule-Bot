@@ -1,8 +1,8 @@
 package com.norule.musicbot.config;
 
-import com.norule.musicbot.domain.music.MusicPanelMode;
-
 import com.norule.musicbot.config.domain.GatewayMonitoringConfig;
+import com.norule.musicbot.config.domain.OperationalLoggingConfig;
+import com.norule.musicbot.domain.music.MusicPanelMode;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -389,10 +389,17 @@ public String getToken() {
     public static final class Discord {
         private final LoginRetry loginRetry;
         private final GatewayMonitoringConfig monitoring;
+        private final OperationalLoggingConfig logging;
 
         private Discord(LoginRetry loginRetry, GatewayMonitoringConfig monitoring) {
+            this(loginRetry, monitoring, OperationalLoggingConfig.disabled());
+        }
+
+        private Discord(LoginRetry loginRetry, GatewayMonitoringConfig monitoring,
+                        OperationalLoggingConfig logging) {
             this.loginRetry = loginRetry == null ? LoginRetry.defaultValues() : loginRetry;
             this.monitoring = monitoring == null ? GatewayMonitoringConfig.defaultValues() : monitoring;
+            this.logging = logging;
         }
 
         public static Discord fromMap(Map<String, Object> map, Discord fallback) {
@@ -409,10 +416,21 @@ public String getToken() {
                     getInt(monitor, "maxRecoveryRestarts", previous.maxRecoveryRestarts()),
                     getInt(monitor, "restartCooldownSeconds", previous.restartCooldownSeconds())
             );
-            return new Discord(LoginRetry.fromMap(
-                    asMap(map.get("loginRetry")),
-                    defaults.getLoginRetry()
-            ), monitoring);
+            Map<String, Object> logging = asMap(map.get("logging"));
+            Map<String, Object> heartbeat = asMap(logging.get("jvmHeartbeat"));
+            Map<String, Object> voice = asMap(logging.get("voiceAutoLeave"));
+            var mode = OperationalLoggingConfig.DeliveryMode.UPDATE_LATEST;
+            try {
+                mode = OperationalLoggingConfig.DeliveryMode.valueOf(
+                        getString(heartbeat, "deliveryMode", "UPDATE_LATEST"));
+            } catch (IllegalArgumentException invalid) {
+                // Unknown modes safely use UPDATE_LATEST.
+            }
+            var operationalLogging = new OperationalLoggingConfig(
+                    getString(heartbeat, "channelId", defaults.getLogging().jvmChannelId()), mode,
+                    getString(voice, "channelId", defaults.getLogging().voiceChannelId()));
+            return new Discord(LoginRetry.fromMap(asMap(map.get("loginRetry")), defaults.getLoginRetry()),
+                    monitoring, operationalLogging);
         }
 
         public static Discord defaultValues() {
@@ -421,6 +439,10 @@ public String getToken() {
 
         public LoginRetry getLoginRetry() {
             return loginRetry;
+        }
+
+        public OperationalLoggingConfig getLogging() {
+            return logging;
         }
 
         public GatewayMonitoringConfig getMonitoring() {
