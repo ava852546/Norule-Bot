@@ -266,13 +266,145 @@ class VoiceAutoLeaveServiceTest {
     }
 
     @Test
-    void disablingImmediatelyBeforeDeadlinePreventsLeave() {
+    void legacyFalseCannotDisableAnExistingCountdown() {
         Room room = room(1, 0);
         service.onConnected(jda);
         clock.advance(9);
         settings.updateSettings(1, s -> s.withMusic(s.getMusic().withAutoLeaveEnabled(false)));
         clock.advance(1);
+        assertEquals(1, room.leaves);
+    }
+
+    @Test
+    void legacyFalseAtStartupStillStartsBothIndependentTimers() throws Exception {
+        java.nio.file.Files.writeString(directory.resolve("guilds/1.yml"),
+                "music:\n  autoLeaveEnabled: false\n  autoLeaveMinutes: 99\n  musicPanelMode: LEGACY\n");
+        Room empty = room(1, 0);
+        assertFalse(settings.getMusic(1).isAutoLeaveEnabled());
+        service.onConnected(jda);
+        assertEquals(2, service.diagnosticTimers(1).size());
+        clock.advance(10);
+        assertEquals(1, empty.leaves);
+    }
+
+    @Test
+    void repeatedSelfEventsDoNotRestartEmptyOrIdleDeadlines() {
+        Room empty = room(1, 0);
+        Room idle = room(2, 1);
+        service.onConnected(jda);
+        clock.advance(9);
+        service.onVoiceUpdate(empty.guild, true);
+        clock.advance(1);
+        assertEquals(1, empty.leaves);
+        clock.advance(589);
+        service.onVoiceUpdate(idle.guild, true);
+        clock.advance(1);
+        assertEquals(1, idle.leaves);
+    }
+
+    @Test
+    void actualDisconnectClearsTimersAndReconnectStartsFreshCountdown() {
+        Room room = room(1, 0);
+        service.onConnected(jda);
+        clock.advance(9);
+        room.connected = false;
+        service.onVoiceUpdate(room.guild, true);
+        assertTrue(service.diagnosticTimers(1).isEmpty());
+        assertEquals("VOICE_DISCONNECTED", service.diagnosticState(1).reason());
+        room.connected = true;
+        service.onVoiceUpdate(room.guild, true);
+        clock.advance(9);
         assertEquals(0, room.leaves);
+        clock.advance(1);
+        assertEquals(1, room.leaves);
+    }
+
+    @Test
+    void monitorReportsActualEligibilityAndSchedulingFailureAndRetries() {
+        Room room = room(1, 1);
+        assertEquals("MONITOR_NOT_INITIALIZED", service.diagnosticState(1).reason());
+        room.playing = true;
+        service.onConnected(jda);
+        assertEquals("PLAYBACK_ACTIVE", service.diagnosticState(1).reason());
+        assertEquals(false, service.diagnosticState(1).idleEligible());
+        room.transitioning = true;
+        player.emit(1, MusicStateChange.RECOVERY);
+        assertEquals("PLAYBACK_TRANSITIONING", service.diagnosticState(1).reason());
+        room.transitioning = false;
+        room.paused = true;
+        clock.reject = true;
+        player.emit(1, MusicStateChange.PAUSE);
+        assertEquals("TIMER_SCHEDULING_FAILED", service.diagnosticState(1).reason());
+        assertTrue(service.diagnosticTimers(1).isEmpty());
+        clock.reject = false;
+        clock.monitor.run();
+        assertEquals("IDLE_PLAYBACK", service.diagnosticState(1).reason());
+        assertEquals(true, service.diagnosticState(1).idleEligible());
+        clock.advance(600);
+        assertEquals(1, room.leaves);
+    }
+
+    @Test
+    void failedMonitorInitializationCanBeRetriedOnReady() {
+        Room room = room(1, 1);
+        clock.rejectMonitor = true;
+        service.onConnected(jda);
+        assertEquals("TIMER_SCHEDULING_FAILED", service.diagnosticState(1).reason());
+        assertTrue(service.diagnosticTimers(1).isEmpty());
+        clock.rejectMonitor = false;
+        service.onConnected(jda);
+        assertEquals("IDLE_PLAYBACK", service.diagnosticState(1).reason());
+        clock.advance(600);
+        assertEquals(1, room.leaves);
+    }
+
+    @Test
+    void queuedRealDisconnectIsPreservedEvenIfCacheAlreadyReconnected() {
+        Room room = room(1, 0);
+        service.onConnected(jda);
+        clock.advance(9);
+        clock.defer = true;
+        room.connected = false;
+        service.onVoiceUpdate(room.guild, true);
+        room.connected = true;
+        service.onVoiceUpdate(room.guild, true);
+        clock.drain();
+        clock.advance(1);
+        assertEquals(0, room.leaves);
+        clock.advance(9);
+        assertEquals(1, room.leaves);
+    }
+
+    @Test
+    void legacyAndModernFallbackSettingsNeverChangeIdleDeadlines() {
+        Room room = room(1, 1);
+        service.onConnected(jda);
+        clock.advance(599);
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic()
+                .withPanelMode(MusicPanelMode.LEGACY).withCommandChannelId(999L)));
+        player.emit(1, MusicStateChange.STATE_CHANGED);
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withPanelMode(MusicPanelMode.MODERN)));
+        clock.advance(1);
+        assertEquals(1, room.leaves);
+    }
+
+    @Test
+    void savingLegacySettingsRemovesRetiredFieldsAndPreservesOtherMusicSettings() throws Exception {
+        var file = directory.resolve("guilds/1.yml");
+        java.nio.file.Files.writeString(file, "music:\n  autoLeaveEnabled: false\n  autoLeaveMinutes: 3\n"
+                + "  autoplayEnabled: false\n  historyLimit: 29\n  musicPanelMode: LEGACY\n");
+        for (int i = 0; i < 2; i++) {
+            settings.updateSettings(1, s -> s.withMusic(s.getMusic().withStatsRetentionDays(17)));
+            settings.reload(1);
+            assertFalse(settings.getMusic(1).isAutoplayEnabled());
+            assertEquals(29, settings.getMusic(1).getHistoryLimit());
+            assertEquals(MusicPanelMode.LEGACY, settings.getMusic(1).getPanelMode());
+            String saved = java.nio.file.Files.readString(file);
+            assertFalse(saved.contains("autoLeaveEnabled"));
+            assertFalse(saved.contains("autoLeaveMinutes"));
+        }
+        settings.getMusic(2);
+        assertFalse(java.nio.file.Files.readString(directory.resolve("guilds/2.yml")).contains("autoLeave"));
     }
 
     @Test
@@ -441,6 +573,8 @@ class VoiceAutoLeaveServiceTest {
         long now;
         Runnable monitor;
         boolean defer;
+        boolean reject;
+        boolean rejectMonitor;
         final List<Runnable> commands = new ArrayList<>();
         final List<Task> tasks = new ArrayList<>();
         ManualScheduler() { super(1); }
@@ -454,11 +588,13 @@ class VoiceAutoLeaveServiceTest {
             commands.clear();
         }
         @Override public ScheduledFuture<?> schedule(Runnable action, long delay, TimeUnit unit) {
+            if (reject) throw new RejectedExecutionException("test rejection");
             Task task = new Task(action, now + unit.toSeconds(delay));
             tasks.add(task);
             return task;
         }
         @Override public ScheduledFuture<?> scheduleAtFixedRate(Runnable action, long delay, long period, TimeUnit unit) {
+            if (rejectMonitor) throw new RejectedExecutionException("test monitor rejection");
             monitor = action;
             return new Task(action, Long.MAX_VALUE); // Event tests control checks explicitly.
         }

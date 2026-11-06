@@ -602,6 +602,7 @@ public final class MusicConfig {
         );
     }
 
+    /** Legacy serialized value only; voice auto-leave is always enforced independently. */
     public boolean isAutoLeaveEnabled() { return autoLeaveEnabled; }
     /** Legacy config compatibility only; voice auto-leave now uses fixed independent timeouts. */
     public int getAutoLeaveMinutes() { return autoLeaveMinutes; }

@@ -94,7 +94,6 @@ public final class SettingsInfoView {
                 line(lang, "settings.info_key_log_ignored_prefixes", compare(formatIgnoredPrefixesInfo(lang, logs.getIgnoredPrefixes())))
         );
         String musicInfo = joinLines(
-                line(lang, "settings.info_key_auto_leave_enabled", compare(moduleSwitchTextCode(lang, music.isAutoLeaveEnabled()))),
                 i18n.get().t(lang, "settings.music_auto_leave_policy"),
                 line(lang, "settings.info_key_autoplay_enabled", compare(moduleSwitchTextCode(lang, settingsService.getMusic(guildId).isAutoplayEnabled()))),
                 line(lang, "settings.info_key_default_repeat_mode", compare(music.getDefaultRepeatMode().name())),
@@ -131,7 +130,7 @@ public final class SettingsInfoView {
                 moduleLine(lang, "settings.info_key_log_moderation", logs.isModerationLogEnabled()),
                 "",
                 "**" + i18n.get().t(lang, "settings.module_section_music_others") + "**",
-                moduleLine(lang, "settings.key_music_autoLeaveEnabled", music.isAutoLeaveEnabled()),
+                i18n.get().t(lang, "settings.music_auto_leave_policy"),
                 moduleLine(lang, "settings.key_music_autoplayEnabled", music.isAutoplayEnabled()),
                 moduleLine(lang, "settings.key_numberChain_enabled", moderationService.isNumberChainEnabled(guildId)),
                 moduleLine(lang, "settings.key_ticket_enabled", settings.getTicket().isEnabled()),

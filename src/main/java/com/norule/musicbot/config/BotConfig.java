@@ -1713,6 +1713,7 @@ public String getToken() {
                     Spotify.defaultValues(), Audio.defaultValues());
         }
 
+        /** Legacy value only; voice auto-leave is mandatory and never consults this setting. */
         public Music withAutoLeaveEnabled(boolean enabled) {
             return new Music(enabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, panelMode, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
@@ -1751,6 +1752,7 @@ public String getToken() {
             return new Music(autoLeaveEnabled, autoLeaveMinutes, autoplayEnabled, defaultRepeatMode, commandChannelId, mode, historyLimit, statsRetentionDays, playlistTrackLimit, youtube, bilibili, oauth, cipher, spotify, audio);
         }
 
+        /** Legacy serialized value, not the effective system policy. Never use to gate voice timers. */
         public boolean isAutoLeaveEnabled() {
             return autoLeaveEnabled;
         }

@@ -414,7 +414,6 @@ public final class GuildSettingsWebService {
     private DataObject buildMusicPayload(Guild guild, GuildSettingsService.GuildSettings settings) {
         var music = settings.getMusic();
         return DataObject.empty()
-                .put("autoLeaveEnabled", music.isAutoLeaveEnabled())
                 .put("autoplayEnabled", music.isAutoplayEnabled())
                 .put("defaultRepeatMode", music.getDefaultRepeatMode().name())
                 .put("commandChannelId", owner.toIdText(music.getCommandChannelId()))
@@ -530,6 +529,10 @@ public final class GuildSettingsWebService {
         }
 
         Map<String, Object> musicInput = owner.asMap(root.get("music"));
+        if (musicInput.containsKey("autoLeaveEnabled") || musicInput.containsKey("autoLeaveMinutes")) {
+            owner.sendJson(exchange, 400, DataObject.empty().put("error", "Auto leave is a fixed system policy"));
+            return;
+        }
         if (musicInput.containsKey("musicPanelMode")
                 && !java.util.Set.of("MODERN", "LEGACY").contains(String.valueOf(musicInput.get("musicPanelMode")))) {
             owner.sendJson(exchange, 400, DataObject.empty().put("error", "Invalid music panel mode"));
@@ -618,8 +621,7 @@ public final class GuildSettingsWebService {
             var m = current.getMusic();
             Map<String, Object> mMap = owner.asMap(root.get("music"));
             if (!mMap.isEmpty()) {
-                m = m.withAutoLeaveEnabled(owner.boolOrDefault(mMap, "autoLeaveEnabled", m.isAutoLeaveEnabled()))
-                        .withAutoplayEnabled(owner.boolOrDefault(mMap, "autoplayEnabled", m.isAutoplayEnabled()))
+                m = m.withAutoplayEnabled(owner.boolOrDefault(mMap, "autoplayEnabled", m.isAutoplayEnabled()))
                         .withDefaultRepeatMode(parseRepeatMode(owner.stringOrDefault(mMap, "defaultRepeatMode", m.getDefaultRepeatMode().name()), m.getDefaultRepeatMode()))
                         .withCommandChannelId(owner.idOrDefault(mMap, "commandChannelId", m.getCommandChannelId()))
                         .withPanelMode(MusicPanelMode.parse(owner.stringOrDefault(mMap, "musicPanelMode", m.getPanelMode().name())))

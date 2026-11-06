@@ -14,6 +14,7 @@ public final class MusicDiagnostics {
                            boolean stream, Integer volume, String repeat, int queued) {}
     public record Error(Instant at, String type, String reason) {}
     public record Timer(String reason, Instant deadline) {}
+    public record AutoLeave(String reason, Boolean idleEligible) {}
 
     /** Only known public song pages are retained. Arbitrary and signed media URLs are omitted. */
     public static String publicSongUrl(String raw) {

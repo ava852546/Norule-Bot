@@ -81,7 +81,6 @@ function createDefaultSettings(): DashboardSettings {
     },
     music: {
       musicPanelMode: 'MODERN',
-      autoLeaveEnabled: true,
       autoplayEnabled: true,
       defaultRepeatMode: 'OFF',
       commandChannelId: '',

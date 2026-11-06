@@ -36,12 +36,10 @@ public final class SettingsMusicMenuHandler {
     private static final String KEY_DELETE_ONLY_REQUESTER = "delete.only_requester";
     private static final String OPTION_VALUE = CommandOptions.VALUE;
 
-    private static final String K_AUTO_LEAVE_ENABLED  = "settings.key_music_autoLeaveEnabled";
     private static final String K_AUTOPLAY_ENABLED    = "settings.key_music_autoplayEnabled";
     private static final String K_COMMAND_CHANNEL     = "settings.key_music_commandChannelId";
     private static final String K_PRIVATE_ROOM_CHANNEL = "settings.key_privateRoom_triggerVoiceChannelId";
 
-    private static final String A_AUTO_LEAVE_TOGGLE  = "auto-leave-toggle";
     private static final String A_AUTOPLAY_TOGGLE    = "autoplay-toggle";
     private static final String A_COMMAND_CHANNEL    = "command-channel";
     private static final String A_PRIVATE_ROOM_CHANNEL = "private-room-channel";
@@ -116,15 +114,7 @@ public final class SettingsMusicMenuHandler {
                                 MSG_SETTINGS_SAVED, Map.of("key", owner.musicText(lang, "panel_mode_label"), OPTION_VALUE, mode.name()))).build())
                         .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang))).queue();
             }
-            case A_AUTO_LEAVE_TOGGLE -> {
-                boolean value = !owner.settingsService().getMusic(guildId).isAutoLeaveEnabled();
-                owner.settingsService().updateSettings(guildId, s -> s.withMusic(s.getMusic().withAutoLeaveEnabled(value)));
-                String changed = owner.i18nService().t(lang, MSG_SETTINGS_SAVED,
-                        Map.of("key", owner.i18nService().t(lang, K_AUTO_LEAVE_ENABLED), OPTION_VALUE, owner.boolText(lang, value)));
-                event.editMessageEmbeds(musicMenuEmbed(event.getGuild(), lang, changed).build())
-                        .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)))
-                        .queue();
-            }
+            case "auto-leave-toggle" -> event.reply(owner.i18nService().t(lang, MSG_MENU_EXPIRED)).setEphemeral(true).queue();
             case A_AUTOPLAY_TOGGLE -> {
                 boolean value = !owner.settingsService().getMusic(guildId).isAutoplayEnabled();
                 owner.settingsService().updateSettings(guildId, s -> s.withMusic(s.getMusic().withAutoplayEnabled(value)));
@@ -273,9 +263,6 @@ public final class SettingsMusicMenuHandler {
                 .addOptions(
                         SelectOption.of(owner.musicText(lang, "panel_mode_modern"), A_PANEL_MODE_MODERN),
                         SelectOption.of(owner.musicText(lang, "panel_mode_legacy"), A_PANEL_MODE_LEGACY),
-                        SelectOption.of(owner.i18nService().t(lang, K_AUTO_LEAVE_ENABLED), A_AUTO_LEAVE_TOGGLE)
-                                .withDescription(owner.i18nService().t(lang, MSG_MENU_CURRENT,
-                                        Map.of(OPTION_VALUE, owner.boolText(lang, music.isAutoLeaveEnabled())))),
                         SelectOption.of(owner.i18nService().t(lang, K_AUTOPLAY_ENABLED), A_AUTOPLAY_TOGGLE)
                                 .withDescription(owner.i18nService().t(lang, MSG_MENU_CURRENT,
                                         Map.of(OPTION_VALUE, owner.boolText(lang, music.isAutoplayEnabled())))),
@@ -297,8 +284,6 @@ public final class SettingsMusicMenuHandler {
                 owner.musicText(lang, "panel_mode_label") + ": "
                         + owner.musicText(lang, music.getPanelMode() == MusicPanelMode.MODERN
                         ? "panel_mode_modern" : "panel_mode_legacy"),
-                uiText.quotedSettingLine(lang, K_AUTO_LEAVE_ENABLED, LBL_STATUS,
-                        owner.boolText(lang, music.isAutoLeaveEnabled())),
                 owner.i18nService().t(lang, "settings.music_auto_leave_policy"),
                 uiText.quotedSettingLine(lang, K_AUTOPLAY_ENABLED, LBL_STATUS,
                         owner.boolText(lang, music.isAutoplayEnabled())),

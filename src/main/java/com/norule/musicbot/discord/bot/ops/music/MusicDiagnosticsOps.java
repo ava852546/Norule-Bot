@@ -9,7 +9,14 @@ import java.util.List;
 public final class MusicDiagnosticsOps {
     public record Snapshot(MusicDiagnostics.Playback playback, MusicDiagnostics.Event request,
                            MusicDiagnostics.Event lastStarted, MusicDiagnostics.Error playbackError,
-                           List<MusicDiagnostics.Timer> timers) {}
+                           List<MusicDiagnostics.Timer> timers, MusicDiagnostics.AutoLeave autoLeave) {
+        public Snapshot(MusicDiagnostics.Playback playback, MusicDiagnostics.Event request,
+                        MusicDiagnostics.Event lastStarted, MusicDiagnostics.Error playbackError,
+                        List<MusicDiagnostics.Timer> timers) {
+            this(playback, request, lastStarted, playbackError, timers,
+                    new MusicDiagnostics.AutoLeave("MONITOR_NOT_INITIALIZED", null));
+        }
+    }
     private final MusicPlayerService player;
     private final MusicDiagnosticsHistoryService history;
 
@@ -20,6 +27,7 @@ public final class MusicDiagnosticsOps {
 
     public Snapshot snapshot(long guildId) {
         return new Snapshot(player.diagnosticPlayback(guildId), history.get(guildId, "REQUEST"),
-                history.get(guildId, "START"), player.diagnosticError(guildId), player.diagnosticLeaveTimers(guildId));
+                history.get(guildId, "START"), player.diagnosticError(guildId), player.diagnosticLeaveTimers(guildId),
+                player.diagnosticAutoLeave(guildId));
     }
 }

@@ -55,6 +55,7 @@ public final class MusicPanelController {
     public void initializeGuild(Guild guild) {
         if (guild != null) {
             initializeGuilds(List.of(guild));
+            commandChannelProvisioner.queueGuildJoinProvisioning(guild, null);
         }
     }
 

@@ -137,13 +137,17 @@ public final class DevMusicInfoCommandHandler implements AutoCloseable {
         var audio = guild.getAudioManager();
         var voice = audio.getConnectedChannel();
         String timers = snapshot.timers() == null ? unknown(lang) : snapshot.timers().isEmpty() ? t(lang, "no_timer", "Not running")
-                : snapshot.timers().stream().map(timer -> timer.reason() + ": " + Math.max(0, java.time.Duration.between(now, timer.deadline()).getSeconds()) + "s (" + time(timer.deadline()) + ")")
+                : snapshot.timers().stream().map(timer -> timer.reason() + ": " + duration(Math.max(0, java.time.Duration.between(now, timer.deadline()).getSeconds()) * 1000) + " (" + time(timer.deadline()) + ")")
                 .collect(java.util.stream.Collectors.joining("\n"));
         long humans = voice == null ? 0 : voice.getMembers().stream().filter(member -> !member.getUser().isBot()).count();
         long bots = voice == null ? 0 : voice.getMembers().stream().filter(member -> member.getUser().isBot()).count();
-        field(embed, lang, "voice", "Voice connection", t(lang, "voice_body",
-                "State: {state}\nChannel: {channel}\nHumans (cached): {humans}\nBots (cached): {bots}\nAuto-leave: {timers}",
+        var leave = snapshot.autoLeave();
+        field(embed, lang, "voice", "Voice connection", t(lang, "voice_policy_body",
+                "Auto-leave: enforced\nState: {state}\nPlayback: {playback}\nIdle eligible: {idle}\nChannel: {channel}\nHumans (cached): {humans}\nBots (cached): {bots}\nAuto-leave timers / remaining: {timers}\nMonitor reason: {reason}",
                 Map.of("state", String.valueOf(audio.getConnectionStatus()),
+                        "playback", playback.state(), "idle", leave == null || leave.idleEligible() == null ? unknown(lang)
+                                : leave.idleEligible() ? t(lang, "idle_eligible", "Yes") : t(lang, "idle_ineligible", "No"),
+                        "reason", leave == null ? "MONITOR_NOT_INITIALIZED" : leave.reason(),
                         "channel", voice == null ? none(lang) : voice.getAsMention() + " (" + voice.getId() + ")",
                         "humans", String.valueOf(humans), "bots", String.valueOf(bots), "timers", timers)));
         field(embed, lang, "errors", "Recent errors", t(lang, "errors_body", "Playback: {playback}\nPanel / Discord API: {panel}\nRecovery: {recovery}",

@@ -103,6 +103,8 @@ class MusicPanelModeTest {
         assertEquals(20L, restarted.getMusic(2).getCommandChannelId());
         assertTrue(restoredPanels.isActivePanel(1, 10, 100));
         assertTrue(repository.findGuildPayload(1).contains("musicPanelMode: LEGACY"));
+        assertFalse(repository.findGuildPayload(1).contains("autoLeaveEnabled"));
+        assertFalse(repository.findGuildPayload(1).contains("autoLeaveMinutes"));
     }
 
     @Test

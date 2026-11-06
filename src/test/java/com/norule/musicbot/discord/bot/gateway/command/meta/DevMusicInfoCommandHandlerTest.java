@@ -56,12 +56,20 @@ class DevMusicInfoCommandHandlerTest {
         });
         Instant now = Instant.parse("2026-11-06T15:00:00Z");
         for (String state : List.of("PLAYING", "PAUSED", "LOADING", "IDLE", "FAILED", "UNINITIALIZED")) {
+            String reason = switch (state) {
+                case "PLAYING" -> "PLAYBACK_ACTIVE";
+                case "PAUSED", "IDLE" -> "IDLE_PLAYBACK";
+                case "LOADING" -> "PLAYBACK_TRANSITIONING";
+                case "FAILED" -> "TIMER_SCHEDULING_FAILED";
+                default -> "MONITOR_NOT_INITIALIZED";
+            };
             var snapshot = new MusicDiagnosticsOps.Snapshot(new MusicDiagnostics.Playback(state, "title".repeat(3000),
                     1500, 0, true, 80, "OFF", 5),
                     new MusicDiagnostics.Event(123, "REQUEST", now, 20L, 30L, "/play", null, null, "REJECTED"),
                     new MusicDiagnostics.Event(123, "START", now, null, 30L, "YouTube", "old".repeat(3000),
                             "https://cdn.test/audio?token=secret", "CONFIRMED"), null,
-                    List.of(new MusicDiagnostics.Timer("EMPTY_CHANNEL", now.plusSeconds(7))));
+                    state.equals("FAILED") ? List.of() : List.of(new MusicDiagnostics.Timer("IDLE_PLAYBACK", now.plusSeconds(575))),
+                    new MusicDiagnostics.AutoLeave(reason, state.equals("PAUSED") || state.equals("IDLE")));
             var panel = new MusicPanelRefreshService.Diagnostics(new MusicPanelModeResolver.Selection(MusicPanelMode.MODERN,
                     MusicPanelMode.LEGACY, 10L, null, "UNKNOWN_CHANNEL"), new MusicPanelStateStore.PanelRef(10, 11),
                     0, false, new MusicDiagnostics.Error(now, "PANEL_API_FAILED", "DISCORD_API_429"));
@@ -74,6 +82,10 @@ class DevMusicInfoCommandHandlerTest {
             assertTrue(embed.getFields().get(2).getValue().contains("無公開網址"));
             assertTrue(embed.getFields().get(3).getValue().contains("直播／未知時長"));
             assertTrue(embed.getFields().get(5).getValue().contains("DISCORD_API_429"));
+            String voice = embed.getFields().get(4).getValue();
+            assertTrue(voice.contains(reason));
+            assertTrue(voice.contains("強制啟用"));
+            if (!state.equals("FAILED")) assertTrue(voice.contains("09:35"));
             assertNull(snapshot.playbackError());
         }
     }

@@ -66,8 +66,6 @@ public final class SettingsUiText {
                  "settings.info_key_log_role" -> "\uD83C\uDFF7\uFE0F";
             case "settings.info_key_log_moderation_channel", "settings.key_messageLogs_moderationLogChannelId",
                  "settings.info_key_log_moderation" -> "\uD83D\uDEE1\uFE0F";
-            case "settings.key_music_autoLeaveEnabled", "settings.key_music_autoLeaveMinutes",
-                 "settings.info_key_auto_leave_enabled", "settings.info_key_auto_leave_minutes" -> "\u23F1\uFE0F";
             case "settings.key_music_autoplayEnabled", "settings.info_key_autoplay_enabled" -> "\uD83D\uDD01";
             case "settings.key_numberChain_enabled" -> "\u0031\u20E3";
             case "settings.key_ticket_enabled" -> "\uD83C\uDFAB";

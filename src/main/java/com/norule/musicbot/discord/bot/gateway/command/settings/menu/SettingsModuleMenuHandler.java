@@ -33,7 +33,6 @@ public final class SettingsModuleMenuHandler {
     private static final String K_LOG_CHANNEL_LIFECYCLE = "settings.info_key_log_channel_lifecycle";
     private static final String K_LOG_ROLE = "settings.info_key_log_role";
     private static final String K_LOG_MODERATION = "settings.info_key_log_moderation";
-    private static final String K_MUSIC_AUTO_LEAVE = "settings.key_music_autoLeaveEnabled";
     private static final String K_MUSIC_AUTOPLAY = "settings.key_music_autoplayEnabled";
     private static final String K_NUMBER_CHAIN_ENABLED = "settings.key_numberChain_enabled";
     private static final String K_TICKET_ENABLED = "settings.key_ticket_enabled";
@@ -91,6 +90,10 @@ public final class SettingsModuleMenuHandler {
             return;
         }
         String action = event.getValues().isEmpty() ? "" : event.getValues().get(0);
+        if ("music-auto-leave".equals(action)) {
+            event.reply(owner.i18nService().t(lang, "settings.module_menu_expired")).setEphemeral(true).queue();
+            return;
+        }
         if (needsDefaultLogChannel(action)
                 && !owner.settingsService().getMessageLogs(event.getGuild().getIdLong()).isEnabled()
                 && owner.settingsService().getMessageLogs(event.getGuild().getIdLong()).getChannelId() == null) {
@@ -136,8 +139,6 @@ public final class SettingsModuleMenuHandler {
                                 .withDescription(moduleSwitchTextPlain(lang, s.getMessageLogs().isRoleLogEnabled())),
                         SelectOption.of(owner.i18nService().t(lang, K_LOG_MODERATION), A_MODERATION_LOG)
                                 .withDescription(moduleSwitchTextPlain(lang, s.getMessageLogs().isModerationLogEnabled())),
-                        SelectOption.of(owner.i18nService().t(lang, K_MUSIC_AUTO_LEAVE), "music-auto-leave")
-                                .withDescription(moduleSwitchTextPlain(lang, s.getMusic().isAutoLeaveEnabled())),
                         SelectOption.of(owner.i18nService().t(lang, K_MUSIC_AUTOPLAY), "music-autoplay")
                                 .withDescription(moduleSwitchTextPlain(lang, s.getMusic().isAutoplayEnabled())),
                         SelectOption.of(owner.i18nService().t(lang, K_NUMBER_CHAIN_ENABLED), "number-chain-enable")
@@ -171,7 +172,7 @@ public final class SettingsModuleMenuHandler {
                 moduleLine(lang, K_LOG_MODERATION, s.getMessageLogs().isModerationLogEnabled()),
                 "",
                 "**" + owner.i18nService().t(lang, "settings.module_section_music_others") + "**",
-                moduleLine(lang, K_MUSIC_AUTO_LEAVE, s.getMusic().isAutoLeaveEnabled()),
+                owner.i18nService().t(lang, "settings.music_auto_leave_policy"),
                 moduleLine(lang, K_MUSIC_AUTOPLAY, s.getMusic().isAutoplayEnabled()),
                 moduleLine(lang, K_NUMBER_CHAIN_ENABLED, numberChainEnabled),
                 moduleLine(lang, K_TICKET_ENABLED, s.getTicket().isEnabled()),
@@ -243,11 +244,6 @@ public final class SettingsModuleMenuHandler {
                 boolean value = !owner.settingsService().getMessageLogs(guildId).isModerationLogEnabled();
                 owner.settingsService().updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withModerationLogEnabled(value)));
                 return new ToggleResult(K_LOG_MODERATION, value);
-            }
-            case "music-auto-leave" -> {
-                boolean value = !owner.settingsService().getMusic(guildId).isAutoLeaveEnabled();
-                owner.settingsService().updateSettings(guildId, s -> s.withMusic(s.getMusic().withAutoLeaveEnabled(value)));
-                return new ToggleResult(K_MUSIC_AUTO_LEAVE, value);
             }
             case "music-autoplay" -> {
                 boolean value = !owner.settingsService().getMusic(guildId).isAutoplayEnabled();

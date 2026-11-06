@@ -111,6 +111,21 @@ class MusicCommandChannelProvisionerTest {
     }
 
     @Test
+    void duplicateGuildJoinProvisionsDefaultChannelOnlyOnce() throws InterruptedException {
+        TestChannelState state = new TestChannelState();
+        GuildFixture fixture = new GuildFixture(252L, true, true);
+        MusicCommandChannelProvisioner provisioner = provisioner(state, 10L);
+        CountDownLatch completed = new CountDownLatch(1);
+
+        assertTrue(provisioner.queueGuildJoinProvisioning(fixture.guild(), (guild, channel) -> completed.countDown()));
+        assertFalse(provisioner.queueGuildJoinProvisioning(fixture.guild(), null));
+        assertTrue(completed.await(1, TimeUnit.SECONDS));
+        assertEquals(1, fixture.createCalls());
+        assertEquals(fixture.createdChannel().getIdLong(), state.configuredChannelId(252L));
+        assertEquals(Status.SUCCESS, repository().find(252L).status());
+    }
+
+    @Test
     void usesConfiguredChannelFromJdaCacheWithoutCreating() throws Exception {
         TestChannelState state = new TestChannelState();
         GuildFixture fixture = new GuildFixture(301L, true, true);

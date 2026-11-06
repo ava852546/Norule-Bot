@@ -54,6 +54,9 @@ await writeFile(path.resolve(outputRoot, 'app.css'), `${legacyStyles.join('\n\n'
 await rm(path.resolve(outputRoot, 'app.js'), { force: true })
 await rm(path.resolve(outputRoot, 'chunks'), { recursive: true, force: true })
 
+await mkdir(path.resolve(outputRoot, 'templates/tabs'), { recursive: true })
+await copyFile(path.resolve(templateRoot, 'tabs/music.html'), path.resolve(outputRoot, 'templates/tabs/music.html'))
+
 for (const fileName of ['share-expired.html', 'url-expired.html', 'auth-login.html']) {
   await copyFile(path.resolve(templateRoot, fileName), path.resolve(outputRoot, fileName))
 }

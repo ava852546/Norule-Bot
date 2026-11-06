@@ -196,6 +196,13 @@
                     <include>url-expired.html</include>
                 </includes>
             </resource>
+            <resource>
+                <directory>web/src/templates</directory>
+                <targetPath>web/templates</targetPath>
+                <includes>
+                    <include>tabs/music.html</include>
+                </includes>
+            </resource>
         </resources>
         <plugins>
             <plugin>

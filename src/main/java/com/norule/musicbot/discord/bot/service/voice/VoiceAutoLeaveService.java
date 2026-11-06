@@ -62,6 +62,11 @@ public class VoiceAutoLeaveService {
     private final ScheduledExecutorService scheduler;
     private final Map<Long, ChannelState> states = new HashMap<>();
     private final Map<Long, Map<LeaveReason, MusicDiagnostics.Timer>> diagnosticTimers = new ConcurrentHashMap<>();
+    private final Map<Long, MusicDiagnostics.AutoLeave> diagnosticStates = new ConcurrentHashMap<>();
+    public MusicDiagnostics.AutoLeave diagnosticState(long guildId) {
+        return diagnosticStates.getOrDefault(guildId,
+                new MusicDiagnostics.AutoLeave("MONITOR_NOT_INITIALIZED", null));
+    }
     public List<MusicDiagnostics.Timer> diagnosticTimers(long guildId) {
         return List.copyOf(diagnosticTimers.getOrDefault(guildId, Map.of()).values());
     }
@@ -106,6 +111,7 @@ public class VoiceAutoLeaveService {
         this.events = events;
         unsubscribePlayback = playerService.addStateChangeListener(this::onPlaybackStateChanged);
         playerService.setDiagnosticLeaveTimers(this::diagnosticTimers);
+        playerService.setAutoLeaveDiagnostics(this::diagnosticState);
     }
 
     public void close() {
@@ -128,8 +134,15 @@ public class VoiceAutoLeaveService {
         submit(() -> {
             jda = current;
             if (!monitorStarted) {
-                monitorStarted = true;
-                scheduler.scheduleAtFixedRate(this::evaluateAllGuilds, 20, 20, TimeUnit.SECONDS);
+                try {
+                    scheduler.scheduleAtFixedRate(this::evaluateAllGuilds, 20, 20, TimeUnit.SECONDS);
+                    monitorStarted = true;
+                } catch (RejectedExecutionException error) {
+                    for (Guild guild : current.getGuilds()) diagnosticStates.put(guild.getIdLong(),
+                            new MusicDiagnostics.AutoLeave("TIMER_SCHEDULING_FAILED", null));
+                    LOGGER.warn("[VoiceAutoLeave] event=MONITOR_SCHEDULING_FAILED", error);
+                    return;
+                }
             }
             evaluateAllGuilds();
         });
@@ -140,7 +153,9 @@ public class VoiceAutoLeaveService {
         boolean hasHumans = channel != null && humanCount(channel) > 0;
         submit(() -> {
             long id = guild.getIdLong();
-            if (selfMoved) clear(id, "CHANNEL_CHANGED");
+            // evaluateGuild resets timers only when the actual channel identity changes.
+            // Preserve a real disconnect even if a reconnect updates the cache before this task runs.
+            if (channel == null) clear(id, "VOICE_DISCONNECTED");
             // Preserve a human return even if they leave again before the queued check runs.
             ChannelState state = states.get(id);
             if (hasHumans && state != null) cancel(id, state, LeaveReason.EMPTY_CHANNEL, "USER_JOINED");
@@ -168,6 +183,7 @@ public class VoiceAutoLeaveService {
             if (jda.getGuildById(id) != null) return false;
             states.get(id).timers.values().forEach(timer -> timer.future.cancel(false));
             diagnosticTimers.remove(id);
+            diagnosticStates.remove(id);
             return true;
         });
         for (Guild guild : jda.getGuilds()) evaluateSafely(guild);
@@ -177,6 +193,7 @@ public class VoiceAutoLeaveService {
         try {
             evaluateGuild(guild);
         } catch (RuntimeException error) {
+            diagnosticStates.put(guild.getIdLong(), new MusicDiagnostics.AutoLeave("CHECK_FAILED", null));
             LOGGER.warn("[VoiceAutoLeave] event=CHECK_FAILED guildId={}", guild.getIdLong(), error);
         }
     }
@@ -184,8 +201,8 @@ public class VoiceAutoLeaveService {
     private void evaluateGuild(Guild guild) {
         long id = guild.getIdLong();
         AudioChannel channel = currentBotChannel(guild);
-        if (channel == null || !musicConfigs.apply(id).isAutoLeaveEnabled()) {
-            clear(id, "DISABLED_OR_DISCONNECTED");
+        if (channel == null) {
+            clear(id, "VOICE_DISCONNECTED");
             return;
         }
         ChannelState state = states.get(id);
@@ -198,9 +215,13 @@ public class VoiceAutoLeaveService {
             states.put(id, state);
         }
         if (state.disconnecting) return;
+        boolean transitioning = playerService.isPlaybackTransitioning(guild);
+        boolean idle = !transitioning && idlePlayback(guild);
+        diagnosticStates.put(id, new MusicDiagnostics.AutoLeave(
+                transitioning ? "PLAYBACK_TRANSITIONING" : idle ? "IDLE_PLAYBACK" : "PLAYBACK_ACTIVE", idle));
         updateTimer(guild, state, LeaveReason.EMPTY_CHANNEL, humanCount(channel) == 0,
                 EMPTY_CHANNEL_SECONDS, "USER_JOINED");
-        updateTimer(guild, state, LeaveReason.IDLE_PLAYBACK, idlePlayback(guild),
+        updateTimer(guild, state, LeaveReason.IDLE_PLAYBACK, idle,
                 IDLE_PLAYBACK_SECONDS, "PLAYBACK_ACTIVE");
     }
 
@@ -212,8 +233,16 @@ public class VoiceAutoLeaveService {
         } else if (!state.timers.containsKey(reason)) {
             PendingLeave timer = new PendingLeave();
             state.timers.put(reason, timer);
-            timer.future = scheduler.schedule(() -> executeScheduledLeave(id, state, reason, timer),
-                    seconds, TimeUnit.SECONDS);
+            try {
+                timer.future = scheduler.schedule(() -> executeScheduledLeave(id, state, reason, timer),
+                        seconds, TimeUnit.SECONDS);
+            } catch (RejectedExecutionException error) {
+                state.timers.remove(reason);
+                diagnosticStates.put(id, new MusicDiagnostics.AutoLeave("TIMER_SCHEDULING_FAILED",
+                        diagnosticState(id).idleEligible()));
+                LOGGER.warn("[VoiceAutoLeave] event=TIMER_SCHEDULING_FAILED guildId={} reason={}", id, reason, error);
+                return;
+            }
             diagnosticTimers.compute(id, (key, current) -> {
                 var copy = new EnumMap<LeaveReason, MusicDiagnostics.Timer>(LeaveReason.class);
                 if (current != null) copy.putAll(current);
@@ -233,8 +262,8 @@ public class VoiceAutoLeaveService {
         }
         try {
             AudioChannel channel = currentBotChannel(guild);
-            if (channel == null || !musicConfigs.apply(id).isAutoLeaveEnabled()) {
-                clear(id, "DISABLED_OR_DISCONNECTED");
+            if (channel == null) {
+                clear(id, "VOICE_DISCONNECTED");
                 return;
             }
             if (channel.getIdLong() != state.channelId) {
@@ -246,12 +275,14 @@ public class VoiceAutoLeaveService {
             // Recheck only this timer's condition; playback must never postpone an empty-channel exit.
             if (reason == LeaveReason.EMPTY_CHANNEL ? humans > 0 : !idlePlayback(guild)) {
                 cancel(id, state, reason, reason == LeaveReason.EMPTY_CHANNEL ? "USER_JOINED" : "PLAYBACK_ACTIVE");
+                evaluateSafely(guild);
                 return;
             }
             state.disconnecting = true;
             state.timers.values().forEach(pending -> pending.future.cancel(false));
             state.timers.clear();
             diagnosticTimers.remove(id);
+            diagnosticStates.put(id, new MusicDiagnostics.AutoLeave("DISCONNECTING", null));
             playerService.stop(guild);
             playerService.leaveChannel(guild);
             emit("DISCONNECTED", reason.name(), guild, id, state, humans,
@@ -297,6 +328,7 @@ public class VoiceAutoLeaveService {
     }
 
     private void clear(long id, String cause) {
+        diagnosticStates.put(id, new MusicDiagnostics.AutoLeave(cause, null));
         diagnosticTimers.remove(id);
         ChannelState state = states.remove(id);
         if (state != null) {

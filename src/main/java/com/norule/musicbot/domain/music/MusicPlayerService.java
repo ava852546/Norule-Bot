@@ -720,6 +720,12 @@ public class MusicPlayerService {
     public void setDiagnosticsListener(Consumer<MusicDiagnostics.Event> listener) { diagnosticsListener = listener; }
     public void setDiagnosticLeaveTimers(java.util.function.LongFunction<java.util.List<MusicDiagnostics.Timer>> timers) { leaveTimers = timers; }
     public java.util.List<MusicDiagnostics.Timer> diagnosticLeaveTimers(long guildId) { return leaveTimers.apply(guildId); }
+    private volatile java.util.function.LongFunction<MusicDiagnostics.AutoLeave> autoLeaveDiagnostics =
+            ignored -> new MusicDiagnostics.AutoLeave("MONITOR_NOT_INITIALIZED", null);
+    public void setAutoLeaveDiagnostics(java.util.function.LongFunction<MusicDiagnostics.AutoLeave> diagnostics) {
+        autoLeaveDiagnostics = diagnostics;
+    }
+    public MusicDiagnostics.AutoLeave diagnosticAutoLeave(long guildId) { return autoLeaveDiagnostics.apply(guildId); }
     public MusicDiagnostics.Error diagnosticError(long guildId) { return diagnosticErrors.get(guildId); }
     public MusicDiagnostics.Event recordDiagnosticRequest(long guildId, Long channelId, Long requesterId, String source, String outcome) {
         var event = new MusicDiagnostics.Event(guildId, "REQUEST", java.time.Instant.now(), channelId,

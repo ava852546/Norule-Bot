@@ -19,10 +19,10 @@ const statCards = computed(() => [
 
 <template>
   <div class="nr-stack">
-    <DashboardSection :eyebrow="dashboard.i18n.t('dashboard_eyebrow_music', 'Music')" :title="dashboard.i18n.t('section_music', '音樂設定')" :description="dashboard.i18n.t('music_settings_lead', '集中管理自動離開、自動播放、循環模式與音樂指令頻道。')">
+    <DashboardSection :eyebrow="dashboard.i18n.t('dashboard_eyebrow_music', 'Music')" :title="dashboard.i18n.t('section_music', '音樂設定')" :description="dashboard.i18n.t('music_settings_lead', '集中管理自動播放、循環模式與音樂指令頻道。')">
       <template #actions><button type="button" class="nr-button is-danger-subtle" @click="dashboard.resetSection('music')">{{ dashboard.i18n.t('resetSectionBtn', '重設此區') }}</button></template>
       <div class="nr-toggle-grid">
-        <DashboardToggle :model-value="cfg.autoLeaveEnabled" :label="dashboard.i18n.t('m_autoLeaveEnabled', '閒置時自動離開')" :description="dashboard.i18n.t('dashboard_music_auto_leave_description', '自動離開：無真人 10 秒；未播放或暫停 10 分鐘。')" @update:model-value="cfg.autoLeaveEnabled = $event; dirty()" />
+        <p class="muted">{{ dashboard.i18n.t('dashboard_music_auto_leave_description', '所有伺服器固定啟用自動離開：無真人 10 秒；未播放或暫停 10 分鐘。') }}</p>
         <DashboardToggle :model-value="cfg.autoplayEnabled" :label="dashboard.i18n.t('m_autoplayEnabled', '啟用自動播放')" :description="dashboard.i18n.t('dashboard_music_autoplay_description', '佇列結束後繼續推薦歌曲')" @update:model-value="cfg.autoplayEnabled = $event; dirty()" />
       </div>
       <div class="nr-form-grid is-two nr-form-block">
