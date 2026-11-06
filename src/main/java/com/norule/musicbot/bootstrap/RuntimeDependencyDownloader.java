@@ -27,6 +27,7 @@ final class RuntimeDependencyDownloader implements RuntimeDependencyBootstrap.Pr
     private final Consumer<String> output;
     private final LongSupplier nanoTime;
     private final RetrySleeper retrySleeper;
+    private final ConnectionFactory connectionFactory;
 
     RuntimeDependencyDownloader(RuntimeDependencyBootstrap.BootstrapSettings settings, Consumer<String> output) {
         this(settings, defaultRepositoryUrls(), output, System::nanoTime, Thread::sleep);
@@ -35,11 +36,20 @@ final class RuntimeDependencyDownloader implements RuntimeDependencyBootstrap.Pr
     RuntimeDependencyDownloader(RuntimeDependencyBootstrap.BootstrapSettings settings,
             Map<RuntimeRepository, String> repositoryUrls,
             Consumer<String> output, LongSupplier nanoTime, RetrySleeper retrySleeper) {
+        this(settings, repositoryUrls, output, nanoTime, retrySleeper,
+                uri -> (HttpURLConnection) uri.toURL().openConnection());
+    }
+
+    RuntimeDependencyDownloader(RuntimeDependencyBootstrap.BootstrapSettings settings,
+            Map<RuntimeRepository, String> repositoryUrls,
+            Consumer<String> output, LongSupplier nanoTime, RetrySleeper retrySleeper,
+            ConnectionFactory connectionFactory) {
         this.settings = Objects.requireNonNull(settings, "settings");
         this.repositoryUrls = Map.copyOf(repositoryUrls);
         this.output = Objects.requireNonNull(output, "output");
         this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
         this.retrySleeper = Objects.requireNonNull(retrySleeper, "retrySleeper");
+        this.connectionFactory = Objects.requireNonNull(connectionFactory, "connectionFactory");
     }
 
     @Override
@@ -114,7 +124,7 @@ final class RuntimeDependencyDownloader implements RuntimeDependencyBootstrap.Pr
     private HttpURLConnection openConnection(URI origin) throws IOException {
         URI current = origin;
         for (int redirects = 0; redirects <= 5; redirects++) {
-            HttpURLConnection connection = (HttpURLConnection) current.toURL().openConnection();
+            HttpURLConnection connection = connectionFactory.open(current);
             connection.setInstanceFollowRedirects(false);
             connection.setConnectTimeout(settings.connectTimeoutMs());
             connection.setReadTimeout(Math.min(settings.readTimeoutMs(), settings.stallTimeoutMs()));
@@ -403,6 +413,11 @@ final class RuntimeDependencyDownloader implements RuntimeDependencyBootstrap.Pr
         private String exceptionType() {
             return exceptionType;
         }
+    }
+
+    @FunctionalInterface
+    interface ConnectionFactory {
+        HttpURLConnection open(URI uri) throws IOException;
     }
 
     @FunctionalInterface
