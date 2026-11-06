@@ -388,7 +388,7 @@ public final class MusicPanelRefreshService {
     }
 
     public void requestRefresh(long guildId, RefreshReason reason) {
-        if (reason != RefreshReason.PERIODIC_REFRESH) {
+        if (reason.highPriority()) {
             // A queued progress update must not hold this guild's barrier ahead of /play.
             owner.backgroundRest().cancelPending("music-panel:" + guildId);
         }
@@ -489,19 +489,41 @@ public final class MusicPanelRefreshService {
             return CompletableFuture.completedFuture(null);
         }
         MusicPanelSnapshot snapshot = render(guild, owner.lang(guildId));
+        boolean backgroundOnly = reasons.stream().noneMatch(RefreshReason::highPriority);
         return CompletableFuture.completedFuture(new MusicPanelRefreshCoordinator.Update(
-                ref.channelId, ref.messageId, snapshot, () -> periodicOnly
+                ref.channelId, ref.messageId, snapshot, () -> backgroundOnly
                         ? owner.backgroundRest().submit("music-panel:" + guildId,
-                                () -> stateStore.isActivePanel(guildId, ref.channelId, ref.messageId)
-                                        ? sendUpdate(guildId, channel, ref, snapshot, true)
-                                        : CompletableFuture.completedFuture(null))
-                        : sendUpdate(guildId, channel, ref, snapshot)));
+                                () -> sendLatestBackground(guild, channel, ref, reasons))
+                        : sendUpdate(guildId, channel, ref, snapshot, false, reasons)));
+    }
+
+    private CompletableFuture<Void> sendLatestBackground(Guild guild, TextChannel channel,
+            MusicPanelStateStore.PanelRef ref, Set<RefreshReason> reasons) {
+        long guildId = guild.getIdLong();
+        if (closed || !stateStore.isActivePanel(guildId, ref.channelId, ref.messageId)
+                || (reasons.equals(Set.of(RefreshReason.PERIODIC_REFRESH)) && !isProgressActive(guild))) {
+            // Invalidate the queued payload; it was never delivered to Discord.
+            coordinator.discardPrepared(guildId);
+            return CompletableFuture.completedFuture(null);
+        }
+        // Admission may have waited for a shared/global cooldown. Never send the queued snapshot.
+        MusicPanelSnapshot latest = render(guild, owner.lang(guildId));
+        var delivered = new MusicPanelRefreshCoordinator.Update(ref.channelId, ref.messageId, latest, null);
+        if (coordinator.sameContent(guildId, delivered)) {
+            coordinator.recordCreated(guildId, delivered);
+            return CompletableFuture.completedFuture(null);
+        }
+        return sendUpdate(guildId, channel, ref, latest, true, reasons).thenRun(() -> {
+            if (stateStore.isActivePanel(guildId, ref.channelId, ref.messageId)) {
+                coordinator.recordCreated(guildId, delivered);
+            }
+        });
     }
 
     private CompletableFuture<MusicPanelRefreshCoordinator.Update> replaceManagedPanel(Guild guild, TextChannel target, boolean legacy) {
         MusicPanelStateStore.PanelRef old = stateStore.getPanelRef(guild.getIdLong());
-        return deleteManagedPanel(guild, old, modes).thenCompose(ignored -> {
-            if (closed) {
+        return deleteManagedPanel(guild, old, modes).thenCompose(deleted -> {
+            if (closed || !deleted) {
                 return CompletableFuture.completedFuture(null);
             }
             // Recheck settings after asynchronous deletion: a switch must not create at a stale destination.
@@ -529,14 +551,14 @@ public final class MusicPanelRefreshService {
         });
     }
 
-    static CompletableFuture<Void> deleteManagedPanel(Guild guild, MusicPanelStateStore.PanelRef ref, MusicPanelModeResolver modes) {
+    static CompletableFuture<Boolean> deleteManagedPanel(Guild guild, MusicPanelStateStore.PanelRef ref, MusicPanelModeResolver modes) {
         if (ref == null) {
-            return CompletableFuture.completedFuture(null);
+            return CompletableFuture.completedFuture(true);
         }
         TextChannel channel = guild.getTextChannelById(ref.channelId);
         if (channel == null) {
             modes.log("MUSIC_PANEL_DELETE_FAILED", guild, ref.channelId, ref.messageId, "UNKNOWN_CHANNEL");
-            return CompletableFuture.completedFuture(null);
+            return CompletableFuture.completedFuture(false);
         }
         try {
             // A persisted ID alone never authorizes deleting another user's message.
@@ -545,22 +567,22 @@ public final class MusicPanelRefreshService {
                     "GET", "/channels/" + ref.channelId + "/messages/" + ref.messageId).submit().thenCompose(message -> {
                 if (!isMusicPanelMessage(guild, message)) {
                     modes.log("MUSIC_PANEL_DELETE_FAILED", guild, ref.channelId, ref.messageId, "NOT_MANAGED_PANEL");
-                    return CompletableFuture.<Void>completedFuture(null);
+                    return CompletableFuture.completedFuture(false);
                 }
                 return DiscordRateLimitInterceptor.track(
                         message.delete(), "MUSIC_PANEL_DELETE", false, false,
-                        "DELETE", "/channels/" + ref.channelId + "/messages/" + ref.messageId).submit();
-            }).handle((ignored, failure) -> {
+                        "DELETE", "/channels/" + ref.channelId + "/messages/" + ref.messageId).submit().thenApply(ignored -> true);
+            }).handle((deleted, failure) -> {
                 if (failure != null && !isUnknownMessage(failure)) {
                     modes.log("MUSIC_PANEL_DELETE_FAILED", guild, ref.channelId, ref.messageId,
                             MusicPanelModeResolver.failureReason(failure));
                 }
-                return null;
+                return failure == null ? deleted : isUnknownMessage(failure);
             });
         } catch (RuntimeException failure) {
             modes.log("MUSIC_PANEL_DELETE_FAILED", guild, ref.channelId, ref.messageId,
                     MusicPanelModeResolver.failureReason(failure));
-            return CompletableFuture.completedFuture(null);
+            return CompletableFuture.completedFuture(isUnknownMessage(failure));
         }
     }
 
@@ -571,17 +593,24 @@ public final class MusicPanelRefreshService {
 
     private CompletableFuture<Void> sendUpdate(long guildId, TextChannel channel,
                                                MusicPanelStateStore.PanelRef ref, MusicPanelSnapshot snapshot) {
-        return sendUpdate(guildId, channel, ref, snapshot, false);
+        return sendUpdate(guildId, channel, ref, snapshot, false, Set.of(RefreshReason.MANUAL));
     }
 
     private CompletableFuture<Void> sendUpdate(long guildId, TextChannel channel,
-            MusicPanelStateStore.PanelRef ref, MusicPanelSnapshot snapshot, boolean background) {
+            MusicPanelStateStore.PanelRef ref, MusicPanelSnapshot snapshot, boolean background, Set<RefreshReason> reasons) {
         CompletableFuture<Void> result = new CompletableFuture<>();
         try {
+            // Measure from actual REST admission, including after a long background cooldown.
+            coordinator.submitted(guildId);
             DiscordRateLimitInterceptor.track(
                     channel.editMessageEmbedsById(ref.messageId, snapshot.embed())
                             .setComponents(snapshot.components()), "MUSIC_PANEL_REFRESH", background, false,
-                    "PATCH", "/channels/" + ref.channelId + "/messages/" + ref.messageId)
+                    "PATCH", "/channels/" + ref.channelId + "/messages/" + ref.messageId,
+                    () -> "candidateGuildId=" + guildId + " candidateRefreshReason=" + reasons
+                            + " " + coordinator.diagnostics(guildId)
+                                    .replace("pendingRefresh=", "candidatePendingRefresh=")
+                                    .replace("inFlight=", "candidateInFlight=")
+                                    .replace("coalescedCount=", "candidateCoalescedCount="))
                     .queue(success -> {
                         if (stateStore.isActivePanel(guildId, ref.channelId, ref.messageId)) {
                             stateStore.markRefreshed(guildId, ref, System.currentTimeMillis());
