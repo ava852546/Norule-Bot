@@ -37,6 +37,10 @@ public final class MusicPanelController {
 
     public MusicPanelModeResolver.Selection panelMode(Guild guild) { return modes.resolve(guild); }
 
+    public CompletableFuture<Void> synchronizeSettings(Guild guild, long expectedChannelId) {
+        return refreshService.synchronizeSettings(guild, expectedChannelId);
+    }
+
     public boolean isCommandChannelAllowed(Guild guild, long channelId) {
         var mode = modes.resolve(guild);
         return !mode.modern() || mode.channelId() == channelId;
@@ -45,7 +49,7 @@ public final class MusicPanelController {
     public CompletableFuture<TextChannel> resolveOrCreateCommandChannel(Guild guild, TextChannel fallback) {
         var mode = modes.resolve(guild);
         return CompletableFuture.completedFuture(mode.modern() ? mode.channel()
-                : MusicPanelModeResolver.usable(fallback) ? fallback : null);
+                : fallback);
     }
 
     public void playQueued(Guild guild, TextChannel channel, MusicPanelModeResolver.Selection mode,

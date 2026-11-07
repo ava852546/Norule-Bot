@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 
 import com.norule.musicbot.domain.music.MusicPanelMode;
+import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.command.CommandOptions;
@@ -13,6 +14,7 @@ import net.dv8tion.jda.api.components.selections.EntitySelectMenu;
 import net.dv8tion.jda.api.components.selections.SelectOption;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.ChannelType;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildChannel;
@@ -222,6 +224,18 @@ public final class SettingsMusicMenuHandler {
                     event.reply(owner.i18nService().t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
                     return;
                 }
+                TextChannel channel = event.getGuild().getTextChannelById(selected.getIdLong());
+                if (channel == null) {
+                    event.reply(owner.i18nService().t(lang, "general.invalid_channel")).setEphemeral(true).queue();
+                    return;
+                }
+                if (!MusicPanelModeResolver.usable(channel)) {
+                    event.reply(owner.i18nService().t(lang, "general.missing_permissions", Map.of("permissions",
+                                    owner.formatMissingPermissionsForPanel(event.getGuild().getSelfMember(), channel,
+                                            Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND, Permission.MESSAGE_EMBED_LINKS))))
+                            .setEphemeral(true).queue();
+                    return;
+                }
                 owner.settingsService().updateSettings(guildId,
                         s -> s.withMusic(s.getMusic().withCommandChannelId(selected.getIdLong())));
                 displayValue = "<#" + selected.getId() + ">";
@@ -251,7 +265,18 @@ public final class SettingsMusicMenuHandler {
         }
         event.editMessageEmbeds(musicMenuEmbed(event.getGuild(), lang, changed).build())
                 .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)))
-                .queue();
+                .queue(hook -> {
+                    if (A_COMMAND_CHANNEL.equals(target)
+                            && owner.settingsService().getMusic(guildId).getPanelMode() == MusicPanelMode.MODERN) {
+                        owner.musicPanelController().synchronizeSettings(event.getGuild(), selected.getIdLong()).whenComplete((ignored, failure) -> {
+                            String message = failure == null
+                                    ? owner.musicText(lang, "panel_ready", Map.of("channel", "<#" + selected.getId() + ">"))
+                                    : owner.musicText(lang, "panel_update_failed", Map.of("error",
+                                            failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage()));
+                            hook.sendMessage(message).setEphemeral(true).queue();
+                        });
+                    }
+                });
     }
 
     private StringSelectMenu settingsMusicMenu(String token, Guild guild, String lang) {

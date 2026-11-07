@@ -9,6 +9,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MusicPanelStateStoreTest {
     @Test
+    void settingsInvalidationRejectsOldActivationsAndRefreshesButKeepsTheCleanupReference() {
+        var store = new MusicPanelStateStore();
+        var old = new MusicPanelStateStore.PanelRef(10, 100);
+        store.activatePanelRef(1, old, 123);
+        long oldRevision = store.revision(1);
+        long currentRevision = store.invalidate(1);
+        assertFalse(store.isActivePanel(1, 10, 100));
+        assertEquals(old, store.getPanelRef(1));
+        assertFalse(store.activateIfCurrent(1, oldRevision, new MusicPanelStateStore.PanelRef(20, 200), 456));
+        store.markRefreshed(1, old, 999);
+        assertEquals(123, store.getLastRefreshAt(1));
+        assertTrue(store.activateIfCurrent(1, currentRevision, new MusicPanelStateStore.PanelRef(30, 300), 456));
+        assertTrue(store.isActivePanel(1, 30, 300));
+        assertFalse(store.forgetPanel(1, old));
+    }
+
+    @Test
     void rateLimitDiagnosticsOnlyRecordTheMatchingManagedMessageRoute() {
         var store = new MusicPanelStateStore();
         store.putPanelRef(1, new MusicPanelStateStore.PanelRef(10, 100));

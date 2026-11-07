@@ -15,6 +15,21 @@ class MusicPanelFallbackNoticeTest {
     @TempDir Path directory;
 
     @Test
+    void supersededOperationHasLocalizedFallbackAfterReload() throws Exception {
+        var i18n = new AtomicReference<>(I18nService.load(directory, "en"));
+        var resolver = new MusicTextResolver(i18n::get);
+        for (String language : List.of("en", "zh-TW", "zh-CN")) {
+            assertFalse(resolver.musicText(language, "panel_operation_superseded").contains("panel_operation_superseded"));
+        }
+        Files.writeString(directory.resolve("en.yml"), "music:\n  panel_operation_superseded: music.panel_operation_superseded\n");
+        i18n.set(I18nService.load(directory, "en"));
+        assertTrue(resolver.musicText("en", "panel_operation_superseded").contains("Please try again"));
+        Files.writeString(directory.resolve("en.yml"), "music:\n  panel_operation_superseded: Reloaded operation message\n");
+        i18n.set(I18nService.load(directory, "en"));
+        assertEquals("Reloaded operation message", resolver.musicText("en", "panel_operation_superseded"));
+    }
+
+    @Test
     void warningEmbedUsesRequestedCopyAndLocalizedFallbacks() throws Exception {
         AtomicReference<I18nService> i18n = new AtomicReference<>(I18nService.load(directory, "en"));
         var resolver = new MusicTextResolver(i18n::get);

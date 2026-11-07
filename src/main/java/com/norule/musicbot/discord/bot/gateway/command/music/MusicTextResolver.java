@@ -135,6 +135,7 @@ public final class MusicTextResolver {
             case "stats_today_time" -> zhCn ? "今日播放时数" : (zh ? "今日播放時數" : "Today Playback Time");
             case "stats_history_count" -> zhCn ? "历史纪录数量" : (zh ? "歷史紀錄數量" : "History Entries");
             case "stats_none" -> zhCn ? "暂无资料" : (zh ? "暫無資料" : "No data");
+            case "panel_operation_superseded" -> zhCn ? "\u97f3\u4e50\u9762\u677f\u8bbe\u7f6e\u5df2\u5728\u64cd\u4f5c\u671f\u95f4\u66f4\u6539\uff0c\u8bf7\u91cd\u8bd5\u3002" : (zh ? "\u97f3\u6a02\u9762\u677f\u8a2d\u5b9a\u5df2\u5728\u64cd\u4f5c\u671f\u9593\u8b8a\u66f4\uff0c\u8acb\u91cd\u8a66\u3002" : "Music panel settings changed while this operation was running. Please try again.");
             default -> key;
         };
         for (Map.Entry<String, String> entry : placeholders.entrySet()) {

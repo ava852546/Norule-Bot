@@ -106,6 +106,7 @@ music:
   panel_text_channel_only: "音樂面板只能建立在文字頻道。"
   panel_ready: "音樂控制面板已在 {channel} 建立或更新。"
   panel_update_failed: "更新音樂面板失敗：{error}"
+  panel_operation_superseded: "音樂面板設定已在操作期間變更，請重試。"
   panel_playback_error: "播放錯誤"
   panel_current: "目前播放"
   panel_next: "接下來"

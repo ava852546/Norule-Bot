@@ -106,6 +106,7 @@ music:
   panel_text_channel_only: "The music panel requires a text channel."
   panel_ready: "The music panel is ready in {channel}."
   panel_update_failed: "Failed to update the music panel: {error}"
+  panel_operation_superseded: "Music panel settings changed while this operation was running. Please try again."
   panel_playback_error: "Playback Error"
   panel_current: "Now Playing"
   panel_next: "Up Next"

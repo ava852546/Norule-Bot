@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class MusicPanelStateStore {
     private final Map<Long, PanelRef> panelByGuild = new ConcurrentHashMap<>();
     private final Map<Long, PanelNotice> panelNoticeByGuild = new ConcurrentHashMap<>();
+    private final Map<Long, Long> revisions = new ConcurrentHashMap<>();
     private MusicPanelBindingService bindings;
     private final Map<Long, MusicDiagnostics.Error> errors = new ConcurrentHashMap<>();
     public void recordDiagnosticError(long guildId, String reason) {
@@ -33,7 +34,8 @@ public final class MusicPanelStateStore {
         }
     }
 
-    public void forgetGuild(long guildId) {
+    public synchronized void forgetGuild(long guildId) {
+        invalidate(guildId);
         if (bindings != null) {
             bindings.forgetGuild(guildId);
         }
@@ -49,17 +51,40 @@ public final class MusicPanelStateStore {
 
     public boolean isActivePanel(long guildId, long channelId, long messageId) {
         PanelRef active = panelByGuild.get(guildId);
-        return active != null && active.channelId == channelId && active.messageId == messageId;
+        return active != null && active.channelId == channelId && active.messageId == messageId
+                && active.revision == revision(guildId);
     }
 
     public void putPanelRef(long guildId, PanelRef panelRef) {
         panelByGuild.put(guildId, panelRef);
     }
 
-    public void activatePanelRef(long guildId, PanelRef panelRef, long refreshedAt) {
+    public synchronized void activatePanelRef(long guildId, PanelRef panelRef, long refreshedAt) {
+        persist(guildId, panelRef);
+        panelRef.revision = revision(guildId);
         panelRef.lastRefreshAt = refreshedAt;
         panelByGuild.put(guildId, panelRef);
-        persist(guildId, panelRef);
+    }
+
+    public long revision(long guildId) { return revisions.getOrDefault(guildId, 0L); }
+
+    /** Retain the old ID for safe cleanup, but prevent old callbacks from using it. */
+    public synchronized long invalidate(long guildId) {
+        return revisions.merge(guildId, 1L, Long::sum);
+    }
+
+    public synchronized boolean activateIfCurrent(long guildId, long revision, PanelRef ref, long refreshedAt) {
+        if (revision(guildId) != revision) return false;
+        activatePanelRef(guildId, ref, refreshedAt);
+        return true;
+    }
+
+    /** Remove only this binding, including its durable copy; never touch music settings. */
+    public synchronized boolean forgetPanel(long guildId, PanelRef expected) {
+        if (panelByGuild.get(guildId) != expected) return false;
+        if (bindings != null) bindings.forgetGuild(guildId);
+        panelByGuild.remove(guildId, expected);
+        return true;
     }
 
     public void clearPanelState(long guildId) {
@@ -86,7 +111,7 @@ public final class MusicPanelStateStore {
 
     public void markRefreshed(long guildId, PanelRef expected, long timestamp) {
         // Writing to an old reference can never alter the replacement panel's timestamp.
-        if (panelByGuild.get(guildId) == expected) {
+        if (panelByGuild.get(guildId) == expected && expected.revision == revision(guildId)) {
             expected.lastRefreshAt = timestamp;
         }
     }
@@ -121,6 +146,7 @@ public final class MusicPanelStateStore {
         public final long channelId;
         public final long messageId;
         private volatile long lastRefreshAt;
+        private volatile long revision;
 
         public PanelRef(long channelId, long messageId) {
             this.channelId = channelId;
