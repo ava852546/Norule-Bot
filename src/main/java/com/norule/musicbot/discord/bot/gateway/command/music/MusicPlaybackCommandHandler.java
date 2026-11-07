@@ -106,7 +106,8 @@ public final class MusicPlaybackCommandHandler {
             TextChannel fallback = event.getChannelType() == ChannelType.TEXT
                     ? event.getChannel().asTextChannel()
                     : null;
-            TextChannel panelChannel = mode.modern() ? mode.channel() : fallback;
+            // Preserve the interaction source even in MODERN: access may change during loading/search.
+            TextChannel panelChannel = fallback;
             handlePlaySlashDeferred(event, lang, panelChannel, mode, reply, diagnosticRequest);
         });
     }
@@ -145,7 +146,7 @@ public final class MusicPlaybackCommandHandler {
                             .build(), ActionRow.of(buildSearchMenu(token, results, lang)), message -> {
                         searchRequests.put(token, new SearchRequest(
                                 event.getUser().getIdLong(),
-                                panelChannel == null ? null : panelChannel.getIdLong(),
+                                event.getChannel().getIdLong(),
                                 mode, query, results, Instant.now().plusSeconds(30),
                                 reply, message.getId(), lang));
                         owner.scheduler().schedule(() -> expireSearchMenu(token), 30, TimeUnit.SECONDS);
@@ -300,10 +301,7 @@ public final class MusicPlaybackCommandHandler {
                             queuedBefore,
                             event.getUser().getIdLong()
                     )).setComponents(List.of()).queue();
-                    TextChannel panelChannel = request.channelId == null
-                            ? null
-                            : event.getGuild().getTextChannelById(request.channelId);
-                    panelController.playQueued(event.getGuild(), panelChannel, request.mode,
+                    panelController.playQueued(event.getGuild(), request.channelId, request.mode, "search-selection",
                             error -> request.reply.sendPanelError(panelError(lang, error)));
                     panelController.refreshPanel(event.getGuild().getIdLong());
                 },
@@ -390,7 +388,7 @@ public final class MusicPlaybackCommandHandler {
                         queuedBefore,
                         member.getIdLong()
                 ));
-                panelController.playQueued(guild, panelChannel, mode, panelError);
+                panelController.playQueued(guild, diagnosticRequest.channelId(), mode, diagnosticRequest.source(), panelError);
             }
             panelController.refreshPanel(guild.getIdLong());
         }, query, member.getIdLong(), member.getEffectiveName());

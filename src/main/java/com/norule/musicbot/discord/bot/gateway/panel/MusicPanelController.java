@@ -43,7 +43,7 @@ public final class MusicPanelController {
 
     public boolean isCommandChannelAllowed(Guild guild, long channelId) {
         var mode = modes.resolve(guild);
-        return !mode.modern() || mode.channelId() == channelId;
+        return !mode.modern() || java.util.Objects.equals(mode.channelId(), channelId);
     }
 
     public CompletableFuture<TextChannel> resolveOrCreateCommandChannel(Guild guild, TextChannel fallback) {
@@ -59,6 +59,11 @@ public final class MusicPanelController {
 
     public void playQueued(Guild guild, TextChannel channel) {
         refreshService.playQueued(guild, channel);
+    }
+
+    public void playQueued(Guild guild, Long interactionChannelId, MusicPanelModeResolver.Selection mode,
+                           String source, java.util.function.Consumer<String> onError) {
+        refreshService.playQueued(guild, interactionChannelId, mode, source, onError);
     }
 
     public void initializeGuild(Guild guild) {

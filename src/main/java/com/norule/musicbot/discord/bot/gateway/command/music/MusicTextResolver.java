@@ -136,6 +136,7 @@ public final class MusicTextResolver {
             case "stats_history_count" -> zhCn ? "历史纪录数量" : (zh ? "歷史紀錄數量" : "History Entries");
             case "stats_none" -> zhCn ? "暂无资料" : (zh ? "暫無資料" : "No data");
             case "panel_operation_superseded" -> zhCn ? "\u97f3\u4e50\u9762\u677f\u8bbe\u7f6e\u5df2\u5728\u64cd\u4f5c\u671f\u95f4\u66f4\u6539\uff0c\u8bf7\u91cd\u8bd5\u3002" : (zh ? "\u97f3\u6a02\u9762\u677f\u8a2d\u5b9a\u5df2\u5728\u64cd\u4f5c\u671f\u9593\u8b8a\u66f4\uff0c\u8acb\u91cd\u8a66\u3002" : "Music panel settings changed while this operation was running. Please try again.");
+            case "panel_target_unavailable" -> zhCn ? "\u97f3\u4e50\u9762\u677f\u76ee\u6807\u9891\u9053\u4e0d\u53ef\u7528\uff0c\u8bf7\u5728\u6709\u6548\u7684\u6587\u5b57\u9891\u9053\u91cd\u8bd5\u6216\u68c0\u67e5 /settings\u3002" : (zh ? "\u97f3\u6a02\u9762\u677f\u76ee\u6a19\u983b\u9053\u7121\u6cd5\u4f7f\u7528\uff0c\u8acb\u5728\u6709\u6548\u7684\u6587\u5b57\u983b\u9053\u91cd\u8a66\u6216\u6aa2\u67e5 /settings\u3002" : "The music panel target channel is unavailable. Retry in a valid text channel or check /settings.");
             default -> key;
         };
         for (Map.Entry<String, String> entry : placeholders.entrySet()) {

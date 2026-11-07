@@ -19,6 +19,9 @@ public final class MusicPanelModeResolver {
     private final GuildSettingsService settings;
     private final Map<Long, Selection> selections = new ConcurrentHashMap<>();
 
+    // channelId is the nullable configured ID, not the resolved playback target.
+    // null means NOT_CONFIGURED (or an unset ID in explicit LEGACY); missing/access-denied
+    // configured channels retain their ID and are distinguished by reason and effective mode.
     public record Selection(MusicPanelMode configured, MusicPanelMode effective,
                             Long channelId, TextChannel channel, String reason) {
         public boolean modern() { return effective == MusicPanelMode.MODERN; }

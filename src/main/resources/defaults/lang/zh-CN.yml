@@ -106,6 +106,7 @@ music:
   panel_text_channel_only: "音乐面板只能创建在文字频道。"
   panel_ready: "音乐控制面板已在 {channel} 创建或更新。"
   panel_update_failed: "更新音乐面板失败：{error}"
+  panel_target_unavailable: "音乐面板目标频道不可用，请在有效的文字频道重试或检查 /settings。"
   panel_operation_superseded: "音乐面板设置已在操作期间更改，请重试。"
   panel_playback_error: "播放错误"
   panel_current: "当前播放"
