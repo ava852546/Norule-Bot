@@ -48,6 +48,11 @@ public final class MusicPanelController {
                 : MusicPanelModeResolver.usable(fallback) ? fallback : null);
     }
 
+    public void playQueued(Guild guild, TextChannel channel, MusicPanelModeResolver.Selection mode,
+                           java.util.function.Consumer<String> onError) {
+        refreshService.playQueued(guild, channel, mode, onError);
+    }
+
     public void playQueued(Guild guild, TextChannel channel) {
         refreshService.playQueued(guild, channel);
     }

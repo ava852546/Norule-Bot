@@ -204,6 +204,57 @@ class MusicPanelModeTest {
     }
 
     @Test
+    void deletedAutomaticAndManualModernBindingsDoNotBlockLegacyCreation() {
+        // The automatic provisioner and /settings both persist the command channel ID.
+        for (long configuredChannel : List.of(10L, 20L)) {
+            var settings = settings();
+            settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(configuredChannel)));
+            var fixture = new Discord();
+            fixture.channelExists = false;
+            var modes = new MusicPanelModeResolver(settings);
+            assertTrue(modes.resolve(fixture.guild).fallback());
+            AtomicInteger creates = new AtomicInteger();
+            MusicPanelRefreshService.releasePanelForReplacement(fixture.guild,
+                    new MusicPanelStateStore.PanelRef(configuredChannel, 100), modes)
+                    .thenAccept(released -> { if (released) creates.incrementAndGet(); }).join();
+            assertEquals(1, creates.get());
+            assertEquals(0, fixture.retrieves);
+            assertEquals(0, fixture.deletes);
+            assertEquals(configuredChannel, settings.getMusic(1).getCommandChannelId());
+            assertEquals(MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
+        }
+    }
+
+    @Test
+    void inaccessibleModernPanelIsPreservedDuringFallbackAndRecoversWithoutDeletion() {
+        var settings = settings();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+        var fixture = new Discord();
+        fixture.accessible = false;
+        var modes = new MusicPanelModeResolver(settings);
+        assertTrue(MusicPanelRefreshService.releasePanelForReplacement(fixture.guild,
+                new MusicPanelStateStore.PanelRef(10, 100), modes).join());
+        assertEquals(0, fixture.retrieves);
+        assertEquals(0, fixture.deletes);
+        fixture.accessible = true;
+        assertTrue(modes.resolve(fixture.guild).modern());
+    }
+
+    @Test
+    void fallbackStillWaitsForDeletionOfTheOldLegacyPanel() {
+        var settings = settings();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(20L)));
+        var fixture = new Discord();
+        var replacement = MusicPanelRefreshService.releasePanelForReplacement(fixture.guild,
+                new MusicPanelStateStore.PanelRef(10, 100), new MusicPanelModeResolver(settings));
+        assertFalse(replacement.isDone());
+        assertEquals(1, fixture.retrieves);
+        assertEquals(1, fixture.deletes);
+        fixture.deleteResult.complete(null);
+        assertTrue(replacement.join());
+    }
+
+    @Test
     void unknownMessageClassificationPreservesJdaResponseWithAnUnderlyingCause() {
         var failure = ErrorResponseException.create(ErrorResponse.UNKNOWN_MESSAGE,
                 new Response(new IOException("transport context"), Set.of()));
@@ -250,6 +301,7 @@ class MusicPanelModeTest {
         long authorId = 1000;
         int channelReads;
         int deletes;
+        int retrieves;
         Throwable retrieveFailure;
         final CompletableFuture<Void> deleteResult = new CompletableFuture<>();
         final SelfMember self = proxy(SelfMember.class, (o, m, a) -> switch (m.getName()) {
@@ -269,12 +321,15 @@ class MusicPanelModeTest {
         final TextChannel channel = proxy(TextChannel.class, (o, m, a) -> switch (m.getName()) {
             case "getIdLong" -> 10L;
             case "getGuild" -> guild;
-            case "retrieveMessageById" -> Proxy.newProxyInstance(m.getReturnType().getClassLoader(),
+            case "retrieveMessageById" -> {
+                retrieves++;
+                yield Proxy.newProxyInstance(m.getReturnType().getClassLoader(),
                     new Class<?>[]{m.getReturnType()}, (action, method, arguments) -> {
                         assertEquals("submit", method.getName());
                         return retrieveFailure == null ? CompletableFuture.completedFuture(message())
                                 : CompletableFuture.failedFuture(retrieveFailure);
                     });
+            }
             default -> throw new UnsupportedOperationException(m.getName());
         });
 

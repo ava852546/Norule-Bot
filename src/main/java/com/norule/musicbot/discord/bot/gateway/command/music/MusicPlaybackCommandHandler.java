@@ -3,6 +3,8 @@ package com.norule.musicbot.discord.bot.gateway.command.music;
 import com.norule.musicbot.domain.music.MusicDiagnostics.Event;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
+import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver;
+import java.util.function.Consumer;
 import com.norule.musicbot.discord.bot.gateway.panel.RefreshReason;
 import com.norule.musicbot.domain.music.AudioInputNormalizer;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
@@ -98,18 +100,19 @@ public final class MusicPlaybackCommandHandler {
     public void handlePlaySlash(SlashCommandInteractionEvent event, String lang) {
         var diagnosticRequest = owner.musicService().recordDiagnosticRequest(event.getGuild().getIdLong(), event.getChannel().getIdLong(),
                 event.getUser().getIdLong(), "/play", "RECEIVED");
-        MusicPlayReply.acknowledge(event, panelController.panelMode(event.getGuild()),
+        var mode = panelController.panelMode(event.getGuild());
+        MusicPlayReply.acknowledge(event, mode,
                 () -> MusicPlayReply.fallbackNotice(key -> owner.musicText(lang, key)), reply -> {
             TextChannel fallback = event.getChannelType() == ChannelType.TEXT
                     ? event.getChannel().asTextChannel()
                     : null;
-            panelController.resolveOrCreateCommandChannel(event.getGuild(), fallback)
-                    .thenAccept(panelChannel -> handlePlaySlashDeferred(event, lang, panelChannel, reply, diagnosticRequest));
+            TextChannel panelChannel = mode.modern() ? mode.channel() : fallback;
+            handlePlaySlashDeferred(event, lang, panelChannel, mode, reply, diagnosticRequest);
         });
     }
 
     private void handlePlaySlashDeferred(SlashCommandInteractionEvent event, String lang, TextChannel panelChannel,
-                                         MusicPlayReply reply, Event diagnosticRequest) {
+                                         MusicPanelModeResolver.Selection mode, MusicPlayReply reply, Event diagnosticRequest) {
         String query = getPlayQuery(event);
         if (query.isBlank()) {
             owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
@@ -122,7 +125,7 @@ public final class MusicPlaybackCommandHandler {
                     event.getMember(),
                     query,
                     reply::sendText,
-                    panelChannel, diagnosticRequest
+                    panelChannel, diagnosticRequest, mode, error -> reply.sendPanelError(panelError(lang, error))
             );
             return;
         }
@@ -143,7 +146,7 @@ public final class MusicPlaybackCommandHandler {
                         searchRequests.put(token, new SearchRequest(
                                 event.getUser().getIdLong(),
                                 panelChannel == null ? null : panelChannel.getIdLong(),
-                                query, results, Instant.now().plusSeconds(30),
+                                mode, query, results, Instant.now().plusSeconds(30),
                                 reply, message.getId(), lang));
                         owner.scheduler().schedule(() -> expireSearchMenu(token), 30, TimeUnit.SECONDS);
                     });
@@ -192,7 +195,8 @@ public final class MusicPlaybackCommandHandler {
                     event.getMember(),
                     arg,
                     text -> event.getChannel().sendMessage(text).queue(),
-                    event.getChannel().asTextChannel(), diagnosticRequest
+                    event.getChannel().asTextChannel(), diagnosticRequest, panelController.panelMode(guild),
+                    error -> org.slf4j.LoggerFactory.getLogger(MusicPlaybackCommandHandler.class).warn("Music panel failed: {}", error)
             );
             case "skip" -> handleSkip(guild,
                     text -> event.getChannel().sendMessage(text)
@@ -299,9 +303,8 @@ public final class MusicPlaybackCommandHandler {
                     TextChannel panelChannel = request.channelId == null
                             ? null
                             : event.getGuild().getTextChannelById(request.channelId);
-                    if (panelChannel != null) {
-                        panelController.playQueued(event.getGuild(), panelChannel);
-                    }
+                    panelController.playQueued(event.getGuild(), panelChannel, request.mode,
+                            error -> request.reply.sendPanelError(panelError(lang, error)));
                     panelController.refreshPanel(event.getGuild().getIdLong());
                 },
                 event.getUser().getIdLong(),
@@ -334,7 +337,8 @@ public final class MusicPlaybackCommandHandler {
                 });
     }
 
-    private void directPlay(Guild guild, Member member, String query, MusicCommandService.TextSink sink, TextChannel panelChannel, Event diagnosticRequest) {
+    private void directPlay(Guild guild, Member member, String query, MusicCommandService.TextSink sink, TextChannel panelChannel, Event diagnosticRequest,
+                            MusicPanelModeResolver.Selection mode, Consumer<String> panelError) {
         String lang = owner.lang(guild.getIdLong());
         if (query == null || query.isBlank()) {
             owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
@@ -386,12 +390,14 @@ public final class MusicPlaybackCommandHandler {
                         queuedBefore,
                         member.getIdLong()
                 ));
-                if (panelChannel != null) {
-                    panelController.playQueued(guild, panelChannel);
-                }
+                panelController.playQueued(guild, panelChannel, mode, panelError);
             }
             panelController.refreshPanel(guild.getIdLong());
         }, query, member.getIdLong(), member.getEffectiveName());
+    }
+
+    private String panelError(String lang, String error) {
+        return owner.musicText(lang, "panel_update_failed", Map.of("error", error));
     }
 
     private String playbackSuccessText(Guild guild,
@@ -578,6 +584,7 @@ public final class MusicPlaybackCommandHandler {
     private static class SearchRequest {
         private final long requestUserId;
         private final Long channelId;
+        private final MusicPanelModeResolver.Selection mode;
         private final String query;
         private final List<AudioTrack> results;
         private final Instant expiresAt;
@@ -587,6 +594,7 @@ public final class MusicPlaybackCommandHandler {
 
         SearchRequest(long requestUserId,
                       Long channelId,
+                      MusicPanelModeResolver.Selection mode,
                       String query,
                       List<AudioTrack> results,
                       Instant expiresAt,
@@ -595,6 +603,7 @@ public final class MusicPlaybackCommandHandler {
                       String lang) {
             this.requestUserId = requestUserId;
             this.channelId = channelId;
+            this.mode = mode;
             this.query = query;
             this.results = results;
             this.expiresAt = expiresAt;

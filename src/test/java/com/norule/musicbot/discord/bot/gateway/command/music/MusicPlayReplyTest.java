@@ -45,6 +45,19 @@ class MusicPlayReplyTest {
     }
 
     @Test
+    void panelFailureIsAnIndependentEphemeralFollowupAfterPlaybackSuccess() {
+        var discord = new Discord();
+        var reply = discord.start(FALLBACK);
+        discord.finishAck();
+        reply.get().sendText("Started");
+        reply.get().sendPanelError("Panel unavailable");
+        assertEquals(Map.of("original", WARNING, "followup-1", "Started", "followup-2", "Panel unavailable"),
+                discord.messages);
+        assertTrue(discord.ephemeral.values().stream().allMatch(Boolean::booleanValue));
+        assertEquals(0, discord.originalEdits);
+    }
+
+    @Test
     void searchAndExpiryEditTheFollowupIdAndRetainTheWarning() {
         var discord = new Discord();
         var reply = discord.start(FALLBACK);

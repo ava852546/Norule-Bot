@@ -52,6 +52,11 @@ final class MusicPlayReply {
         }
     }
 
+    void sendPanelError(String text) {
+        hook.sendMessage(text).setEphemeral(true).queue(ignored -> {}, failure ->
+                org.slf4j.LoggerFactory.getLogger(MusicPlayReply.class).debug("Music panel feedback failed", failure));
+    }
+
     void sendSearch(MessageEmbed embed, ActionRow menu, Consumer<Message> success) {
         if (followup) {
             hook.sendMessageEmbeds(embed).setComponents(menu).setEphemeral(true).queue(success);
