@@ -8,14 +8,14 @@ class MusicPanelProgressRefreshTest {
     @Test
     void periodicProgressCannotRunBeforeTheConfiguredInterval() {
         long lastSuccess = 10_000L;
-        assertFalse(MusicPanelRefreshService.progressRefreshDue(true, lastSuccess, 39_999L, 30_000L));
-        assertTrue(MusicPanelRefreshService.progressRefreshDue(true, lastSuccess, 40_000L, 30_000L));
-        assertFalse(MusicPanelRefreshService.progressRefreshDue(true, 40_000L, 40_750L, 30_000L));
-        assertFalse(MusicPanelRefreshService.progressRefreshDue(true, lastSuccess, 40_000L, 60_000L));
+        assertFalse(MusicPanelRefreshService.progressRefreshDue(true, lastSuccess, 17_999L, 8_000L));
+        assertTrue(MusicPanelRefreshService.progressRefreshDue(true, lastSuccess, 18_000L, 8_000L));
+        assertFalse(MusicPanelRefreshService.progressRefreshDue(true, 18_000L, 18_750L, 8_000L));
+        assertFalse(MusicPanelRefreshService.progressRefreshDue(true, lastSuccess, 18_000L, 10_000L));
     }
 
     @Test
     void inactiveGuildNeverRequestsProgressEvenAfterLongIdle() {
-        assertFalse(MusicPanelRefreshService.progressRefreshDue(false, 0L, 600_000L, 30_000L));
+        assertFalse(MusicPanelRefreshService.progressRefreshDue(false, 0L, 600_000L, 8_000L));
     }
 }

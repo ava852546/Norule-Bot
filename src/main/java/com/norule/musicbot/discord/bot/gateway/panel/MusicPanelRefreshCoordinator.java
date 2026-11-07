@@ -20,7 +20,7 @@ import java.util.function.LongSupplier;
 /** Per-guild bounded pending work. JDA owns rate limiting for the single submitted edit. */
 public final class MusicPanelRefreshCoordinator implements AutoCloseable {
     public static final long DEBOUNCE_MILLIS = 750L;
-    public static final long MIN_UPDATE_INTERVAL_MILLIS = 3_000L;
+    public static final long MIN_UPDATE_INTERVAL_MILLIS = 1_000L;
     private static final Logger LOGGER = LoggerFactory.getLogger(MusicPanelRefreshCoordinator.class);
     private final Map<Long, RefreshState> states = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler;
@@ -56,9 +56,14 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
                 if (coalesced) state.coalescedCount++;
                 if (reason.highPriority()) {
                     state.pending.removeIf(pending -> !pending.highPriority());
+                    if (state.backgroundTask && state.task != null) {
+                        state.task.cancel(false);
+                        state.task = null;
+                    }
                 } else if (state.pending.stream().anyMatch(RefreshReason::highPriority)) {
                     return;
                 }
+                if (state.pending.isEmpty()) state.requestedAt = nanoTime.getAsLong();
                 state.pending.add(reason);
                 if (coalesced) {
                     LOGGER.debug("[NoRule] Music panel refresh coalesced: guildId={} reason={} pendingReasons={}",
@@ -99,8 +104,14 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
                 long remaining = state.submitted
                         ? TimeUnit.NANOSECONDS.toMillis(Math.max(0, state.nextSubmission - nanoTime.getAsLong())
                                 + TimeUnit.MILLISECONDS.toNanos(1) - 1) : 0;
-                state.task = scheduler.schedule(() -> drain(guildId, state),
-                        Math.max(DEBOUNCE_MILLIS, remaining), TimeUnit.MILLISECONDS);
+                // Stable per-guild staggering; foreground events retain the short debounce.
+                state.backgroundTask = state.manual.isEmpty()
+                        && state.pending.equals(EnumSet.of(RefreshReason.PERIODIC_REFRESH));
+                long debounce = DEBOUNCE_MILLIS + (state.backgroundTask
+                        ? Math.floorMod(Long.hashCode(guildId), 251) : 0);
+                long taskVersion = ++state.taskVersion;
+                state.task = scheduler.schedule(() -> drain(guildId, state, taskVersion),
+                        Math.max(debounce, remaining), TimeUnit.MILLISECONDS);
             } catch (RejectedExecutionException failure) {
                 state.manual.forEach(work -> work.result().completeExceptionally(failure));
                 state.manual.clear();
@@ -111,17 +122,23 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
         }
     }
 
-    private void drain(long guildId, RefreshState state) {
+    private void drain(long guildId, RefreshState state, long taskVersion) {
         Set<RefreshReason> reasons;
         long generation;
         synchronized (state) {
-            if (closed || states.get(guildId) != state) {
+            if (closed || states.get(guildId) != state || state.taskVersion != taskVersion) {
                 return;
             }
             state.task = null;
             state.inFlight = true;
             state.activeManual = state.manual.poll();
             reasons = state.activeManual == null ? Set.copyOf(state.pending) : Set.of(RefreshReason.MANUAL);
+            state.activeReasons = reasons;
+            state.startedAt = nanoTime.getAsLong();
+            state.activeRequestedAt = state.activeManual == null ? state.requestedAt : state.startedAt;
+            state.lastScheduleWaitMs = TimeUnit.NANOSECONDS.toMillis(state.startedAt - state.activeRequestedAt);
+            state.admitted = false;
+            state.lastAdmissionWaitMs = 0;
             if (state.activeManual == null) {
                 state.pending.clear();
             }
@@ -151,6 +168,7 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
             }
             try {
                 if (update.sameContent(state.lastSent)) {
+                    state.unchangedCount++;
                     LOGGER.debug("[NoRule] Music panel refresh skipped: guildId={} reason=UNCHANGED", guildId);
                     finish(guildId, state, generation, null, null);
                     return;
@@ -158,6 +176,7 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
                 LOGGER.debug("[NoRule] Music panel PATCH: guildId={} channelId={} messageId={} reason={}",
                         guildId, update.channelId(), update.messageId(), reasons);
                 state.submitted = true;
+                state.sentCount++;
                 state.nextSubmission = nanoTime.getAsLong() + TimeUnit.MILLISECONDS.toNanos(MIN_UPDATE_INTERVAL_MILLIS);
                 state.deliveryVersion = state.contentVersion;
                 delivery = update.send().get();
@@ -171,6 +190,17 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
 
     private void finish(long guildId, RefreshState state, long generation, Update update, Throwable failure) {
         synchronized (state) {
+            long now = nanoTime.getAsLong();
+            state.lastTotalMs = TimeUnit.NANOSECONDS.toMillis(now - state.activeRequestedAt);
+            state.lastRestMs = state.admitted ? TimeUnit.NANOSECONDS.toMillis(now - state.admittedAt) : 0;
+            if (state.lastTotalMs > 5_000 && (!state.slowLogged
+                    || now - state.lastSlowLogAt >= TimeUnit.MINUTES.toNanos(1))) {
+                LOGGER.warn("[NoRule] panel.refresh.slow guildId={} reasons={} scheduleWaitMs={} admissionWaitMs={} restMs={} totalMs={}",
+                        guildId, state.activeReasons, state.lastScheduleWaitMs, state.lastAdmissionWaitMs,
+                        state.lastRestMs, state.lastTotalMs);
+                state.slowLogged = true;
+                state.lastSlowLogAt = now;
+            }
             if (failure != null) {
                 LOGGER.debug("[NoRule] panel.refresh.failed guildId={}", guildId, failure);
             } else if (update != null && generation == state.generation && !closed
@@ -241,6 +271,7 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
             if (state.task != null) {
                 state.task.cancel(false);
                 state.task = null;
+                state.taskVersion++;
             }
             // Retain the flight barrier until JDA completes, even across panel replacement.
             if (!state.inFlight) {
@@ -262,7 +293,11 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
         if (state == null) return "pendingRefresh=false inFlight=false coalescedCount=0";
         synchronized (state) {
             return "pendingRefresh=" + (!state.pending.isEmpty() || !state.manual.isEmpty())
-                    + " inFlight=" + state.inFlight + " coalescedCount=" + state.coalescedCount;
+                    + " inFlight=" + state.inFlight + " coalescedCount=" + state.coalescedCount
+                    + " sentCount=" + state.sentCount + " unchangedCount=" + state.unchangedCount
+                    + " route429Count=" + state.rateLimitedCount + " reasons=" + state.activeReasons
+                    + " scheduleWaitMs=" + state.lastScheduleWaitMs + " admissionWaitMs=" + state.lastAdmissionWaitMs
+                    + " restMs=" + state.lastRestMs + " totalMs=" + state.lastTotalMs;
         }
     }
 
@@ -279,8 +314,20 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
         if (state != null) {
             synchronized (state) {
                 state.submitted = true;
+                state.admitted = true;
+                state.admittedAt = nanoTime.getAsLong();
+                state.lastAdmissionWaitMs = TimeUnit.NANOSECONDS.toMillis(state.admittedAt - state.startedAt);
                 state.nextSubmission = nanoTime.getAsLong()
                         + TimeUnit.MILLISECONDS.toNanos(MIN_UPDATE_INTERVAL_MILLIS);
+            }
+        }
+    }
+
+    void observeRateLimit(long guildId) {
+        RefreshState state = states.get(guildId);
+        if (state != null) {
+            synchronized (state) {
+                state.rateLimitedCount++;
             }
         }
     }
@@ -313,6 +360,8 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
         private ManualWork activeManual;
         private final EnumSet<RefreshReason> pending = EnumSet.noneOf(RefreshReason.class);
         private ScheduledFuture<?> task;
+        private long taskVersion;
+        private boolean backgroundTask;
         private boolean inFlight;
         private long generation;
         private boolean submitted;
@@ -320,6 +369,21 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
         private long contentVersion;
         private long deliveryVersion;
         private long coalescedCount;
+        private long requestedAt;
+        private long activeRequestedAt;
+        private long startedAt;
+        private long admittedAt;
+        private boolean admitted;
+        private long lastScheduleWaitMs;
+        private long lastAdmissionWaitMs;
+        private long lastRestMs;
+        private long lastTotalMs;
+        private long sentCount;
+        private long unchangedCount;
+        private long rateLimitedCount;
+        private Set<RefreshReason> activeReasons = Set.of();
+        private boolean slowLogged;
+        private long lastSlowLogAt;
         private Update lastSent;
     }
 

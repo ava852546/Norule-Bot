@@ -35,7 +35,7 @@ class DiscordRateLimitInterceptorTest {
     }
     @ParameterizedTest
     @ValueSource(strings = {"global", "shared", "user"})
-    void actual429PausesNewMaintenanceAndResumesWithoutRetryingOrConsumingBody(String scope) throws Exception {
+    void onlyGlobal429PausesUnrelatedMaintenanceWithoutRetryingOrConsumingBody(String scope) throws Exception {
         try (var clock = new DiscordBackgroundRestQueueTest.VirtualScheduler();
              var queue = new DiscordBackgroundRestQueue(clock, clock::nanos)) {
             var interceptor = new DiscordRateLimitInterceptor(queue);
@@ -51,7 +51,7 @@ class DiscordRateLimitInterceptorTest {
                 return CompletableFuture.completedFuture(null);
             });
             clock.advance(2124);
-            assertEquals(0, starts.get());
+            assertEquals(scope.equals("global") ? 0 : 1, starts.get());
             clock.advance(1);
             assertEquals(1, starts.get());
             clock.advance(60_000);

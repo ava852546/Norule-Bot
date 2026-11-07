@@ -143,7 +143,7 @@ public class MusicCommandService extends ListenerAdapter {
     private final PlaybackFailureNotifier playbackFailureNotifier;
     private final HelpViewRenderer helpViewRenderer;
     private final AtomicBoolean botReadyForSlashCommands = new AtomicBoolean(false);
-    private static final long PANEL_PERIODIC_REFRESH_MS = 30_000L;
+    private static final long PANEL_PERIODIC_REFRESH_MS = 8_000L;
 
     @SuppressWarnings("java:S107")
     public MusicCommandService(MusicPlayerService musicService,
@@ -191,7 +191,8 @@ public class MusicCommandService extends ListenerAdapter {
         this.commandCooldownService = new CommandCooldownService(() -> this.runtimeConfig.get());
         this.transientStateCleanupService = new TransientStateCleanupService(this, this.commandCooldownService);
         this.prefixCommandRouter = new PrefixCommandRouter(this, this.commandCooldownService);
-        this.scheduler.scheduleAtFixedRate(this::refreshAllPanelsSafely, 5, PANEL_PERIODIC_REFRESH_MS / 1000L, TimeUnit.SECONDS);
+        // Scan independently of the progress interval so a just-missed deadline costs at most one second.
+        this.scheduler.scheduleAtFixedRate(this::refreshAllPanelsSafely, 5, 1, TimeUnit.SECONDS);
         this.scheduler.scheduleAtFixedRate(this.transientStateCleanupService::runSafely, 1, 1, TimeUnit.MINUTES);
     }
 

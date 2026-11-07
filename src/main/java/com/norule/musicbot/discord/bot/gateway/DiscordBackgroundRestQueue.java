@@ -52,7 +52,7 @@ public final class DiscordBackgroundRestQueue implements AutoCloseable {
         return work.result;
     }
 
-    /** Conservatively pause optional maintenance for any scope; foreground REST remains with JDA. */
+    /** Pause optional maintenance for global limits; foreground REST remains with JDA. */
     public synchronized void pause(long retryAfterMs) {
         pausedUntil = Math.max(pausedUntil, nanoTime.getAsLong()
                 + TimeUnit.MILLISECONDS.toNanos(Math.max(1000, retryAfterMs)));

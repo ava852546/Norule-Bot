@@ -498,7 +498,7 @@ public final class MusicPanelRefreshService {
             // A cache miss during an outage is not evidence that the bot left the guild.
             return;
         }
-        if (progressRefreshDue(isProgressActive(guild), stateStore.getLastRefreshAt(guildId),
+        if (!coordinator.hasPending(guildId) && progressRefreshDue(isProgressActive(guild), stateStore.getLastRefreshAt(guildId),
                 System.currentTimeMillis(), panelPeriodicRefreshMs)) {
             requestRefresh(guildId, RefreshReason.PERIODIC_REFRESH);
         }
@@ -863,6 +863,7 @@ public final class MusicPanelRefreshService {
         stateStore.panelRefs().forEach((guildId, ref) -> {
             if (path.equals("/channels/" + Long.toUnsignedString(ref.channelId) + "/messages/" + Long.toUnsignedString(ref.messageId))) {
                 stateStore.recordDiagnosticError(guildId, "PANEL_ROUTE_429");
+                coordinator.observeRateLimit(guildId);
             }
         });
     }

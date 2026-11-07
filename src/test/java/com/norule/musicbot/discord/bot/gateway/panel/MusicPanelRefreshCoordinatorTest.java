@@ -208,6 +208,58 @@ class MusicPanelRefreshCoordinatorTest {
     }
 
     @Test
+    void progressSweepUpdatesWithinTenSecondsAndStopsWhenPaused() {
+        var lastSuccess = new java.util.concurrent.atomic.AtomicLong();
+        var paused = new java.util.concurrent.atomic.AtomicBoolean();
+        var deliveries = new ArrayList<Long>();
+        try (var refresh = new MusicPanelRefreshCoordinator(scheduler, (guild, reasons) ->
+                CompletableFuture.completedFuture(new MusicPanelRefreshCoordinator.Update(10, 100,
+                        snapshot("position " + scheduler.nanos()), () -> {
+                            deliveries.add(TimeUnit.NANOSECONDS.toMillis(scheduler.nanos()));
+                            lastSuccess.set(deliveries.getLast());
+                            return CompletableFuture.completedFuture(null);
+                        })), scheduler::nanos)) {
+            for (int second = 1; second <= 40; second++) {
+                scheduler.advance(1_000);
+                long now = TimeUnit.NANOSECONDS.toMillis(scheduler.nanos());
+                if (!refresh.hasPending(1) && MusicPanelRefreshService.progressRefreshDue(
+                        !paused.get(), lastSuccess.get(), now, 8_000)) {
+                    refresh.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+                }
+            }
+            assertEquals(List.of(9_000L, 18_000L, 27_000L, 36_000L), deliveries);
+            paused.set(true);
+            for (int second = 0; second < 60; second++) {
+                scheduler.advance(1_000);
+                assertFalse(MusicPanelRefreshService.progressRefreshDue(!paused.get(), lastSuccess.get(),
+                        TimeUnit.NANOSECONDS.toMillis(scheduler.nanos()), 8_000));
+            }
+            assertEquals(4, deliveries.size());
+        }
+    }
+
+    @Test
+    void foregroundEventAfterProgressIsDeliveredWithinOneSecondAndMetricsAreAvailable() {
+        requestAndDrain(1);
+        coordinator.submitted(1);
+        flights.getFirst().complete(null);
+        content = "new song";
+        coordinator.requestRefresh(1, RefreshReason.TRACK_START);
+        scheduler.advance(999);
+        assertEquals(1, sent.size());
+        scheduler.advance(1);
+        assertEquals("1:new song", sent.getLast());
+        coordinator.submitted(1);
+        coordinator.observeRateLimit(1);
+        scheduler.advance(2_000);
+        flights.getLast().complete(null);
+        assertTrue(coordinator.diagnostics(1).contains("route429Count=1"));
+        assertTrue(coordinator.diagnostics(1).contains("restMs=2000 totalMs=3000"));
+        requestAndDrain(1);
+        assertTrue(coordinator.diagnostics(1).contains("unchangedCount=1"));
+    }
+
+    @Test
     void manualCommandWaitsForAutomaticPatchAndReportsActualDelivery() {
         requestAndDrain(1);
         var delivery = new CompletableFuture<Void>();
@@ -274,7 +326,7 @@ class MusicPanelRefreshCoordinatorTest {
     }
 
     @Test
-    void continuousChangesRespectThreeSecondIntervalAndEventuallyShowLatestState() {
+    void continuousChangesRespectOneSecondIntervalAndEventuallyShowLatestState() {
         coordinator.requestRefresh(1, RefreshReason.TRACK_START);
         scheduler.advance(750);
         flights.getLast().complete(null);
@@ -286,7 +338,7 @@ class MusicPanelRefreshCoordinatorTest {
         }
         scheduler.advance(3_000);
         flights.getLast().complete(null);
-        assertEquals(4, sent.size());
+        assertEquals(10, sent.size());
         assertEquals("1:track 9", sent.getLast());
         assertEquals(0, scheduler.pending());
     }
@@ -302,7 +354,7 @@ class MusicPanelRefreshCoordinatorTest {
         assertEquals(1, sent.size());
         content = "track C";
         coordinator.requestRefresh(1, RefreshReason.QUEUE_CHANGED);
-        scheduler.advance(2_249);
+        scheduler.advance(249);
         assertEquals(1, sent.size());
         scheduler.advance(1);
         assertEquals(List.of("1:volume 30", "1:track C"), sent);
@@ -338,6 +390,19 @@ class MusicPanelRefreshCoordinatorTest {
     }
 
     @Test
+    void cancelledProgressTaskAlreadyWakingCannotDrainForegroundWorkTwice() {
+        coordinator.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+        Runnable wakingProgress = scheduler.latestCommand;
+        coordinator.requestRefresh(1, RefreshReason.PAUSE);
+        // cancel(false) cannot prevent a runnable already waiting for the state lock.
+        wakingProgress.run();
+        assertTrue(sent.isEmpty());
+        scheduler.advance(750);
+        assertEquals(1, sent.size());
+        assertEquals(Set.of(RefreshReason.PAUSE), renderedReasons);
+    }
+
+    @Test
     void failedFirstEditStillThrottlesSubsequentEventsWithoutAutomaticRetry() {
         coordinator.requestRefresh(1, RefreshReason.MANUAL);
         scheduler.advance(750);
@@ -345,7 +410,7 @@ class MusicPanelRefreshCoordinatorTest {
         coordinator.requestRefresh(1, RefreshReason.MANUAL);
         scheduler.advance(750);
         assertEquals(1, sent.size());
-        scheduler.advance(2_250);
+        scheduler.advance(250);
         assertEquals(2, sent.size());
     }
 
@@ -369,7 +434,7 @@ class MusicPanelRefreshCoordinatorTest {
         content = "latest";
         coordinator.requestRefresh(1, RefreshReason.TRACK_START);
         flights.getFirst().complete(null);
-        scheduler.advance(2_999);
+        scheduler.advance(999);
         assertEquals(1, sent.size());
         scheduler.advance(1);
         assertEquals(List.of("1:volume 30", "1:latest"), sent);
@@ -382,7 +447,7 @@ class MusicPanelRefreshCoordinatorTest {
         coordinator.requestRefresh(1, RefreshReason.PLAY_ADDED);
         scheduler.advance(750);
         assertTrue(sent.isEmpty());
-        scheduler.advance(2_250);
+        scheduler.advance(250);
         assertEquals(List.of("1:new song"), sent);
     }
 
@@ -419,8 +484,8 @@ class MusicPanelRefreshCoordinatorTest {
                              })), scheduler::nanos)) {
             background.pause(60_000);
             refresh.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
-            now.addAndGet(TimeUnit.MILLISECONDS.toNanos(750));
-            scheduler.advance(750);
+            now.addAndGet(TimeUnit.MILLISECONDS.toNanos(1_000));
+            scheduler.advance(1_000);
             assertEquals(1, background.pendingCount());
             // The same cancellation/admission sequence used by MusicPanelRefreshService.
             background.cancelPending("music-panel:1");
@@ -437,6 +502,7 @@ class MusicPanelRefreshCoordinatorTest {
     static final class ManualScheduler extends ScheduledThreadPoolExecutor {
         private final List<Task> tasks = new ArrayList<>();
         private long now;
+        private Runnable latestCommand;
 
         ManualScheduler() {
             super(1);
@@ -448,6 +514,7 @@ class MusicPanelRefreshCoordinatorTest {
 
         @Override
         public synchronized ScheduledFuture<?> schedule(Runnable command, long delay, TimeUnit unit) {
+            latestCommand = command;
             Task task = new Task(command, now + unit.toMillis(delay));
             tasks.add(task);
             return task;

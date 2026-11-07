@@ -71,11 +71,21 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
             source = SOURCES.get(key);
             attempt = source == null ? 0 : ++source.attempts;
         }
+        long startedAt = System.nanoTime();
         Response response = chain.proceed(request);
+        long httpMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+        if (source != null && "MUSIC_PANEL_REFRESH".equals(source.feature)) {
+            LOGGER.debug("[NoRule] panel.http attempt={} queueWaitMs={} httpMs={} status={}", attemptId,
+                    TimeUnit.NANOSECONDS.toMillis(startedAt - source.createdAt), httpMillis, response.code());
+        }
         if (response.code() == 429) {
             long retryMs = retryAfterMillis(response);
             // Admission only: JDA owns global/shared/user bucket handling and all HTTP retries.
-            background.pause(retryMs);
+            boolean global = "true".equalsIgnoreCase(response.header("X-RateLimit-Global"))
+                    || "global".equalsIgnoreCase(response.header("X-RateLimit-Scope"))
+                    || body(response).getBoolean("global", false);
+            // Route/resource limits must not freeze unrelated guilds. JDA still retries that bucket.
+            if (global) background.pause(retryMs);
             log(response, path, source, attempt, attemptId, retryMs);
             try {
                 rateLimitObserver.accept(request.method(), path);
