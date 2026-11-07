@@ -15,6 +15,7 @@ public final class ComponentIds {
     public static final String SETTINGS_LOGS_MEMBER_MODE_PREFIX = "settings:logs:membermode:";
     public static final String SETTINGS_LOGS_MEMBER_SPLIT_PREFIX = "settings:logs:membersplit:";
     public static final String SETTINGS_MUSIC_SELECT_PREFIX = "settings:music:select:";
+    public static final String SETTINGS_MUSIC_AUTO_LEAVE_STATUS = "settings:music:auto-leave-status";
     public static final String SETTINGS_MUSIC_CHANNEL_PREFIX = "settings:music:channel:";
     public static final String SETTINGS_MUSIC_MODAL_PREFIX = "settings:music:modal:";
     public static final String SETTINGS_LANGUAGE_SELECT_PREFIX = "settings:language:select:";

@@ -182,6 +182,10 @@ button.nr-brand { width: 100%; padding: 1.15rem 1.25rem; border-bottom: 1px soli
 .nr-switch i { position: absolute; top: .2rem; left: .2rem; width: .9rem; height: .9rem; background: var(--nr-ink); transition: transform 120ms ease, background 120ms ease; }
 .nr-toggle-row > input:checked + .nr-switch { background: var(--nr-accent); }
 .nr-toggle-row > input:checked + .nr-switch i { transform: translateX(1.3rem); background: var(--nr-on-accent); }
+.nr-toggle-row.is-disabled { cursor: not-allowed; }
+.nr-toggle-row.is-disabled .nr-toggle-copy strong { color: var(--nr-muted); }
+.nr-toggle-row > input:disabled + .nr-switch { border-color: var(--nr-muted); opacity: .55; }
+.nr-toggle-row > input:checked:disabled + .nr-switch { background: var(--nr-muted); }
 .nr-form-block { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--nr-line); }
 .nr-form-grid { display: grid; gap: 1.25rem 1.5rem; }
 .nr-form-grid.is-two { grid-template-columns: repeat(2,minmax(0,1fr)); }

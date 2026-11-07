@@ -85,6 +85,26 @@
   box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2);
 }
 
+.toggle input[type="checkbox"]:disabled + label {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  cursor: not-allowed;
+  color: #94a3b8;
+}
+
+.toggle input[type="checkbox"]:disabled + label::before {
+  background: #64748b;
+  border-color: #94a3b8;
+  opacity: .55;
+}
+
+.toggle input[type="checkbox"]:disabled + label small {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 400;
+}
+
 @media (max-width: 640px) {
   .toggle label {
     padding-right: 58px;

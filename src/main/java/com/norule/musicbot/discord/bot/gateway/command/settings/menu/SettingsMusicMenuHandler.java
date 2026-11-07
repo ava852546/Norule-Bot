@@ -71,7 +71,7 @@ public final class SettingsMusicMenuHandler {
     public void openMusicMenu(SlashCommandInteractionEvent event, String lang) {
         String token = registerMenuRequest(event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.replyEmbeds(musicMenuEmbed(event.getGuild(), lang, null).build())
-                .addComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)))
+                .addComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)), uiText.autoLeaveStatusRow(lang))
                 .setEphemeral(true)
                 .queue();
     }
@@ -79,7 +79,7 @@ public final class SettingsMusicMenuHandler {
     public void openMusicMenu(StringSelectInteractionEvent event, String lang) {
         String token = registerMenuRequest(event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.editMessageEmbeds(musicMenuEmbed(event.getGuild(), lang, null).build())
-                .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)))
+                .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)), uiText.autoLeaveStatusRow(lang))
                 .queue();
     }
 
@@ -114,7 +114,7 @@ public final class SettingsMusicMenuHandler {
                 owner.settingsService().updateSettings(guildId, settings -> settings.withMusic(settings.getMusic().withPanelMode(mode)));
                 event.editMessageEmbeds(musicMenuEmbed(event.getGuild(), lang, owner.i18nService().t(lang,
                                 MSG_SETTINGS_SAVED, Map.of("key", owner.musicText(lang, "panel_mode_label"), OPTION_VALUE, mode.name()))).build())
-                        .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang))).queue();
+                        .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)), uiText.autoLeaveStatusRow(lang)).queue();
             }
             case "auto-leave-toggle" -> event.reply(owner.i18nService().t(lang, MSG_MENU_EXPIRED)).setEphemeral(true).queue();
             case A_AUTOPLAY_TOGGLE -> {
@@ -126,7 +126,7 @@ public final class SettingsMusicMenuHandler {
                 String changed = owner.i18nService().t(lang, MSG_SETTINGS_SAVED,
                         Map.of("key", owner.i18nService().t(lang, K_AUTOPLAY_ENABLED), OPTION_VALUE, owner.boolText(lang, value)));
                 event.editMessageEmbeds(musicMenuEmbed(event.getGuild(), lang, changed).build())
-                        .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)))
+                        .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)), uiText.autoLeaveStatusRow(lang))
                         .queue();
             }
             case A_COMMAND_CHANNEL, A_PRIVATE_ROOM_CHANNEL -> {
@@ -264,7 +264,7 @@ public final class SettingsMusicMenuHandler {
             changed = changed + "\n" + owner.i18nService().t(lang, "settings.private_room_auto_enabled_notice");
         }
         event.editMessageEmbeds(musicMenuEmbed(event.getGuild(), lang, changed).build())
-                .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)))
+                .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)), uiText.autoLeaveStatusRow(lang))
                 .queue(hook -> {
                     if (A_COMMAND_CHANNEL.equals(target)
                             && owner.settingsService().getMusic(guildId).getPanelMode() == MusicPanelMode.MODERN) {
@@ -323,6 +323,7 @@ public final class SettingsMusicMenuHandler {
         EmbedBuilder eb = new EmbedBuilder()
                 .setColor(new Color(155, 89, 182))
                 .setTitle("🎵 " + owner.i18nService().t(lang, "settings.music_menu_title"))
+                .setFooter(owner.i18nService().t(lang, "settings.music_auto_leave_locked_notice"))
                 .setDescription(owner.i18nService().t(lang, "settings.music_menu_desc"))
                 .addField("🎼 " + owner.i18nService().t(lang, "settings.info_music"), body, false);
         if (changedText != null && !changedText.isBlank()) {

@@ -11,7 +11,7 @@
       <div class="welcome-lead" data-i18n="music_settings_lead">Configure autoplay, repeat mode, and music command channel from one place.</div>
       <div class="notification-toggle-stack">
         <div class="grid2 module-settings-grid">
-          <p data-i18n="dashboard_music_auto_leave_description">Auto leave is enforced: no humans for 10 seconds; idle or paused for 10 minutes.</p>
+          <div class="toggle"><input type="checkbox" id="m_autoLeaveStatus" checked disabled><label for="m_autoLeaveStatus"><span data-i18n="dashboard_music_auto_leave_label">Enable auto leave</span><small data-i18n="dashboard_music_auto_leave_locked_notice">Changes are temporarily unavailable</small></label></div>
           <div class="toggle"><input type="checkbox" id="m_autoplayEnabled"><label for="m_autoplayEnabled" data-i18n="m_autoplayEnabled">autoplayEnabled</label></div>
           <div class="field"><label data-i18n="m_defaultRepeatMode">defaultRepeatMode</label><select id="m_defaultRepeatMode"><option value="OFF">OFF</option><option value="SINGLE">SINGLE</option><option value="ALL">ALL</option></select></div>
           <div class="field"><label data-i18n="m_historyLimit">historyLimit</label><input type="number" min="1" max="500" id="m_historyLimit"></div>

@@ -420,6 +420,8 @@ settings:
   key_messageLogs_commandUsageChannelId: "Command Usage Log Channel"
   key_messageLogs_channelLifecycleChannelId: "Channel Events Log Channel"
   music_auto_leave_policy: "Auto leave is enforced for every server: no human members for 10 seconds; no playback or paused for 10 minutes."
+  music_auto_leave_enabled_label: "Auto leave: enabled"
+  music_auto_leave_locked_notice: "Changes are temporarily unavailable"
   key_music_autoplayEnabled: "Music Autoplay Enabled"
   key_numberChain_enabled: "Number Chain Enabled"
   key_ticket_enabled: "Ticket Enabled"

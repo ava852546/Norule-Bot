@@ -155,6 +155,9 @@ public final class SettingsInfoView {
             case ROUTE_MODULE -> eb.addField(infoSectionTitle(lang, "settings.info_module"), moduleInfo, false);
             default -> eb.addField(infoSectionTitle(lang, "settings.info_notifications"), notifications, false);
         }
+        if (ROUTE_MUSIC.equals(currentSection) || ROUTE_MODULE.equals(currentSection)) {
+            eb.setFooter(i18n.get().t(lang, "settings.music_auto_leave_locked_notice"));
+        }
         return eb;
     }
 

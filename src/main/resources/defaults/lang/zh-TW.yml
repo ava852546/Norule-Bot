@@ -421,6 +421,8 @@ settings:
   key_messageLogs_commandUsageChannelId: "指令使用日誌頻道"
   key_messageLogs_channelLifecycleChannelId: "頻道事件日誌頻道"
   music_auto_leave_policy: "自動離開：系統強制啟用。無真人 10 秒；未播放或暫停 10 分鐘。"
+  music_auto_leave_enabled_label: "自動離開：已啟用"
+  music_auto_leave_locked_notice: "暫時不開放修改"
   key_music_autoplayEnabled: "音樂自動推薦啟用"
   key_numberChain_enabled: "數字接龍啟用"
   key_ticket_enabled: "客服單啟用"

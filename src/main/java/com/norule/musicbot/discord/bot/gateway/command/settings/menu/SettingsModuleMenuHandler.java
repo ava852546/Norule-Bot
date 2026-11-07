@@ -61,7 +61,7 @@ public final class SettingsModuleMenuHandler {
     public void openModuleMenu(SlashCommandInteractionEvent event, String lang) {
         String token = registerMenuRequest(event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.replyEmbeds(moduleMenuEmbed(event.getGuild(), lang, null).build())
-                .addComponents(ActionRow.of(settingsModuleMenu(token, event.getGuild().getIdLong(), lang)))
+                .addComponents(ActionRow.of(settingsModuleMenu(token, event.getGuild().getIdLong(), lang)), uiText.autoLeaveStatusRow(lang))
                 .setEphemeral(true)
                 .queue();
     }
@@ -69,7 +69,7 @@ public final class SettingsModuleMenuHandler {
     public void openModuleMenu(StringSelectInteractionEvent event, String lang) {
         String token = registerMenuRequest(event.getUser().getIdLong(), event.getGuild().getIdLong());
         event.editMessageEmbeds(moduleMenuEmbed(event.getGuild(), lang, null).build())
-                .setComponents(ActionRow.of(settingsModuleMenu(token, event.getGuild().getIdLong(), lang)))
+                .setComponents(ActionRow.of(settingsModuleMenu(token, event.getGuild().getIdLong(), lang)), uiText.autoLeaveStatusRow(lang))
                 .queue();
     }
 
@@ -109,7 +109,7 @@ public final class SettingsModuleMenuHandler {
         String changed = owner.i18nService().t(lang, "general.settings_saved",
                 Map.of("key", keyText, OPTION_VALUE, moduleSwitchTextCode(lang, result.value)));
         event.editMessageEmbeds(moduleMenuEmbed(event.getGuild(), lang, changed).build())
-                .setComponents(ActionRow.of(settingsModuleMenu(token, event.getGuild().getIdLong(), lang)))
+                .setComponents(ActionRow.of(settingsModuleMenu(token, event.getGuild().getIdLong(), lang)), uiText.autoLeaveStatusRow(lang))
                 .queue();
     }
 
@@ -181,6 +181,7 @@ public final class SettingsModuleMenuHandler {
         EmbedBuilder eb = new EmbedBuilder()
                 .setColor(new Color(52, 152, 219))
                 .setTitle(owner.i18nService().t(lang, "settings.module_menu_title"))
+                .setFooter(owner.i18nService().t(lang, "settings.music_auto_leave_locked_notice"))
                 .setDescription(owner.i18nService().t(lang, "settings.module_menu_desc"));
         eb.addField(owner.i18nService().t(lang, "settings.info_module"), overview, false);
         if (changedText != null && !changedText.isBlank()) {

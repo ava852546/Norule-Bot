@@ -2,6 +2,9 @@ package com.norule.musicbot.discord.bot.gateway.command.settings.view;
 
 import com.norule.musicbot.ModerationService;
 import com.norule.musicbot.i18n.I18nService;
+import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
+import net.dv8tion.jda.api.components.actionrow.ActionRow;
+import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 
@@ -21,6 +24,11 @@ public final class SettingsUiText {
     public String quotedSettingLine(String lang, String key, String labelKey, String value) {
         return keyIcon(key) + " " + i18n.get().t(lang, key)
                 + "\n> " + i18n.get().t(lang, labelKey) + ": " + value;
+    }
+
+    public ActionRow autoLeaveStatusRow(String lang) {
+        return ActionRow.of(Button.secondary(ComponentIds.SETTINGS_MUSIC_AUTO_LEAVE_STATUS,
+                i18n.get().t(lang, "settings.music_auto_leave_enabled_label")).asDisabled());
     }
 
     public String limitText(String value, int max) {
