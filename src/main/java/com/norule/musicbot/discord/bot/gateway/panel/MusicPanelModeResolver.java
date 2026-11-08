@@ -4,7 +4,6 @@ import com.norule.musicbot.config.GuildSettingsService;
 import com.norule.musicbot.domain.music.MusicPanelMode;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.ThreadChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.exceptions.ErrorResponseException;
@@ -25,7 +24,7 @@ public final class MusicPanelModeResolver {
     // null means NOT_CONFIGURED (or an unset ID in explicit LEGACY); missing/access-denied
     // configured channels retain their ID and are distinguished by reason and effective mode.
     public record Selection(MusicPanelMode configured, MusicPanelMode effective,
-                            Long channelId, TextChannel channel, String reason) {
+                            Long channelId, GuildMessageChannel channel, String reason) {
         public boolean modern() { return effective == MusicPanelMode.MODERN; }
         public boolean fallback() { return configured == MusicPanelMode.MODERN && !modern(); }
     }
@@ -42,11 +41,11 @@ public final class MusicPanelModeResolver {
     private Selection selection(Guild guild, com.norule.musicbot.config.BotConfig.Music music) {
         Long id = music.getCommandChannelId();
         boolean legacy = music.getPanelMode() == MusicPanelMode.LEGACY;
-        TextChannel channel = legacy || id == null ? null : guild.getTextChannelById(id);
+        var target = legacy || id == null ? null : MusicPanelTargetResolver.resolve(guild, id, null);
         String reason = legacy ? "LEGACY_MODE" : id == null ? "NOT_CONFIGURED"
-                : channel == null ? "UNKNOWN_CHANNEL" : usable(channel) ? "AVAILABLE" : "MISSING_ACCESS";
+                : target.reason();
         return new Selection(music.getPanelMode(), music.getPanelMode().effective("AVAILABLE".equals(reason)), id,
-                "AVAILABLE".equals(reason) ? channel : null, reason);
+                "AVAILABLE".equals(reason) ? target.channel() : null, reason);
     }
 
     public Selection resolve(Guild guild) {
@@ -72,8 +71,7 @@ public final class MusicPanelModeResolver {
     }
 
     public static boolean usable(GuildMessageChannel channel) {
-        return channel != null && channel.getGuild().getSelfMember().hasPermission(channel,
-                Permission.VIEW_CHANNEL, sendPermission(channel), Permission.MESSAGE_EMBED_LINKS);
+        return "AVAILABLE".equals(MusicPanelTargetResolver.unavailableReason(channel));
     }
 
     static Permission sendPermission(GuildMessageChannel channel) {

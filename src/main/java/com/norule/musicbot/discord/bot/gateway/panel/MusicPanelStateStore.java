@@ -14,6 +14,8 @@ public final class MusicPanelStateStore {
     private final Map<Long, PanelRef> panelByGuild = new ConcurrentHashMap<>();
     private final Map<Long, PanelNotice> panelNoticeByGuild = new ConcurrentHashMap<>();
     private final Map<Long, Long> revisions = new ConcurrentHashMap<>();
+    private final Map<Long, PanelRef> durablePanels = new ConcurrentHashMap<>();
+    private final Map<Long, PanelRef> retainedModernPanels = new ConcurrentHashMap<>();
     private MusicPanelBindingService bindings;
     private final Map<Long, MusicDiagnostics.Error> errors = new ConcurrentHashMap<>();
     public void recordDiagnosticError(long guildId, String reason) {
@@ -24,7 +26,9 @@ public final class MusicPanelStateStore {
     public void initializePersistence(MusicPanelBindingService bindings) {
         this.bindings = bindings;
         for (var panel : bindings.load()) {
-            panelByGuild.put(panel.guildId(), new PanelRef(panel.channelId(), panel.messageId()));
+            var ref = new PanelRef(panel.channelId(), panel.messageId());
+            panelByGuild.put(panel.guildId(), ref);
+            durablePanels.put(panel.guildId(), ref);
         }
     }
 
@@ -61,6 +65,12 @@ public final class MusicPanelStateStore {
 
     public synchronized void activatePanelRef(long guildId, PanelRef panelRef, long refreshedAt) {
         persist(guildId, panelRef);
+        durablePanels.put(guildId, panelRef);
+        retainedModernPanels.remove(guildId);
+        activateTransient(guildId, panelRef, refreshedAt);
+    }
+
+    private void activateTransient(long guildId, PanelRef panelRef, long refreshedAt) {
         panelRef.revision = revision(guildId);
         panelRef.lastRefreshAt = refreshedAt;
         panelByGuild.put(guildId, panelRef);
@@ -74,21 +84,48 @@ public final class MusicPanelStateStore {
     }
 
     public synchronized boolean activateIfCurrent(long guildId, long revision, PanelRef ref, long refreshedAt) {
+        return activateIfCurrent(guildId, revision, ref, refreshedAt, false);
+    }
+
+    public synchronized boolean activateIfCurrent(long guildId, long revision, PanelRef ref, long refreshedAt, boolean fallback) {
         if (revision(guildId) != revision) return false;
-        activatePanelRef(guildId, ref, refreshedAt);
+        if (fallback) activateTransient(guildId, ref, refreshedAt);
+        else activatePanelRef(guildId, ref, refreshedAt);
         return true;
+    }
+
+    public synchronized void retainModernPanel(long guildId, Long configuredChannelId) {
+        PanelRef ref = panelByGuild.get(guildId);
+        if (ref != null && java.util.Objects.equals(configuredChannelId, ref.channelId)) {
+            retainedModernPanels.put(guildId, ref);
+        }
+    }
+
+    public PanelRef retainedModernPanel(long guildId, long channelId) {
+        PanelRef ref = retainedModernPanels.get(guildId);
+        return ref != null && ref.channelId == channelId ? ref : null;
+    }
+
+    public boolean isTransientPanel(long guildId) {
+        PanelRef ref = panelByGuild.get(guildId);
+        return ref != null && ref != durablePanels.get(guildId);
     }
 
     /** Remove only this binding, including its durable copy; never touch music settings. */
     public synchronized boolean forgetPanel(long guildId, PanelRef expected) {
         if (panelByGuild.get(guildId) != expected) return false;
-        if (bindings != null) bindings.forgetGuild(guildId);
+        if (durablePanels.get(guildId) == expected && retainedModernPanels.get(guildId) != expected) {
+            if (bindings != null) bindings.forgetGuild(guildId);
+            durablePanels.remove(guildId, expected);
+        }
         panelByGuild.remove(guildId, expected);
         return true;
     }
 
     public void clearPanelState(long guildId) {
         panelByGuild.remove(guildId);
+        durablePanels.remove(guildId);
+        retainedModernPanels.remove(guildId);
         panelNoticeByGuild.remove(guildId);
     }
 

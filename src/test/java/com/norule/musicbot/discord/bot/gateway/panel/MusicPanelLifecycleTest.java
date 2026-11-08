@@ -283,13 +283,13 @@ class MusicPanelLifecycleTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"NO_INTERACTION_CHANNEL", "UNKNOWN_INTERACTION_CHANNEL", "MISSING_TARGET_PERMISSIONS"})
+    @ValueSource(strings = {"NO_INTERACTION_CHANNEL", "CHANNEL_NOT_CACHED", "MISSING_VIEW_PERMISSION"})
     void invalidLegacyTargetReportsDistinctReasonsAndAllResolutionFields(String reason) {
         unsubscribe.run();
         settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(null)));
         Long source = reason.equals("NO_INTERACTION_CHANNEL") ? null : Long.valueOf(20);
-        if (reason.equals("UNKNOWN_INTERACTION_CHANNEL")) discord.channels.remove(20L);
-        if (reason.equals("MISSING_TARGET_PERMISSIONS")) discord.denied = 20;
+        if (reason.equals("CHANNEL_NOT_CACHED")) discord.channels.remove(20L);
+        if (reason.equals("MISSING_VIEW_PERMISSION")) discord.denied = 20;
         var errors = new ArrayList<String>();
         var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MusicPanelRefreshService.class);
         var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
@@ -316,15 +316,15 @@ class MusicPanelLifecycleTest {
     }
 
     @Test
-    void cachedLegacyChannelRemovedBeforeDispatchIsRejected() {
+    void retainedInteractionRemainsUsableWhenGuildCacheMissesBeforeDispatch() {
         unsubscribe.run();
         settings.updateSettings(1, s -> s.withMusic(s.getMusic().withPanelMode(MusicPanelMode.LEGACY)));
         var errors = new ArrayList<String>();
         panels.playQueued(discord.guild, discord.channels.get(20L), modes.resolve(discord.guild), errors::add);
         discord.channels.remove(20L);
         drain();
-        assertEquals(1, errors.size());
-        assertTrue(discord.creates.isEmpty());
+        assertTrue(errors.isEmpty());
+        assertEquals(List.of(20L), discord.creates);
     }
 
     @Test
@@ -339,13 +339,26 @@ class MusicPanelLifecycleTest {
     }
 
     @Test
+    void manualRecoveryRetainsTheInteractionTargetAcrossDeletionAndCacheMiss() {
+        unsubscribe.run();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withPanelMode(MusicPanelMode.LEGACY)));
+        seed(10, 100);
+        var target = discord.channel(40, ThreadChannel.class);
+        var recovery = panels.recoverPanel(discord.guild, target, "music-panel");
+        drain(); recovery.join();
+        assertEquals(List.of(100L), discord.deletes);
+        assertEquals(List.of(40L), discord.creates);
+        assertEquals(40, store.getPanelRef(1).channelId);
+    }
+
+    @Test
     void clearingConfiguredChannelLogsLifecycleAndLeavesSettingsRecoverable() {
         seed(10, 100);
         assertDoesNotThrow(() -> settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(null))));
         drain();
         var recovery = panels.synchronizeSettings(discord.guild);
         drain();
-        assertTrue(recovery.isCompletedExceptionally());
+        recovery.join(); // Settings without a playback target wait for the next /play.
         panels.playQueued(discord.guild, discord.channels.get(20L));
         drain();
         assertEquals(List.of(20L), discord.creates);
@@ -632,12 +645,212 @@ class MusicPanelLifecycleTest {
         assertEquals(List.of(20L), discord.creates);
         assertTrue(discord.messages.containsKey(100L));
         assertTrue(discord.deletes.isEmpty());
+        assertEquals(100, bindings.findAll().getFirst().messageId(), "Fallback must keep the durable MODERN reference");
         discord.denied = 0;
         panels.requestRefresh(1, RefreshReason.MANUAL);
         drain();
         assertTrue(store.isActivePanel(1, 10, 100));
         assertEquals(List.of(20L), discord.creates);
         assertEquals(MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
+    }
+
+    @Test
+    void restartDuringFallbackKeepsModernBinding() {
+        seed(10, 100);
+        discord.denied = 10;
+        panels.playQueued(discord.guild, discord.channels.get(20L));
+        drain();
+        var restarted = new MusicPanelStateStore();
+        restarted.initializePersistence(new MusicPanelBindingService(bindings));
+        assertEquals(100, restarted.getPanelRef(1).messageId);
+        assertEquals(10, restarted.getPanelRef(1).channelId);
+        assertEquals(20, store.getPanelRef(1).channelId);
+    }
+
+    @Test
+    void periodicRefreshRestoresModernAfterFallbackWithoutAnOriginalPanel() {
+        discord.channels.remove(10L);
+        panels.playQueued(discord.guild, discord.channels.get(20L));
+        drain();
+        long fallback = store.getPanelRef(1).messageId;
+        discord.channels.put(10L, discord.channel(10));
+        panels.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+        drain();
+        assertEquals(List.of(20L, 10L), discord.creates);
+        assertEquals(List.of(fallback), discord.deletes);
+        assertEquals(10, store.getPanelRef(1).channelId);
+        assertEquals(10, bindings.findAll().getFirst().channelId());
+    }
+
+    @Test
+    void deletedRetainedModernMessageIsSafelyRecreatedOnRestoration() {
+        seed(10, 100);
+        discord.denied = 10;
+        panels.playQueued(discord.guild, discord.channels.get(20L));
+        drain();
+        discord.messages.remove(100L);
+        discord.denied = 0;
+        panels.refreshPanel(1);
+        drain();
+        assertEquals(List.of(20L, 10L), discord.creates);
+        assertTrue(store.isActivePanel(1, 10, store.getPanelRef(1).messageId));
+        assertEquals(store.getPanelRef(1).messageId, bindings.findAll().getFirst().messageId());
+    }
+
+    @Test
+    void invalidSettingsWaitForPlaybackWithoutDeletingOrCreating() {
+        seed(10, 100);
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(null)));
+        drain();
+        panels.synchronizeSettings(discord.guild).join();
+        assertTrue(discord.creates.isEmpty());
+        assertTrue(discord.deletes.isEmpty());
+        assertEquals(100, bindings.findAll().getFirst().messageId());
+    }
+
+    @Test
+    void createPersistenceFailureRemovesOnlyTheJustCreatedMessage() throws Exception {
+        try (var connection = new SqliteDatabase(directory.resolve("bindings.db")).open();
+             var statement = connection.createStatement()) {
+            statement.execute("DROP TABLE music_panels");
+        }
+        var errors = new ArrayList<String>();
+        panels.playQueued(discord.guild, discord.channels.get(20L), modes.resolve(discord.guild), errors::add);
+        drain();
+        assertEquals(List.of(10L), discord.creates);
+        assertEquals(List.of(discord.createdMessages.getFirst().getIdLong()), discord.deletes);
+        assertNull(store.getPanelRef(1));
+        assertEquals(1, errors.size());
+    }
+
+    @Test
+    void failedCreateDoesNotBlockTheNextPlay() {
+        discord.createFailure = new IllegalStateException("send failed");
+        var errors = new ArrayList<String>();
+        panels.playQueued(discord.guild, discord.channels.get(20L), modes.resolve(discord.guild), errors::add);
+        drain();
+        assertNull(store.getPanelRef(1));
+        discord.createFailure = null;
+        panels.playQueued(discord.guild, discord.channels.get(20L), modes.resolve(discord.guild), errors::add);
+        drain();
+        assertEquals(1, errors.size());
+        assertNotNull(store.getPanelRef(1));
+    }
+
+    @Test
+    void coalescedPlayFailureNotifiesEveryAcceptedRequestAndUsesLatestTarget() {
+        unsubscribe.run();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withPanelMode(MusicPanelMode.LEGACY)));
+        discord.createFailure = new IllegalStateException("send failed");
+        var first = new ArrayList<String>();
+        var second = new ArrayList<String>();
+        panels.playQueued(discord.guild, discord.channels.get(10L), modes.resolve(discord.guild), first::add);
+        panels.playQueued(discord.guild, discord.channels.get(20L), modes.resolve(discord.guild), second::add);
+        drain();
+        assertEquals(List.of(20L), discord.creates);
+        assertEquals(1, first.size());
+        assertEquals(1, second.size());
+    }
+
+    @Test
+    void failedDeleteRetainsOldStateAndDoesNotCreate() {
+        seed(10, 100);
+        unsubscribe.run();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withPanelMode(MusicPanelMode.LEGACY)));
+        discord.deleteFailure = new IllegalStateException("delete failed");
+        var errors = new ArrayList<String>();
+        panels.playQueued(discord.guild, discord.channels.get(20L), modes.resolve(discord.guild), errors::add);
+        drain();
+        assertEquals(1, errors.size());
+        assertEquals(100, store.getPanelRef(1).messageId);
+        assertTrue(discord.creates.isEmpty());
+        assertTrue(discord.messages.containsKey(100L));
+    }
+
+    @Test
+    void staleDeleteVerificationCannotDeleteAfterSettingsChange() {
+        seed(10, 100);
+        discord.delayRetrieves = true;
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(20L)));
+        drain();
+        assertEquals(1, discord.retrieveResults.size());
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(30L)));
+        discord.delayRetrieves = false;
+        discord.retrieveResults.getFirst().complete(discord.messages.get(100L));
+        assertTrue(discord.deletes.isEmpty());
+        drain();
+        assertEquals(List.of(100L), discord.deletes);
+        assertEquals(List.of(30L), discord.creates);
+        assertEquals(30, store.getPanelRef(1).channelId);
+    }
+
+    @Test
+    void channelBecomingUnavailableDuringCreateCleansStaleMessage() {
+        discord.delayCreates = true;
+        panels.playQueued(discord.guild, discord.channels.get(20L));
+        drain();
+        discord.channels.remove(10L);
+        discord.completeCreate(0);
+        drain();
+        assertNull(store.getPanelRef(1));
+        assertEquals(List.of(discord.createdMessages.getFirst().getIdLong()), discord.deletes);
+        assertEquals(10L, settings.getMusic(1).getCommandChannelId());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void modernNewsAndThreadPanelsCanCreateEditRecoverPersistAndDelete(boolean thread) {
+        var channel = thread ? discord.channel(40, ThreadChannel.class)
+                : discord.channel(40, net.dv8tion.jda.api.entities.channel.concrete.NewsChannel.class);
+        if (thread) discord.threads.put(40L, (ThreadChannel) channel);
+        else discord.news.put(40L, (net.dv8tion.jda.api.entities.channel.concrete.NewsChannel) channel);
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(40L)));
+        drain();
+        panels.synchronizeSettings(discord.guild).join();
+        long messageId = store.getPanelRef(1).messageId;
+        assertTrue(modes.resolve(discord.guild).modern());
+        panels.playQueued(discord.guild, discord.channels.get(20L));
+        drain();
+        assertEquals(List.of(40L), discord.creates, "MODERN play updates the original panel");
+        var recovery = panels.recoverPanel(discord.guild, channel, "music-panel");
+        drain(); recovery.join();
+        assertEquals(messageId, store.getPanelRef(1).messageId);
+        var restarted = new MusicPanelStateStore();
+        restarted.initializePersistence(new MusicPanelBindingService(bindings));
+        assertTrue(restarted.isActivePanel(1, 40, messageId));
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(30L)));
+        drain();
+        assertEquals(List.of(messageId), discord.deletes);
+        assertEquals(30, store.getPanelRef(1).channelId);
+    }
+
+    @Test
+    void prefixRepeatInThreadDoesNotCastTheReplyChannelToTextChannel() {
+        var thread = discord.channel(40, ThreadChannel.class);
+        var replies = new java.util.concurrent.atomic.AtomicInteger();
+        var channel = proxy(net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion.class, (o, m, a) -> switch (m.getName()) {
+            case "getIdLong" -> 40L;
+            case "getType" -> net.dv8tion.jda.api.entities.channel.ChannelType.GUILD_PUBLIC_THREAD;
+            case "asGuildMessageChannel" -> thread;
+            case "sendMessage" -> discord.action(m.getReturnType(), () -> {
+                replies.incrementAndGet();
+                return CompletableFuture.completedFuture(discord.message(40, 200));
+            });
+            default -> throw new UnsupportedOperationException(m.getName());
+        });
+        var message = proxy(Message.class, (o, m, a) -> switch (m.getName()) {
+            case "getIdLong" -> 200L;
+            case "getChannel" -> channel;
+            case "getGuild" -> discord.guild;
+            default -> throw new UnsupportedOperationException(m.getName());
+        });
+        var controller = new MusicPanelController(owner, null, panels::refreshPanel, panels, modes);
+        var handler = new com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackCommandHandler(
+                owner, controller, new com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackText(owner::i18nService));
+        handler.handleTextCommand(new net.dv8tion.jda.api.events.message.MessageReceivedEvent(discord.jda, 1, message),
+                discord.guild, "repeat", "ALL", "en");
+        assertEquals(1, replies.get());
+        assertEquals("ALL", music.getRepeatMode(discord.guild));
     }
 
     @Test
@@ -696,6 +909,7 @@ class MusicPanelLifecycleTest {
     final class Discord {
         final Map<Long, TextChannel> channels = new HashMap<>();
         final Map<Long, ThreadChannel> threads = new HashMap<>();
+        final Map<Long, net.dv8tion.jda.api.entities.channel.concrete.NewsChannel> news = new HashMap<>();
         boolean threadWritable = true;
         final List<Permission> checkedPermissions = new ArrayList<>();
         final Map<Long, Message> messages = new LinkedHashMap<>();
@@ -708,6 +922,9 @@ class MusicPanelLifecycleTest {
         boolean delayEdits;
         boolean connected;
         Throwable createFailure;
+        Throwable deleteFailure;
+        boolean delayRetrieves;
+        final List<CompletableFuture<Message>> retrieveResults = new ArrayList<>();
         long denied;
         long nextId = 1000;
         final SelfMember self = proxy(SelfMember.class, (o, m, a) -> switch (m.getName()) {
@@ -729,6 +946,7 @@ class MusicPanelLifecycleTest {
             case "getSelfMember" -> self;
             case "getTextChannelById" -> channels.get(((Number) a[0]).longValue());
             case "getThreadChannelById" -> threads.get(((Number) a[0]).longValue());
+            case "getNewsChannelById" -> news.get(((Number) a[0]).longValue());
             case "getAudioManager" -> audio;
             case "getName" -> "Test guild";
             default -> null;
@@ -745,7 +963,9 @@ class MusicPanelLifecycleTest {
             return proxy(type, (o, m, a) -> switch (m.getName()) {
                 case "getIdLong" -> id;
                 case "getType" -> type == ThreadChannel.class ? net.dv8tion.jda.api.entities.channel.ChannelType.GUILD_PUBLIC_THREAD
+                        : type == net.dv8tion.jda.api.entities.channel.concrete.NewsChannel.class ? net.dv8tion.jda.api.entities.channel.ChannelType.NEWS
                         : net.dv8tion.jda.api.entities.channel.ChannelType.TEXT;
+                case "isLocked", "isArchived" -> false;
                 case "canTalk" -> type != ThreadChannel.class || threadWritable;
                 case "getId" -> Long.toString(id);
                 case "getGuild" -> guild;
@@ -760,6 +980,11 @@ class MusicPanelLifecycleTest {
                     }
                 };
                 case "retrieveMessageById" -> action(m.getReturnType(), () -> {
+                    if (delayRetrieves) {
+                        var result = new CompletableFuture<Message>();
+                        retrieveResults.add(result);
+                        return result;
+                    }
                     var message = messages.get(((Number) a[0]).longValue());
                     return message == null ? CompletableFuture.failedFuture(unknownMessage()) : CompletableFuture.completedFuture(message);
                 });
@@ -799,7 +1024,10 @@ class MusicPanelLifecycleTest {
                 case "getEmbeds", "getComponents" -> List.of();
                 case "getContentRaw" -> "";
                 case "getComponentTree" -> MessageComponentTree.of(List.of(ActionRow.of(Button.primary("panel:playpause", "Play"))));
-                case "delete" -> action(m.getReturnType(), () -> { deletes.add(id); messages.remove(id); return CompletableFuture.completedFuture(null); });
+                case "delete" -> action(m.getReturnType(), () -> {
+                    if (deleteFailure != null) return CompletableFuture.failedFuture(deleteFailure);
+                    deletes.add(id); messages.remove(id); return CompletableFuture.completedFuture(null);
+                });
                 default -> throw new UnsupportedOperationException(m.getName());
             });
         }

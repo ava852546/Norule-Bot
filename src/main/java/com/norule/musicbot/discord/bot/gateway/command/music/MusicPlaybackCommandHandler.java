@@ -15,8 +15,6 @@ import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.entities.channel.ChannelType;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
@@ -173,7 +171,7 @@ public final class MusicPlaybackCommandHandler {
         String mode = Objects.requireNonNull(event.getOption("mode")).getAsString();
         owner.musicService().setRepeatMode(event.getGuild(), normalizeRepeat(mode));
         panelController.refreshPanel(event.getGuild().getIdLong());
-        TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
+        GuildMessageChannel panelChannel = event.getChannel().asGuildMessageChannel();
         event.reply(playbackText.mapRepeatLabel(lang, owner.musicService().getRepeatMode(event.getGuild())))
                 .setEphemeral(true)
                 .queue(success -> panelController.moveActivePanelToBottom(event.getGuild(), panelChannel), error -> {
@@ -187,7 +185,7 @@ public final class MusicPlaybackCommandHandler {
             case "speed" -> handleTextSpeed(event, guild, arg, lang);
             case "join" -> handleJoin(guild, event.getMember(),
                     text -> event.getChannel().sendMessage(text)
-                            .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                            .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asGuildMessageChannel()), error -> {
                             }));
             case "play" -> directPlay(
                     guild,
@@ -199,20 +197,20 @@ public final class MusicPlaybackCommandHandler {
             );
             case "skip" -> handleSkip(guild,
                     text -> event.getChannel().sendMessage(text)
-                            .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                            .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asGuildMessageChannel()), error -> {
                             }));
             case "stop" -> handleStop(guild,
                     text -> event.getChannel().sendMessage(text)
-                            .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                            .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asGuildMessageChannel()), error -> {
                             }));
             case "leave" -> handleLeave(guild,
                     text -> event.getChannel().sendMessage(text)
-                            .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                            .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asGuildMessageChannel()), error -> {
                             }));
             case "repeat" -> {
                 owner.musicService().setRepeatMode(guild, normalizeRepeat(arg));
                 event.getChannel().sendMessage(playbackText.mapRepeatLabel(lang, owner.musicService().getRepeatMode(guild)))
-                        .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                        .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asGuildMessageChannel()), error -> {
                         });
             }
             default -> event.getChannel().sendMessage(owner.i18nService().t(lang, "general.unknown_command")).queue();
@@ -318,7 +316,7 @@ public final class MusicPlaybackCommandHandler {
         }
         int applied = owner.musicService().setVolume(guild, value);
         event.getChannel().sendMessage(owner.musicUx(lang, "volume_set", Map.of("value", String.valueOf(applied))))
-                .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asGuildMessageChannel()), error -> {
                 });
     }
 
@@ -331,7 +329,7 @@ public final class MusicPlaybackCommandHandler {
         double applied = owner.musicService().setPlaybackSpeed(guild, value);
         event.getChannel().sendMessage(owner.musicUx(lang, "speed_set",
                         Map.of("value", String.format(java.util.Locale.ROOT, "%.2f", applied))))
-                .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
+                .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asGuildMessageChannel()), error -> {
                 });
     }
 

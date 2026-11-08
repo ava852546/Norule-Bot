@@ -312,7 +312,7 @@ class MusicPanelModeTest {
         final Guild guild = proxy(Guild.class, (o, m, a) -> switch (m.getName()) {
             case "getIdLong" -> 1L;
             case "getSelfMember" -> self;
-            case "getThreadChannelById" -> null;
+            case "getThreadChannelById", "getNewsChannelById", "getGuildChannelById" -> null;
                 case "getTextChannelById" -> {
                 channelReads++;
                 yield channelExists && ((Number) a[0]).longValue() == 10 ? this.channel : null;
@@ -320,6 +320,7 @@ class MusicPanelModeTest {
             default -> throw new UnsupportedOperationException(m.getName());
         });
         final TextChannel channel = proxy(TextChannel.class, (o, m, a) -> switch (m.getName()) {
+            case "getType" -> net.dv8tion.jda.api.entities.channel.ChannelType.TEXT;
             case "getIdLong" -> 10L;
             case "getGuild" -> guild;
             case "retrieveMessageById" -> {

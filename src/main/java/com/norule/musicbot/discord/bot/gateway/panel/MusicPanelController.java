@@ -30,8 +30,8 @@ public final class MusicPanelController {
         this.modes = modes;
     }
 
-    public void ensurePanelForChannel(Guild guild, TextChannel channel, String lang) {
-        owner.createPanelMessageWithFeedback(guild, channel, lang, () -> {
+    public void ensurePanelForChannel(Guild guild, GuildMessageChannel channel, String lang) {
+        refreshService.createPanelMessageWithFeedback(guild, channel, lang, () -> {
         }, error -> {
         });
     }
@@ -47,7 +47,7 @@ public final class MusicPanelController {
         return !mode.modern() || java.util.Objects.equals(mode.channelId(), channelId);
     }
 
-    public CompletableFuture<TextChannel> resolveOrCreateCommandChannel(Guild guild, TextChannel fallback) {
+    public CompletableFuture<GuildMessageChannel> resolveOrCreateCommandChannel(Guild guild, GuildMessageChannel fallback) {
         var mode = modes.resolve(guild);
         return CompletableFuture.completedFuture(mode.modern() ? mode.channel()
                 : fallback);
@@ -98,7 +98,7 @@ public final class MusicPanelController {
         modes.forget(guildId);
     }
 
-    public void moveActivePanelToBottom(Guild guild, TextChannel preferredChannel) {
+    public void moveActivePanelToBottom(Guild guild, GuildMessageChannel preferredChannel) {
         if (guild == null) {
             return;
         }
@@ -126,14 +126,14 @@ public final class MusicPanelController {
                     .queue();
             return;
         }
-        TextChannel fallback = event.getChannel() instanceof TextChannel textChannel ? textChannel : null;
+        GuildMessageChannel fallback = event.getChannel().asGuildMessageChannel();
         event.deferReply(true).queue(hook -> resolveOrCreateCommandChannel(event.getGuild(), fallback)
                 .thenAccept(panelChannel -> {
                     if (panelChannel == null) {
                         hook.editOriginal(owner.musicText(lang, "panel_text_channel_only")).queue();
                         return;
                     }
-                    owner.createPanelMessageWithFeedback(event.getGuild(), panelChannel, lang,
+                    refreshService.createPanelMessageWithFeedback(event.getGuild(), panelChannel, lang,
                             () -> hook.editOriginal(owner.musicText(
                                     lang,
                                     "panel_ready",
@@ -161,8 +161,8 @@ public final class MusicPanelController {
         if (active == null || active.channelId != channel.getIdLong() || active.messageId != event.getMessageIdLong()) {
             event.reply(owner.i18nService().t(lang, "music.panel_stale")).setEphemeral(true)
                     .queue(success -> {
-                        if (active == null && modes.resolve(guild).modern() && channel instanceof TextChannel text) {
-                            ensurePanelForChannel(guild, text, lang);
+                        if (active == null && modes.resolve(guild).modern()) {
+                            ensurePanelForChannel(guild, channel, lang);
                         }
                     });
             return true;
