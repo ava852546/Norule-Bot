@@ -3,7 +3,6 @@ package com.norule.musicbot.discord.bot.gateway.panel;
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicCommandChannelProvisioner;
 import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
@@ -53,12 +52,12 @@ public final class MusicPanelController {
                 : fallback);
     }
 
-    public void playQueued(Guild guild, TextChannel channel, MusicPanelModeResolver.Selection mode,
+    public void playQueued(Guild guild, GuildMessageChannel channel, MusicPanelModeResolver.Selection mode,
                            java.util.function.Consumer<String> onError) {
         refreshService.playQueued(guild, channel, mode, onError);
     }
 
-    public void playQueued(Guild guild, TextChannel channel) {
+    public void playQueued(Guild guild, GuildMessageChannel channel) {
         refreshService.playQueued(guild, channel);
     }
 

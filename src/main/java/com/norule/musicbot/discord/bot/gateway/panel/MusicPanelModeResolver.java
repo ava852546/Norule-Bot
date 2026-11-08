@@ -84,7 +84,9 @@ public final class MusicPanelModeResolver {
 
     private static void log(String event, long guildId, Long channelId, long messageId,
                             Selection selection, String reason) {
-        LOGGER.info("event={} guildId={} channelId={} messageId={} configuredMode={} effectiveMode={} reason={}",
+        var level = event.endsWith("_FAILED") ? org.slf4j.event.Level.WARN
+                : "MUSIC_PANEL_LEGACY_RECREATED".equals(event) ? org.slf4j.event.Level.DEBUG : org.slf4j.event.Level.INFO;
+        LOGGER.atLevel(level).log("event={} guildId={} channelId={} messageId={} configuredMode={} effectiveMode={} reason={}",
                 event, guildId, channelId, messageId, selection.configured(), selection.effective(), reason);
     }
 

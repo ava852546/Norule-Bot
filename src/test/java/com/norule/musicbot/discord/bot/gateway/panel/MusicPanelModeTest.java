@@ -312,7 +312,7 @@ class MusicPanelModeTest {
         final Guild guild = proxy(Guild.class, (o, m, a) -> switch (m.getName()) {
             case "getIdLong" -> 1L;
             case "getSelfMember" -> self;
-            case "getThreadChannelById", "getNewsChannelById", "getGuildChannelById" -> null;
+            case "getThreadChannelById", "getNewsChannelById", "getVoiceChannelById", "getGuildChannelById" -> null;
                 case "getTextChannelById" -> {
                 channelReads++;
                 yield channelExists && ((Number) a[0]).longValue() == 10 ? this.channel : null;

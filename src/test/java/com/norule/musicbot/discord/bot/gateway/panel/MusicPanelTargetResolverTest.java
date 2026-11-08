@@ -32,6 +32,7 @@ class MusicPanelTargetResolverTest {
         case "getIdLong" -> 1L;
         case "getSelfMember" -> self;
         case "getTextChannelById" -> cached instanceof TextChannel ? cached : null;
+        case "getVoiceChannelById" -> cached instanceof VoiceChannel ? cached : null;
         case "getNewsChannelById" -> cached instanceof NewsChannel ? cached : null;
         case "getThreadChannelById" -> cached instanceof ThreadChannel ? cached : null;
         case "getGuildChannelById" -> cached;
@@ -39,7 +40,7 @@ class MusicPanelTargetResolverTest {
     });
 
     static Stream<Class<? extends GuildMessageChannel>> supported() {
-        return Stream.of(TextChannel.class, NewsChannel.class, ThreadChannel.class);
+        return Stream.of(TextChannel.class, NewsChannel.class, ThreadChannel.class, VoiceChannel.class);
     }
 
     @ParameterizedTest
@@ -61,7 +62,7 @@ class MusicPanelTargetResolverTest {
             "MESSAGE_EMBED_LINKS,MISSING_EMBED_PERMISSION"})
     void reportsIndividualMissingPermissions(Permission permission, String reason) {
         denied = permission;
-        cached = channel(TextChannel.class);
+        cached = channel(VoiceChannel.class);
         assertEquals(reason, MusicPanelTargetResolver.resolve(guild, 10L, null).reason());
     }
 
@@ -84,7 +85,7 @@ class MusicPanelTargetResolverTest {
 
     @Test
     void unsupportedAndMissingChannelsRemainDistinctAndNullDoesNotUnbox() {
-        cached = channel(VoiceChannel.class);
+        cached = channel(StageChannel.class);
         assertEquals("UNSUPPORTED_CHANNEL_TYPE", MusicPanelTargetResolver.resolve(guild, 10L, null).reason());
         assertEquals("NO_INTERACTION_CHANNEL", MusicPanelTargetResolver.resolve(guild, null, cached).reason());
         var unrelated = channel(TextChannel.class);

@@ -6,6 +6,7 @@ import net.dv8tion.jda.api.entities.channel.ChannelType;
 import net.dv8tion.jda.api.entities.channel.concrete.NewsChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.ThreadChannel;
+import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 
@@ -21,6 +22,7 @@ final class MusicPanelTargetResolver {
         GuildMessageChannel channel = guild.getTextChannelById(id);
         if (channel == null) channel = guild.getNewsChannelById(id);
         if (channel == null) channel = guild.getThreadChannelById(id);
+        if (channel == null) channel = guild.getVoiceChannelById(id);
         return channel;
     }
 
@@ -35,7 +37,7 @@ final class MusicPanelTargetResolver {
         if (known == null && interaction != null && interaction.getGuild().getIdLong() == guild.getIdLong()
                 && id.equals(interaction.getIdLong())) known = interaction;
         if (known == null) return new Target(null, null, false, "CHANNEL_NOT_CACHED");
-        if (!(known instanceof TextChannel || known instanceof NewsChannel || known instanceof ThreadChannel)) {
+        if (!(known instanceof TextChannel || known instanceof NewsChannel || known instanceof ThreadChannel || known instanceof VoiceChannel)) {
             return new Target(null, known.getType(), cacheHit, "UNSUPPORTED_CHANNEL_TYPE");
         }
         GuildMessageChannel channel = (GuildMessageChannel) known;
@@ -44,7 +46,7 @@ final class MusicPanelTargetResolver {
 
     static String unavailableReason(GuildMessageChannel channel) {
         if (channel == null) return "CHANNEL_NOT_CACHED";
-        if (!(channel instanceof TextChannel || channel instanceof NewsChannel || channel instanceof ThreadChannel)) {
+        if (!(channel instanceof TextChannel || channel instanceof NewsChannel || channel instanceof ThreadChannel || channel instanceof VoiceChannel)) {
             return "UNSUPPORTED_CHANNEL_TYPE";
         }
         var self = channel.getGuild().getSelfMember();

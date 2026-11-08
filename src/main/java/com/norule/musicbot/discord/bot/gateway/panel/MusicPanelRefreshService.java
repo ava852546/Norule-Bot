@@ -511,7 +511,12 @@ public final class MusicPanelRefreshService {
 
     private void lifecycleLog(String event, Guild guild, MusicPanelStateStore.PanelRef old, GuildMessageChannel target,
             MusicPanelStateStore.PanelRef next, Operation operation, String reason) {
-        LOGGER.info("event={} guildId={} oldChannelId={} newChannelId={} oldMessageId={} newMessageId={} configuredMode={} effectiveMode={} reason={} source={} revision={} requestId={}",
+        var level = switch (event) {
+            case "MUSIC_PANEL_RECOVERY_FAILED" -> org.slf4j.event.Level.WARN;
+            case "MUSIC_PANEL_RECOVERY_STARTED", "MUSIC_PANEL_RECOVERY_SUCCEEDED", "MUSIC_PANEL_STATE_INVALIDATED" -> org.slf4j.event.Level.DEBUG;
+            default -> org.slf4j.event.Level.INFO;
+        };
+        LOGGER.atLevel(level).log("event={} guildId={} oldChannelId={} newChannelId={} oldMessageId={} newMessageId={} configuredMode={} effectiveMode={} reason={} source={} revision={} requestId={}",
                 event, guild.getIdLong(), old == null ? 0 : old.channelId,
                 target == null ? operation.selection().channelId() : Long.valueOf(target.getIdLong()), old == null ? 0 : old.messageId,
                 next == null ? 0 : next.messageId, operation.selection().configured(), operation.selection().effective(),
@@ -688,7 +693,11 @@ public final class MusicPanelRefreshService {
     }
 
     private GuildMessageChannel playbackTarget(Guild guild, MusicPanelModeResolver.Selection mode, PlayRequest play) {
-        return resolveTarget(guild, mode, play.mode(), play.interactionChannelId(), play.source(), play.interactionChannel(), play.requestId());
+        return playbackTarget(guild, mode, play, false);
+    }
+
+    private GuildMessageChannel playbackTarget(Guild guild, MusicPanelModeResolver.Selection mode, PlayRequest play, boolean revalidation) {
+        return resolveTarget(guild, mode, play.mode(), play.interactionChannelId(), play.source(), play.interactionChannel(), play.requestId(), revalidation);
     }
 
     private GuildMessageChannel resolveTarget(Guild guild, MusicPanelModeResolver.Selection mode,
@@ -703,6 +712,12 @@ public final class MusicPanelRefreshService {
 
     private GuildMessageChannel resolveTarget(Guild guild, MusicPanelModeResolver.Selection mode,
             MusicPanelModeResolver.Selection initial, Long interactionChannelId, String source, GuildMessageChannel interaction, String requestId) {
+        return resolveTarget(guild, mode, initial, interactionChannelId, source, interaction, requestId, false);
+    }
+
+    private GuildMessageChannel resolveTarget(Guild guild, MusicPanelModeResolver.Selection mode,
+            MusicPanelModeResolver.Selection initial, Long interactionChannelId, String source, GuildMessageChannel interaction,
+            String requestId, boolean revalidation) {
         Long targetId = mode.modern() ? mode.channelId() : interactionChannelId;
         var resolved = MusicPanelTargetResolver.resolve(guild, targetId, mode.modern() ? null : interaction);
         GuildMessageChannel target = resolved.channel();
@@ -713,10 +728,12 @@ public final class MusicPanelRefreshService {
         boolean embed = target != null && guild.getSelfMember().hasPermission(target, Permission.MESSAGE_EMBED_LINKS);
         boolean talk = target != null && (!(target instanceof ThreadChannel) || target.canTalk());
         String reason = resolved.reason();
-        LOGGER.info("event={} guildId={} configuredMode={} effectiveMode={} configuredChannelId={} selectionChannelId={} "
+        LOGGER.atLevel(resolved.available() ? org.slf4j.event.Level.DEBUG : org.slf4j.event.Level.WARN)
+                .log("event={} guildId={} configuredMode={} effectiveMode={} configuredChannelId={} selectionChannelId={} "
                         + "interactionChannelId={} finalTargetChannelId={} selectionReason={} reason={} source={} "
                         + "channelType={} cacheHit={} interactionFallback={} isThread={} viewAllowed={} sendAllowed={} embedAllowed={} canTalk={} requestId={}",
-                "AVAILABLE".equals(reason) ? "MUSIC_PANEL_TARGET_RESOLVED" : "MUSIC_PANEL_TARGET_RESOLUTION_FAILED",
+                resolved.available() ? (revalidation ? "MUSIC_PANEL_TARGET_REVALIDATED" : "MUSIC_PANEL_TARGET_RESOLVED")
+                        : "MUSIC_PANEL_TARGET_RESOLUTION_FAILED",
                 guild.getIdLong(), mode.configured(), mode.effective(), mode.channelId(), initial.channelId(),
                 interactionChannelId, targetId, mode.reason(), reason, source,
                 resolved.type() == null ? "UNKNOWN" : resolved.type(), resolved.cacheHit(), target != null && !resolved.cacheHit(),
@@ -849,8 +866,8 @@ public final class MusicPanelRefreshService {
                 return CompletableFuture.completedFuture(null);
             }
             GuildMessageChannel destination = play == null ? resolveTarget(guild, current, operation.selection(),
-                    target == null ? null : Long.valueOf(target.getIdLong()), operation.source(), target, operation.requestId())
-                    : playbackTarget(guild, current, play);
+                    target == null ? null : Long.valueOf(target.getIdLong()), operation.source(), target, operation.requestId(), true)
+                    : playbackTarget(guild, current, play, true);
             CompletableFuture<MusicPanelStateStore.PanelRef> created = new CompletableFuture<>();
             if (old != null && !(current.fallback() && Objects.equals(current.channelId(), old.channelId))) {
                 invalidateReference(guild, old, operation, "REPLACED");
