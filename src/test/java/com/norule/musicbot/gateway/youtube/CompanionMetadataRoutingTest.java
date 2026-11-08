@@ -96,6 +96,28 @@ class CompanionMetadataRoutingTest {
             assertEquals(YoutubeFailureCategory.COMPANION_BAD_REQUEST, report.category());
             assertEquals(400, report.httpStatus());
             assertEquals(1, calls.get());
+            assertEquals(com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.SUSPICIOUS,
+                    assertInstanceOf(com.sedmelluq.discord.lavaplayer.tools.FriendlyException.class, failure).severity);
+        } finally { source.shutdown(); }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "This video is age restricted", "This video is private", "Video unavailable", "not available in your country"})
+    void expectedMetadataRestrictionsAreCommonAndKeepTheirCause(String reason) {
+        AtomicInteger calls = new AtomicInteger();
+        String body = "{\"playabilityStatus\":{\"status\":\"UNPLAYABLE\",\"reason\":\"" + reason + "\"}}";
+        var source = new BackendYoutubeAudioSourceManager(
+                factory(client(calls, 200, body), new AtomicInteger(), new AtomicInteger()), fixtureClient());
+        try {
+            var failure = assertThrows(com.sedmelluq.discord.lavaplayer.tools.FriendlyException.class,
+                    () -> source.loadItem(null, new AudioReference(INFO.uri, null)));
+            assertEquals(com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.COMMON, failure.severity);
+            var report = new YoutubeFailureClassifier().classify(failure);
+            assertEquals(YoutubeRecoveryClass.PERMANENT, report.recoveryClass());
+            assertFalse(report.allowsPlaybackRecovery(null));
+            assertInstanceOf(YouTubePlaybackException.class, failure.getCause());
+            assertEquals(1, calls.get());
         } finally { source.shutdown(); }
     }
 

@@ -104,6 +104,10 @@ public class MusicPlayerService {
     private static final long YOUTUBE_PLAYLIST_CACHE_TTL_MS = 30 * 60_000L;
     private static final int YOUTUBE_PLAYLIST_BATCH_SIZE = 25;
 
+    private static final long FAILED_CANDIDATE_TTL_MS = 30 * 60_000L;
+    private static final int MAX_FAILED_CANDIDATES = 2048;
+    // Video access restrictions span requests and guilds. Guard every access with the map lock.
+    private final java.util.LinkedHashMap<String, Long> failedYoutubeCandidates = new java.util.LinkedHashMap<>();
     private final AudioPlayerManager playerManager;
     private final AudioSourceManager bilibiliSourceManager;
     private final BilibiliSourceLifecycle bilibiliSourceLifecycle;
@@ -317,6 +321,9 @@ public class MusicPlayerService {
         spotifyPlaylistCooldownByGuild.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= now);
         youtubePlaylistCache.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue().expiresAtMs <= now);
         youtubePrecheckService.cleanupExpired(Instant.ofEpochMilli(now));
+        synchronized (failedYoutubeCandidates) {
+            failedYoutubeCandidates.values().removeIf(expiresAt -> expiresAt <= now);
+        }
         if (bilibiliSourceLifecycle != null) {
             bilibiliSourceLifecycle.cleanupExpiredMetadata();
         }
@@ -926,7 +933,7 @@ public class MusicPlayerService {
         playerManager.loadItem(identifier, new AudioLoadResultHandler() {
             @Override
             public void trackLoaded(AudioTrack track) {
-                onSuccess.accept(List.of(track));
+                onSuccess.accept(isFailedYoutubeCandidate(track) ? List.of() : List.of(track));
             }
 
             @Override
@@ -936,7 +943,8 @@ public class MusicPlayerService {
                     return;
                 }
                 int max = Math.max(1, Math.min(10, limit));
-                onSuccess.accept(playlist.getTracks().stream().limit(max).toList());
+                onSuccess.accept(playlist.getTracks().stream()
+                        .filter(track -> !isFailedYoutubeCandidate(track)).limit(max).toList());
             }
 
             @Override
@@ -2097,7 +2105,9 @@ public class MusicPlayerService {
         }
         if (isYoutubeTrack(track) || YOUTUBE_FAILURE_CLASSIFIER.isYoutubeSourceFailure(exception)) {
             YoutubeFailureReport youtubeFailure = YOUTUBE_FAILURE_CLASSIFIER.classify(exception);
-            LOGGER.warn("[NoRule] YouTube attempt failed: guildId={} correlationId={} attempt={} history={}",
+            var attemptLog = youtubeFailure.recoveryClass() == YoutubeRecoveryClass.PERMANENT
+                    ? LOGGER.atDebug() : LOGGER.atWarn();
+            attemptLog.log("[NoRule] YouTube attempt failed: guildId={} correlationId={} attempt={} history={}",
                     guildId, failureContext == null ? "-" : failureContext.correlationId(),
                     failureContext == null ? 0 : failureContext.recoveryAttempts(),
                     failureContext == null ? java.util.List.of() : failureContext.failures().stream()
@@ -2529,6 +2539,33 @@ public class MusicPlayerService {
         }
     }
 
+    private void recordFailedYoutubeCandidate(String videoId, YoutubeFailureReport failure) {
+        if (failure.recoveryClass() != YoutubeRecoveryClass.PERMANENT
+                || !YouTubePlaybackPrecheckService.isValidVideoId(videoId)) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        synchronized (failedYoutubeCandidates) {
+            failedYoutubeCandidates.values().removeIf(expiresAt -> expiresAt <= now);
+            failedYoutubeCandidates.remove(videoId);
+            failedYoutubeCandidates.put(videoId, now + FAILED_CANDIDATE_TTL_MS);
+            while (failedYoutubeCandidates.size() > MAX_FAILED_CANDIDATES) {
+                failedYoutubeCandidates.remove(failedYoutubeCandidates.keySet().iterator().next());
+            }
+        }
+    }
+
+    private boolean isFailedYoutubeCandidate(AudioTrack track) {
+        String videoId = youtubeVideoId(track);
+        synchronized (failedYoutubeCandidates) {
+            Long expiresAt = failedYoutubeCandidates.get(videoId);
+            if (expiresAt == null) return false;
+            if (expiresAt > System.currentTimeMillis()) return true;
+            failedYoutubeCandidates.remove(videoId);
+            return false;
+        }
+    }
+
     private void recordYoutubePlaybackFailure(YoutubeFailureReport failure) {
         if (failure != null) {
             youtubePlaybackFailureCounters.get(failure.category()).increment();
@@ -2555,6 +2592,7 @@ public class MusicPlayerService {
         YoutubeFailureReport report = failure == null
                 ? YOUTUBE_FAILURE_CLASSIFIER.classify(exception)
                 : failure;
+        recordFailedYoutubeCandidate(videoId, report);
         String summary = "[NoRule] YouTube " + stage + " attempt failed:"
                 + " correlationId=" + correlationId
                 + " guildId=" + guildId
@@ -2563,14 +2601,18 @@ public class MusicPlayerService {
                 + " category=" + report.category()
                 + " recoveryClass=" + report.recoveryClass()
                 + " clients=" + report.clientsSummary();
-        LOGGER.warn(summary + " configuredBackend=" + youtubePlaybackTrackFactory.backend()
+        var attemptLog = report.recoveryClass() == YoutubeRecoveryClass.PERMANENT
+                ? LOGGER.atDebug() : LOGGER.atWarn();
+        attemptLog.log(summary + " configuredBackend=" + youtubePlaybackTrackFactory.backend()
                 + " provider=" + YOUTUBE_FAILURE_CLASSIFIER.provider(exception)
                 + " stage=" + (stage.contains("load") ? "METADATA_DISCOVERY"
                     : report.category() == YoutubeFailureCategory.DECODER_FAILURE ? "AUDIO_DECODING" : "STREAM_EXTRACTION")
                 + " httpStatus=" + report.httpStatus()
                 + " reason=" + YOUTUBE_FAILURE_CLASSIFIER.safeDescription(exception));
         for (YoutubeClientFailure client : report.clientFailures()) {
-            LOGGER.warn("[NoRule] YouTube client failure: correlationId={} guildId={} videoId={} client={} category={} httpStatus={} reason={}",
+            var clientLog = report.recoveryClass() == YoutubeRecoveryClass.PERMANENT
+                    ? LOGGER.atDebug() : LOGGER.atWarn();
+            clientLog.log("[NoRule] YouTube client failure: correlationId={} guildId={} videoId={} client={} category={} httpStatus={} reason={}",
                     correlationId, guildId, sanitizeInputForLog(videoId), client.clientName(), client.category(),
                     client.httpStatus(), client.safeMessage());
         }
@@ -2582,7 +2624,9 @@ public class MusicPlayerService {
         String actualBackend = YOUTUBE_FAILURE_CLASSIFIER.provider(failure);
         boolean fallbackAttempted = youtubePlaybackTrackFactory.backend() == YouTubePlaybackBackend.COMPANION
                 && "YOUTUBE_SOURCE".equals(actualBackend);
-        LOGGER.warn("event=YOUTUBE_PLAYBACK_FAILED guildId={} videoId={} configuredBackend={} actualBackend={} "
+        var finalLog = report.recoveryClass() == YoutubeRecoveryClass.PERMANENT
+                ? LOGGER.atInfo() : LOGGER.atWarn();
+        finalLog.log("event=YOUTUBE_PLAYBACK_FAILED guildId={} videoId={} configuredBackend={} actualBackend={} "
                         + "failureCategory={} httpStatus={} fallbackAttempted={} retryCount={} correlationId={}",
                 guildId, sanitizeInputForLog(youtubeVideoId(track)), youtubePlaybackTrackFactory.backend(), actualBackend,
                 report.category(), report.httpStatus(), fallbackAttempted,
@@ -2640,7 +2684,7 @@ public class MusicPlayerService {
                 if (!isAutoplayRequestCurrent(guildId, guildMusicManager, generation)) {
                     return;
                 }
-                if (isLikelySameTrack(seedTrack, track)) {
+                if (isLikelySameTrack(seedTrack, track) || isFailedYoutubeCandidate(track)) {
                     if (tryFallback()) {
                         return;
                     }
@@ -2666,12 +2710,14 @@ public class MusicPlayerService {
                     return;
                 }
                 AudioTrack candidate = playlist.getTracks().stream()
+                        .filter(track -> !isFailedYoutubeCandidate(track))
                         .filter(track -> !isLikelySameTrack(seedTrack, track))
                         .filter(track -> !wasRecentlyPlayed(guildId, track))
                         .max(Comparator.comparingInt(track -> scoreAutoplayCandidate(seedTrack, track)))
                         .orElse(null);
                 if (candidate == null) {
                     candidate = playlist.getTracks().stream()
+                            .filter(track -> !isFailedYoutubeCandidate(track))
                             .filter(track -> !isLikelySameTrack(seedTrack, track))
                             .max(Comparator.comparingInt(track -> scoreAutoplayCandidate(seedTrack, track)))
                             .orElse(null);
@@ -2741,6 +2787,10 @@ public class MusicPlayerService {
     }
 
     private void queueAutoplayTrack(long guildId, GuildMusicManager guildMusicManager, AudioTrack track, long generation) {
+        if (isFailedYoutubeCandidate(track)) {
+            setAutoplayNotice(guildId, "NO_MATCH");
+            return;
+        }
         YouTubePlaybackPrecheckResult precheck = precheckTrack(track, "youtube");
         if (!isAutoplayRequestCurrent(guildId, guildMusicManager, generation)) {
             return;
@@ -2842,6 +2892,9 @@ public class MusicPlayerService {
     private String extractYouTubeVideoId(String uriText) {
         if (uriText == null || uriText.isBlank()) {
             return null;
+        }
+        if (YouTubePlaybackPrecheckService.isValidVideoId(uriText)) {
+            return uriText.trim();
         }
         try {
             URI uri = URI.create(uriText.trim());

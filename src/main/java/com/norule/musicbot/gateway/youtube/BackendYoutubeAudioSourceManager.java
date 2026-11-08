@@ -44,7 +44,9 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
         } catch (RuntimeException failure) {
             var classifier = new com.norule.musicbot.domain.music.YoutubeFailureClassifier();
             var report = classifier.classify(failure);
-            LOGGER.warn("[NoRule] YouTube candidate discovery failed: configuredBackend={} provider={} "
+            var log = report.recoveryClass() == com.norule.musicbot.domain.music.YoutubeRecoveryClass.PERMANENT
+                    ? LOGGER.atInfo() : LOGGER.atWarn();
+            log.log("[NoRule] YouTube candidate discovery failed: configuredBackend={} provider={} "
                     + "stage=METADATA_DISCOVERY category={} httpStatus={} clients={} failureType={}",
                     trackFactory.backend(), classifier.provider(failure), report.category(), report.httpStatus(),
                     report.clientsSummary(), failure.getClass().getSimpleName());
@@ -69,7 +71,10 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
                 if (!companion.allowsSourceFallback(videoId, failure)) {
                     throw new com.sedmelluq.discord.lavaplayer.tools.FriendlyException(
                         "YouTube metadata is unavailable.",
-                        com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.SUSPICIOUS, failure);
+                        new com.norule.musicbot.domain.music.YoutubeFailureClassifier().classify(failure).recoveryClass()
+                                == com.norule.musicbot.domain.music.YoutubeRecoveryClass.PERMANENT
+                                ? com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.COMMON
+                                : com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.SUSPICIOUS, failure);
                 }
                 LOGGER.info("event=YOUTUBE_METADATA_FALLBACK videoId={} primaryFailure={} actualBackend=YOUTUBE_SOURCE",
                         videoId, failure.category());

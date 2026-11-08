@@ -270,7 +270,9 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
     private FriendlyException friendly(YouTubePlaybackException failure) {
         return new FriendlyException(
                 "YouTube playback failed: backend=" + failure.backend() + " category=" + failure.category(),
-                FriendlyException.Severity.SUSPICIOUS,
+                new com.norule.musicbot.domain.music.YoutubeFailureClassifier().classify(failure).recoveryClass()
+                        == com.norule.musicbot.domain.music.YoutubeRecoveryClass.PERMANENT
+                        ? FriendlyException.Severity.COMMON : FriendlyException.Severity.SUSPICIOUS,
                 failure
         );
     }

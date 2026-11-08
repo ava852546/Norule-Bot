@@ -8,6 +8,26 @@ import java.io.IOException;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CompanionAudioTrackFailureTest {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = YoutubeFailureCategory.class, names = {
+            "VIDEO_AGE_RESTRICTED", "VIDEO_PRIVATE", "VIDEO_UNAVAILABLE", "REGION_RESTRICTED",
+            "UNKNOWN", "DECODER_FAILURE", "COMPANION_BAD_REQUEST"})
+    void playbackResolutionKeepsExpectedRestrictionsCommonAndErrorsSuspicious(YoutubeFailureCategory category) {
+        var source = new dev.lavalink.youtube.YoutubeAudioSourceManager();
+        try {
+            var info = new com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo("Fixture", "Artist", 1000,
+                    "xfuIlmywvXI", false, "https://www.youtube.com/watch?v=xfuIlmywvXI");
+            var cause = new YouTubePlaybackException(category, "fixture");
+            var track = new CompanionAudioTrack(info.identifier, source.buildAudioTrack(info),
+                    id -> { throw cause; }, new com.sedmelluq.discord.lavaplayer.source.http.HttpAudioSourceManager());
+            var failure = assertThrows(FriendlyException.class, () -> track.process(null));
+            var report = new YoutubeFailureClassifier().classify(cause);
+            assertEquals(report.recoveryClass() == YoutubeRecoveryClass.PERMANENT
+                    ? FriendlyException.Severity.COMMON : FriendlyException.Severity.SUSPICIOUS, failure.severity);
+            assertSame(cause, failure.getCause());
+        } finally { source.shutdown(); }
+    }
+
     @Test void signedStream403CanFallbackWithoutMisreportingApiCredentials() {
         var failure = CompanionAudioTrack.classifyStreamFailure(new HttpResponseException(403, "Forbidden"));
         assertEquals(YoutubeFailureCategory.HTTP_FORBIDDEN, failure.category());

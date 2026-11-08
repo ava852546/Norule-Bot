@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.lang.reflect.Proxy;
 import java.nio.file.Path;
@@ -83,6 +84,11 @@ class MusicPlayerServiceAutoplayTest {
                     if (method.getName().equals("loadItemOrdered")) {
                         searches.add((String) args[1]);
                         loads.add((AudioLoadResultHandler) args[2]);
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    if (method.getName().equals("loadItem")) {
+                        searches.add((String) args[0]);
+                        loads.add((AudioLoadResultHandler) args[1]);
                         return CompletableFuture.completedFuture(null);
                     }
                     return method.invoke(realManager, args);
@@ -299,6 +305,9 @@ class MusicPlayerServiceAutoplayTest {
             assertEquals(1, summaries.size());
             assertTrue(summaries.getFirst().contains("correlationId=" + context.correlationId()));
             assertTrue(summaries.getFirst().contains("failureCategory=VIDEO_PRIVATE"));
+            assertTrue(appender.list.stream().filter(event -> event.getFormattedMessage()
+                    .startsWith("event=YOUTUBE_PLAYBACK_FAILED"))
+                    .allMatch(event -> event.getLevel() == ch.qos.logback.classic.Level.INFO));
             assertTrue(loads.isEmpty());
         } finally { logger.detachAppender(appender); appender.stop(); }
     }
@@ -332,6 +341,103 @@ class MusicPlayerServiceAutoplayTest {
             assertTrue(summaries.getFirst().contains("correlationId=" + context.correlationId()));
             assertEquals(1, loads.size());
         } finally { logger.detachAppender(appender); appender.stop(); }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = YoutubeFailureCategory.class, names = {
+            "VIDEO_AGE_RESTRICTED", "VIDEO_PRIVATE", "VIDEO_UNAVAILABLE", "REGION_RESTRICTED"})
+    void permanentCandidatesAreExcludedAcrossRequestsAndExpire(YoutubeFailureCategory category) {
+        AudioTrack failed = track("blocked____", "Blocked song");
+        manager.getScheduler().queue(failed);
+        failTrack(failed, category);
+        assertTrue(loads.isEmpty(), "Permanent failures must not recover or start another autoplay loop");
+
+        finish(startSeed());
+        loads.getLast().playlistLoaded(playlist(failed.makeClone()));
+        assertEquals(2, loads.size(), "Excluded playlist must use the bounded artist fallback");
+        loads.getLast().trackLoaded(failed.makeClone());
+        assertNull(current, "Single-track fallback must also exclude the failed video");
+        assertEquals("NO_MATCH", service.getAutoplayNotice(GUILD_ID));
+
+        service.cleanupTransientCaches(System.currentTimeMillis() + 31 * 60_000L);
+        finish(startSeed());
+        AudioTrack availableAgain = failed.makeClone();
+        loads.getLast().playlistLoaded(playlist(availableAgain));
+        assertSame(availableAgain, current);
+    }
+
+    @Test
+    void permanentCandidateDoesNotBlockManualRequestsOrTheirFailureReason() {
+        AudioTrack failed = track("blocked____", "Blocked song");
+        manager.getScheduler().queue(failed);
+        failTrack(failed, YoutubeFailureCategory.VIDEO_AGE_RESTRICTED);
+        var messages = new ArrayList<String>();
+        service.queueTrackByIdentifier(guild, failed.getInfo().uri, "youtube", messages::add);
+        assertEquals(1, loads.size(), "An explicit request must still reach the backend");
+        loads.getLast().loadFailed(new FriendlyException("restricted", FriendlyException.Severity.COMMON,
+                new YouTubePlaybackException(YoutubeFailureCategory.VIDEO_AGE_RESTRICTED, "restricted")));
+        assertEquals(List.of("LOAD_FAILED:YOUTUBE_VIDEO_AGE_RESTRICTED"), messages);
+    }
+
+    @Test
+    void excludedTopCandidateDoesNotHidePlayableAlternative() {
+        AudioTrack failed = track("blocked____", "Seed song alternative");
+        manager.getScheduler().queue(failed);
+        failTrack(failed, YoutubeFailureCategory.VIDEO_PRIVATE);
+        finish(startSeed());
+        AudioTrack playable = track("next_______", "Another song");
+        loads.getLast().playlistLoaded(playlist(failed.makeClone(), playable));
+        assertSame(playable, current);
+    }
+
+    @Test
+    void transientFailureDoesNotExcludeCandidate() throws Exception {
+        var field = MusicPlayerService.class.getDeclaredField("trackRecoveryService");
+        field.setAccessible(true);
+        ((TrackRecoveryService) field.get(service)).updateConfig(false, 0, 0);
+        AudioTrack failed = track("blocked____", "Another song");
+        manager.getScheduler().queue(failed);
+        failTrack(failed, YoutubeFailureCategory.COMPANION_TIMEOUT);
+        finish(startSeed());
+        AudioTrack candidate = failed.makeClone();
+        loads.getLast().trackLoaded(candidate);
+        assertSame(candidate, current);
+    }
+
+    @Test
+    void searchCandidatesExcludeKnownFailuresBeforeApplyingLimit() {
+        AudioTrack failed = track("blocked____", "Blocked song");
+        manager.getScheduler().queue(failed);
+        failTrack(failed, YoutubeFailureCategory.REGION_RESTRICTED);
+        var results = new ArrayList<List<AudioTrack>>();
+        service.searchTopTracks("fixture", 1, results::add, error -> { throw new AssertionError(error); });
+        AudioTrack playable = track("next_______", "Playable song");
+        loads.getLast().playlistLoaded(playlist(failed.makeClone(), playable));
+        assertEquals(List.of(List.of(playable)), results);
+        service.searchTopTracks("fixture", 1, results::add, error -> { throw new AssertionError(error); });
+        loads.getLast().trackLoaded(failed.makeClone());
+        assertEquals(List.of(), results.getLast());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"blocked____", "https://youtu.be/blocked____", "https://www.youtube.com/watch?v=blocked____"})
+    void metadataFailureAlsoExcludesLaterRecommendations(String identifier) {
+        var messages = new ArrayList<String>();
+        service.queueTrackByIdentifier(guild, identifier, "youtube", messages::add);
+        loads.getLast().loadFailed(new FriendlyException("private", FriendlyException.Severity.COMMON,
+                new YouTubePlaybackException(YoutubeFailureCategory.VIDEO_PRIVATE, "private")));
+        assertEquals(List.of("LOAD_FAILED:YOUTUBE_VIDEO_PRIVATE"), messages);
+        finish(startSeed());
+        loads.getLast().trackLoaded(track("blocked____", "Blocked song"));
+        loads.getLast().noMatches();
+        assertNull(current);
+        assertEquals("NO_MATCH", service.getAutoplayNotice(GUILD_ID));
+    }
+
+    private void failTrack(AudioTrack track, YoutubeFailureCategory category) {
+        manager.getScheduler().onTrackException(manager.getPlayer(), track,
+                new FriendlyException("fixture", FriendlyException.Severity.COMMON,
+                        new YouTubePlaybackException(category, "fixture")));
     }
 
     private AudioTrack startSeed() {
