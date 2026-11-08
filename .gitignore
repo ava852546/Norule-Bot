@@ -1,5 +1,6 @@
 # Build output
 target/
+target-phase1/
 
 # IDE
 .idea/
@@ -31,6 +32,7 @@ Thumbs.db
 
 # ignore
 index.md
+# Local 
 /docs/
 /deploy/
 
