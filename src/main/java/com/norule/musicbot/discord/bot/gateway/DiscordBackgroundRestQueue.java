@@ -2,6 +2,9 @@ package com.norule.musicbot.discord.bot.gateway;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -11,17 +14,27 @@ import java.util.function.Supplier;
 
 /** Admission control for optional maintenance only. JDA still owns every HTTP retry. */
 public final class DiscordBackgroundRestQueue implements AutoCloseable {
-    public static final int MAX_PENDING = 256;
-    public static final int MAX_IN_FLIGHT = 2;
-    public static final long INTERVAL_MS = 250;
+    public static final int MAX_PENDING = 1024;
+    // Safety bound on retained JDA futures, not a shared two-request completion barrier.
+    public static final int MAX_IN_FLIGHT = 64;
+    // Optional work admits at most 40/s, leaving headroom for foreground traffic.
+    // This is not a Discord bucket implementation: JDA still owns all actual HTTP limits.
+    public static final long INTERVAL_MS = 25;
     private final ScheduledExecutorService scheduler;
     private final LongSupplier nanoTime;
     private final Map<String, Work> pending = new LinkedHashMap<>();
+    private final Set<String> activeKeys = new HashSet<>();
     private ScheduledFuture<?> task;
     private int inFlight;
     private long pausedUntil;
     private long nextStart;
     private boolean closed;
+    private long coalesced;
+    private long rejected;
+    private long completed;
+    private long failed;
+    private long cancelled;
+    private int maximumPending;
 
     public DiscordBackgroundRestQueue(ScheduledExecutorService scheduler) {
         this(scheduler, System::nanoTime);
@@ -34,21 +47,31 @@ public final class DiscordBackgroundRestQueue implements AutoCloseable {
         this.pausedUntil = nextStart;
     }
 
-    public synchronized CompletableFuture<Void> submit(String key, Supplier<CompletableFuture<Void>> operation) {
-        if (closed) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Background REST queue closed"));
+    public CompletableFuture<Void> submit(String key, Supplier<CompletableFuture<Void>> operation) {
+        Objects.requireNonNull(key);
+        Objects.requireNonNull(operation);
+        Work work;
+        Rejection rejection;
+        synchronized (this) {
+            if (closed) {
+                return CompletableFuture.failedFuture(new IllegalStateException("Background REST queue closed"));
+            }
+            Work existing = pending.get(key);
+            if (existing != null) {
+                existing.operation = operation;
+                coalesced++;
+                return existing.result;
+            }
+            if (pending.size() >= MAX_PENDING) {
+                rejected++;
+                return CompletableFuture.failedFuture(new IllegalStateException("Background REST queue full; maintenance skipped"));
+            }
+            work = new Work(key, operation);
+            pending.put(key, work);
+            maximumPending = Math.max(maximumPending, pending.size());
+            rejection = schedule();
         }
-        Work existing = pending.get(key);
-        if (existing != null) {
-            existing.operation = operation;
-            return existing.result;
-        }
-        if (pending.size() >= MAX_PENDING) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Background REST queue full; maintenance skipped"));
-        }
-        Work work = new Work(operation);
-        pending.put(key, work);
-        schedule();
+        if (rejection != null) rejection.complete();
         return work.result;
     }
 
@@ -61,58 +84,95 @@ public final class DiscordBackgroundRestQueue implements AutoCloseable {
     public synchronized int pendingCount() { return pending.size(); }
     public synchronized int inFlightCount() { return inFlight; }
 
+    public synchronized Metrics metrics() {
+        return new Metrics(pending.size(), inFlight, maximumPending, coalesced, rejected, completed, failed, cancelled);
+    }
+
+    public record Metrics(int pending, int inFlight, int maximumPending, long coalesced,
+                          long rejected, long completed, long failed, long cancelled) {}
+
     public void cancelPending(String key) {
         Work work;
         synchronized (this) {
             work = pending.remove(key);
+            if (work != null) cancelled++;
         }
         if (work != null) {
             work.result.cancel(false);
         }
     }
 
-    private void schedule() {
-        if (closed || task != null || pending.isEmpty() || inFlight >= MAX_IN_FLIGHT) {
-            return;
+    private Rejection schedule() {
+        if (closed || task != null || pending.isEmpty() || inFlight >= MAX_IN_FLIGHT
+                || pending.keySet().stream().allMatch(activeKeys::contains)) {
+            return null;
         }
         long delay = Math.max(0, Math.max(pausedUntil, nextStart) - nanoTime.getAsLong());
-        task = scheduler.schedule(this::drain, delay, TimeUnit.NANOSECONDS);
+        try {
+            task = scheduler.schedule(this::drain, delay, TimeUnit.NANOSECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException failure) {
+            // Never leave callers holding a pending future after scheduler shutdown.
+            var abandoned = java.util.List.copyOf(pending.values());
+            pending.clear();
+            closed = true;
+            rejected += abandoned.size();
+            return new Rejection(abandoned, failure);
+        }
+        return null;
     }
 
     private void drain() {
-        Work work;
+        Work work = null;
+        Rejection rejection;
         synchronized (this) {
             task = null;
-            if (closed || pending.isEmpty()) {
+            if (closed || pending.isEmpty() || inFlight >= MAX_IN_FLIGHT) {
                 return;
             }
             if (nanoTime.getAsLong() < Math.max(pausedUntil, nextStart)) {
-                schedule();
-                return;
+                rejection = schedule();
+            } else {
+                // FIFO among eligible keys. A stalled bucket never holds the head of the queue.
+                work = pending.values().stream().filter(candidate -> !activeKeys.contains(candidate.key))
+                        .findFirst().orElse(null);
+                if (work == null) return;
+                pending.remove(work.key);
+                activeKeys.add(work.key);
+                inFlight++;
+                nextStart = nanoTime.getAsLong() + TimeUnit.MILLISECONDS.toNanos(INTERVAL_MS);
+                rejection = schedule();
             }
-            var iterator = pending.values().iterator();
-            work = iterator.next();
-            iterator.remove();
-            inFlight++;
-            nextStart = nanoTime.getAsLong() + TimeUnit.MILLISECONDS.toNanos(INTERVAL_MS);
-            schedule();
         }
+        if (rejection != null) rejection.complete();
+        if (work == null) return;
         try {
-            work.operation.get().whenComplete((ignored, failure) -> finish(work, failure));
+            Work admitted = work;
+            work.operation.get().whenComplete((ignored, failure) -> finish(admitted, failure));
         } catch (RuntimeException failure) {
             finish(work, failure);
         }
     }
 
     private void finish(Work work, Throwable failure) {
+        Rejection rejection;
         synchronized (this) {
             inFlight--;
-            schedule();
+            activeKeys.remove(work.key);
+            if (failure == null) completed++; else failed++;
+            rejection = schedule();
         }
+        if (rejection != null) rejection.complete();
         if (failure == null) {
             work.result.complete(null);
         } else {
             work.result.completeExceptionally(failure);
+        }
+    }
+
+    private record Rejection(java.util.List<Work> abandoned, RuntimeException failure) {
+        void complete() {
+            // Callbacks may acquire per-guild locks: never invoke them under the queue lock.
+            abandoned.forEach(work -> work.result.completeExceptionally(failure));
         }
     }
 
@@ -126,13 +186,18 @@ public final class DiscordBackgroundRestQueue implements AutoCloseable {
             }
             cancelled = java.util.List.copyOf(pending.values());
             pending.clear();
+            this.cancelled += cancelled.size();
         }
         cancelled.forEach(work -> work.result.cancel(false));
     }
 
     private static final class Work {
+        private final String key;
         private Supplier<CompletableFuture<Void>> operation;
         private final CompletableFuture<Void> result = new CompletableFuture<>();
-        private Work(Supplier<CompletableFuture<Void>> operation) { this.operation = operation; }
+        private Work(String key, Supplier<CompletableFuture<Void>> operation) {
+            this.key = key;
+            this.operation = operation;
+        }
     }
 }

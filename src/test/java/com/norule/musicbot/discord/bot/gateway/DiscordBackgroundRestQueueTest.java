@@ -10,9 +10,26 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 class DiscordBackgroundRestQueueTest {
+    @Test
+    void overloadIsBoundedAndCloseReleasesAllPendingWaiters() {
+        try (var clock = new VirtualScheduler(); var queue = new DiscordBackgroundRestQueue(clock, clock::nanos)) {
+            queue.pause(60_000);
+            var results = new ArrayList<CompletableFuture<Void>>();
+            for (int i = 0; i < DiscordBackgroundRestQueue.MAX_PENDING; i++) {
+                results.add(queue.submit("guild:" + i, () -> CompletableFuture.completedFuture(null)));
+            }
+            assertTrue(queue.submit("overflow", () -> CompletableFuture.completedFuture(null)).isCompletedExceptionally());
+            assertEquals(1, queue.metrics().rejected());
+            queue.close();
+            assertTrue(results.stream().allMatch(CompletableFuture::isCancelled));
+            assertEquals(DiscordBackgroundRestQueue.MAX_PENDING, queue.metrics().cancelled());
+            assertEquals(0, queue.pendingCount());
+        }
+    }
+
     @ParameterizedTest
-    @ValueSource(ints = {100, 500})
-    void manyGuildsHaveBoundedPendingAndTwoOutstandingRequests(int count) {
+    @ValueSource(ints = {100, 300, 500})
+    void manyGuildsHaveBoundedPendingAndOutstandingRequests(int count) {
         try (var clock = new VirtualScheduler(); var queue = new DiscordBackgroundRestQueue(clock, clock::nanos)) {
             var flights = new ArrayList<CompletableFuture<Void>>();
             for (int guild = 0; guild < count; guild++) {
@@ -25,16 +42,60 @@ class DiscordBackgroundRestQueueTest {
             assertEquals(Math.min(count, DiscordBackgroundRestQueue.MAX_PENDING), queue.pendingCount());
             clock.advance(0);
             assertEquals(1, flights.size());
-            clock.advance(249);
+            clock.advance(DiscordBackgroundRestQueue.INTERVAL_MS - 1);
             assertEquals(1, flights.size());
             clock.advance(1);
             assertEquals(2, flights.size());
+            for (int i = 2; i < DiscordBackgroundRestQueue.MAX_IN_FLIGHT; i++) {
+                clock.advance(DiscordBackgroundRestQueue.INTERVAL_MS);
+            }
             clock.advance(60_000);
-            assertEquals(2, flights.size());
+            assertEquals(DiscordBackgroundRestQueue.MAX_IN_FLIGHT, flights.size());
             flights.getFirst().complete(null);
             clock.advance(0);
-            assertEquals(3, flights.size());
-            assertEquals(2, queue.inFlightCount());
+            assertEquals(DiscordBackgroundRestQueue.MAX_IN_FLIGHT + 1, flights.size());
+            assertEquals(DiscordBackgroundRestQueue.MAX_IN_FLIGHT, queue.inFlightCount());
+        }
+    }
+
+    @Test
+    void stalledKeyDoesNotBlockOtherGuildsOrOverlapItsOwnReplacement() {
+        try (var clock = new VirtualScheduler(); var queue = new DiscordBackgroundRestQueue(clock, clock::nanos)) {
+            var active = new CompletableFuture<Void>();
+            var sent = new ArrayList<String>();
+            queue.submit("guild:1", () -> active);
+            clock.advance(0);
+            queue.submit("guild:1", () -> { fail("Superseded"); return null; });
+            queue.submit("guild:1", () -> { sent.add("latest"); return CompletableFuture.completedFuture(null); });
+            queue.submit("guild:2", () -> { sent.add("other"); return CompletableFuture.completedFuture(null); });
+            clock.advance(DiscordBackgroundRestQueue.INTERVAL_MS);
+            assertEquals(List.of("other"), sent);
+            clock.advance(10_000);
+            assertEquals(List.of("other"), sent);
+            active.complete(null);
+            clock.advance(0);
+            assertEquals(List.of("other", "latest"), sent);
+            assertEquals(1, queue.metrics().coalesced());
+            assertEquals(3, queue.metrics().completed());
+        }
+    }
+
+    @Test
+    void throwingSupplierAndRejectedSchedulerReleaseCallers() {
+        try (var clock = new VirtualScheduler(); var queue = new DiscordBackgroundRestQueue(clock, clock::nanos)) {
+            var failed = queue.submit("one", () -> { throw new IllegalStateException("failed"); });
+            clock.advance(0);
+            assertTrue(failed.isCompletedExceptionally());
+            assertEquals(0, queue.inFlightCount());
+            var next = queue.submit("one", () -> CompletableFuture.completedFuture(null));
+            clock.advance(DiscordBackgroundRestQueue.INTERVAL_MS);
+            assertTrue(next.isDone());
+        }
+        var stopped = new ScheduledThreadPoolExecutor(1);
+        stopped.shutdownNow();
+        try (var queue = new DiscordBackgroundRestQueue(stopped)) {
+            assertTrue(queue.submit("one", () -> CompletableFuture.completedFuture(null)).isCompletedExceptionally());
+            assertEquals(0, queue.pendingCount());
         }
     }
 

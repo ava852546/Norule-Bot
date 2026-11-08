@@ -119,6 +119,11 @@ public class MusicCommandListener extends ListenerAdapter {
         return rateLimits;
     }
 
+    @Override
+    public void onHttpRequest(net.dv8tion.jda.api.events.http.HttpRequestEvent event) {
+        rateLimits.observeCompletion(event.getRestAction(), event.getResponse().code);
+    }
+
     public DiscordBackgroundRestQueue backgroundRest() {
         return service.backgroundRest();
     }

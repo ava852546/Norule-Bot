@@ -19,6 +19,27 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 class MusicPanelRefreshCoordinatorTest {
+    @Test
+    void completionMetricsKeepSuccessfulFailedAndSkippedWorkSeparate() {
+        requestAndDrain(1);
+        coordinator.submitted(1);
+        scheduler.advance(100);
+        flights.getFirst().complete(null);
+        assertEquals(1, coordinator.metrics(1).succeeded());
+        assertEquals(0, coordinator.metrics(1).failed());
+        requestAndDrain(1);
+        assertEquals(1, coordinator.metrics(1).unchanged());
+        assertEquals(1, coordinator.metrics(1).skipped());
+        content = "changed";
+        requestAndDrain(1);
+        coordinator.submitted(1);
+        scheduler.advance(100);
+        flights.getLast().completeExceptionally(new IllegalStateException("final failure"));
+        assertEquals(1, coordinator.metrics(1).failed());
+        assertTrue(coordinator.metrics(1).p99Ms() >= coordinator.metrics(1).p95Ms());
+        assertTrue(coordinator.metrics(1).meanMs() > 0);
+    }
+
     private final ManualScheduler scheduler = new ManualScheduler();
     private final List<String> sent = new ArrayList<>();
     private final List<CompletableFuture<Void>> flights = new ArrayList<>();

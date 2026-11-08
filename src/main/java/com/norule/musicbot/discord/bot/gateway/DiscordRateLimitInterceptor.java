@@ -11,6 +11,8 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.LinkedHashMap;
+import java.util.ArrayDeque;
+import java.lang.ref.WeakReference;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -21,9 +23,11 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
     private static final Logger LOGGER = LoggerFactory.getLogger(DiscordRateLimitInterceptor.class);
     // Only explicitly instrumented endpoints are attributed. Never infer a feature from a channel binding.
     private static final Map<String, Source> SOURCES = new LinkedHashMap<>();
+    private static final ArrayDeque<TrackedAction> ACTIONS = new ArrayDeque<>();
     private final DiscordBackgroundRestQueue background;
     private final java.util.function.BiConsumer<String, String> rateLimitObserver;
     private static final AtomicLong ATTEMPTS = new AtomicLong();
+    private final AtomicLong rateLimitedAttempts = new AtomicLong();
     private final Map<String, Long> nextWarnings = new LinkedHashMap<>();
     private final Map<String, Integer> suppressed = new LinkedHashMap<>();
 
@@ -46,6 +50,11 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
                                                   String method, String path, Supplier<String> diagnostics) {
         synchronized (SOURCES) {
             long now = System.nanoTime();
+            ACTIONS.removeIf(tracked -> tracked.action.get() == null
+                    || now - tracked.source.createdAt > TimeUnit.MINUTES.toNanos(10));
+            if (ACTIONS.size() >= 4096) ACTIONS.removeFirst();
+            ACTIONS.addLast(new TrackedAction(new WeakReference<>(action),
+                    new Source(feature, background, startup, now, diagnostics)));
             SOURCES.values().removeIf(source -> now - source.createdAt > TimeUnit.MINUTES.toNanos(10));
             if (SOURCES.size() >= 4096) {
                 SOURCES.remove(SOURCES.keySet().iterator().next());
@@ -58,6 +67,30 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
         }
         return action;
     }
+
+    /** JDA emits this for completed actions, not necessarily for its internally retried 429 attempts. */
+    public void observeCompletion(RestAction<?> action, int status) {
+        String feature = completedFeature(action);
+        LOGGER.debug("event=DISCORD_REST_COMPLETED feature={} attribution=ACTION_IDENTITY httpStatus={}", feature, status);
+    }
+
+    static String completedFeature(RestAction<?> action) {
+        synchronized (SOURCES) {
+            var iterator = ACTIONS.iterator();
+            while (iterator.hasNext()) {
+                TrackedAction tracked = iterator.next();
+                if (tracked.action.get() == action) {
+                    iterator.remove();
+                    return tracked.source.feature;
+                }
+            }
+        }
+        // This is an action contract, not a guess based on a callback URL containing a token.
+        return action instanceof net.dv8tion.jda.api.requests.restaction.interactions.InteractionCallbackAction<?>
+                ? "INTERACTION_REPLY" : "UNKNOWN";
+    }
+
+    public long rateLimitedAttempts() { return rateLimitedAttempts.get(); }
 
     @Override
     public Response intercept(Chain chain) throws IOException {
@@ -79,6 +112,7 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
                     TimeUnit.NANOSECONDS.toMillis(startedAt - source.createdAt), httpMillis, response.code());
         }
         if (response.code() == 429) {
+            rateLimitedAttempts.incrementAndGet();
             long retryMs = retryAfterMillis(response);
             // Admission only: JDA owns global/shared/user bucket handling and all HTTP retries.
             boolean global = "true".equalsIgnoreCase(response.header("X-RateLimit-Global"))
@@ -138,11 +172,22 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
                 response.header("X-RateLimit-Bucket") == null ? "UNKNOWN"
                         : Integer.toHexString(response.header("X-RateLimit-Bucket").hashCode()),
                 ids == null ? "UNKNOWN" : ids[2], ids == null ? "UNKNOWN" : ids[4],
-                source == null ? "" : source.diagnostics.get(),
+                diagnostics(source),
                 background.pendingCount(), background.inFlightCount(), suppressed.getOrDefault(warningKey, 0));
         suppressed.remove(warningKey);
         nextWarnings.put(warningKey, now + TimeUnit.SECONDS.toNanos(10));
     }
+
+    private static String diagnostics(Source source) {
+        try {
+            return source == null ? "" : source.diagnostics.get();
+        } catch (RuntimeException unavailable) {
+            // Diagnostic suppliers must never turn a valid HTTP response into a transport failure.
+            return "diagnostics=UNAVAILABLE";
+        }
+    }
+
+    private record TrackedAction(WeakReference<RestAction<?>> action, Source source) {}
 
     static String routeTemplate(String path) {
         // Never log webhook/interaction tokens, query strings, or literal user data in paths.

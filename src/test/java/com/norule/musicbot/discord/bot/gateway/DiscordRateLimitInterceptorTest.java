@@ -16,6 +16,39 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DiscordRateLimitInterceptorTest {
     @Test
+    void completionProvenanceUsesActionIdentityEvenWhenRoutesCollide() {
+        RestAction<?> refresh = action();
+        RestAction<?> delete = action();
+        DiscordRateLimitInterceptor.track(refresh, "MUSIC_PANEL_REFRESH", true, false,
+                "PATCH", "/channels/777/messages/888");
+        DiscordRateLimitInterceptor.track(delete, "MUSIC_PANEL_DELETE", false, false,
+                "PATCH", "/channels/777/messages/888");
+        assertEquals("MUSIC_PANEL_DELETE", DiscordRateLimitInterceptor.completedFeature(delete));
+        assertEquals("MUSIC_PANEL_REFRESH", DiscordRateLimitInterceptor.completedFeature(refresh));
+        assertEquals("UNKNOWN", DiscordRateLimitInterceptor.completedFeature(refresh));
+        assertEquals("UNKNOWN", DiscordRateLimitInterceptor.completedFeature(action()));
+    }
+
+    @Test
+    void diagnosticSupplierFailureCannotChange429Handling() throws Exception {
+        try (var clock = new DiscordBackgroundRestQueueTest.VirtualScheduler();
+             var queue = new DiscordBackgroundRestQueue(clock, clock::nanos)) {
+            DiscordRateLimitInterceptor.track(action(), "MUSIC_PANEL_REFRESH", true, false,
+                    "PATCH", "/channels/123/messages/456", () -> { throw new IllegalStateException("unavailable"); });
+            var response = response(429, "shared", "{\"retry_after\":1}");
+            var interceptor = new DiscordRateLimitInterceptor(queue);
+            assertSame(response, interceptor.intercept(chain(response)));
+            assertEquals(1, interceptor.rateLimitedAttempts());
+            interceptor.intercept(chain(response(200, "shared", "{}")));
+        }
+    }
+
+    private static RestAction<?> action() {
+        return (RestAction<?>) Proxy.newProxyInstance(RestAction.class.getClassLoader(),
+                new Class<?>[]{RestAction.class}, (proxy, method, args) -> { throw new AssertionError(method); });
+    }
+
+    @Test
     void diagnosticObserverSeesJdaHandled429AndCannotChangeResponseOrRetries() throws Exception {
         try (var clock = new DiscordBackgroundRestQueueTest.VirtualScheduler();
              var queue = new DiscordBackgroundRestQueue(clock, clock::nanos)) {

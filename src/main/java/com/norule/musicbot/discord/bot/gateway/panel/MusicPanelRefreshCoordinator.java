@@ -89,7 +89,7 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
                 if (state.manual.size() >= 20) {
                     return CompletableFuture.failedFuture(new IllegalStateException("Music panel command queue is full; try again later."));
                 }
-                ManualWork work = new ManualWork(prepareManual, new CompletableFuture<>());
+                ManualWork work = new ManualWork(prepareManual, new CompletableFuture<>(), nanoTime.getAsLong());
                 state.manual.add(work);
                 schedule(guildId, state);
                 return work.result();
@@ -135,7 +135,7 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
             reasons = state.activeManual == null ? Set.copyOf(state.pending) : Set.of(RefreshReason.MANUAL);
             state.activeReasons = reasons;
             state.startedAt = nanoTime.getAsLong();
-            state.activeRequestedAt = state.activeManual == null ? state.requestedAt : state.startedAt;
+            state.activeRequestedAt = state.activeManual == null ? state.requestedAt : state.activeManual.requestedAt();
             state.lastScheduleWaitMs = TimeUnit.NANOSECONDS.toMillis(state.startedAt - state.activeRequestedAt);
             state.admitted = false;
             state.lastAdmissionWaitMs = 0;
@@ -193,6 +193,31 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
             long now = nanoTime.getAsLong();
             state.lastTotalMs = TimeUnit.NANOSECONDS.toMillis(now - state.activeRequestedAt);
             state.lastRestMs = state.admitted ? TimeUnit.NANOSECONDS.toMillis(now - state.admittedAt) : 0;
+            Throwable cause = failure;
+            while (cause instanceof java.util.concurrent.CompletionException && cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+            String result;
+            if (closed || generation != state.generation || cause instanceof java.util.concurrent.CancellationException) {
+                state.cancelledCount++;
+                result = "CANCELLED";
+            } else if (failure != null) {
+                state.failedCount++;
+                result = "FAILED";
+            } else if (state.admitted) {
+                state.successCount++;
+                result = "SUCCESS";
+            } else {
+                state.skippedCount++;
+                result = "SKIPPED";
+            }
+            state.totalDurations[state.durationCursor++ % state.totalDurations.length] = state.lastTotalMs;
+            state.durationCursor %= state.totalDurations.length;
+            state.durationSamples = Math.min(state.totalDurations.length, state.durationSamples + 1);
+            LOGGER.debug("event=MUSIC_PANEL_REFRESH_METRIC guildId={} reasons={} result={} queueDepth={} "
+                            + "scheduleWaitMs={} admissionWaitMs={} restMs={} totalMs={}",
+                    guildId, state.activeReasons, result, state.manual.size() + (state.pending.isEmpty() ? 0 : 1),
+                    state.lastScheduleWaitMs, state.lastAdmissionWaitMs, state.lastRestMs, state.lastTotalMs);
             if (state.lastTotalMs > 5_000 && (!state.slowLogged
                     || now - state.lastSlowLogAt >= TimeUnit.MINUTES.toNanos(1))) {
                 LOGGER.warn("[NoRule] panel.refresh.slow guildId={} reasons={} scheduleWaitMs={} admissionWaitMs={} restMs={} totalMs={}",
@@ -297,9 +322,28 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
                     + " sentCount=" + state.sentCount + " unchangedCount=" + state.unchangedCount
                     + " route429Count=" + state.rateLimitedCount + " reasons=" + state.activeReasons
                     + " scheduleWaitMs=" + state.lastScheduleWaitMs + " admissionWaitMs=" + state.lastAdmissionWaitMs
-                    + " restMs=" + state.lastRestMs + " totalMs=" + state.lastTotalMs;
+                    + " restMs=" + state.lastRestMs + " totalMs=" + state.lastTotalMs
+                    + " completionMetrics=" + metrics(guildId);
         }
     }
+
+    /** Completion durations cover the most recent 128 operations, with bounded memory per guild. */
+    public Metrics metrics(long guildId) {
+        RefreshState state = states.get(guildId);
+        if (state == null) return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0);
+        synchronized (state) {
+            long[] values = java.util.Arrays.copyOf(state.totalDurations, state.durationSamples);
+            java.util.Arrays.sort(values);
+            double mean = java.util.Arrays.stream(values).average().orElse(0);
+            return new Metrics(state.successCount, state.failedCount, state.cancelledCount, state.skippedCount,
+                    state.coalescedCount, state.unchangedCount, mean,
+                    values.length == 0 ? 0 : values[(int) Math.ceil(values.length * .95) - 1],
+                    values.length == 0 ? 0 : values[(int) Math.ceil(values.length * .99) - 1]);
+        }
+    }
+
+    public record Metrics(long succeeded, long failed, long cancelled, long skipped, long coalesced,
+                          long unchanged, double meanMs, long p95Ms, long p99Ms) {}
 
     boolean sameContent(long guildId, Update update) {
         RefreshState state = states.get(guildId);
@@ -381,12 +425,19 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
         private long sentCount;
         private long unchangedCount;
         private long rateLimitedCount;
+        private long successCount;
+        private long failedCount;
+        private long cancelledCount;
+        private long skippedCount;
+        private final long[] totalDurations = new long[128];
+        private int durationCursor;
+        private int durationSamples;
         private Set<RefreshReason> activeReasons = Set.of();
         private boolean slowLogged;
         private long lastSlowLogAt;
         private Update lastSent;
     }
 
-    private record ManualWork(Supplier<CompletableFuture<Update>> prepare, CompletableFuture<Void> result) {
+    private record ManualWork(Supplier<CompletableFuture<Update>> prepare, CompletableFuture<Void> result, long requestedAt) {
     }
 }
