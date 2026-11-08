@@ -33,6 +33,11 @@ public final class FallbackYouTubePlaybackResolver implements YouTubePlaybackRes
             )
                     : primaryFailure;
         }
-        return fallback.resolve(videoId).withPrimaryFailure(primaryFailure.category());
+        try {
+            return fallback.resolve(videoId).withPrimaryFailure(primaryFailure.category());
+        } catch (YouTubePlaybackException finalFailure) {
+            if (finalFailure != primaryFailure) finalFailure.addSuppressed(primaryFailure);
+            throw finalFailure;
+        }
     }
 }

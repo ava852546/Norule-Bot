@@ -158,6 +158,7 @@ music:
   not_same_voice_channel: "You must join the same voice channel as the bot first."
   join_bot_voice_channel: "The bot is currently in {channel}. Join that voice channel before using play."
   not_connected: "The bot is not connected to any voice channel."
+  playlist_operation_failed: "The playlist operation failed or the system is busy. Please try again later."
   playlist_name_required: "Please provide a playlist name."
   playlist_save_empty: "There is no current track or queue to save."
   playlist_save_success: "Playlist `{name}` saved with `{count}` tracks."

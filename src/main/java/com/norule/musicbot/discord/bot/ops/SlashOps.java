@@ -38,7 +38,7 @@ public final class SlashOps {
         }
         String lang = owner.lang(event.getGuild().getIdLong());
         String commandName = routeMapper.canonicalSlashName(event.getName());
-        if (routeMapper.isKnownSlashCommand(commandName)) {
+        if (routeMapper.isKnownSlashCommand(commandName) && !"playlist".equals(commandName)) {
             owner.logCommandUsage(event.getGuild(), event.getMember(), "/" + routeMapper.buildSlashRoute(event), event.getChannel().getIdLong());
         }
 

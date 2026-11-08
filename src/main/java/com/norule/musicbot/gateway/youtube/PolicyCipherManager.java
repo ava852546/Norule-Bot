@@ -28,6 +28,15 @@ final class PolicyCipherManager implements CipherManager {
         return scope("STREAM_EXTRACTION");
     }
 
+    static boolean isStreamScope() {
+        Scope current = CURRENT_SCOPE.get();
+        return current != null && "STREAM_EXTRACTION".equals(current.stage);
+    }
+
+    boolean isAllowed() {
+        return policy.isAllowed();
+    }
+
     private static Scope scope(String stage) {
         Scope scope = new Scope(CURRENT_SCOPE.get(), stage);
         CURRENT_SCOPE.set(scope);

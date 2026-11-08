@@ -158,6 +158,7 @@ music:
   not_same_voice_channel: "请先加入和 Bot 相同的语音频道。"
   join_bot_voice_channel: "Bot 当前在 {channel}，请先加入该语音频道后再使用播放功能。"
   not_connected: "Bot 当前未连接任何语音频道。"
+  playlist_operation_failed: "歌单操作失败或系统忙碌，请稍后重试。"
   playlist_name_required: "请提供歌单名称。"
   playlist_save_empty: "目前没有可保存的歌曲或队列。"
   playlist_save_success: "歌单 `{name}` 已保存，共 `{count}` 首歌曲。"

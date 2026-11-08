@@ -28,6 +28,38 @@ class CompanionMetadataRoutingTest {
             """;
 
     @Test
+    void temporaryMetadataFailureUsesSourceOnlyWithExplicitFallbackPermission() {
+        for (boolean enabled : new boolean[]{false, true}) {
+            var requests = new AtomicInteger();
+            var sourceCalls = new AtomicInteger();
+            var client = client(requests, 503, "{}");
+            YouTubePlaybackResolver resolver = new CompanionPlaybackResolver(client);
+            if (enabled) resolver = new FallbackYouTubePlaybackResolver(resolver, new YoutubeSourcePlaybackResolver());
+            var factory = new CompanionYouTubePlaybackTrackFactory(resolver, new HttpAudioSourceManager(), client);
+            var direct = new WebWithThumbnail() {
+                @Override public boolean requirePlayerScript() { return false; }
+                @Override public AudioItem loadVideo(YoutubeAudioSourceManager manager, HttpInterface http, String id) {
+                    sourceCalls.incrementAndGet();
+                    return manager.buildAudioTrack(INFO);
+                }
+            };
+            var source = new BackendYoutubeAudioSourceManager(factory, direct);
+            source.setCipherManager(new PolicyCipherManager(new CipherPolicy(false), () -> {
+                throw new AssertionError("Must not enable Cipher for metadata fallback");
+            }));
+            try {
+                if (enabled) {
+                    assertInstanceOf(AudioTrack.class, source.loadItem(null, new AudioReference(INFO.uri, null)));
+                } else {
+                    assertThrows(RuntimeException.class, () -> source.loadItem(null, new AudioReference(INFO.uri, null)));
+                }
+                assertEquals(1, requests.get());
+                assertEquals(enabled ? 1 : 0, sourceCalls.get());
+            } finally { source.shutdown(); }
+        }
+    }
+
+    @Test
     void directUrlsUseCompanionMetadataAndPlaybackWithCipherDisabledOrEnabled() throws Exception {
         for (boolean enabled : new boolean[]{false, true}) {
             AtomicInteger metadata = new AtomicInteger(), streams = new AtomicInteger(), frames = new AtomicInteger();

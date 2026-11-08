@@ -53,7 +53,7 @@ public final class YoutubeFailureClassifier {
 
     public String provider(Throwable failure) {
         for (Throwable current : throwableGraph(failure)) {
-            if (current instanceof YouTubePlaybackException) return "COMPANION";
+            if (current instanceof YouTubePlaybackException playback) return playback.backend().name();
         }
         return "YOUTUBE_SOURCE";
     }

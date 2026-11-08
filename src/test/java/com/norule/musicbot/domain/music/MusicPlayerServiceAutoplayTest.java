@@ -280,6 +280,60 @@ class MusicPlayerServiceAutoplayTest {
         assertTrue(!service.isPlaybackTransitioning(guild));
     }
 
+    @Test
+    void permanentFailureIsSummarizedOnceWithoutRecoveryOrDuplicateEndNotifications() {
+        autoplay = false;
+        var seed = startSeed();
+        var context = new TrackLoadContext(seed.getIdentifier(), seed.getIdentifier(), "youtube", 1L, "fixture", 0);
+        seed.setUserData(context);
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MusicPlayerService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        try {
+            var failure = new FriendlyException("restricted", FriendlyException.Severity.COMMON,
+                    new YouTubePlaybackException(YoutubeFailureCategory.VIDEO_PRIVATE, "private"));
+            manager.getScheduler().onTrackException(manager.getPlayer(), seed, failure);
+            manager.getScheduler().onTrackException(manager.getPlayer(), seed, failure);
+            var summaries = appender.list.stream().map(event -> event.getFormattedMessage())
+                    .filter(message -> message.startsWith("event=YOUTUBE_PLAYBACK_FAILED")).toList();
+            assertEquals(1, summaries.size());
+            assertTrue(summaries.getFirst().contains("correlationId=" + context.correlationId()));
+            assertTrue(summaries.getFirst().contains("failureCategory=VIDEO_PRIVATE"));
+            assertTrue(loads.isEmpty());
+        } finally { logger.detachAppender(appender); appender.stop(); }
+    }
+
+    @Test
+    void recoverableAttemptIsNotFinalFailureUntilBudgetIsExhausted() throws Exception {
+        autoplay = false;
+        var recoveryField = MusicPlayerService.class.getDeclaredField("trackRecoveryService");
+        recoveryField.setAccessible(true);
+        ((TrackRecoveryService) recoveryField.get(service)).updateConfig(true, 1, 0);
+        var seed = startSeed();
+        var context = new TrackLoadContext(seed.getIdentifier(), seed.getIdentifier(), "youtube", 1L, "fixture", 0);
+        seed.setUserData(context);
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MusicPlayerService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        try {
+            var failure = new FriendlyException("timeout", FriendlyException.Severity.SUSPICIOUS,
+                    new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_TIMEOUT, "timeout"));
+            manager.getScheduler().onTrackException(manager.getPlayer(), seed, failure);
+            assertEquals(0, appender.list.stream().filter(event -> event.getFormattedMessage()
+                    .startsWith("event=YOUTUBE_PLAYBACK_FAILED")).count());
+            assertEquals(1, loads.size());
+            var replacement = track("next_______", "Replacement");
+            loads.getFirst().trackLoaded(replacement);
+            manager.getScheduler().onTrackException(manager.getPlayer(), replacement, failure);
+            var summaries = appender.list.stream().map(event -> event.getFormattedMessage())
+                    .filter(message -> message.startsWith("event=YOUTUBE_PLAYBACK_FAILED")).toList();
+            assertEquals(1, summaries.size());
+            assertTrue(summaries.getFirst().contains("retryCount=1"));
+            assertTrue(summaries.getFirst().contains("correlationId=" + context.correlationId()));
+            assertEquals(1, loads.size());
+        } finally { logger.detachAppender(appender); appender.stop(); }
+    }
+
     private AudioTrack startSeed() {
         AudioTrack seed = track("seed_______", "Seed song");
         manager.getScheduler().queue(seed);

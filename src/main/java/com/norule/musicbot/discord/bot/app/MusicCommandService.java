@@ -383,6 +383,7 @@ public class MusicCommandService extends ListenerAdapter {
         prefixCommandRouter.close();
         musicService.setDiagnosticsListener(ignored -> {});
         commandHandlers.devMusicInfoCommandHandler().close();
+        commandHandlers.playlistCommandHandler().close();
         musicPanelRuntime.close();
         backgroundRest.close();
         scheduler.shutdownNow();

@@ -43,6 +43,7 @@ public final class MusicTextResolver {
             case "volume_usage" -> zhCn ? "请使用 `!volume <1-100>`。" : (zh ? "請使用 `!volume <1-100>`。" : "Use `!volume <1-100>`.");
             case "volume_set" -> zhCn ? "音量已设置为 `{value}%`。" : (zh ? "音量已設定為 `{value}%`。" : "Volume set to `{value}%`.");
             case "playlist_usage" -> zhCn ? "请使用 `!playlist <save|load|add|delete|list|view|export> [name]`、`!playlist list <mine|all>` 或 `!playlist import <code> [name]`。" : (zh ? "請使用 `!playlist <save|load|add|delete|list|view|export> [name]`、`!playlist list <mine|all>` 或 `!playlist import <code> [name]`。" : "Use `!playlist <save|load|add|delete|list|view|export> [name]`, `!playlist list <mine|all>`, or `!playlist import <code> [name]`.");
+            case "playlist_operation_failed" -> zhCn ? "\u6b4c\u5355\u64cd\u4f5c\u5931\u8d25\u6216\u7cfb\u7edf\u5fd9\u788c\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002" : (zh ? "\u6b4c\u55ae\u64cd\u4f5c\u5931\u6557\u6216\u7cfb\u7d71\u5fd9\u788c\uff0c\u8acb\u7a0d\u5f8c\u91cd\u8a66\u3002" : "The playlist operation failed or the system is busy. Please try again later.");
             case "playlist_name_required" -> zhCn ? "请提供歌单名称。" : (zh ? "請提供歌單名稱。" : "Please provide a playlist name.");
             case "playlist_save_empty" -> zhCn ? "目前没有可保存的歌曲或队列。" : (zh ? "目前沒有可儲存的歌曲或佇列。" : "There is no current track or queue to save.");
             case "playlist_save_success" -> zhCn ? "歌单 `{name}` 已保存，共 `{count}` 首歌曲。" : (zh ? "歌單 `{name}` 已儲存，共 `{count}` 首歌曲。" : "Playlist `{name}` saved with `{count}` tracks.");

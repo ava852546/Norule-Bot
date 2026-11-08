@@ -15,6 +15,37 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class PolicyCipherManagerTest {
     @Test
+    void streamClientsAreFilteredPerScopeAndReloadWithoutMutatingMetadataClients() {
+        var policy = new CipherPolicy(false);
+        var scripted = new dev.lavalink.youtube.clients.WebWithThumbnail();
+        var direct = new dev.lavalink.youtube.clients.WebWithThumbnail() {
+            @Override public boolean requirePlayerScript() { return false; }
+        };
+        var source = new BackendYoutubeAudioSourceManager(YouTubePlaybackTrackFactory.youtubeSource(), scripted, direct);
+        source.setCipherManager(new PolicyCipherManager(policy, () -> { throw new AssertionError("Cipher must remain disabled"); }));
+        try {
+            assertEquals(2, source.getClients().length);
+            try (var scope = PolicyCipherManager.streamScope()) {
+                assertArrayEquals(new dev.lavalink.youtube.clients.skeleton.Client[]{direct}, source.getClients());
+                policy.update(true);
+                assertEquals(2, source.getClients().length);
+                policy.update(false);
+                assertEquals(1, source.getClients().length);
+            }
+            assertEquals(2, source.getClients().length);
+        } finally { source.shutdown(); }
+    }
+
+    @Test
+    void incompatibleSourceFailsBeforeClientOrNetworkWork() {
+        var source = new BackendYoutubeAudioSourceManager(YouTubePlaybackTrackFactory.youtubeSource(),
+                new dev.lavalink.youtube.clients.WebWithThumbnail());
+        source.setCipherManager(new PolicyCipherManager(new CipherPolicy(false), () -> { throw new AssertionError("delegate"); }));
+        try (var scope = PolicyCipherManager.streamScope()) {
+            assertThrows(CipherDisabledException.class, source::getClients);
+        } finally { source.shutdown(); }
+    }
+    @Test
     void sourcePreflightUsesCapabilityPreservesOtherClientsAndLogsMetadataDenialOnce() {
         AtomicInteger deniedCalls = new AtomicInteger(), alternativeCalls = new AtomicInteger();
         var policy = new CipherPolicy(false);

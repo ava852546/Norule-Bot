@@ -35,11 +35,17 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
     private final InternalAudioTrack youtubeSourceTrack;
     private final YouTubePlaybackResolver resolver;
     private final HttpAudioSourceManager companionHttpSource;
+    private final java.time.Clock clock;
 
     public CompanionAudioTrack(String videoId,
                                AudioTrack youtubeSourceTrack,
                                YouTubePlaybackResolver resolver,
                                HttpAudioSourceManager companionHttpSource) {
+        this(videoId, youtubeSourceTrack, resolver, companionHttpSource, java.time.Clock.systemUTC());
+    }
+
+    CompanionAudioTrack(String videoId, AudioTrack youtubeSourceTrack, YouTubePlaybackResolver resolver,
+                        HttpAudioSourceManager companionHttpSource, java.time.Clock clock) {
         super(youtubeSourceTrack.getInfo());
         if (!(youtubeSourceTrack instanceof InternalAudioTrack internalTrack)) {
             throw new IllegalArgumentException("YouTube source track must support local playback.");
@@ -48,6 +54,7 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
         this.youtubeSourceTrack = internalTrack;
         this.resolver = resolver;
         this.companionHttpSource = companionHttpSource;
+        this.clock = clock;
         setUserData(youtubeSourceTrack.getUserData());
     }
 
@@ -57,20 +64,30 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
         try {
             resolved = resolver.resolve(videoId);
         } catch (YouTubePlaybackException failure) {
-            LOGGER.warn("[NoRule] YouTube playback failed: configuredBackend=COMPANION actualBackend=COMPANION "
+            LOGGER.debug("[NoRule] YouTube playback resolution ended: configuredBackend=COMPANION actualBackend=COMPANION "
                     + "videoId={} reason={} fallbackAttempted=false", videoId, failure.category());
             throw friendly(failure);
         }
+        if (resolved.usesCompanionStream() && expiresSoon(resolved, clock.instant())) {
+            resolved = resolver.resolve(videoId);
+        }
         if (!resolved.usesCompanionStream()) {
             logSelection(resolved);
-            processDelegate(youtubeSourceTrack, executor);
+            processSource(executor, resolved.primaryFailureCategory());
             return;
         }
 
         logSelection(resolved);
         try {
+            if (expiresSoon(resolved, clock.instant())) {
+                throw new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE,
+                        "Companion stream still expires within five seconds after one refresh.");
+            }
             processCompanionStream(resolved, executor);
         } catch (Exception streamFailure) {
+            if (streamFailure instanceof InterruptedException || Thread.currentThread().isInterrupted()) {
+                throw streamFailure;
+            }
             YouTubePlaybackException classified = classifyStreamFailure(streamFailure);
             LOGGER.warn(
                     "[NoRule] Companion audio stream failed: videoId={} stage={} "
@@ -85,7 +102,7 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
             try {
                 fallback = resolver.fallback(videoId, classified);
             } catch (YouTubePlaybackException finalFailure) {
-                LOGGER.warn("[NoRule] YouTube playback failed: configuredBackend=COMPANION actualBackend=COMPANION "
+                LOGGER.debug("[NoRule] YouTube playback resolution ended: configuredBackend=COMPANION actualBackend=COMPANION "
                         + "videoId={} reason={} fallbackAttempted=false", videoId, finalFailure.category());
                 throw friendly(finalFailure);
             }
@@ -93,8 +110,31 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
                 throw friendly(classified);
             }
             logSelection(fallback);
-            processDelegate(youtubeSourceTrack, executor);
+            processSource(executor, classified.category());
         }
+    }
+
+    private void processSource(LocalAudioTrackExecutor executor, YoutubeFailureCategory primaryFailure) throws Exception {
+        youtubeSourceTrack.setUserData(getUserData());
+        try (var scope = PolicyCipherManager.streamScope()) {
+            // Check capability before opening a source HTTP interface or iterating its clients.
+            if (youtubeSourceTrack.getSourceManager() instanceof BackendYoutubeAudioSourceManager source) {
+                source.getClients();
+            }
+            processDelegate(youtubeSourceTrack, executor);
+        } catch (Exception failure) {
+            var report = new com.norule.musicbot.domain.music.YoutubeFailureClassifier().classify(failure);
+            var finalFailure = new YouTubePlaybackException(report.category(), "YouTube source fallback failed.",
+                    report.httpStatus(), failure, com.norule.musicbot.domain.music.YouTubePlaybackBackend.YOUTUBE_SOURCE);
+            if (primaryFailure != null) {
+                finalFailure.addSuppressed(new YouTubePlaybackException(primaryFailure, "Companion primary attempt failed."));
+            }
+            throw friendly(finalFailure);
+        }
+    }
+
+    static boolean expiresSoon(ResolvedYouTubePlayback resolved, java.time.Instant now) {
+        return resolved.expiresAt() != null && !resolved.expiresAt().isAfter(now.plusSeconds(5));
     }
 
     private void processCompanionStream(ResolvedYouTubePlayback resolved,
@@ -143,7 +183,12 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
             }
             Integer status = current instanceof org.apache.http.client.HttpResponseException response
                     ? Integer.valueOf(response.getStatusCode()) : httpStatus(current.getMessage());
-            if (status != null && (status == 401 || status == 403)) {
+            if (status != null && status == 403) {
+                // A signed media URL rejection is not proof of invalid Companion API credentials.
+                return new YouTubePlaybackException(YoutubeFailureCategory.HTTP_FORBIDDEN,
+                        "Companion media stream was forbidden (signed URL or upstream access rejected).", status, failure);
+            }
+            if (status != null && status == 401) {
                 return new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_AUTH_FAILED,
                         "Companion playback proxy rejected authentication.", status, failure);
             }
@@ -198,11 +243,12 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
     private void logSelection(ResolvedYouTubePlayback resolved) {
         if (resolved.backend() == com.norule.musicbot.domain.music.YouTubePlaybackBackend.YOUTUBE_SOURCE
                 && resolved.primaryFailureCategory() != null) {
-            LOGGER.warn(
+            LOGGER.info(
                     "[NoRule] YouTube playback fallback: videoId={} primaryBackend=COMPANION "
-                            + "primaryFailure={} configuredBackend=COMPANION actualBackend=YOUTUBE_SOURCE fallbackAttempted=true",
+                            + "primaryFailure={} configuredBackend=COMPANION actualBackend=YOUTUBE_SOURCE fallbackAttempted=true correlationId={}",
                     videoId,
-                    resolved.primaryFailureCategory()
+                    resolved.primaryFailureCategory(),
+                    getUserData() instanceof com.norule.musicbot.domain.music.TrackLoadContext context ? context.correlationId() : "-"
             );
             return;
         }
@@ -223,7 +269,7 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
 
     private FriendlyException friendly(YouTubePlaybackException failure) {
         return new FriendlyException(
-                "YouTube playback failed: backend=COMPANION category=" + failure.category(),
+                "YouTube playback failed: backend=" + failure.backend() + " category=" + failure.category(),
                 FriendlyException.Severity.SUSPICIOUS,
                 failure
         );
@@ -254,7 +300,8 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
                 videoId,
                 youtubeSourceTrack.makeClone(),
                 resolver,
-                companionHttpSource
+                companionHttpSource,
+                clock
         );
     }
 

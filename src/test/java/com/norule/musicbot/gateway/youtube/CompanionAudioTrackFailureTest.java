@@ -8,6 +8,36 @@ import java.io.IOException;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CompanionAudioTrackFailureTest {
+    @Test void signedStream403CanFallbackWithoutMisreportingApiCredentials() {
+        var failure = CompanionAudioTrack.classifyStreamFailure(new HttpResponseException(403, "Forbidden"));
+        assertEquals(YoutubeFailureCategory.HTTP_FORBIDDEN, failure.category());
+        assertEquals(403, failure.httpStatus());
+        assertTrue(failure.allowsSourceFallback());
+    }
+
+    @Test void transportFailuresRetainHttpStatusAndTimeoutClassification() {
+        for (int status : new int[]{429, 500, 503}) {
+            var failure = CompanionAudioTrack.classifyStreamFailure(new HttpResponseException(status, "rejected"));
+            assertEquals(YoutubeFailureCategory.COMPANION_UNAVAILABLE, failure.category());
+            assertEquals(status, failure.httpStatus());
+            assertTrue(failure.allowsSourceFallback());
+        }
+        assertEquals(YoutubeFailureCategory.COMPANION_TIMEOUT,
+                CompanionAudioTrack.classifyStreamFailure(new java.net.SocketTimeoutException()).category());
+        assertEquals(YoutubeFailureCategory.COMPANION_UNAVAILABLE,
+                CompanionAudioTrack.classifyStreamFailure(new IOException("connection reset")).category());
+        assertFalse(CompanionAudioTrack.classifyStreamFailure(new HttpResponseException(401, "unauthorized")).allowsSourceFallback());
+    }
+
+    @Test void expirySafetyMarginUsesAnExplicitClockInstant() {
+        var now = java.time.Instant.parse("2026-11-08T00:00:00Z");
+        for (int seconds : new int[]{-1, 0, 5, 6}) {
+            var resolved = new ResolvedYouTubePlayback("xfuIlmywvXI", YouTubePlaybackBackend.COMPANION,
+                    java.net.URI.create("http://localhost/stream"), "audio/webm", "opus", 128000L, 1000L,
+                    now.plusSeconds(seconds));
+            assertEquals(seconds <= 5, CompanionAudioTrack.expiresSoon(resolved, now));
+        }
+    }
     @Test void structuredFailureWinsOverGenericWrapperAndIoException() {
         var cause = new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_BAD_REQUEST, "rejected", 400, null);
         var wrapped = new FriendlyException("Something went wrong when decoding the track",

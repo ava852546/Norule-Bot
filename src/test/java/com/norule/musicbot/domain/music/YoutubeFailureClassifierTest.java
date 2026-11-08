@@ -21,6 +21,15 @@ class YoutubeFailureClassifierTest {
     private final YoutubeFailureClassifier classifier = new YoutubeFailureClassifier();
 
     @Test
+    void finalSourceFailureKeepsBackendAndDoesNotReuseSuppressedPrimaryCategory() {
+        var failure = new YouTubePlaybackException(YoutubeFailureCategory.NETWORK_IO,
+                "source disconnected", null, new IOException("connection reset"), YouTubePlaybackBackend.YOUTUBE_SOURCE);
+        failure.addSuppressed(new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_TIMEOUT, "primary timeout"));
+        assertEquals("YOUTUBE_SOURCE", classifier.provider(failure));
+        assertEquals(YoutubeFailureCategory.NETWORK_IO, classifier.classify(failure).category());
+    }
+
+    @Test
     void classifiesKnownIndividualClientFailures() {
         assertCategory(YoutubeFailureCategory.HTTP_FORBIDDEN, "Not success status code: 403");
         assertCategory(YoutubeFailureCategory.BOT_DETECTED, "Sign in to confirm you’re not a bot");

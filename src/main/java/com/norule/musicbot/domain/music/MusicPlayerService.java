@@ -2127,6 +2127,7 @@ public class MusicPlayerService {
                     return;
                 }
             }
+            logFinalYoutubePlaybackFailure(guildId, track, exception);
             notifyPlaybackFailure(guildId, trackTitle(track), youtubeFailure.errorKey());
             skipFailedTrack(guildId, track);
             return;
@@ -2256,6 +2257,7 @@ public class MusicPlayerService {
                                     failure,
                                     history == null ? "-" : history.correlationId()
                             );
+                            logFinalYoutubePlaybackFailure(guildId, track, failure);
                             notifyPlaybackFailure(guildId, title, youtubeFailure.errorKey());
                             return;
                         }
@@ -2272,6 +2274,10 @@ public class MusicPlayerService {
                                 sanitizeInputForLog(track.getIdentifier()),
                                 maxAttempts
                         );
+                        TrackLoadContext history = readContext(track);
+                        if (isYoutubeTrack(track) && history != null && !history.failures().isEmpty()) {
+                            logFinalYoutubePlaybackFailure(guildId, track, history.failures().getLast());
+                        }
                         notifyPlaybackFailure(guildId, title,
                                 finalErrorKey == null ? TRACK_RECOVERY_EXHAUSTED_ERROR_KEY : finalErrorKey);
                     }
@@ -2549,7 +2555,7 @@ public class MusicPlayerService {
         YoutubeFailureReport report = failure == null
                 ? YOUTUBE_FAILURE_CLASSIFIER.classify(exception)
                 : failure;
-        String summary = "[NoRule] YouTube " + stage + " failed:"
+        String summary = "[NoRule] YouTube " + stage + " attempt failed:"
                 + " correlationId=" + correlationId
                 + " guildId=" + guildId
                 + " videoId=" + sanitizeInputForLog(videoId)
@@ -2568,6 +2574,19 @@ public class MusicPlayerService {
                     correlationId, guildId, sanitizeInputForLog(videoId), client.clientName(), client.category(),
                     client.httpStatus(), client.safeMessage());
         }
+    }
+
+    private void logFinalYoutubePlaybackFailure(long guildId, AudioTrack track, Throwable failure) {
+        TrackLoadContext context = readContext(track);
+        YoutubeFailureReport report = YOUTUBE_FAILURE_CLASSIFIER.classify(failure);
+        String actualBackend = YOUTUBE_FAILURE_CLASSIFIER.provider(failure);
+        boolean fallbackAttempted = youtubePlaybackTrackFactory.backend() == YouTubePlaybackBackend.COMPANION
+                && "YOUTUBE_SOURCE".equals(actualBackend);
+        LOGGER.warn("event=YOUTUBE_PLAYBACK_FAILED guildId={} videoId={} configuredBackend={} actualBackend={} "
+                        + "failureCategory={} httpStatus={} fallbackAttempted={} retryCount={} correlationId={}",
+                guildId, sanitizeInputForLog(youtubeVideoId(track)), youtubePlaybackTrackFactory.backend(), actualBackend,
+                report.category(), report.httpStatus(), fallbackAttempted,
+                context == null ? 0 : context.recoveryAttempts(), context == null ? "-" : context.correlationId());
     }
 
     private String trackTitle(AudioTrack track) {

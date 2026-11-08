@@ -45,6 +45,15 @@ class FallbackYouTubePlaybackResolverTest {
         assertNoFallback(YoutubeFailureCategory.COMPANION_BAD_REQUEST);
     }
 
+    @Test
+    void permanentVideoRestrictionsNeverFallback() {
+        for (var category : new YoutubeFailureCategory[]{YoutubeFailureCategory.VIDEO_AGE_RESTRICTED,
+                YoutubeFailureCategory.VIDEO_PRIVATE, YoutubeFailureCategory.VIDEO_UNAVAILABLE,
+                YoutubeFailureCategory.REGION_RESTRICTED}) {
+            assertNoFallback(category);
+        }
+    }
+
     private void assertNoFallback(YoutubeFailureCategory category) {
         AtomicInteger fallbackAttempts = new AtomicInteger();
         YouTubePlaybackResolver resolver = new FallbackYouTubePlaybackResolver(

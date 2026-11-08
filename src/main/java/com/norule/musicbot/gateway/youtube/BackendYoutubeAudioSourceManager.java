@@ -66,9 +66,13 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
                 AudioTrack track = buildAudioTrack(companion.loadMetadata(videoId));
                 return ignored -> track;
             } catch (com.norule.musicbot.domain.music.YouTubePlaybackException failure) {
-                throw new com.sedmelluq.discord.lavaplayer.tools.FriendlyException(
+                if (!companion.allowsSourceFallback(videoId, failure)) {
+                    throw new com.sedmelluq.discord.lavaplayer.tools.FriendlyException(
                         "YouTube metadata is unavailable.",
                         com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.SUSPICIOUS, failure);
+                }
+                LOGGER.info("event=YOUTUBE_METADATA_FALLBACK videoId={} primaryFailure={} actualBackend=YOUTUBE_SOURCE",
+                        videoId, failure.category());
             }
         }
         Router route = super.routeFromVideoId(http, videoId, url);
@@ -95,6 +99,22 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
     @Override
     public YoutubeAudioTrack buildAudioTrack(AudioTrackInfo info) {
         return new BackendTrack(super.buildAudioTrack(info));
+    }
+
+    @Override
+    public Client[] getClients() {
+        Client[] configured = super.getClients();
+        if (!PolicyCipherManager.isStreamScope()
+                || !(getCipherManager() instanceof PolicyCipherManager guard) || guard.isAllowed()) {
+            return configured;
+        }
+        Client[] capable = java.util.Arrays.stream(configured)
+                .filter(client -> client.supportsFormatLoading() && !client.requirePlayerScript())
+                .toArray(Client[]::new);
+        if (capable.length == 0) {
+            throw new com.norule.musicbot.domain.music.CipherDisabledException();
+        }
+        return capable;
     }
 
     @Override
@@ -136,7 +156,7 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
             try (var scope = PolicyCipherManager.streamScope()) {
                 processDelegate((InternalAudioTrack) selected, executor);
             } catch (Exception failure) {
-                LOGGER.warn("[NoRule] YouTube playback failed: source={} sourceTrackId={} videoId={} "
+                LOGGER.debug("[NoRule] YouTube playback attempt ended: source={} sourceTrackId={} videoId={} "
                                 + "configuredBackend={} failureType={}",
                         source, sourceTrackId, trackInfo.identifier, trackFactory.backend(), failure.getClass().getSimpleName());
                 throw failure;

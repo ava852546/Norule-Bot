@@ -55,6 +55,15 @@ public final class CompanionYouTubePlaybackTrackFactory implements YouTubePlayba
         return metadataClient.loadMetadata(videoId);
     }
 
+    boolean allowsSourceFallback(String videoId, com.norule.musicbot.domain.music.YouTubePlaybackException failure) {
+        try {
+            return resolver.fallback(videoId, failure).backend()
+                    == com.norule.musicbot.domain.music.YouTubePlaybackBackend.YOUTUBE_SOURCE;
+        } catch (com.norule.musicbot.domain.music.YouTubePlaybackException rejected) {
+            return false;
+        }
+    }
+
     @Override
     public com.norule.musicbot.domain.music.YouTubePlaybackBackend backend() {
         return com.norule.musicbot.domain.music.YouTubePlaybackBackend.COMPANION;
