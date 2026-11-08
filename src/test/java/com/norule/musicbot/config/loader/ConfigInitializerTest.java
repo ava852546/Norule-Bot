@@ -23,6 +23,25 @@ class ConfigInitializerTest {
     Path tempDir;
 
     @Test
+    void preservesLegacyRuntimeCleanupChoiceAcrossInitialization() throws IOException {
+        Path configPath = tempDir.resolve("config.yml");
+        Files.writeString(configPath, "runtime-dependencies:\n  cleanupObsolete: false\n",
+                StandardCharsets.UTF_8);
+        ConfigInitializer initializer = new ConfigInitializer(new LanguageManager());
+        initializer.initialize(configPath);
+        initializer.initialize(configPath);
+        Map<String, Object> runtime = asMap(readMap(configPath).get("runtime-dependencies"));
+        assertEquals(false, runtime.get("cleanup-obsolete"));
+        assertFalse(runtime.containsKey("cleanupObsolete"));
+
+        Files.writeString(configPath,
+                "runtime-dependencies:\n  cleanupObsolete: false\n  cleanup-obsolete: true\n",
+                StandardCharsets.UTF_8);
+        initializer.initialize(configPath);
+        assertEquals(true, asMap(readMap(configPath).get("runtime-dependencies")).get("cleanup-obsolete"));
+    }
+
+    @Test
     void normalizesConfigOrderAndRemovesObsoleteValues() throws IOException {
         Path configPath = tempDir.resolve("config.yml");
         Files.writeString(configPath, """

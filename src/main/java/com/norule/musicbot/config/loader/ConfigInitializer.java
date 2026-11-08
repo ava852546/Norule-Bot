@@ -598,6 +598,13 @@ public final class ConfigInitializer {
         changed |= migrateBotProfile(config);
         changed |= migrateMusicSettings(config);
 
+        Map<String, Object> runtimeDependencies = mutableMap(config.get("runtime-dependencies"));
+        if (runtimeDependencies != null && runtimeDependencies.containsKey("cleanupObsolete")) {
+            runtimeDependencies.putIfAbsent("cleanup-obsolete", runtimeDependencies.get("cleanupObsolete"));
+            runtimeDependencies.remove("cleanupObsolete");
+            changed = true;
+        }
+
         Map<String, Object> web = mutableMap(config.get("web"));
         if (web != null && !web.isEmpty()) {
             changed |= migrateBindAndPublicUrl(web, "host", "port", "baseUrl", null);

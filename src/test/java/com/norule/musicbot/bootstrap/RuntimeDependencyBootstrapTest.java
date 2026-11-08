@@ -303,6 +303,170 @@ class RuntimeDependencyBootstrapTest {
         return Files.createDirectories(tempDir.resolve(RuntimeDependencyBootstrap.RUNTIME_LIB_DIRECTORY));
     }
 
+    @Test
+    void managedUpgradeRemovesOldVersionAndRestartDoesNothing() throws IOException {
+        Path libs = createRuntimeLibs();
+        syncVersion(libs, "1", true);
+        Files.writeString(libs.resolve("user-addon.jar"), "keep");
+        Files.writeString(libs.resolve("notes.txt"), "keep");
+        Files.writeString(libs.resolve(".bootstrap.lock"), "keep");
+        var logger = java.util.logging.Logger.getLogger(RuntimeDependencyBootstrap.class.getName());
+        var messages = new java.util.ArrayList<String>();
+        var handler = new java.util.logging.Handler() {
+            public void publish(java.util.logging.LogRecord record) { messages.add(record.getMessage()); }
+            public void flush() { }
+            public void close() { }
+        };
+        logger.addHandler(handler);
+        try {
+            syncVersion(libs, "2", true);
+            assertFalse(Files.exists(libs.resolve("demo-1.jar")));
+            assertTrue(messages.stream().anyMatch(s -> s.contains(
+                    "required=1 downloaded=1 reused=0 removed=1 failed=0")));
+            messages.clear();
+            RuntimeDependencyBootstrap.synchronizeRuntimeDependencies(libs, List.of(verifiedVersion("2")),
+                    settings(true, true, false), RuntimeDependencyBootstrapTest::failUnexpectedDownload);
+            assertTrue(messages.stream().anyMatch(s -> s.contains(
+                    "required=1 downloaded=0 reused=1 removed=0 failed=0")));
+        } finally {
+            logger.removeHandler(handler);
+        }
+        for (String name : List.of("demo-2.jar", "user-addon.jar", "notes.txt", ".bootstrap.lock")) {
+            assertTrue(Files.isRegularFile(libs.resolve(name)));
+        }
+    }
+
+    @Test
+    void failedUpgradeKeepsManagedOldVersionAndIndex() throws IOException {
+        Path libs = createRuntimeLibs();
+        syncVersion(libs, "1", true);
+        String index = Files.readString(libs.resolve(RuntimeDependencyBootstrap.MANAGED_INDEX));
+        for (boolean checksumFailure : List.of(false, true)) {
+            assertThrows(IOException.class, () -> RuntimeDependencyBootstrap.synchronizeRuntimeDependencies(
+                    libs, List.of(verifiedVersion("2")), settings(true, true, false), (artifact, destination) -> {
+                        Files.writeString(destination, "invalid");
+                        if (!checksumFailure) { throw new IOException("download failed"); }
+                    }));
+            assertEquals("1", Files.readString(libs.resolve("demo-1.jar")));
+            assertEquals(index, Files.readString(libs.resolve(RuntimeDependencyBootstrap.MANAGED_INDEX)));
+        }
+    }
+
+    @Test
+    void cleanupDisabledRetainsOwnershipForLaterCleanup() throws IOException {
+        Path libs = createRuntimeLibs();
+        syncVersion(libs, "1", false);
+        syncVersion(libs, "2", false);
+        assertTrue(Files.exists(libs.resolve("demo-1.jar")));
+        syncVersion(libs, "2", true);
+        assertFalse(Files.exists(libs.resolve("demo-1.jar")));
+    }
+
+    @Test
+    void firstIndexPreservesUnrecognizedOldVersionAndModifiedManagedFiles() throws IOException {
+        Path libs = createRuntimeLibs();
+        Files.writeString(libs.resolve("demo-0.jar"), "legacy");
+        syncVersion(libs, "1", true);
+        Files.writeString(libs.resolve("demo-1.jar"), "user replacement");
+        syncVersion(libs, "2", true);
+        assertEquals("legacy", Files.readString(libs.resolve("demo-0.jar")));
+        assertEquals("user replacement", Files.readString(libs.resolve("demo-1.jar")));
+    }
+
+    @Test
+    void unsafeObsoleteDirectoryIsRetainedWithoutFailingSynchronization() throws IOException {
+        Path libs = createRuntimeLibs();
+        syncVersion(libs, "1", true);
+        Files.delete(libs.resolve("demo-1.jar"));
+        Files.createDirectory(libs.resolve("demo-1.jar"));
+        Files.writeString(libs.resolve("demo-1.jar/notes"), "keep");
+        syncVersion(libs, "2", true);
+        assertEquals("keep", Files.readString(libs.resolve("demo-1.jar/notes")));
+        assertTrue(Files.isRegularFile(libs.resolve("demo-2.jar")));
+    }
+
+    @Test
+    void invalidOrUnwritableIndexSkipsCleanupButAllowsVerifiedDependencies() throws IOException {
+        Path libs = createRuntimeLibs();
+        syncVersion(libs, "1", true);
+        Path index = libs.resolve(RuntimeDependencyBootstrap.MANAGED_INDEX);
+        Files.writeString(index, "org.example|../outside|1||jar|central|" + "a".repeat(64));
+        syncVersion(libs, "2", true);
+        assertTrue(Files.exists(libs.resolve("demo-1.jar")));
+        Files.delete(index);
+        Files.createDirectory(index);
+        syncVersion(libs, "3", true);
+        assertTrue(Files.isDirectory(index));
+        assertTrue(Files.isRegularFile(libs.resolve("demo-3.jar")));
+    }
+
+    @Test
+    void obsoleteSymlinkAndLinkedIndexNeverAffectOutsideFiles() throws IOException {
+        Path libs = createRuntimeLibs();
+        syncVersion(libs, "1", true);
+        Path outside = tempDir.resolve("outside.jar");
+        Files.writeString(outside, "1");
+        Path old = libs.resolve("demo-1.jar");
+        Files.delete(old);
+        try {
+            Files.createSymbolicLink(old, outside);
+        } catch (IOException | UnsupportedOperationException | SecurityException failure) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false,
+                    "Symbolic links unavailable: " + failure.getClass().getSimpleName());
+            return;
+        }
+        syncVersion(libs, "2", true);
+        assertTrue(Files.isSymbolicLink(old));
+        assertEquals("1", Files.readString(outside));
+        Path index = libs.resolve(RuntimeDependencyBootstrap.MANAGED_INDEX);
+        Path outsideIndex = tempDir.resolve("outside-index.txt");
+        Files.copy(index, outsideIndex);
+        String original = Files.readString(outsideIndex);
+        Files.delete(index);
+        Files.createSymbolicLink(index, outsideIndex);
+        syncVersion(libs, "3", true);
+        assertEquals(original, Files.readString(outsideIndex));
+        assertTrue(Files.isSymbolicLink(index));
+        assertTrue(Files.isRegularFile(libs.resolve("demo-2.jar")));
+    }
+
+    @Test
+    void cleanupSettingsDefaultAliasAndPropertyPrecedence() throws IOException {
+        String property = RuntimeDependencyBootstrap.CLEANUP_OBSOLETE_PROPERTY;
+        String previous = System.getProperty(property);
+        Path config = tempDir.resolve("cleanup.yml");
+        try {
+            System.clearProperty(property);
+            assertTrue(RuntimeDependencyBootstrap.BootstrapSettings.fromSystemProperties().cleanupObsolete());
+            Files.writeString(config, "runtime-dependencies:\n  cleanupObsolete: false\n");
+            assertFalse(RuntimeDependencyBootstrap.BootstrapSettings.fromConfig(config).cleanupObsolete());
+            Files.writeString(config, "runtime-dependencies:\n  cleanup-obsolete: false\n");
+            assertFalse(RuntimeDependencyBootstrap.BootstrapSettings.fromConfig(config).cleanupObsolete());
+            Files.writeString(config,
+                    "runtime-dependencies:\n  cleanup-obsolete: true\n  cleanupObsolete: invalid\n");
+            assertTrue(RuntimeDependencyBootstrap.BootstrapSettings.fromConfig(config).cleanupObsolete());
+            Files.writeString(config, "runtime-dependencies:\n  cleanup-obsolete: false\n");
+            System.setProperty(property, "true");
+            assertTrue(RuntimeDependencyBootstrap.BootstrapSettings.fromConfig(config).cleanupObsolete());
+            System.setProperty(property, "invalid");
+            assertThrows(IllegalStateException.class,
+                    () -> RuntimeDependencyBootstrap.BootstrapSettings.fromConfig(config));
+        } finally {
+            if (previous == null) { System.clearProperty(property); }
+            else { System.setProperty(property, previous); }
+        }
+    }
+
+    private static RuntimeDependencyBootstrap.DependencyArtifact verifiedVersion(String version) {
+        return artifact("demo", version, sha256(version.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static void syncVersion(Path libs, String version, boolean cleanup) throws IOException {
+        RuntimeDependencyBootstrap.synchronizeRuntimeDependencies(libs, List.of(verifiedVersion(version)),
+                settings(cleanup, true, false),
+                (artifact, destination) -> Files.writeString(destination, version, StandardCharsets.UTF_8));
+    }
+
     private static RuntimeDependencyBootstrap.DependencyArtifact artifact(String artifactId, String version) {
         return artifact(artifactId, version, "a".repeat(64));
     }

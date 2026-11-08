@@ -10,6 +10,7 @@ debug: false
 
 # 執行階段依賴下載設定
 runtime-dependencies:
+  cleanup-obsolete: true
   progress-enabled: true
   progress-interval-ms: 2000
   connect-timeout-ms: 10000

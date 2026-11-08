@@ -41,6 +41,7 @@ final class RuntimeDependencyBootstrap {
     static final String STALL_TIMEOUT_PROPERTY = "norule.bootstrap.stall-timeout-ms";
     static final String MAX_RETRIES_PROPERTY = "norule.bootstrap.max-retries";
     static final String RUNTIME_LIB_DIRECTORY = "runtime-libs";
+    static final String MANAGED_INDEX = ".bootstrap-managed-dependencies.txt";
     private static final String APPLICATION_MAIN = "com.norule.musicbot.bootstrap.BotMain";
     // Intentionally retained until JVM termination: BotMain returns while JDA is still running.
     private static URLClassLoader runtimeLoader;
@@ -192,20 +193,96 @@ final class RuntimeDependencyBootstrap {
         List<DependencyArtifact> activeArtifacts = removeConflictingProviders(artifacts);
         validateLogbackVersions(activeArtifacts);
         validateChecksums(activeArtifacts, settings);
+        if (Files.isSymbolicLink(libDir)) {
+            throw new IOException("Runtime dependency directory must not be a symbolic link");
+        }
         Files.createDirectories(libDir);
+        if (!Files.isDirectory(libDir, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("Unsafe runtime dependency directory");
+        }
 
         SyncStats stats = new SyncStats(activeArtifacts.size(), System.nanoTime());
         LOGGER.log(System.Logger.Level.INFO,
                 "[NoRule] Preparing runtime dependencies: total=" + activeArtifacts.size());
         try {
             downloadRequiredArtifacts(libDir, activeArtifacts, settings, downloader, stats);
-            // Only manifest URLs are loaded. Preserve old/extra JARs for rollback.
             verifySynchronizedArtifacts(libDir, activeArtifacts, settings);
         } catch (IOException e) {
+            if (stats.failed == 0) {
+                stats.failed++;
+            }
             logSummary(stats);
             throw e;
         }
+        updateManagedDependencies(libDir, activeArtifacts, settings, stats);
         logSummary(stats);
+    }
+
+    private static void updateManagedDependencies(Path libDir, List<DependencyArtifact> artifacts,
+            BootstrapSettings settings, SyncStats stats) {
+        // Cleanup is never allowed after an unverified synchronization, even for internal callers.
+        if (!settings.verifyChecksums()) {
+            return;
+        }
+        Path index = libDir.resolve(MANAGED_INDEX);
+        Map<String, DependencyArtifact> managed = new LinkedHashMap<>();
+        Set<String> required = new HashSet<>();
+        try {
+            if (Files.exists(index, LinkOption.NOFOLLOW_LINKS)) {
+                if (!Files.isRegularFile(index, LinkOption.NOFOLLOW_LINKS)) {
+                    throw new IOException("Unsafe managed dependency index");
+                }
+                try (InputStream input = Files.newInputStream(index, LinkOption.NOFOLLOW_LINKS)) {
+                    for (DependencyArtifact artifact : parseManifestLines(
+                            new String(input.readAllBytes(), StandardCharsets.UTF_8).lines().toList())) {
+                        managed.put(normalizeFileName(buildJarFileName(artifact)), artifact);
+                    }
+                }
+            }
+            for (DependencyArtifact artifact : artifacts) {
+                String name = normalizeFileName(buildJarFileName(artifact));
+                required.add(name);
+                managed.put(name, artifact);
+            }
+            // Commit ownership before deleting anything. Keep obsolete entries so failed deletions
+            // and cleanup-disabled starts can be retried on the next successful startup.
+            Path temporary = Files.createTempFile(libDir, ".bootstrap-index-", ".tmp");
+            try {
+                List<String> lines = new ArrayList<>();
+                for (DependencyArtifact artifact : managed.values()) {
+                    lines.add(String.join("|", artifact.groupId(), artifact.artifactId(), artifact.version(),
+                            artifact.classifier(), artifact.extension(), artifact.repository().id(), artifact.sha256()));
+                }
+                Files.write(temporary, lines, StandardCharsets.UTF_8);
+                moveAtomically(temporary, index);
+            } finally {
+                Files.deleteIfExists(temporary);
+            }
+        } catch (IOException | IllegalArgumentException | SecurityException failure) {
+            LOGGER.log(System.Logger.Level.WARNING,
+                    "[NoRule] Cannot update managed dependency index; obsolete dependencies retained", failure);
+            return;
+        }
+        if (!settings.cleanupObsolete()) {
+            return;
+        }
+        for (Map.Entry<String, DependencyArtifact> entry : managed.entrySet()) {
+            if (required.contains(entry.getKey())) {
+                continue;
+            }
+            try {
+                Path obsolete = artifactPath(libDir, entry.getValue());
+                if (Files.isRegularFile(obsolete, LinkOption.NOFOLLOW_LINKS)
+                        && entry.getValue().sha256().equals(sha256(obsolete))
+                        && Files.deleteIfExists(obsolete)) {
+                    stats.removed++;
+                }
+            } catch (IOException | SecurityException failure) {
+                LOGGER.log(System.Logger.Level.WARNING,
+                        "[NoRule] Cannot remove obsolete managed dependency: " + buildJarFileName(entry.getValue()),
+                        failure);
+            }
+        }
     }
 
     private static List<DependencyArtifact> removeConflictingProviders(List<DependencyArtifact> artifacts) {
@@ -446,7 +523,7 @@ final class RuntimeDependencyBootstrap {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is not supported by this Java runtime", e);
         }
-        try (InputStream input = Files.newInputStream(file)) {
+        try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
             byte[] buffer = new byte[8192];
             int read;
             while ((read = input.read(buffer)) >= 0) {
@@ -568,7 +645,8 @@ final class RuntimeDependencyBootstrap {
                 throw new IllegalStateException("Runtime SHA-256 verification cannot be disabled");
             }
             return new BootstrapSettings(
-                    false,
+                    readBooleanSetting(values, values.containsKey("cleanup-obsolete")
+                            ? "cleanup-obsolete" : "cleanupObsolete", CLEANUP_OBSOLETE_PROPERTY, true),
                     true,
                     readBooleanProperty(FORCE_REDOWNLOAD_PROPERTY, false),
                     readBooleanSetting(values, "progress-enabled", PROGRESS_ENABLED_PROPERTY,
