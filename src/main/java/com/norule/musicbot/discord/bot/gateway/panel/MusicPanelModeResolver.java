@@ -5,6 +5,8 @@ import com.norule.musicbot.domain.music.MusicPanelMode;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.channel.concrete.ThreadChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.exceptions.ErrorResponseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,9 +71,13 @@ public final class MusicPanelModeResolver {
         return current;
     }
 
-    public static boolean usable(TextChannel channel) {
+    public static boolean usable(GuildMessageChannel channel) {
         return channel != null && channel.getGuild().getSelfMember().hasPermission(channel,
-                Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND, Permission.MESSAGE_EMBED_LINKS);
+                Permission.VIEW_CHANNEL, sendPermission(channel), Permission.MESSAGE_EMBED_LINKS);
+    }
+
+    static Permission sendPermission(GuildMessageChannel channel) {
+        return channel instanceof ThreadChannel ? Permission.MESSAGE_SEND_IN_THREADS : Permission.MESSAGE_SEND;
     }
 
     public void log(String event, Guild guild, long channelId, long messageId, String reason) {

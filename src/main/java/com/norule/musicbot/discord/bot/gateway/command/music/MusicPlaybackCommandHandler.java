@@ -17,6 +17,7 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.channel.ChannelType;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
@@ -103,16 +104,12 @@ public final class MusicPlaybackCommandHandler {
         var mode = panelController.panelMode(event.getGuild());
         MusicPlayReply.acknowledge(event, mode,
                 () -> MusicPlayReply.fallbackNotice(key -> owner.musicText(lang, key)), reply -> {
-            TextChannel fallback = event.getChannelType() == ChannelType.TEXT
-                    ? event.getChannel().asTextChannel()
-                    : null;
-            // Preserve the interaction source even in MODERN: access may change during loading/search.
-            TextChannel panelChannel = fallback;
+            GuildMessageChannel panelChannel = event.getChannel().asGuildMessageChannel();
             handlePlaySlashDeferred(event, lang, panelChannel, mode, reply, diagnosticRequest);
         });
     }
 
-    private void handlePlaySlashDeferred(SlashCommandInteractionEvent event, String lang, TextChannel panelChannel,
+    private void handlePlaySlashDeferred(SlashCommandInteractionEvent event, String lang, GuildMessageChannel panelChannel,
                                          MusicPanelModeResolver.Selection mode, MusicPlayReply reply, Event diagnosticRequest) {
         String query = getPlayQuery(event);
         if (query.isBlank()) {
@@ -131,6 +128,7 @@ public final class MusicPlaybackCommandHandler {
             return;
         }
 
+        if (!validatePlayTarget(event.getGuild(), panelChannel, "/play", diagnosticRequest, reply::sendText)) return;
         owner.musicService().searchTopTracks(query, 10, results -> {
             if (results.isEmpty()) {
                 owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
@@ -147,7 +145,7 @@ public final class MusicPlaybackCommandHandler {
                         searchRequests.put(token, new SearchRequest(
                                 event.getUser().getIdLong(),
                                 event.getChannel().getIdLong(),
-                                mode, query, results, Instant.now().plusSeconds(30),
+                                panelChannel, mode, query, results, Instant.now().plusSeconds(30),
                                 reply, message.getId(), lang));
                         owner.scheduler().schedule(() -> expireSearchMenu(token), 30, TimeUnit.SECONDS);
                     });
@@ -196,7 +194,7 @@ public final class MusicPlaybackCommandHandler {
                     event.getMember(),
                     arg,
                     text -> event.getChannel().sendMessage(text).queue(),
-                    event.getChannel().asTextChannel(), diagnosticRequest, panelController.panelMode(guild),
+                    event.getChannel().asGuildMessageChannel(), diagnosticRequest, panelController.panelMode(guild),
                     error -> org.slf4j.LoggerFactory.getLogger(MusicPlaybackCommandHandler.class).warn("Music panel failed: {}", error)
             );
             case "skip" -> handleSkip(guild,
@@ -251,6 +249,8 @@ public final class MusicPlaybackCommandHandler {
             event.editMessage(owner.i18nService().t(lang, "music.join_first")).setComponents(List.of()).queue();
             return;
         }
+        if (!validatePlayTarget(event.getGuild(), request.channel, "search-selection", diagnosticRequest,
+                text -> event.editMessage(text).setComponents(List.of()).queue())) return;
         AudioChannel memberChannel = member.getVoiceState().getChannel();
         AudioChannel botChannel = event.getGuild().getAudioManager().getConnectedChannel();
         if (botChannel != null && botChannel.getIdLong() != memberChannel.getIdLong()) {
@@ -301,7 +301,7 @@ public final class MusicPlaybackCommandHandler {
                             queuedBefore,
                             event.getUser().getIdLong()
                     )).setComponents(List.of()).queue();
-                    panelController.playQueued(event.getGuild(), request.channelId, request.mode, "search-selection",
+                    panelController.playQueuedInChannel(event.getGuild(), request.channel, request.mode, "search-selection",
                             error -> request.reply.sendPanelError(panelError(lang, error)));
                     panelController.refreshPanel(event.getGuild().getIdLong());
                 },
@@ -335,7 +335,7 @@ public final class MusicPlaybackCommandHandler {
                 });
     }
 
-    private void directPlay(Guild guild, Member member, String query, MusicCommandService.TextSink sink, TextChannel panelChannel, Event diagnosticRequest,
+    private void directPlay(Guild guild, Member member, String query, MusicCommandService.TextSink sink, GuildMessageChannel panelChannel, Event diagnosticRequest,
                             MusicPanelModeResolver.Selection mode, Consumer<String> panelError) {
         String lang = owner.lang(guild.getIdLong());
         if (query == null || query.isBlank()) {
@@ -349,6 +349,7 @@ public final class MusicPlaybackCommandHandler {
             return;
         }
 
+        if (!validatePlayTarget(guild, panelChannel, diagnosticRequest.source(), diagnosticRequest, sink)) return;
         AudioChannel memberChannel = member.getVoiceState().getChannel();
         AudioChannel botConnected = guild.getAudioManager().getConnectedChannel();
         if (botConnected != null && botConnected.getIdLong() != memberChannel.getIdLong()) {
@@ -388,14 +389,26 @@ public final class MusicPlaybackCommandHandler {
                         queuedBefore,
                         member.getIdLong()
                 ));
-                panelController.playQueued(guild, diagnosticRequest.channelId(), mode, diagnosticRequest.source(), panelError);
+                panelController.playQueuedInChannel(guild, panelChannel, mode, diagnosticRequest.source(), panelError);
             }
             panelController.refreshPanel(guild.getIdLong());
         }, query, member.getIdLong(), member.getEffectiveName());
     }
 
+    private boolean validatePlayTarget(Guild guild, GuildMessageChannel channel, String source, Event diagnostic,
+                                       MusicCommandService.TextSink sink) {
+        try {
+            panelController.validatePlayTarget(guild, channel, source);
+            return true;
+        } catch (IllegalStateException failure) {
+            owner.musicService().completeDiagnosticRequest(diagnostic, "REJECTED");
+            sink.send(failure.getMessage());
+            return false;
+        }
+    }
+
     private String panelError(String lang, String error) {
-        return owner.musicText(lang, "panel_update_failed", Map.of("error", error));
+        return owner.musicText(lang, "panel_playback_unaffected", Map.of("error", error));
     }
 
     private String playbackSuccessText(Guild guild,
@@ -582,6 +595,7 @@ public final class MusicPlaybackCommandHandler {
     private static class SearchRequest {
         private final long requestUserId;
         private final Long channelId;
+        private final GuildMessageChannel channel;
         private final MusicPanelModeResolver.Selection mode;
         private final String query;
         private final List<AudioTrack> results;
@@ -592,6 +606,7 @@ public final class MusicPlaybackCommandHandler {
 
         SearchRequest(long requestUserId,
                       Long channelId,
+                      GuildMessageChannel channel,
                       MusicPanelModeResolver.Selection mode,
                       String query,
                       List<AudioTrack> results,
@@ -601,6 +616,7 @@ public final class MusicPlaybackCommandHandler {
                       String lang) {
             this.requestUserId = requestUserId;
             this.channelId = channelId;
+            this.channel = channel;
             this.mode = mode;
             this.query = query;
             this.results = results;

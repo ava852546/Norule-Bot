@@ -4,6 +4,7 @@ import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.command.music.MusicCommandChannelProvisioner;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 
@@ -66,6 +67,15 @@ public final class MusicPanelController {
         refreshService.playQueued(guild, interactionChannelId, mode, source, onError);
     }
 
+    public void validatePlayTarget(Guild guild, GuildMessageChannel channel, String source) {
+        refreshService.validatePlayTarget(guild, channel, source);
+    }
+
+    public void playQueuedInChannel(Guild guild, GuildMessageChannel channel, MusicPanelModeResolver.Selection mode,
+                                    String source, java.util.function.Consumer<String> onError) {
+        refreshService.playQueuedInChannel(guild, channel, mode, source, onError);
+    }
+
     public void initializeGuild(Guild guild) {
         if (guild != null) {
             initializeGuilds(List.of(guild));
@@ -96,7 +106,7 @@ public final class MusicPanelController {
         if (active == null) {
             return;
         }
-        TextChannel activeChannel = guild.getTextChannelById(active.channelId);
+        GuildMessageChannel activeChannel = MusicPanelRefreshService.cachedChannel(guild, active.channelId);
         if (activeChannel == null || !activeChannel.canTalk()) {
             return;
         }
@@ -143,7 +153,7 @@ public final class MusicPanelController {
         }
 
         Guild guild = event.getGuild();
-        if (guild == null || !(event.getChannel() instanceof TextChannel channel)) {
+        if (guild == null || !(event.getChannel() instanceof GuildMessageChannel channel)) {
             return true;
         }
 
@@ -151,8 +161,8 @@ public final class MusicPanelController {
         if (active == null || active.channelId != channel.getIdLong() || active.messageId != event.getMessageIdLong()) {
             event.reply(owner.i18nService().t(lang, "music.panel_stale")).setEphemeral(true)
                     .queue(success -> {
-                        if (active == null && modes.resolve(guild).modern()) {
-                            ensurePanelForChannel(guild, channel, lang);
+                        if (active == null && modes.resolve(guild).modern() && channel instanceof TextChannel text) {
+                            ensurePanelForChannel(guild, text, lang);
                         }
                     });
             return true;

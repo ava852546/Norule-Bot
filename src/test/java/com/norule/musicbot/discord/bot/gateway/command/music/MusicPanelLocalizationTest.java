@@ -7,11 +7,28 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 class MusicPanelLocalizationTest {
     @TempDir
     Path languageDir;
+
+    @Test
+    void panelFailurePreservesPlaybackStatusAndHasFallbackInEveryLanguage() throws Exception {
+        I18nService i18n = I18nService.load(languageDir, "en");
+        var resolver = new MusicTextResolver(() -> i18n);
+        for (String lang : java.util.List.of("en", "zh-TW", "zh-CN")) {
+            String expected = i18n.t(lang, "music.panel_playback_unaffected", Map.of("error", "HTTP 404"));
+            assertTrue(expected.contains("HTTP 404"));
+            assertFalse(expected.contains("???"));
+            assertFalse(expected.contains("music.panel_playback_unaffected"));
+            java.nio.file.Files.writeString(languageDir.resolve(lang + ".yml"),
+                    "music:\n  panel_playback_unaffected: music.panel_playback_unaffected\n");
+            var missing = new MusicTextResolver(() -> I18nService.load(languageDir, lang));
+            assertEquals(expected, missing.musicText(lang, "panel_playback_unaffected", Map.of("error", "HTTP 404")));
+            assertEquals(expected, resolver.musicText(lang, "panel_playback_unaffected", Map.of("error", "HTTP 404")));
+        }
+    }
 
     @Test
     void loadsNewPanelAndEphemeralFlowKeysForAllSupportedLanguages() {

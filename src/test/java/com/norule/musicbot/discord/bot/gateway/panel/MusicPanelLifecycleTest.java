@@ -29,6 +29,8 @@ import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.SelfMember;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.channel.concrete.ThreadChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.exceptions.ErrorResponseException;
 import net.dv8tion.jda.api.managers.AudioManager;
 import net.dv8tion.jda.api.requests.ErrorResponse;
@@ -158,6 +160,91 @@ class MusicPanelLifecycleTest {
         assertEquals(20, store.getPanelRef(1).channelId);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void legacyTextAndThreadTargetsSurviveCacheMissWithoutChangingSettings(boolean thread) {
+        unsubscribe.run();
+        settings.updateSettings(1, st -> st.withMusic(st.getMusic().withCommandChannelId(null)));
+        GuildMessageChannel source = thread ? discord.channel(20, ThreadChannel.class) : discord.channels.get(20L);
+        discord.channels.remove(20L);
+        var errors = new ArrayList<String>();
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MusicPanelRefreshService.class);
+        var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            panels.validatePlayTarget(discord.guild, source, "/play");
+            String diagnostic = logs.list.getLast().getFormattedMessage();
+            for (String field : List.of("cacheHit=false", "interactionFallback=true", "isThread=" + thread,
+                    "channelType=" + source.getType(), "viewAllowed=true", "sendAllowed=true", "embedAllowed=true")) {
+                assertTrue(diagnostic.contains(field), diagnostic);
+            }
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+        }
+        panels.playQueuedInChannel(discord.guild, source, modes.resolve(discord.guild), "/play", errors::add);
+        drain();
+        assertTrue(errors.isEmpty(), errors.toString());
+        assertEquals(List.of(20L), discord.creates);
+        assertEquals(20, store.getPanelRef(1).channelId);
+        assertNull(settings.getMusic(1).getCommandChannelId());
+        assertEquals(MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
+        if (thread) assertTrue(discord.checkedPermissions.contains(Permission.MESSAGE_SEND_IN_THREADS));
+        long oldMessage = store.getPanelRef(1).messageId;
+        panels.playQueuedInChannel(discord.guild, source, modes.resolve(discord.guild), "/play", errors::add);
+        drain();
+        assertTrue(errors.isEmpty(), errors.toString());
+        assertEquals(List.of(20L, 20L), discord.creates);
+        assertEquals(List.of(oldMessage), discord.deletes);
+        assertEquals(1, discord.messages.size(), "A cache miss must not leave duplicate managed panels");
+    }
+
+    @Test
+    void cachedThreadCanReplaceAndRefreshOnlyItsManagedPanel() {
+        unsubscribe.run();
+        settings.updateSettings(1, st -> st.withMusic(st.getMusic().withCommandChannelId(null)));
+        var thread = discord.channel(40, ThreadChannel.class);
+        discord.threads.put(40L, thread);
+        seed(40, 100);
+        for (int i = 0; i < 20; i++) {
+            panels.playQueuedInChannel(discord.guild, thread, modes.resolve(discord.guild), "/play", error -> fail(error));
+        }
+        drain();
+        assertEquals(List.of(40L), discord.creates);
+        assertEquals(List.of(100L), discord.deletes);
+        panels.refreshPanel(1);
+        drain();
+        assertEquals(40, store.getPanelRef(1).channelId);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"permission", "thread-permission", "locked-thread", "unsupported"})
+    void invalidTargetsAreRejectedBeforeActualSlashLoad(String scenario) {
+        simulatedLoads = true;
+        discord.connected = true;
+        unsubscribe.run();
+        settings.updateSettings(1, st -> st.withMusic(st.getMusic().withCommandChannelId(null)));
+        var interaction = new PlaybackInteraction("https://youtu.be/test-track1");
+        if (scenario.equals("permission")) discord.denied = 20;
+        else {
+            interaction.incomingChannel = scenario.equals("unsupported")
+                    ? discord.channel(20, net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel.class)
+                    : discord.channel(20, ThreadChannel.class);
+            discord.channels.remove(20L);
+            if (scenario.equals("thread-permission")) discord.denied = 20;
+            if (scenario.equals("locked-thread")) discord.threadWritable = false;
+        }
+        var controller = new MusicPanelController(owner, null, panels::refreshPanel, panels, modes);
+        var handler = new com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackCommandHandler(
+                owner, controller, new com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackText(owner::i18nService));
+        handler.handlePlaySlash(new net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent(
+                discord.jda, 1, interaction.slash()), "en");
+        drain();
+        assertEquals(0, loadCalls);
+        assertTrue(discord.creates.isEmpty());
+    }
+
     @Test
     void modernTargetDoesNotRequireAnInteractionChannel() {
         var errors = new ArrayList<String>();
@@ -219,7 +306,8 @@ class MusicPanelLifecycleTest {
             for (String field : List.of("guildId=1", "configuredMode=MODERN", "effectiveMode=LEGACY",
                     "configuredChannelId=null", "selectionChannelId=null", "interactionChannelId=" + source,
                     "finalTargetChannelId=" + source, "selectionReason=NOT_CONFIGURED", "reason=" + reason,
-                    "source=search-selection")) {
+                    "source=search-selection", "channelType=", "cacheHit=", "isThread=false",
+                    "viewAllowed=", "sendAllowed=", "embedAllowed=")) {
                 assertTrue(diagnostic.contains(field), diagnostic);
             }
         } finally {
@@ -320,6 +408,37 @@ class MusicPanelLifecycleTest {
         assertEquals(20, store.getPanelRef(1).channelId);
         assertEquals(1, loadCalls, "Panel recovery must not enqueue playback again");
         assertEquals(0, interaction.panelErrors);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"direct", "search", "deleted-direct", "deleted-search"})
+    void actualThreadCallbacksUseInteractionOnCacheMissAndReportDeletionSeparately(String scenario) {
+        simulatedLoads = true;
+        discord.connected = true;
+        boolean search = scenario.endsWith("search");
+        var interaction = new PlaybackInteraction(search ? "test song" : "https://youtu.be/test-track1");
+        interaction.incomingChannel = discord.channel(20, ThreadChannel.class);
+        discord.channels.remove(20L); // Only the interaction has the channel; the guild cache misses.
+        var controller = new MusicPanelController(owner, null, panels::refreshPanel, panels, modes);
+        var handler = new com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackCommandHandler(
+                owner, controller, new com.norule.musicbot.discord.bot.gateway.command.music.MusicPlaybackText(owner::i18nService));
+        handler.handlePlaySlash(new net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent(
+                discord.jda, 1, interaction.slash()), "en");
+        discord.channels.remove(10L);
+        if (search) handler.handlePlayPick(new net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent(
+                discord.jda, 2, interaction.selection()), "en");
+        if (scenario.startsWith("deleted")) discord.createFailure = ErrorResponseException.create(
+                ErrorResponse.UNKNOWN_CHANNEL, new Response(new IOException("404"), Set.of()));
+        assertEquals(1, loadCalls);
+        assertDoesNotThrow(() -> loaded.accept("Test track"));
+        drain();
+        assertEquals(1, loadCalls, "Panel failure must not replay or reject an accepted track");
+        assertEquals(List.of(20L), discord.creates);
+        assertEquals(scenario.startsWith("deleted") ? 1 : 0, interaction.panelErrors);
+        if (scenario.startsWith("deleted")) assertNull(store.getPanelRef(1));
+        else assertEquals(20, store.getPanelRef(1).channelId);
+        assertEquals(10L, settings.getMusic(1).getCommandChannelId());
+        assertEquals(MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
     }
 
     @Test
@@ -576,6 +695,9 @@ class MusicPanelLifecycleTest {
 
     final class Discord {
         final Map<Long, TextChannel> channels = new HashMap<>();
+        final Map<Long, ThreadChannel> threads = new HashMap<>();
+        boolean threadWritable = true;
+        final List<Permission> checkedPermissions = new ArrayList<>();
         final Map<Long, Message> messages = new LinkedHashMap<>();
         final List<Long> creates = new ArrayList<>();
         final List<Long> deletes = new ArrayList<>();
@@ -590,7 +712,10 @@ class MusicPanelLifecycleTest {
         long nextId = 1000;
         final SelfMember self = proxy(SelfMember.class, (o, m, a) -> switch (m.getName()) {
             case "getIdLong" -> 500L;
-            case "hasPermission" -> !(a[0] instanceof TextChannel text) || text.getIdLong() != denied;
+            case "hasPermission" -> {
+                if (a[1] instanceof Permission[] permissions) checkedPermissions.addAll(List.of(permissions));
+                yield !(a[0] instanceof GuildMessageChannel text) || text.getIdLong() != denied;
+            }
             case "hasAccess" -> true;
             default -> null;
         });
@@ -603,6 +728,7 @@ class MusicPanelLifecycleTest {
             case "getIdLong" -> 1L;
             case "getSelfMember" -> self;
             case "getTextChannelById" -> channels.get(((Number) a[0]).longValue());
+            case "getThreadChannelById" -> threads.get(((Number) a[0]).longValue());
             case "getAudioManager" -> audio;
             case "getName" -> "Test guild";
             default -> null;
@@ -612,13 +738,19 @@ class MusicPanelLifecycleTest {
         Discord() { for (long id : List.of(10L, 20L, 30L)) channels.put(id, channel(id)); }
 
         TextChannel channel(long id) {
-            return proxy(TextChannel.class, (o, m, a) -> switch (m.getName()) {
+            return channel(id, TextChannel.class);
+        }
+
+        <T extends GuildMessageChannel> T channel(long id, Class<T> type) {
+            return proxy(type, (o, m, a) -> switch (m.getName()) {
                 case "getIdLong" -> id;
-                case "getType" -> net.dv8tion.jda.api.entities.channel.ChannelType.TEXT;
+                case "getType" -> type == ThreadChannel.class ? net.dv8tion.jda.api.entities.channel.ChannelType.GUILD_PUBLIC_THREAD
+                        : net.dv8tion.jda.api.entities.channel.ChannelType.TEXT;
+                case "canTalk" -> type != ThreadChannel.class || threadWritable;
                 case "getId" -> Long.toString(id);
                 case "getGuild" -> guild;
                 case "getAsMention" -> "<#" + id + ">";
-                case "getHistory" -> new net.dv8tion.jda.api.entities.MessageHistory((TextChannel) o) {
+                case "getHistory" -> new net.dv8tion.jda.api.entities.MessageHistory((GuildMessageChannel) o) {
                     @Override @SuppressWarnings("unchecked")
                     public net.dv8tion.jda.api.requests.RestAction<List<Message>> retrievePast(int count) {
                         return (net.dv8tion.jda.api.requests.RestAction<List<Message>>) action(
@@ -691,6 +823,7 @@ class MusicPanelLifecycleTest {
 
     final class PlaybackInteraction {
         final String query;
+        GuildMessageChannel incomingChannel = discord.channels.get(20L);
         String menuId;
         int panelErrors;
         final User user = proxy(User.class, (o, m, a) -> m.getName().equals("getIdLong") ? 42L : "Requester");
@@ -705,7 +838,7 @@ class MusicPanelLifecycleTest {
         final net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion channel = proxy(
                 net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion.class, (o, m, a) -> switch (m.getName()) {
                     case "getIdLong" -> 20L;
-                    case "asTextChannel" -> discord.channels.get(20L);
+                    case "asTextChannel", "asGuildMessageChannel" -> incomingChannel;
                     case "getType" -> net.dv8tion.jda.api.entities.channel.ChannelType.TEXT;
                     default -> null;
                 });
@@ -738,7 +871,7 @@ class MusicPanelLifecycleTest {
                         new gnu.trove.map.hash.TLongObjectHashMap<>(), null, discord.guild));
                 case "getComponentId" -> menuId;
                 case "getValues" -> List.of("0");
-                case "deferReply", "deferEdit" -> action(method.getReturnType(), hook);
+                case "deferReply", "deferEdit", "replyEmbeds" -> action(method.getReturnType(), hook);
                 default -> throw new AssertionError("Unexpected interaction method " + method.getName());
             };
         }
