@@ -3,6 +3,10 @@ package com.norule.musicbot.gateway.youtube;
 import com.norule.musicbot.domain.music.YouTubePlaybackBackend;
 import com.norule.musicbot.domain.music.YouTubePlaybackTrackFactory;
 import com.norule.musicbot.domain.music.TrackLoadContext;
+import com.norule.musicbot.domain.music.YoutubeFailureClassifier;
+import com.norule.musicbot.domain.music.YoutubeRecoveryClass;
+import com.norule.musicbot.domain.music.YouTubePlaybackException;
+import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import com.sedmelluq.discord.lavaplayer.track.AudioItem;
@@ -11,6 +15,8 @@ import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.track.InternalAudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.playback.LocalAudioTrackExecutor;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
+import dev.lavalink.youtube.AllClientsFailedException;
+import dev.lavalink.youtube.ClientException;
 import dev.lavalink.youtube.clients.skeleton.Client;
 import dev.lavalink.youtube.track.YoutubeAudioTrack;
 import org.slf4j.Logger;
@@ -42,7 +48,7 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
         try (var scope = PolicyCipherManager.metadataScope()) {
             return super.loadItem(manager, reference);
         } catch (RuntimeException failure) {
-            var classifier = new com.norule.musicbot.domain.music.YoutubeFailureClassifier();
+            var classifier = new YoutubeFailureClassifier();
             var report = classifier.classify(failure);
             var log = report.recoveryClass() == com.norule.musicbot.domain.music.YoutubeRecoveryClass.PERMANENT
                     ? LOGGER.atInfo() : LOGGER.atWarn();
@@ -50,8 +56,47 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
                     + "stage=METADATA_DISCOVERY category={} httpStatus={} clients={} failureType={}",
                     trackFactory.backend(), classifier.provider(failure), report.category(), report.httpStatus(),
                     report.clientsSummary(), failure.getClass().getSimpleName());
+            if (report.recoveryClass() == YoutubeRecoveryClass.PERMANENT
+                    && isExpectedFailure(failure, classifier,
+                        java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) {
+                // AllClientsFailedException is always SUSPICIOUS and embeds stack traces
+                // in its message. Keep it as the cause for classification, not console text.
+                if (failure instanceof FriendlyException friendly
+                        && !report.allClientsFailed()
+                        && friendly.severity == FriendlyException.Severity.COMMON) {
+                    throw friendly;
+                }
+                String message = failure instanceof FriendlyException && !report.allClientsFailed()
+                        ? failure.getMessage() : "YouTube metadata is unavailable.";
+                throw new FriendlyException(message, FriendlyException.Severity.COMMON, failure);
+            }
             throw failure;
         }
+    }
+
+    private static boolean isExpectedFailure(Throwable failure, YoutubeFailureClassifier classifier,
+                                             java.util.Set<Throwable> visited) {
+        if (!visited.add(failure)) return false;
+        for (Throwable suppressed : failure.getSuppressed()) {
+            if (!isExpectedFailure(suppressed, classifier, visited)) return false;
+        }
+        if (failure instanceof AllClientsFailedException aggregate) {
+            return !aggregate.getClientExceptions().isEmpty()
+                    && aggregate.getClientExceptions().stream()
+                        .allMatch(client -> isExpectedFailure(client, classifier, visited));
+        }
+        // Only unwrap known transport wrappers. A BUG must not become COMMON just
+        // because its message (or another client's failure) mentions a private video.
+        if (failure instanceof FriendlyException || failure instanceof ClientException
+                || failure instanceof YouTubePlaybackException || failure.getClass() == RuntimeException.class) {
+            if (failure.getCause() != null) {
+                return isExpectedFailure(failure.getCause(), classifier, visited);
+            }
+            return !(failure.getClass() == RuntimeException.class)
+                    && classifier.classify(failure).recoveryClass() == YoutubeRecoveryClass.PERMANENT;
+        }
+        return failure instanceof java.io.IOException
+                && classifier.classify(failure).recoveryClass() == YoutubeRecoveryClass.PERMANENT;
     }
 
     @Override
