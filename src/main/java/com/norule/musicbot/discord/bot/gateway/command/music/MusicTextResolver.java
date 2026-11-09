@@ -49,6 +49,10 @@ public final class MusicTextResolver {
             case "playlist_save_success" -> zhCn ? "歌单 `{name}` 已保存，共 `{count}` 首歌曲。" : (zh ? "歌單 `{name}` 已儲存，共 `{count}` 首歌曲。" : "Playlist `{name}` saved with `{count}` tracks.");
             case "playlist_save_duplicate" -> zhCn ? "歌单 `{name}` 已包含目前要新增的歌曲，未重复新增。" : (zh ? "歌單 `{name}` 已包含目前要新增的歌曲，未重複新增。" : "Playlist `{name}` already contains the current tracks. Nothing was added.");
             case "playlist_load_missing" -> zhCn ? "找不到歌单 `{name}`。" : (zh ? "找不到歌單 `{name}`。" : "Playlist `{name}` was not found.");
+            case "playlist_load_processing" -> zhCn ? "🎵 歌单 `{name}` 加载中，共 {count} 首，正在处理。" : (zh ? "🎵 歌單 `{name}` 載入中，共 {count} 首，正在處理。" : "🎵 Loading playlist `{name}` ({count} tracks).");
+            case "playlist_load_duplicate" -> zhCn ? "歌单 `{name}` 已在加载中，请等待当前批次完成。" : (zh ? "歌單 `{name}` 已在載入中，請等待目前批次完成。" : "Playlist `{name}` is already loading.");
+            case "playlist_load_full" -> zhCn ? "加载队列已满，请稍后再试。" : (zh ? "載入佇列已滿，請稍後再試。" : "The loading queue is full. Try again later.");
+            case "playlist_load_complete" -> zhCn ? "歌单 `{name}` 处理完成：成功加入 {queued} 首、失败 {failed} 首、跳过 {skipped} 首、取消 {cancelled} 首。" : (zh ? "歌單 `{name}` 處理完成：成功加入 {queued} 首、失敗 {failed} 首、略過 {skipped} 首、取消 {cancelled} 首。" : "Playlist `{name}` finished: queued {queued}, failed {failed}, skipped {skipped}, cancelled {cancelled}.");
             case "playlist_load_success" -> zhCn ? "歌单 `{name}` 已加入队列，共 `{count}` 首歌曲。" : (zh ? "歌單 `{name}` 已加入佇列，共 `{count}` 首歌曲。" : "Playlist `{name}` queued with `{count}` tracks.");
             case "playlist_add_no_track" -> zhCn ? "无法从提供的 URL 解析可新增的歌曲。" : (zh ? "無法從提供的 URL 解析可新增的歌曲。" : "No addable track could be resolved from the provided URL.");
             case "playlist_add_success" -> zhCn ? "已将 `{title}` 新增到歌单 `{name}`，目前共 `{count}` 首歌曲。" : (zh ? "已將 `{title}` 新增到歌單 `{name}`，目前共 `{count}` 首歌曲。" : "Added `{title}` to playlist `{name}`. It now has `{count}` tracks.");

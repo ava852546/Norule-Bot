@@ -355,6 +355,7 @@ public class MusicCommandService extends ListenerAdapter {
 
     @Override
     public void onGuildLeave(net.dv8tion.jda.api.events.guild.GuildLeaveEvent event) {
+        musicService.cancelLoads(event.getGuild().getIdLong());
         musicPanelRuntime.musicPanelController().guildLeft(event.getGuild().getIdLong());
         musicPanelRuntime.musicPanelRefreshService().clearPanel(event.getGuild().getIdLong());
         musicService.setGuildStateChangeListener(event.getGuild().getIdLong(), null);
@@ -380,6 +381,7 @@ public class MusicCommandService extends ListenerAdapter {
     }
 
     public void shutdown() {
+        musicService.shutdownLoads();
         prefixCommandRouter.close();
         musicService.setDiagnosticsListener(ignored -> {});
         commandHandlers.devMusicInfoCommandHandler().close();

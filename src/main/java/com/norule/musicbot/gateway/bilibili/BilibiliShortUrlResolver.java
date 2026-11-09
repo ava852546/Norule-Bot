@@ -62,6 +62,13 @@ public final class BilibiliShortUrlResolver {
     }
 
     public URI resolve(String input) {
+        return resolve(input, ignored -> {});
+    }
+
+    long nextPermitDelayMillis() { return rateLimiter.nextPermitDelayMillis(); }
+
+    URI resolve(String input, java.util.function.IntConsumer requestCount) {
+        var sent = new java.util.concurrent.atomic.AtomicInteger();
         URI initial = parse(input);
         validate(initial, true);
         String key = initial.toASCIIString();
@@ -75,7 +82,7 @@ public final class BilibiliShortUrlResolver {
                 if (existing != null) {
                     return existing;
                 }
-                URI resolved = follow(initial);
+                URI resolved = follow(initial, sent);
                 remember(key, resolved);
                 return resolved;
             });
@@ -95,10 +102,12 @@ public final class BilibiliShortUrlResolver {
             throw unexpected;
         } catch (Exception unexpected) {
             throw new IllegalStateException("Unexpected Bilibili short URL resolution failure", unexpected);
+        } finally {
+            requestCount.accept(sent.get());
         }
     }
 
-    private URI follow(URI initial) throws IOException {
+    private URI follow(URI initial, java.util.concurrent.atomic.AtomicInteger sent) throws IOException {
         URI current = initial;
         Set<URI> visited = new HashSet<>();
         for (int redirects = 0; ; redirects++) {
@@ -113,10 +122,10 @@ public final class BilibiliShortUrlResolver {
             if (redirects >= MAX_REDIRECTS) {
                 throw failure("TOO_MANY_REDIRECTS", 0, false);
             }
-            RedirectResponse response = send(current, true);
+            RedirectResponse response = send(current, true, sent);
             if (response.statusCode() == 405 || response.statusCode() == 501
                     || response.statusCode() == 200) {
-                response = send(current, false);
+                response = send(current, false, sent);
             }
             int status = response.statusCode();
             if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308) {
@@ -133,12 +142,13 @@ public final class BilibiliShortUrlResolver {
         }
     }
 
-    private RedirectResponse send(URI uri, boolean head) throws IOException {
+    private RedirectResponse send(URI uri, boolean head, java.util.concurrent.atomic.AtomicInteger sent) throws IOException {
         if (!rateLimiter.tryAcquire()) {
             throw new BilibiliRequestException(BilibiliFailureCategory.BILIBILI_RATE_LIMITED,
                     BilibiliFailureStage.SHORT_URL_RESOLVE, 0,
                     "Bilibili short URL resolution failed: LOCAL_RATE_LIMIT", true, "", null);
         }
+        sent.incrementAndGet();
         return transport.request(uri, head);
     }
 

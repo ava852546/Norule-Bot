@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.music;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.service.music.PlaylistLoadCoordinator;
 import com.norule.musicbot.discord.bot.gateway.command.routing.DiscordCommandRouteMapper;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
 import com.norule.musicbot.domain.discord.DiscordEmbedSanitizer;
@@ -273,24 +274,19 @@ public final class PlaylistCommandHandler implements AutoCloseable {
         if (botVoiceState == null || !botVoiceState.inAudioChannel()) {
             owner.musicService().joinChannel(event.getGuild(), memberChannel);
         }
-        int queued = owner.musicService().loadPlaylist(
-                event.getGuild(),
-                playlistName,
-                ignored -> { },
-                event.getUser().getIdLong(),
-                event.getMember().getEffectiveName(),
-                owner.musicText(lang, "playlist_source")
-        );
-        owner.musicService().completeDiagnosticRequest(diagnosticRequest, queued <= 0 ? "REJECTED" : "SUBMITTED");
-        if (queued <= 0) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_load_missing", Map.of("name", playlistName))).queue();
-            return;
-        }
-        panelController.refreshPanel(event.getGuild().getIdLong());
-        TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
-        event.getHook().editOriginal(owner.musicText(lang, "playlist_load_success", Map.of("name", playlistName, "count", String.valueOf(queued))))
-                .queue(success -> panelController.moveActivePanelToBottom(event.getGuild(), panelChannel), error -> {
-                });
+        var submission = owner.musicService().loadPlaylistAsync(event.getGuild(), playlistName,
+                event.getUser().getIdLong(), event.getMember().getEffectiveName(), owner.musicText(lang, "playlist_source"));
+        owner.musicService().completeDiagnosticRequest(diagnosticRequest, submission.status().name());
+        event.getHook().editOriginal(batchInitialText(lang, playlistName, submission)).queue(message -> {
+            if (submission.status() != PlaylistLoadCoordinator.Status.ACCEPTED) return;
+            panelController.refreshPanel(event.getGuild().getIdLong());
+            TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
+            panelController.moveActivePanelToBottom(event.getGuild(), panelChannel);
+            submission.completion().thenAccept(result -> {
+                if (!event.getHook().isExpired()) event.getHook().editOriginal(batchCompleteText(lang, playlistName, result))
+                        .queue(ignored -> {}, error -> logBatchNotificationFailure(result, error));
+            });
+        }, error -> LOGGER.debug("Playlist initial notification failed: type={}", error.getClass().getSimpleName()));
     }
 
     private void handleSlashDelete(SlashCommandInteractionEvent event, String lang, String playlistName) {
@@ -418,16 +414,38 @@ public final class PlaylistCommandHandler implements AutoCloseable {
         if (botVoiceState == null || !botVoiceState.inAudioChannel()) {
             owner.musicService().joinChannel(guild, memberChannel);
         }
-        int queued = owner.musicService().loadPlaylist(guild, playlistName, ignored -> { }, event.getAuthor().getIdLong(), event.getMember().getEffectiveName());
-        owner.musicService().completeDiagnosticRequest(diagnosticRequest, queued <= 0 ? "REJECTED" : "SUBMITTED");
-        if (queued <= 0) {
-            event.getChannel().sendMessage(owner.musicUx(lang, "playlist_load_missing", Map.of("name", playlistName))).queue();
-            return;
-        }
-        panelController.refreshPanel(guild.getIdLong());
-        event.getChannel().sendMessage(owner.musicUx(lang, "playlist_load_success", Map.of("name", playlistName, "count", String.valueOf(queued))))
-                .queue(success -> panelController.moveActivePanelToBottom(guild, event.getChannel().asTextChannel()), error -> {
-                });
+        var submission = owner.musicService().loadPlaylistAsync(guild, playlistName,
+                event.getAuthor().getIdLong(), event.getMember().getEffectiveName(), null);
+        owner.musicService().completeDiagnosticRequest(diagnosticRequest, submission.status().name());
+        event.getChannel().sendMessage(batchInitialText(lang, playlistName, submission)).queue(message -> {
+            if (submission.status() != PlaylistLoadCoordinator.Status.ACCEPTED) return;
+            panelController.refreshPanel(guild.getIdLong());
+            if (event.getChannelType() == ChannelType.TEXT) panelController.moveActivePanelToBottom(guild, event.getChannel().asTextChannel());
+            submission.completion().thenAccept(result -> message.editMessage(batchCompleteText(lang, playlistName, result))
+                    .queue(ignored -> {}, error -> logBatchNotificationFailure(result, error)));
+        }, error -> LOGGER.debug("Playlist initial notification failed: type={}", error.getClass().getSimpleName()));
+    }
+
+    private String batchInitialText(String lang, String name, PlaylistLoadCoordinator.Submission submission) {
+        String key = switch (submission.status()) {
+            case ACCEPTED -> "playlist_load_processing";
+            case DUPLICATE -> "playlist_load_duplicate";
+            case FULL -> "playlist_load_full";
+            case EMPTY -> "playlist_load_missing";
+        };
+        return owner.musicText(lang, key, Map.of("name", name, "count",
+                String.valueOf(submission.initial() == null ? 0 : submission.initial().totalTracks())));
+    }
+
+    private String batchCompleteText(String lang, String name, PlaylistLoadCoordinator.Snapshot result) {
+        return owner.musicText(lang, "playlist_load_complete", Map.of("name", name,
+                "queued", String.valueOf(result.queued()), "failed", String.valueOf(result.failed()),
+                "skipped", String.valueOf(result.skipped()), "cancelled", String.valueOf(result.cancelled())));
+    }
+
+    private void logBatchNotificationFailure(PlaylistLoadCoordinator.Snapshot result, Throwable error) {
+        LOGGER.debug("Playlist completion notification failed: batchId={} type={}",
+                result.batchId(), error.getClass().getSimpleName());
     }
 
     private void handleTextDelete(MessageReceivedEvent event, Guild guild, String lang, String playlistName) {

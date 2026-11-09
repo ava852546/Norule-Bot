@@ -270,7 +270,7 @@ public final class GuildSettingsWebService {
             owner.musicService().joinChannel(guild, memberChannel);
         }
         owner.musicService().loadAndPlay(guild, msg -> owner.musicService().completeDiagnosticRequest(diagnosticRequest,
-                "NO_MATCH".equals(msg) || msg.startsWith("LOAD_FAILED:") ? "REJECTED" : "ACCEPTED"), query, member.getIdLong(), member.getEffectiveName());
+                "NO_MATCH".equals(msg) || msg.startsWith("LOAD_FAILED:") ? "REJECTED" : "ACCEPTED"), query, member.getIdLong(), member.getEffectiveName(), "WEBUI");
         owner.sendJson(exchange, 200, DataObject.empty().put("ok", true).put("message", "Queued: " + query));
     }
 

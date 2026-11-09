@@ -48,6 +48,7 @@ class MusicPlayerServiceAutoplayTest {
     private boolean autoplay = true;
     private final List<String> searches = new ArrayList<>();
     private final List<AudioLoadResultHandler> loads = new ArrayList<>();
+    private final java.util.concurrent.BlockingQueue<AudioLoadResultHandler> submittedLoads = new java.util.concurrent.LinkedBlockingQueue<>();
 
     @BeforeEach
     void setUp() throws Exception {
@@ -84,11 +85,13 @@ class MusicPlayerServiceAutoplayTest {
                     if (method.getName().equals("loadItemOrdered")) {
                         searches.add((String) args[1]);
                         loads.add((AudioLoadResultHandler) args[2]);
+                        submittedLoads.add((AudioLoadResultHandler) args[2]);
                         return CompletableFuture.completedFuture(null);
                     }
                     if (method.getName().equals("loadItem")) {
                         searches.add((String) args[0]);
                         loads.add((AudioLoadResultHandler) args[1]);
+                        submittedLoads.add((AudioLoadResultHandler) args[1]);
                         return CompletableFuture.completedFuture(null);
                     }
                     return method.invoke(realManager, args);
@@ -114,7 +117,98 @@ class MusicPlayerServiceAutoplayTest {
 
     @AfterEach
     void tearDown() {
+        if (service != null) service.shutdownLoads();
         if (realManager != null) realManager.shutdown();
+    }
+
+    @Test
+    void bilibiliPlaylistActuallyQueuesTwentyFiveTracksInOrderWhileCurrentTrackContinues() throws Exception {
+        AudioTrack seed = startSeed();
+        saveBilibiliPlaylist(25);
+        var idleNotification = new CompletableFuture<Void>();
+        service.setGuildStateListener(123, () -> {
+            if (!service.isPlaybackTransitioning(guild)) idleNotification.complete(null);
+        });
+        var submission = service.loadPlaylistAsync(guild, "Batch", 1L, "fixture", null);
+        assertEquals(com.norule.musicbot.service.music.PlaylistLoadCoordinator.Status.ACCEPTED, submission.status());
+        assertEquals(com.norule.musicbot.service.music.PlaylistLoadCoordinator.Status.DUPLICATE,
+                service.loadPlaylistAsync(guild, "batch", 1L, "fixture", null).status());
+        for (int i = 0; i < 25; i++) {
+            AudioLoadResultHandler callback = submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+            org.junit.jupiter.api.Assertions.assertNotNull(callback);
+            assertTrue(submittedLoads.isEmpty(), "Only one entry may be outstanding per batch");
+            callback.trackLoaded(track(String.format("song%07d", i), "Song " + i));
+        }
+        var result = submission.completion().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        idleNotification.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertEquals(25, result.loaded()); assertEquals(25, result.queued()); assertEquals(0, result.failed());
+        assertSame(seed, current);
+        assertEquals(java.util.stream.IntStream.range(0, 25).mapToObj(i -> "Song " + i).toList(),
+                manager.getScheduler().snapshotQueue().stream().map(t -> t.getInfo().title).toList());
+        assertTrue(!service.isPlaybackTransitioning(guild));
+    }
+
+    @Test
+    void batchPendingSuppressesAutoplayAndStopsFenceLateBilibiliCallbacks() throws Exception {
+        AudioTrack seed = startSeed();
+        saveBilibiliPlaylist(25);
+        var submission = service.loadPlaylistAsync(guild, "Batch", 1L, "fixture", null);
+        AudioLoadResultHandler callback = submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+        org.junit.jupiter.api.Assertions.assertNotNull(callback);
+        finish(seed);
+        assertTrue(submittedLoads.isEmpty(), "Pending playlist must not launch a recommendation");
+        service.stop(guild);
+        callback.trackLoaded(track("late_______", "Late song"));
+        var result = submission.completion().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertEquals(25, result.cancelled());
+        assertEquals(0, result.queued());
+        org.junit.jupiter.api.Assertions.assertNull(current);
+        assertTrue(manager.getScheduler().snapshotQueue().isEmpty());
+        assertTrue(!service.isPlaybackTransitioning(guild));
+    }
+
+    @Test
+    void batchCountersSeparateMetadataLoadedFromFailedPrecheckOrNoMatch() throws Exception {
+        saveBilibiliPlaylist(3);
+        var submission = service.loadPlaylistAsync(guild, "Batch", 1L, "fixture", null);
+        submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS).trackLoaded(track("good_______", "LOAD_FAILED:title is still a song"));
+        submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS).noMatches();
+        submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS).loadFailed(
+                new FriendlyException("unavailable", FriendlyException.Severity.COMMON,
+                        new com.norule.musicbot.domain.music.bilibili.BilibiliRequestException(
+                                com.norule.musicbot.domain.music.bilibili.BilibiliFailureCategory.BILIBILI_ACCESS_DENIED,
+                                com.norule.musicbot.domain.music.bilibili.BilibiliFailureStage.METADATA, 403, "unavailable")));
+        var result = submission.completion().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertEquals(1, result.loaded()); assertEquals(1, result.queued()); assertEquals(2, result.failed());
+    }
+
+    private void saveBilibiliPlaylist(int count) throws Exception {
+        var field = MusicPlayerService.class.getDeclaredField("musicDataService");
+        field.setAccessible(true);
+        var data = (MusicDataService) field.get(service);
+        var entries = java.util.stream.IntStream.range(0, count).mapToObj(i -> new MusicDataService.PlaybackEntry(
+                0, "Song " + i, "fixture", "bilibili", "https://www.bilibili.com/video/BV1Na4Q64Eos/?p=" + (i + 1),
+                "", 180_000, 1L, "fixture")).toList();
+        assertEquals(MusicDataService.PlaylistMutationStatus.SUCCESS, data.savePlaylist(123, "Batch", entries, 1L, "fixture").status());
+    }
+
+    @Test
+    void failedBatchResumesDeferredRecommendationAfterAllEntriesFinish() throws Exception {
+        AudioTrack seed = startSeed();
+        saveBilibiliPlaylist(2);
+        var submission = service.loadPlaylistAsync(guild, "Batch", 1L, "fixture", null);
+        AudioLoadResultHandler first = submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+        org.junit.jupiter.api.Assertions.assertNotNull(first);
+        finish(seed);
+        first.noMatches();
+        submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS).noMatches();
+        var result = submission.completion().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertEquals(2, result.failed());
+        AudioLoadResultHandler recommendation = submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+        org.junit.jupiter.api.Assertions.assertNotNull(recommendation);
+        assertTrue(searches.getLast().startsWith("ytsearch:"));
+        recommendation.trackLoaded(track("new________", "New recommendation"));
+        assertEquals("New recommendation", current.getInfo().title);
     }
 
     @ParameterizedTest

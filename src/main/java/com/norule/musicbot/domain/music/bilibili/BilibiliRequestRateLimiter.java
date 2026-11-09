@@ -50,6 +50,13 @@ public final class BilibiliRequestRateLimiter {
         return availableTokens;
     }
 
+    /** Advisory only: the HTTP boundary still acquires every actual request. */
+    public synchronized long nextPermitDelayMillis() {
+        refill(clock.instant());
+        return !enabled || availableTokens >= 1D ? 0L
+                : Math.max(1L, (long) Math.ceil((1D - availableTokens) * 1000D / requestsPerSecond - 1e-9D));
+    }
+
     private void refill(Instant now) {
         if (lastRefill == null || requestsPerSecond <= 0D || !now.isAfter(lastRefill)) {
             return;

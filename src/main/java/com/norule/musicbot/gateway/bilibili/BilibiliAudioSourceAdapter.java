@@ -66,8 +66,18 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
     private volatile int cooldownSeconds = 300;
     private final java.util.concurrent.atomic.AtomicLong requestsPausedUntil = new java.util.concurrent.atomic.AtomicLong();
     private final java.util.concurrent.atomic.AtomicLong wbiPausedUntil = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong playbackPriorityUntil = new java.util.concurrent.atomic.AtomicLong();
     private volatile int pausedStatus = 412;
     private final boolean wbiPrimary;
+    private final java.util.concurrent.ConcurrentMap<String, String> loadTraces = new java.util.concurrent.ConcurrentHashMap<>();
+    private final ThreadLocal<RequestTrace> requestTrace = new ThreadLocal<>();
+    private final java.util.concurrent.atomic.LongAdder httpRequests = new java.util.concurrent.atomic.LongAdder();
+    private static final class RequestTrace {
+        final String context;
+        int httpRequests;
+        int shortUrlHttpRequests;
+        RequestTrace(String context) { this.context = context; }
+    }
 
     public BilibiliAudioSourceAdapter(MusicConfig.Bilibili config) {
         this(config, null, null);
@@ -137,6 +147,28 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
     @Override
     public AudioItem loadItem(AudioPlayerManager manager, AudioReference reference) {
         String identifier = reference == null ? null : reference.identifier;
+        String trace = identifier == null ? null : loadTraces.remove(identifier);
+        if (trace == null) return loadItemInternal(manager, reference);
+        RequestTrace current = new RequestTrace(trace);
+        requestTrace.set(current);
+        try { return loadItemInternal(manager, reference); }
+        finally {
+            requestTrace.remove();
+            LOGGER.debug("[BilibiliBatch] event=LOAD_ATTEMPT {} metadataHttpRequests={} shortUrlHttpRequests={} globalControlPlaneHttpRequests={}",
+                    current.context, current.httpRequests, current.shortUrlHttpRequests, httpRequests.sum());
+        }
+    }
+
+    @Override
+    public void traceNextLoad(String identifier, String trace) {
+        // One admitted metadata attempt globally; cap stale submissions if a
+        // loader never enters the source (for example shutdown/rejection).
+        if (loadTraces.size() >= 1000) loadTraces.clear();
+        loadTraces.put(identifier, trace);
+    }
+
+    private AudioItem loadItemInternal(AudioPlayerManager manager, AudioReference reference) {
+        String identifier = reference == null ? null : reference.identifier;
         if (!enabled || !BilibiliVideoIdentifier.isBilibiliInput(identifier)) {
             return null;
         }
@@ -158,11 +190,16 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
         BilibiliVideoIdentifier.VideoRequest request;
         String host = URI.create(reference.identifier.trim()).getHost();
         try {
-            URI resolved = shortUrlResolver.resolve(reference.identifier);
+            URI resolved = shortUrlResolver.resolve(reference.identifier, count -> {
+                RequestTrace trace = requestTrace.get();
+                if (trace != null) trace.shortUrlHttpRequests += count;
+            });
             request = BilibiliVideoIdentifier.from(resolved.toString()).orElseThrow(
                     () -> BilibiliShortUrlResolver.failure("MISSING_BVID", 0, false));
         } catch (BilibiliRequestException failure) {
-            LOGGER.info("[NoRule] Bilibili short URL resolution failed: stage=SHORT_URL_RESOLVE "
+            var diagnostic = failure.category() == BilibiliFailureCategory.BILIBILI_RATE_LIMITED && failure.httpStatus() == 0
+                    ? LOGGER.atDebug() : LOGGER.atInfo();
+            diagnostic.log("[NoRule] Bilibili short URL resolution failed: stage=SHORT_URL_RESOLVE "
                             + "host={} category={} httpStatus={} retryable={} reason={}",
                     host, failure.category(), failure.httpStatus(), failure.retryable(), failure.getMessage());
             throw failure;
@@ -225,6 +262,7 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
 
     @Override
     public void shutdown() {
+        loadTraces.clear();
         delegate.shutdown();
     }
 
@@ -270,6 +308,23 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
     public void cleanupExpiredMetadata() {
         metadataCache.cleanupExpired();
         shortUrlResolver.cleanupExpired();
+    }
+
+    @Override
+    public long nextMetadataDelayMillis() {
+        return Math.max(nextPlaybackDelayMillis(),
+                Math.min(1000L, Math.max(0L, playbackPriorityUntil.get() - System.currentTimeMillis())));
+    }
+
+    @Override
+    public long nextPlaybackDelayMillis() {
+        return Math.max(rateLimiter.nextPermitDelayMillis(),
+                Math.max(0L, requestsPausedUntil.get() - System.currentTimeMillis()));
+    }
+
+    @Override
+    public long nextRedirectDelayMillis(String identifier) {
+        return BilibiliShortUrlResolver.isShortUrl(identifier) ? shortUrlResolver.nextPermitDelayMillis() : 0L;
     }
 
     BilibiliMetadataCache.Statistics cacheStatistics() {
@@ -370,7 +425,9 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
             } else {
                 circuitBreaker.releaseHalfOpenProbe();
             }
-            LOGGER.info(
+            var diagnostic = report.category() == BilibiliFailureCategory.BILIBILI_RATE_LIMITED && report.httpStatus() == 0
+                    ? LOGGER.atDebug() : LOGGER.atInfo();
+            diagnostic.log(
                     "[NoRule] Bilibili request rejected: videoId={} stage=METADATA primaryStatus={} "
                             + "fallback=PAGELIST fallbackStatus={} category={} breakerState={} retryable={}",
                     request.bvid(),
@@ -721,7 +778,22 @@ public final class BilibiliAudioSourceAdapter implements AudioSourceManager, Bil
             if (!isControlPlaneRequest(request)) {
                 return;
             }
-            if (wbiPrimary && !rateLimiter.tryAcquire()) throw localRateLimitFailure();
+            boolean playUrl = "/x/player/playurl".equals(request.getURI().getPath());
+            if (wbiPrimary && !rateLimiter.tryAcquire()) {
+                if (playUrl) {
+                    // Yield metadata while the existing bounded recovery path
+                    // waits for the same bucket. Never wait on the audio worker.
+                    playbackPriorityUntil.set(System.currentTimeMillis() + 30_000L);
+                    throw new BilibiliRequestException(BilibiliFailureCategory.BILIBILI_RATE_LIMITED,
+                            BilibiliFailureStage.PLAY_URL, 0, "Bilibili PlayURL local rate limit",
+                            true, "", null);
+                }
+                throw localRateLimitFailure();
+            }
+            if (playUrl) playbackPriorityUntil.set(0L);
+            httpRequests.increment();
+            RequestTrace trace = requestTrace.get();
+            if (trace != null) trace.httpRequests++;
             String currentCookie = cookie;
             if (!currentCookie.isBlank()) {
                 request.setHeader("Cookie", currentCookie);

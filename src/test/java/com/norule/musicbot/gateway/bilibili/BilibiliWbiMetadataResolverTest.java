@@ -40,4 +40,27 @@ class BilibiliWbiMetadataResolverTest {
         assertTrue(BilibiliWbiMetadataResolver.sign(Map.of("foo", "a b"), "key", 123)
                 .startsWith("foo=a%20b&wts=123&w_rid="));
     }
+
+    @Test void localViewThrottlingRetainsSuccessfulNavKeyForScheduledRetry() throws Exception {
+        var requests = new ArrayList<String>();
+        var views = new java.util.concurrent.atomic.AtomicInteger();
+        var resolver = new BilibiliWbiMetadataResolver(uri -> {
+            requests.add(uri.getPath());
+            if (uri.getPath().endsWith("nav")) return new BilibiliPagelistMetadataResolver.PagelistResponse(200, """
+                    {"data":{"wbi_img":{"img_url":"https://i/7cd084941338484aae1ad9425b84077c.png",
+                    "sub_url":"https://i/4932caff0ff746eab6f01bf08b70ac45.png"}}}
+                    """);
+            if (views.getAndIncrement() == 0) throw new com.norule.musicbot.domain.music.bilibili.BilibiliRequestException(
+                    com.norule.musicbot.domain.music.bilibili.BilibiliFailureCategory.BILIBILI_RATE_LIMITED,
+                    com.norule.musicbot.domain.music.bilibili.BilibiliFailureStage.METADATA, 0, "local limit");
+            return new BilibiliPagelistMetadataResolver.PagelistResponse(200, """
+                    {"code":0,"data":{"title":"Song","owner":{"name":"Fixture"},"pic":"",
+                    "pages":[{"cid":11,"page":1,"part":"Song","duration":10}]}}
+                    """);
+        }, Clock.fixed(Instant.ofEpochMilli(0), ZoneOffset.UTC));
+        assertThrows(com.norule.musicbot.domain.music.bilibili.BilibiliRequestException.class,
+                () -> resolver.resolve("BV1VqsQ6KEoy", 1));
+        assertEquals(11L, resolver.resolve("BV1VqsQ6KEoy", 1).cid());
+        assertEquals(List.of("/x/web-interface/nav", "/x/web-interface/wbi/view", "/x/web-interface/wbi/view"), requests);
+    }
 }

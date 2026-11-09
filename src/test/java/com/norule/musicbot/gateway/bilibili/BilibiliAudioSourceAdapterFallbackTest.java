@@ -33,6 +33,38 @@ class BilibiliAudioSourceAdapterFallbackTest {
     private static final String VIDEO_URL = "https://www.bilibili.com/video/BV1Na4Q64Eos/";
 
     @Test
+    void playUrlLocalLimitRemainsGloballyChargedAndYieldsMetadataForBoundedRecovery() throws Exception {
+        var config = new MusicConfig.Bilibili(true, "",
+                new MusicConfig.Bilibili.MetadataCache(true, 12, 100),
+                new MusicConfig.Bilibili.RateLimit(true, 1, 1),
+                new MusicConfig.Bilibili.CircuitBreaker(true, 3, 60, 300));
+        var adapter = new BilibiliAudioSourceAdapter(config);
+        try {
+            var limiter = new com.norule.musicbot.domain.music.bilibili.BilibiliRequestRateLimiter(
+                    true, 1, 1, java.time.Clock.fixed(Instant.EPOCH, java.time.ZoneOffset.UTC));
+            var field = BilibiliAudioSourceAdapter.class.getDeclaredField("rateLimiter");
+            field.setAccessible(true); field.set(adapter, limiter);
+            var type = Class.forName(BilibiliAudioSourceAdapter.class.getName() + "$GuardedHttpContextFilter");
+            var constructor = type.getDeclaredConstructor(BilibiliAudioSourceAdapter.class);
+            constructor.setAccessible(true);
+            var filter = (com.sedmelluq.discord.lavaplayer.tools.http.HttpContextFilter) constructor.newInstance(adapter);
+            var context = org.apache.http.client.protocol.HttpClientContext.create();
+            filter.onRequest(context, new HttpGet("https://api.bilibili.com/x/web-interface/nav"), false);
+            var failure = assertThrows(BilibiliRequestException.class, () -> filter.onRequest(context,
+                    new HttpGet("https://api.bilibili.com/x/player/playurl?bvid=BV1Na4Q64Eos&cid=1"), false));
+            assertEquals(0, failure.httpStatus());
+            assertEquals(com.norule.musicbot.domain.music.bilibili.BilibiliFailureStage.PLAY_URL, failure.stage());
+            assertTrue(failure.retryable());
+            assertEquals("CLOSED", adapter.breakerState());
+            limiter.updateConfig(false, 1, 1);
+            assertEquals(0, adapter.nextPlaybackDelayMillis());
+            assertTrue(adapter.nextMetadataDelayMillis() > 0);
+            filter.onRequest(context, new HttpGet("https://api.bilibili.com/x/player/playurl?bvid=BV1Na4Q64Eos&cid=1"), false);
+            assertEquals(0, adapter.nextMetadataDelayMillis());
+        } finally { adapter.shutdown(); }
+    }
+
+    @Test
     void recoversPrimary412WithNativePagelistTrackWithoutBreakerFailure() {
         AtomicInteger primaryCalls = new AtomicInteger();
         AtomicInteger fallbackCalls = new AtomicInteger();
