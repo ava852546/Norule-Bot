@@ -830,23 +830,23 @@ public class MusicPlayerService {
         return playlistLoads.hasPending(guildId);
     }
 
-    private Object beginPlaybackLoad(long guildId) {
+    private Object beginPlaybackLoad(long guildId, boolean playlistEntry) {
         Object token = new Object();
         pendingPlaybackLoads.compute(guildId, (id, loads) -> {
             if (loads == null) loads = ConcurrentHashMap.newKeySet();
             loads.add(token);
             return loads;
         });
-        notifyStateChanged(guildId);
+        notifyStateChanged(guildId, playlistEntry ? MusicStateChange.BATCH_PROGRESS : MusicStateChange.STATE_CHANGED);
         return token;
     }
 
-    private void endPlaybackLoad(long guildId, Object token) {
+    private void endPlaybackLoad(long guildId, Object token, boolean playlistEntry) {
         pendingPlaybackLoads.computeIfPresent(guildId, (id, loads) -> {
             loads.remove(token);
             return loads.isEmpty() ? null : loads;
         });
-        notifyStateChanged(guildId);
+        notifyStateChanged(guildId, playlistEntry ? MusicStateChange.BATCH_PROGRESS : MusicStateChange.STATE_CHANGED);
     }
 
     private boolean isPlaybackLoadCurrent(long guildId, Object token) {
@@ -876,7 +876,7 @@ public class MusicPlayerService {
 
     private void loadPlaybackItem(long guildId, GuildMusicManager manager, String identifier, String source,
                                   LoadProgress progress, AudioLoadResultHandler handler) {
-        Object token = beginPlaybackLoad(guildId);
+        Object token = beginPlaybackLoad(guildId, progress != null && progress.context != null);
         Consumer<Runnable> commit = action -> {
             Runnable guarded = () -> {
                 synchronized (manager.getScheduler()) {
@@ -899,7 +899,7 @@ public class MusicPlayerService {
                     try {
                         deliver.accept(() -> handler.trackLoaded(track));
                     } finally {
-                        endPlaybackLoad(guildId, token);
+                        endPlaybackLoad(guildId, token, progress != null && progress.context != null);
                     }
                 }
                 @Override
@@ -907,7 +907,7 @@ public class MusicPlayerService {
                     try {
                         deliver.accept(() -> handler.playlistLoaded(playlist));
                     } finally {
-                        endPlaybackLoad(guildId, token);
+                        endPlaybackLoad(guildId, token, progress != null && progress.context != null);
                     }
                 }
                 @Override
@@ -915,7 +915,7 @@ public class MusicPlayerService {
                     try {
                         deliver.accept(handler::noMatches);
                     } finally {
-                        endPlaybackLoad(guildId, token);
+                        endPlaybackLoad(guildId, token, progress != null && progress.context != null);
                     }
                 }
                 @Override
@@ -925,12 +925,12 @@ public class MusicPlayerService {
                     try {
                         deliver.accept(() -> handler.loadFailed(error));
                     } finally {
-                        endPlaybackLoad(guildId, token);
+                        endPlaybackLoad(guildId, token, progress != null && progress.context != null);
                     }
                 }
             });
         } catch (RuntimeException error) {
-            endPlaybackLoad(guildId, token);
+            endPlaybackLoad(guildId, token, progress != null && progress.context != null);
             throw error;
         }
     }
@@ -1168,7 +1168,7 @@ public class MusicPlayerService {
                 }
                 commitLoad(progress, () -> {
                     applyTrackMetadata(track, sourceLabel, requesterId, requesterName, userInput, identifier);
-                    queuePlaybackTrack(guildMusicManager, track);
+                    queuePlaybackTrack(guildMusicManager, track, progress);
                     if (progress != null) progress.markQueued();
                     messageSender.accept(track.getInfo().title);
                 });
@@ -1190,7 +1190,7 @@ public class MusicPlayerService {
                         for (int i = 0; i < limit; i++) {
                             AudioTrack track = playlist.getTracks().get(i);
                             applyTrackMetadata(track, sourceLabel, requesterId, requesterName, userInput, identifier);
-                            queuePlaybackTrack(guildMusicManager, track);
+                            queuePlaybackTrack(guildMusicManager, track, progress);
                             if (progress != null) progress.markQueued();
                         }
                         messageSender.accept(playlist.getTracks().get(0).getInfo().title);
@@ -1227,7 +1227,7 @@ public class MusicPlayerService {
                 }
                 commitLoad(progress, () -> {
                     applyTrackMetadata(firstTrack, sourceLabel, requesterId, requesterName, userInput, identifier);
-                    queuePlaybackTrack(guildMusicManager, firstTrack);
+                    queuePlaybackTrack(guildMusicManager, firstTrack, progress);
                     if (progress != null) progress.markQueued();
                     messageSender.accept(firstTrack.getInfo().title);
                 });
@@ -1355,7 +1355,7 @@ public class MusicPlayerService {
                                                 Long requesterId,
                                                 String requesterName,
                                                 int spotifyRateLimitRetryAttempt, LoadProgress progress) {
-        Object loadToken = beginPlaybackLoad(guildId);
+        Object loadToken = beginPlaybackLoad(guildId, progress != null && progress.context != null);
         try {
             spotifyPlaylistInspector.inspect(userInput, "queue/load guild=" + guildId, spotifyConfig)
                     .whenComplete((inspection, error) -> {
@@ -1381,7 +1381,7 @@ public class MusicPlayerService {
                                     allowFallback, requesterId, requesterName, spotifyRateLimitRetryAttempt,
                                     inspection == null ? SpotifyPlaylistInspector.Inspection.unavailable() : inspection, progress);
                         } finally {
-                            endPlaybackLoad(guildId, loadToken);
+                            endPlaybackLoad(guildId, loadToken, progress != null && progress.context != null);
                         }
                     });
         } catch (RuntimeException exception) {
@@ -1398,7 +1398,7 @@ public class MusicPlayerService {
                             SpotifyPlaylistInspector.Inspection.unavailable(), progress);
                 }
             } finally {
-                endPlaybackLoad(guildId, loadToken);
+                endPlaybackLoad(guildId, loadToken, progress != null && progress.context != null);
             }
         }
     }
@@ -1875,6 +1875,10 @@ public class MusicPlayerService {
                 .count();
     }
 
+    public TrackScheduler.QueuePreview getQueuePreview(Guild guild, int limit) {
+        return getGuildMusicManager(guild).getScheduler().previewQueue(limit);
+    }
+
     public List<AudioTrack> getQueueSnapshot(Guild guild) {
         return getGuildMusicManager(guild).getScheduler().snapshotQueue();
     }
@@ -2157,7 +2161,7 @@ public class MusicPlayerService {
             GuildMusicManager manager = getGuildMusicManager(guild);
             resumeIfPaused(manager.getPlayer(), guild.getIdLong());
             submission.completion().thenAccept(result -> {
-                notifyStateChanged(guild.getIdLong());
+                notifyStateChanged(guild.getIdLong(), MusicStateChange.BATCH_COMPLETE);
                 if (playlistLoads.hasPending(guild.getIdLong())) return;
                 AudioTrack seed = deferredAutoplaySeeds.remove(guild.getIdLong());
                 if (seed != null) handleQueueExhausted(guild.getIdLong(), seed);
@@ -3416,7 +3420,7 @@ public class MusicPlayerService {
                 AudioTrack[] queued = new AudioTrack[1];
                 commitLoad(progress, () -> {
                     applyTrackMetadata(track, sourceLabel, requesterId, requesterName, originalInput, loadIdentifier);
-                    queued[0] = queuePlaybackTrack(guildMusicManager, track);
+                    queued[0] = queuePlaybackTrack(guildMusicManager, track, progress);
                     if (progress != null) progress.markQueued();
                 });
                 if (firstQueued == null) {
@@ -3427,9 +3431,9 @@ public class MusicPlayerService {
         return firstQueued;
     }
 
-    private AudioTrack queuePlaybackTrack(GuildMusicManager guildMusicManager, AudioTrack track) {
+    private AudioTrack queuePlaybackTrack(GuildMusicManager guildMusicManager, AudioTrack track, LoadProgress progress) {
         AudioTrack playbackTrack = preparePlaybackTrack(track);
-        guildMusicManager.getScheduler().queue(playbackTrack);
+        guildMusicManager.getScheduler().queue(playbackTrack, progress != null && progress.context != null);
         return playbackTrack;
     }
 

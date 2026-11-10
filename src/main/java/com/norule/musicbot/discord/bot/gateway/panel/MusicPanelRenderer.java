@@ -16,7 +16,7 @@ import java.util.Locale;
 import java.util.Map;
 
 public final class MusicPanelRenderer {
-    private static final int QUEUE_PREVIEW_LIMIT = 5;
+    private static final int QUEUE_PREVIEW_LIMIT = 10;
     private static final int PROGRESS_SLOTS = 18;
 
     private final MusicCommandService owner;
@@ -30,7 +30,8 @@ public final class MusicPanelRenderer {
     public EmbedBuilder panelEmbed(Guild guild, String lang) {
         MusicPlayerService musicService = owner.musicService();
         AudioTrack currentTrack = musicService.getCurrentTrack(guild);
-        List<AudioTrack> queue = musicService.getQueueSnapshot(guild);
+        var queue = musicService.getQueuePreview(guild, QUEUE_PREVIEW_LIMIT);
+        String queueHeading = "\uD83D\uDCC3 " + text(lang, "panel_next") + " (" + queue.total() + ")";
         String voiceChannel = voiceChannelLine(guild, lang);
 
         EmbedBuilder builder = new EmbedBuilder()
@@ -50,8 +51,8 @@ public final class MusicPanelRenderer {
             builder
                     .setDescription(DiscordEmbedSanitizer.sanitizeDescription(idleDescription))
                     .addField(
-                            DiscordEmbedSanitizer.sanitizeFieldName("\uD83D\uDCC3 " + text(lang, "panel_next")),
-                            DiscordEmbedSanitizer.sanitizeFieldValue(text(lang, "panel_queue_empty")),
+                            DiscordEmbedSanitizer.sanitizeFieldName(queueHeading),
+                            DiscordEmbedSanitizer.sanitizeFieldValue(formatQueue(lang, queue.tracks(), queue.total())),
                             false
                     );
             addPanelNotice(builder, lang, panelNotice);
@@ -73,13 +74,13 @@ public final class MusicPanelRenderer {
                 + "\n" + metadata
                 + "\n" + requesterLine
                 + "\n\n" + buildProgress(position, duration, live)
-                + "\n\n" + statusLine(guild, lang, queue.size())
+                + "\n\n" + statusLine(guild, lang, queue.total())
                 + "\n" + voiceChannel;
 
         builder.setDescription(DiscordEmbedSanitizer.sanitizeDescription(description))
                 .addField(
-                        DiscordEmbedSanitizer.sanitizeFieldName("\uD83D\uDCC3 " + text(lang, "panel_next")),
-                        DiscordEmbedSanitizer.sanitizeFieldValue(formatQueue(lang, queue)),
+                        DiscordEmbedSanitizer.sanitizeFieldName(queueHeading),
+                        DiscordEmbedSanitizer.sanitizeFieldValue(formatQueue(lang, queue.tracks(), queue.total())),
                         false
                 );
 
@@ -223,7 +224,7 @@ public final class MusicPanelRenderer {
                 : "\uD83D\uDD0A " + guild.getAudioManager().getConnectedChannel().getAsMention();
     }
 
-    private String formatQueue(String lang, List<AudioTrack> queue) {
+    private String formatQueue(String lang, List<AudioTrack> queue, int total) {
         if (queue.isEmpty()) {
             return text(lang, "panel_queue_empty");
         }
@@ -233,18 +234,18 @@ public final class MusicPanelRenderer {
             AudioTrack track = queue.get(index);
             result.append(index + 1)
                     .append(". ")
-                    .append(safe(track.getInfo().title, 72));
-            String author = safe(track.getInfo().author, 45);
+                    .append(safe(track.getInfo().title, 54));
+            String author = safe(track.getInfo().author, 24);
             if (!"-".equals(author)) {
                 result.append(" \u2014 ").append(author);
             }
             result.append('\n');
         }
-        if (queue.size() > max) {
+        if (total > max) {
             result.append('\n').append(text(
                     lang,
                     "panel_more_tracks",
-                    Map.of("count", String.valueOf(queue.size() - max))
+                    Map.of("count", String.valueOf(total - max))
             ));
         }
         return result.toString().stripTrailing();

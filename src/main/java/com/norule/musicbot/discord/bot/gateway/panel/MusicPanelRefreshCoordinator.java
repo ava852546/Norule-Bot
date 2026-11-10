@@ -21,7 +21,6 @@ import java.util.function.LongSupplier;
 public final class MusicPanelRefreshCoordinator implements AutoCloseable {
     public static final long DEBOUNCE_MILLIS = 750L;
     public static final long MIN_UPDATE_INTERVAL_MILLIS = 1_000L;
-    static final long BATCH_DEBOUNCE_MILLIS = 3_000L;
     private static final Logger LOGGER = LoggerFactory.getLogger(MusicPanelRefreshCoordinator.class);
     private final Map<Long, RefreshState> states = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler;
@@ -45,7 +44,7 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
         requestRefresh(guildId, reason, false);
     }
 
-    /** Batch queue changes share one bounded window; foreground state transitions can advance it. */
+    /** Batch-derived changes remain dirty without a timer until completion or a real operation. */
     public void requestRefresh(long guildId, RefreshReason reason, boolean batchQueueChange) {
         while (!closed) {
             RefreshState state = states.computeIfAbsent(guildId, ignored -> new RefreshState());
@@ -60,10 +59,6 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
                 LOGGER.debug("[NoRule] panel.refresh.requested guildId={} reason={}", guildId, reason);
                 boolean coalesced = state.inFlight || !state.pending.isEmpty();
                 if (coalesced) state.coalescedCount++;
-                if (reason.highPriority() && !batchQueueChange && state.batchTask && state.task != null) {
-                    state.task.cancel(false);
-                    state.task = null;
-                }
                 if (reason.highPriority()) {
                     state.pending.removeIf(pending -> !pending.highPriority());
                     if (state.backgroundTask && state.task != null) {
@@ -106,10 +101,6 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
                 }
                 ManualWork work = new ManualWork(prepareManual, new CompletableFuture<>(), nanoTime.getAsLong());
                 state.manual.add(work);
-                if (state.batchTask && state.task != null) {
-                    state.task.cancel(false);
-                    state.task = null;
-                }
                 schedule(guildId, state);
                 return work.result();
             }
@@ -118,16 +109,16 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
     }
 
     private void schedule(long guildId, RefreshState state) {
-        if (!closed && !state.inFlight && state.task == null && (!state.pending.isEmpty() || !state.manual.isEmpty())) {
+        if (!closed && !state.inFlight && state.task == null
+                && ((!state.pending.isEmpty() && !state.batchOnly) || !state.manual.isEmpty())) {
             try {
                 long remaining = state.submitted
                         ? TimeUnit.NANOSECONDS.toMillis(Math.max(0, state.nextSubmission - nanoTime.getAsLong())
                                 + TimeUnit.MILLISECONDS.toNanos(1) - 1) : 0;
                 // Stable per-guild staggering; foreground events retain the short debounce.
                 state.backgroundTask = state.manual.isEmpty()
-                        && state.pending.equals(EnumSet.of(RefreshReason.PERIODIC_REFRESH));
-                state.batchTask = state.manual.isEmpty() && state.batchOnly;
-                long debounce = (state.batchTask ? BATCH_DEBOUNCE_MILLIS : DEBOUNCE_MILLIS) + (state.backgroundTask
+                        && state.pending.stream().noneMatch(RefreshReason::highPriority);
+                long debounce = DEBOUNCE_MILLIS + (state.backgroundTask
                         ? Math.floorMod(Long.hashCode(guildId), 251) : 0);
                 long taskVersion = ++state.taskVersion;
                 state.task = scheduler.schedule(() -> drain(guildId, state, taskVersion),
@@ -333,6 +324,15 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
         }
     }
 
+    /** Dirty batch data alone must not suppress the ordinary progress cadence. */
+    public boolean hasScheduledWork(long guildId) {
+        RefreshState state = states.get(guildId);
+        if (state == null) return false;
+        synchronized (state) {
+            return state.inFlight || state.task != null || !state.manual.isEmpty();
+        }
+    }
+
     public String diagnostics(long guildId) {
         RefreshState state = states.get(guildId);
         if (state == null) return "pendingRefresh=false inFlight=false coalescedCount=0";
@@ -371,6 +371,13 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
         if (state == null) return false;
         synchronized (state) {
             return update.sameContent(state.lastSent);
+        }
+    }
+
+    void recordUnchanged(long guildId) {
+        RefreshState state = states.get(guildId);
+        if (state != null) {
+            synchronized (state) { state.unchangedCount++; }
         }
     }
 
@@ -426,7 +433,7 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
                          Supplier<CompletableFuture<Void>> send) {
         boolean sameContent(Update other) {
             return other != null && channelId == other.channelId && messageId == other.messageId
-                    && snapshot.sameContent(other.snapshot);
+                    && snapshot != null && other.snapshot != null && snapshot.sameContent(other.snapshot);
         }
     }
 
@@ -437,7 +444,6 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
         private ScheduledFuture<?> task;
         private long taskVersion;
         private boolean backgroundTask;
-        private boolean batchTask;
         private boolean batchOnly;
         private boolean inFlight;
         private long generation;

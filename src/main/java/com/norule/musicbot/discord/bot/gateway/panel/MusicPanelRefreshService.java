@@ -556,12 +556,16 @@ public final class MusicPanelRefreshService {
     }
 
     public void requestRefresh(long guildId, RefreshReason reason) {
-        if (reason.highPriority()) {
+        boolean batchEvent = reason == RefreshReason.BATCH_PROGRESS || reason == RefreshReason.BATCH_COMPLETE;
+        boolean deferBatch = batchEvent && owner.musicService().isPlaylistLoading(guildId);
+        // A late entry callback after completion must also release dirty work. Multiple jobs
+        // share the existing hasPending evidence; finishing one cannot flush the others.
+        if (batchEvent) reason = deferBatch ? RefreshReason.BATCH_PROGRESS : RefreshReason.BATCH_COMPLETE;
+        if (reason.highPriority() && !deferBatch) {
             // A queued progress update must not hold this guild's barrier ahead of /play.
             owner.backgroundRest().cancelPending("music-panel:" + guildId);
         }
-        coordinator.requestRefresh(guildId, reason, reason == RefreshReason.QUEUE_CHANGED
-                && owner.musicService().isPlaylistLoading(guildId));
+        coordinator.requestRefresh(guildId, reason, deferBatch);
     }
 
     public void refreshPanelPeriodic(long guildId) {
@@ -571,7 +575,7 @@ public final class MusicPanelRefreshService {
             // A cache miss during an outage is not evidence that the bot left the guild.
             return;
         }
-        if (!coordinator.hasPending(guildId) && progressRefreshDue(isProgressActive(guild), stateStore.getLastRefreshAt(guildId),
+        if (!coordinator.hasScheduledWork(guildId) && progressRefreshDue(isProgressActive(guild), stateStore.getLastRefreshAt(guildId),
                 System.currentTimeMillis(), panelPeriodicRefreshMs)) {
             requestRefresh(guildId, RefreshReason.PERIODIC_REFRESH);
         }
@@ -781,7 +785,7 @@ public final class MusicPanelRefreshService {
             }
             return CompletableFuture.completedFuture(null);
         }
-        boolean periodicOnly = reasons.equals(Set.of(RefreshReason.PERIODIC_REFRESH));
+        boolean periodicOnly = reasons.stream().noneMatch(RefreshReason::highPriority);
         var mode = periodicOnly ? modes.resolveLocal(guild) : modes.resolve(guild);
         // Channel access can recover while the search/load callback is pending;
         // the resolver remains authoritative for the current effective mode.
@@ -824,8 +828,9 @@ public final class MusicPanelRefreshService {
             logOperationalFailure(guildId, ref.channelId, ref.messageId, "MISSING_PERMISSION", missingPermission);
             return CompletableFuture.completedFuture(null);
         }
-        MusicPanelSnapshot snapshot = render(guild, owner.lang(guildId));
         boolean backgroundOnly = reasons.stream().noneMatch(RefreshReason::highPriority);
+        // Background admission holds only a dirty request, never an obsolete rendered embed.
+        MusicPanelSnapshot snapshot = backgroundOnly ? null : render(guild, owner.lang(guildId));
         return CompletableFuture.completedFuture(new MusicPanelRefreshCoordinator.Update(
                 ref.channelId, ref.messageId, snapshot, () -> backgroundOnly
                         ? owner.backgroundRest().submit("music-panel:" + guildId,
@@ -837,7 +842,7 @@ public final class MusicPanelRefreshService {
             MusicPanelStateStore.PanelRef ref, Set<RefreshReason> reasons) {
         long guildId = guild.getIdLong();
         if (closed || !stateStore.isActivePanel(guildId, ref.channelId, ref.messageId)
-                || (reasons.equals(Set.of(RefreshReason.PERIODIC_REFRESH)) && !isProgressActive(guild))) {
+                || (reasons.stream().noneMatch(RefreshReason::highPriority) && !isProgressActive(guild))) {
             // Invalidate the queued payload; it was never delivered to Discord.
             coordinator.discardPrepared(guildId);
             return CompletableFuture.completedFuture(null);
@@ -846,6 +851,7 @@ public final class MusicPanelRefreshService {
         MusicPanelSnapshot latest = render(guild, owner.lang(guildId));
         var delivered = new MusicPanelRefreshCoordinator.Update(ref.channelId, ref.messageId, latest, null);
         if (coordinator.sameContent(guildId, delivered)) {
+            coordinator.recordUnchanged(guildId);
             coordinator.recordCreated(guildId, delivered);
             return CompletableFuture.completedFuture(null);
         }

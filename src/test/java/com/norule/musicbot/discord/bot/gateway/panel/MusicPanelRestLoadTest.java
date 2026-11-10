@@ -16,8 +16,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** Real coordinator + admission queue; synthetic REST/player lifecycle, never live Discord. */
 class MusicPanelRestLoadTest {
-    @org.junit.jupiter.api.Test
-    void realPlaylistJobsCompleteFortyOneEntriesWhileEachGuildPanelIsRateLimited() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {41, 96})
+    void realPlaylistJobsCompleteWhileEachGuildPanelIsRateLimited(int count) throws Exception {
         try (var clock = new MusicPanelRefreshCoordinatorTest.ManualScheduler();
              var loads = new com.norule.musicbot.service.music.PlaylistLoadCoordinator()) {
             var queues = new java.util.concurrent.ConcurrentHashMap<Long, List<Integer>>();
@@ -25,14 +26,14 @@ class MusicPanelRestLoadTest {
             var flights = new java.util.concurrent.ConcurrentHashMap<Long, CompletableFuture<Void>>();
             var patches = new java.util.concurrent.atomic.AtomicInteger();
             try (var panels = new MusicPanelRefreshCoordinator(clock, (guild, reasons) -> {
-                int count = queues.getOrDefault(guild, List.of()).size();
+                int queued = queues.getOrDefault(guild, List.of()).size();
                 return CompletableFuture.completedFuture(new MusicPanelRefreshCoordinator.Update(guild * 10, 100,
-                        new MusicPanelSnapshot(new EmbedBuilder().setDescription("queue=" + count).build(), List.of()), () -> {
+                        new MusicPanelSnapshot(new EmbedBuilder().setDescription("queue=" + queued).build(), List.of()), () -> {
                     assertFalse(flights.containsKey(guild), "Same guild has competing PATCH actions");
                     patches.incrementAndGet();
                     var flight = new CompletableFuture<Void>();
                     flights.put(guild, flight);
-                    return flight.thenRun(() -> visible.put(guild, count));
+                    return flight.thenRun(() -> visible.put(guild, queued));
                 }));
             }, clock::nanos)) {
                 // Hold one HTTP request in JDA per guild before starting metadata work.
@@ -47,7 +48,7 @@ class MusicPanelRestLoadTest {
                     var tasks = new ArrayList<java.util.function.Function<
                             com.norule.musicbot.service.music.PlaylistLoadCoordinator.EntryContext,
                             java.util.concurrent.CompletionStage<com.norule.musicbot.service.music.PlaylistLoadCoordinator.TrackResult>>>();
-                    for (int track = 0; track < 41; track++) {
+                    for (int track = 0; track < count; track++) {
                         int index = track;
                         tasks.add(context -> {
                             context.commit().accept(() -> {
@@ -58,12 +59,12 @@ class MusicPanelRestLoadTest {
                                     new com.norule.musicbot.service.music.PlaylistLoadCoordinator.TrackResult(1, 1, false, false));
                         });
                     }
-                    submissions.add(loads.submit(id, 42L, "41-track fixture", tasks));
+                    submissions.add(loads.submit(id, 42L, "batch fixture", tasks));
                 }
                 for (var submission : submissions) {
                     var result = submission.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
-                    assertEquals(41, result.loaded());
-                    assertEquals(41, result.queued());
+                    assertEquals(count, result.loaded());
+                    assertEquals(count, result.queued());
                     assertEquals(0, result.failed());
                     assertEquals(0, result.pending());
                     panels.requestRefresh(result.guildId(), RefreshReason.STATE_CHANGED);
@@ -75,7 +76,7 @@ class MusicPanelRestLoadTest {
                 assertEquals(6, patches.get());
                 for (long guild = 1; guild <= 3; guild++) {
                     flights.remove(guild).complete(null);
-                    assertEquals(41, visible.get(guild));
+                    assertEquals(count, visible.get(guild));
                     assertFalse(panels.hasPending(guild));
                 }
             }

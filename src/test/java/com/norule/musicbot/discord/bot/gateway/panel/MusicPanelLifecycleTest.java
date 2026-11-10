@@ -73,6 +73,8 @@ class MusicPanelLifecycleTest {
     Runnable unsubscribe;
     boolean simulatedLoads;
     boolean simulatedProgress;
+    boolean simulatedPlaylist;
+    int queuePreviewReads;
     long progressPosition;
     com.norule.musicbot.discord.bot.gateway.DiscordBackgroundRestQueue progressQueue;
     Consumer<String> loaded;
@@ -96,6 +98,13 @@ class MusicPanelLifecycleTest {
         var config = MusicConfig.defaultValues();
         music = new MusicPlayerService(directory, id -> 100, id -> 365, id -> 100, config, policy,
                 auth -> YouTubePlaybackRuntimeFactory.createSource(config.getCipher(), policy, auth, YouTubePlaybackTrackFactory.youtubeSource())) {
+            @Override public boolean isPlaylistLoading(long guildId) {
+                return simulatedPlaylist || super.isPlaylistLoading(guildId);
+            }
+            @Override public com.norule.musicbot.domain.music.TrackScheduler.QueuePreview getQueuePreview(Guild guild, int limit) {
+                queuePreviewReads++;
+                return super.getQueuePreview(guild, limit);
+            }
             @Override public com.sedmelluq.discord.lavaplayer.track.AudioTrack getCurrentTrack(Guild guild) {
                 return simulatedProgress ? searchTrack : super.getCurrentTrack(guild);
             }
@@ -159,6 +168,103 @@ class MusicPanelLifecycleTest {
     }
 
     void drain() { scheduler.advance(3_000); }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 10, 11, 96, 500})
+    @SuppressWarnings("unchecked")
+    void renderedQueueUsesOnlyTenMetadataRecordsAndPreservesAllTracks(int count) throws Exception {
+        var player = proxy(com.sedmelluq.discord.lavaplayer.player.AudioPlayer.class, (o, m, a) -> switch (m.getName()) {
+            case "getPlayingTrack" -> searchTrack;
+            case "addListener" -> null;
+            case "startTrack" -> false;
+            case "isPaused" -> false;
+            case "getVolume" -> 100;
+            default -> null;
+        });
+        var manager = new com.norule.musicbot.domain.music.GuildMusicManager(
+                proxy(AudioPlayerManager.class, (o, m, a) -> player), null, null, null, null, null, null, () -> true);
+        for (int i = 0; i < count; i++) {
+            int index = i;
+            manager.getScheduler().queue(proxy(com.sedmelluq.discord.lavaplayer.track.AudioTrack.class, (o, m, a) -> {
+                if (m.getName().equals("getInfo")) {
+                    assertTrue(index < 10, "Undisplayed metadata must not be read");
+                    return new com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo(
+                            "Song-" + index + "x".repeat(180), "Artist".repeat(30), 60_000, "id-" + index, false, null);
+                }
+                return null;
+            }), true);
+        }
+        var field = MusicPlayerService.class.getDeclaredField("musicManagers");
+        field.setAccessible(true);
+        ((Map<Long, com.norule.musicbot.domain.music.GuildMusicManager>) field.get(music)).put(1L, manager);
+        var renderer = new MusicPanelRenderer(owner, store);
+        for (String lang : List.of("zh-TW", "zh-CN", "en")) {
+            var embed = renderer.panelEmbed(discord.guild, lang).build();
+            var queue = embed.getFields().getFirst();
+            assertTrue(embed.getDescription().contains("Test track"));
+            assertTrue(queue.getName().endsWith("(" + count + ")"));
+            for (int i = 0; i < Math.min(10, count); i++) assertTrue(queue.getValue().contains("Song-" + i));
+            assertFalse(queue.getValue().contains("Song-10"));
+            assertTrue(queue.getValue().length() <= 1024);
+            if (count > 10) assertTrue(queue.getValue().endsWith(owner.musicText(lang, "panel_more_tracks",
+                    Map.of("count", String.valueOf(count - 10)))));
+        }
+        assertEquals(count, music.getQueueSnapshot(discord.guild).size());
+    }
+
+    @Test
+    void batchOriginDefersButManualStateAndCompletionStillFlushThroughSameWriter() {
+        seed(10, 100);
+        simulatedPlaylist = true;
+        for (int i = 0; i < 96; i++) {
+            panels.requestRefresh(1, RefreshReason.BATCH_PROGRESS);
+            scheduler.advance(500);
+        }
+        assertTrue(discord.editResults.isEmpty());
+        assertEquals(0, scheduler.pending());
+        panels.requestRefresh(1, RefreshReason.STATE_CHANGED); // Actual stop/speed/leave remains foreground.
+        drain();
+        assertEquals(1, discord.editResults.size());
+        panels.requestRefresh(1, RefreshReason.BATCH_COMPLETE); // Another job still exists.
+        drain();
+        assertEquals(1, discord.editResults.size());
+        simulatedPlaylist = false;
+        panels.requestRefresh(1, RefreshReason.BATCH_COMPLETE);
+        drain(); // Identical final payload is skipped.
+        assertEquals(1, discord.editResults.size());
+    }
+
+    @Test
+    void progressWithDirtyBatchRendersOnlyAfterAdmissionAndDeduplicatesLatestPayload() {
+        panels.close();
+        progressQueue = new com.norule.musicbot.discord.bot.gateway.DiscordBackgroundRestQueue(scheduler, scheduler::nanos);
+        var delivered = new ArrayList<MusicPanelSnapshot>();
+        panels = new MusicPanelRefreshService(owner, store, new MusicPanelRenderer(owner, store), scheduler, 8_000, modes,
+                scheduler::nanos, (channel, id, snapshot, background, diagnostics) -> {
+            delivered.add(snapshot);
+            return channel.editMessageEmbedsById(id, snapshot.embed()).setComponents(snapshot.components());
+        });
+        seed(10, 100);
+        simulatedProgress = true;
+        simulatedPlaylist = true;
+        discord.connected = true;
+        progressQueue.pause(5_000);
+        panels.requestRefresh(1, RefreshReason.BATCH_PROGRESS);
+        store.markRefreshed(1, store.getPanelRef(1), 0);
+        panels.refreshPanelPeriodic(1); // Dirty batch alone must not suppress the 8-second due check.
+        scheduler.advance(1_000);
+        assertEquals(0, queuePreviewReads, "No historical embed may be retained during admission wait");
+        assertTrue(delivered.isEmpty());
+        progressPosition = 50_000;
+        scheduler.advance(5_000);
+        assertEquals(1, queuePreviewReads);
+        assertEquals(1, delivered.size());
+        assertTrue(delivered.getFirst().embed().getDescription().contains("00:50"));
+        panels.requestRefresh(1, RefreshReason.BATCH_PROGRESS);
+        panels.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+        drain();
+        assertEquals(1, delivered.size(), "Identical payload after admission must not PATCH");
+    }
 
     @ParameterizedTest
     @EnumSource(MusicPanelMode.class)

@@ -12,8 +12,61 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class TrackSchedulerRecoveryTest {
+    @Test
+    void previewCountRemainsCorrectWhenRepeatingAllOrSingle() {
+        FakePlayer player = new FakePlayer();
+        TrackScheduler scheduler = new TrackScheduler(player.proxy);
+        var current = new FakeTrack("current", true).proxy;
+        var next = new FakeTrack("next", true).proxy;
+        scheduler.queue(current);
+        scheduler.queue(next);
+        scheduler.setRepeatMode("ALL");
+        scheduler.onTrackEnd(player.proxy, current, AudioTrackEndReason.FINISHED);
+        assertSame(next, player.current);
+        assertEquals(1, scheduler.previewQueue(10).total());
+        assertEquals("current", scheduler.previewQueue(10).tracks().getFirst().getIdentifier());
+        scheduler.setRepeatMode("SINGLE");
+        scheduler.onTrackEnd(player.proxy, next, AudioTrackEndReason.FINISHED);
+        assertEquals("next", player.current.getIdentifier());
+        assertEquals(1, scheduler.previewQueue(10).total());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {0, 1, 10, 11, 96, 500})
+    void previewCopiesOnlyTenAndCountTracksSkipShuffleRepeatAndClear(int count) {
+        FakePlayer player = new FakePlayer();
+        TrackScheduler scheduler = new TrackScheduler(player.proxy);
+        var current = new FakeTrack("current", true).proxy;
+        scheduler.queue(current);
+        var tracks = new java.util.ArrayList<AudioTrack>();
+        for (int i = 0; i < count; i++) {
+            var track = new FakeTrack("track-" + i, true).proxy;
+            tracks.add(track);
+            scheduler.queue(track, true);
+        }
+        var preview = scheduler.previewQueue(10);
+        assertEquals(count, preview.total());
+        assertEquals(tracks.subList(0, Math.min(10, count)), preview.tracks());
+        assertSame(current, player.current);
+        assertEquals(count, scheduler.snapshotQueue().size());
+        assertThrows(UnsupportedOperationException.class, () -> preview.tracks().clear());
+        if (count > 0) {
+            scheduler.nextTrack();
+            assertSame(tracks.getFirst(), player.current);
+            assertEquals(count - 1, scheduler.previewQueue(10).total());
+            assertEquals(tracks.subList(1, Math.min(11, count)), scheduler.previewQueue(10).tracks());
+            scheduler.shuffleQueue();
+            assertEquals(scheduler.snapshotQueue().subList(0, Math.min(10, count - 1)), scheduler.previewQueue(10).tracks());
+            assertEquals(count - 1, scheduler.previewQueue(10).total());
+        }
+        scheduler.clear();
+        assertEquals(0, scheduler.previewQueue(10).total());
+        assertTrue(scheduler.previewQueue(10).tracks().isEmpty());
+    }
+
     @Test
     void diagnosticStartRequiresRealFrameAndNeverConfirmsStaleOrFailedTrack() {
         FakePlayer player = new FakePlayer();
@@ -266,6 +319,7 @@ class TrackSchedulerRecoveryTest {
                     new Class<?>[] {AudioTrack.class},
                     (ignored, method, args) -> switch (method.getName()) {
                         case "getIdentifier" -> this.identifier;
+                        case "makeClone" -> new FakeTrack(this.identifier, this.seekable).proxy;
                         case "isSeekable" -> this.seekable;
                         case "getPosition" -> this.position;
                         case "setPosition" -> {

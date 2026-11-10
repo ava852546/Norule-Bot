@@ -21,6 +21,7 @@ public class TrackScheduler extends AudioEventAdapter {
 
     private final AudioPlayer player;
     private final Queue<AudioTrack> queue = new ConcurrentLinkedQueue<>();
+    private int queuedCount; // Guarded by this scheduler, alongside every queue mutation.
     private volatile RepeatMode repeatMode = RepeatMode.OFF;
     private volatile Consumer<MusicStateChange> stateListener;
     private volatile Consumer<AudioTrack> queueExhaustedListener;
@@ -43,14 +44,20 @@ public class TrackScheduler extends AudioEventAdapter {
     }
 
     public synchronized void queue(AudioTrack track) {
+        queue(track, false);
+    }
+
+    /** Only metadata commits belonging to a playlist job may defer their queue notification. */
+    public synchronized void queue(AudioTrack track, boolean playlistEntry) {
         if (!player.startTrack(track, true)) {
             queue.offer(track);
+            queuedCount++;
         } else {
             scheduledTrack = track;
             playbackGeneration++;
             clearRecoveryMarker();
         }
-        notifyStateChanged(MusicStateChange.QUEUE_CHANGED);
+        notifyStateChanged(playlistEntry ? MusicStateChange.BATCH_PROGRESS : MusicStateChange.QUEUE_CHANGED);
     }
 
     public synchronized void nextTrack() {
@@ -63,6 +70,7 @@ public class TrackScheduler extends AudioEventAdapter {
             previous = recoveringTrack;
         }
         AudioTrack next = queue.poll();
+        if (next != null) queuedCount--;
         startReplacement(next);
         if (next == null && recommendWhenEmpty) {
             notifyQueueExhausted(previous);
@@ -72,6 +80,7 @@ public class TrackScheduler extends AudioEventAdapter {
 
     public synchronized void clear() {
         queue.clear();
+        queuedCount = 0;
         scheduledTrack = null;
         playbackGeneration++;
         clearRecoveryMarker();
@@ -86,8 +95,10 @@ public class TrackScheduler extends AudioEventAdapter {
         }
         Collections.shuffle(tracks);
         queue.clear();
+        queuedCount = 0;
         for (AudioTrack track : tracks) {
             queue.offer(track);
+            queuedCount++;
         }
         notifyStateChanged(MusicStateChange.SHUFFLE_CHANGED);
         return tracks.size();
@@ -109,6 +120,17 @@ public class TrackScheduler extends AudioEventAdapter {
     public List<AudioTrack> snapshotQueue() {
         return new ArrayList<>(queue);
     }
+
+    /** Copies only the visible prefix; total count follows the existing queue mutations. */
+    public synchronized QueuePreview previewQueue(int limit) {
+        if (limit < 0) throw new IllegalArgumentException("Negative queue preview limit");
+        List<AudioTrack> tracks = new ArrayList<>(Math.min(limit, queuedCount));
+        var iterator = queue.iterator();
+        while (tracks.size() < limit && iterator.hasNext()) tracks.add(iterator.next());
+        return new QueuePreview(List.copyOf(tracks), queuedCount);
+    }
+
+    public record QueuePreview(List<AudioTrack> tracks, int total) { }
 
     public void setStateListener(Runnable stateListener) {
         this.stateListener = stateListener == null ? null : ignored -> stateListener.run();
@@ -270,9 +292,11 @@ public class TrackScheduler extends AudioEventAdapter {
 
         if (repeatMode == RepeatMode.ALL && track != null) {
             queue.offer(cloneWithUserData(track));
+            queuedCount++;
         }
 
         AudioTrack next = queue.poll();
+        if (next != null) queuedCount--;
         if (next != null) {
             startReplacement(next);
             notifyStateChanged(MusicStateChange.TRACK_END);

@@ -20,12 +20,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class MusicPanelRefreshCoordinatorTest {
     @Test
-    void fortyOneTracksConvergeWithoutWaitingForPanelAndBatchingReducesDeliveries() {
-        int before = playlistRun(false);
-        int after = playlistRun(true);
-        assertTrue(after < before, "Batch window must reduce sustained deliveries");
-        assertTrue(after < 41 / 3, "Panel delivery count must stay well below track events");
-        System.out.printf("PANEL_BATCH tracks=41 events=43 before=%d after=%d finalQueued=41%n", before, after);
+    void fortyOneTracksConvergeWithoutWaitingForPanelAndDirtyBatchReducesDeliveries() {
+        int ordinary = playlistRun(false);
+        int deferred = playlistRun(true);
+        assertTrue(deferred < ordinary, "Deferred batch must reduce sustained deliveries");
+        assertEquals(2, deferred);
+        System.out.printf("PANEL_BATCH tracks=41 events=43 ordinaryWindow=%d deferred=%d finalQueued=41%n", ordinary, deferred);
     }
 
     private int playlistRun(boolean batching) {
@@ -79,14 +79,15 @@ class MusicPanelRefreshCoordinatorTest {
     }
 
     @Test
-    void latePeriodicEventCannotCancelTheOnlyPendingBatchTask() {
+    void dirtyBatchHasNoTimerUntilCompletion() {
         coordinator.requestRefresh(1, RefreshReason.QUEUE_CHANGED, true);
+        assertEquals(0, scheduler.pending());
+        assertTrue(coordinator.hasPending(1));
+        assertFalse(coordinator.hasScheduledWork(1));
         scheduler.advance(500);
-        coordinator.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
-        assertEquals(1, scheduler.pending());
-        scheduler.advance(2_500);
+        coordinator.requestRefresh(1, RefreshReason.BATCH_COMPLETE);
+        scheduler.advance(1_000);
         assertEquals(1, sent.size());
-        assertEquals(Set.of(RefreshReason.QUEUE_CHANGED), renderedReasons);
     }
 
     @Test
@@ -95,7 +96,8 @@ class MusicPanelRefreshCoordinatorTest {
         var recovery = coordinator.submit(1, () -> CompletableFuture.completedFuture(null));
         scheduler.advance(750);
         assertTrue(recovery.isDone());
-        assertEquals(1, scheduler.pending()); // The batch remains, behind the manual lifecycle operation.
+        assertEquals(0, scheduler.pending()); // Dirty batch waits without a task after manual recovery.
+        coordinator.requestRefresh(1, RefreshReason.BATCH_COMPLETE);
         scheduler.advance(3_000);
         assertEquals(1, sent.size());
     }
@@ -113,6 +115,7 @@ class MusicPanelRefreshCoordinatorTest {
         assertEquals(1, sent.size());
         assertEquals(0, scheduler.pending());
         flights.getFirst().complete(null); // JDA completes its own retry; application never resubmits it.
+        coordinator.requestRefresh(1, RefreshReason.BATCH_COMPLETE);
         scheduler.advance(3_000);
         assertEquals(List.of("1:volume 30", "1:queued=41"), sent);
         flights.getLast().complete(null);

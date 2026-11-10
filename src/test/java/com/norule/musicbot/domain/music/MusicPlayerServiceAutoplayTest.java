@@ -30,7 +30,9 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -122,10 +124,12 @@ class MusicPlayerServiceAutoplayTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(ints = {25, 41})
+    @org.junit.jupiter.params.provider.ValueSource(ints = {25, 41, 96})
     void bilibiliPlaylistActuallyQueuesTracksInOrderWhileCurrentTrackContinues(int trackCount) throws Exception {
         AudioTrack seed = startSeed();
         saveBilibiliPlaylist(trackCount);
+        var events = new java.util.concurrent.CopyOnWriteArrayList<MusicStateChange>();
+        var removeListener = service.addStateChangeListener((id, event) -> events.add(event));
         var idleNotification = new CompletableFuture<Void>();
         service.setGuildStateListener(123, () -> {
             if (!service.isPlaybackTransitioning(guild)) idleNotification.complete(null);
@@ -149,6 +153,11 @@ class MusicPlayerServiceAutoplayTest {
                 manager.getScheduler().snapshotQueue().stream().map(t -> t.getInfo().title).toList());
         assertTrue(!service.isPlaybackTransitioning(guild));
         assertTrue(!service.isPlaylistLoading(GUILD_ID));
+        removeListener.run();
+        assertTrue(events.contains(MusicStateChange.BATCH_PROGRESS));
+        assertTrue(events.contains(MusicStateChange.BATCH_COMPLETE));
+        assertFalse(events.contains(MusicStateChange.STATE_CHANGED), "Entry begin/end must retain their batch origin");
+        assertFalse(events.contains(MusicStateChange.QUEUE_CHANGED), "Batch commits must not masquerade as manual queue operations");
     }
 
     @Test
@@ -193,6 +202,53 @@ class MusicPlayerServiceAutoplayTest {
                 0, "Song " + i, "fixture", "bilibili", "https://www.bilibili.com/video/BV1Na4Q64Eos/?p=" + (i + 1),
                 "", 180_000, 1L, "fixture")).toList();
         assertEquals(MusicDataService.PlaylistMutationStatus.SUCCESS, data.savePlaylist(123, "Batch", entries, 1L, "fixture").status());
+    }
+
+    @Test
+    void overlappingPlaylistCompletionsRetainExistingJobEvidenceUntilLastJob() throws Exception {
+        startSeed();
+        var field = MusicPlayerService.class.getDeclaredField("musicDataService");
+        field.setAccessible(true);
+        var data = (MusicDataService) field.get(service);
+        // Use independent fake YouTube metadata loads; the Bilibili admission queue intentionally
+        // allows only one outstanding request per guild and must not be bypassed by this test.
+        var entries = java.util.stream.IntStream.range(0, 2).mapToObj(i -> new MusicDataService.PlaybackEntry(
+                0, "Song " + i, "fixture", "youtube", "https://www.youtube.com/watch?v=abcdefghij" + i,
+                "", 180_000, 1L, "fixture")).toList();
+        assertEquals(MusicDataService.PlaylistMutationStatus.SUCCESS,
+                data.savePlaylist(123, "Batch", entries, 1L, "fixture").status());
+        assertEquals(MusicDataService.PlaylistMutationStatus.SUCCESS,
+                data.savePlaylist(123, "Other batch", data.getPlaylistTracks(123, "Batch"), 1L, "fixture").status());
+        var pendingAtCompletion = new java.util.concurrent.CopyOnWriteArrayList<Boolean>();
+        var completedEvents = new java.util.concurrent.CountDownLatch(2);
+        var remove = service.addStateChangeListener((id, change) -> {
+            if (change == MusicStateChange.BATCH_COMPLETE) {
+                pendingAtCompletion.add(service.isPlaylistLoading(id));
+                completedEvents.countDown();
+            }
+        });
+        var first = service.loadPlaylistAsync(guild, "Batch", 1L, "fixture", null);
+        var other = service.loadPlaylistAsync(guild, "Other batch", 1L, "fixture", null);
+        // First entries of both jobs are in flight. Finish one job while holding the other.
+        var callbackA = submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+        var callbackB = submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertNotNull(callbackA); assertNotNull(callbackB);
+        callbackA.trackLoaded(track("first______", "First"));
+        var secondA = submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertNotNull(secondA);
+        secondA.trackLoaded(track("second_____", "Second"));
+        first.completion().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertTrue(service.isPlaylistLoading(GUILD_ID));
+        callbackB.trackLoaded(track("third______", "Third"));
+        var secondB = submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertNotNull(secondB);
+        secondB.noMatches(); // Partial failure still completes the last job.
+        other.completion().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        // Wait for dependent completion callbacks rather than assuming future callback ordering.
+        assertTrue(completedEvents.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        remove.run();
+        assertEquals(List.of(true, false), pendingAtCompletion);
+        assertEquals(3, service.getQueueSnapshot(guild).size());
     }
 
     @Test
