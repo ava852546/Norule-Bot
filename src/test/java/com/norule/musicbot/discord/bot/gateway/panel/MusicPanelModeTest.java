@@ -82,7 +82,7 @@ class MusicPanelModeTest {
         assertEquals("IOException", modes.resolve(fixture.guild).reason());
         for (int i = 0; i < 41; i++) assertTrue(modes.resolve(fixture.guild).fallback());
         assertEquals(1, calls.get());
-        now.set(java.util.concurrent.TimeUnit.SECONDS.toNanos(30));
+        now.set(java.util.concurrent.TimeUnit.MINUTES.toNanos(5));
         assertTrue(modes.resolve(fixture.guild).modern());
         assertEquals(2, calls.get());
         assertEquals(10L, settings.getMusic(1).getCommandChannelId());
@@ -162,6 +162,112 @@ class MusicPanelModeTest {
         field.setAccessible(true);
         assertTrue(((Map<?, ?>) field.get(modes)).isEmpty());
     }
+    @Test
+    void sameUnknownChannelAcrossOneHundredExplicitProbesLogsOnlyOnceAndRecoveryResetsIt() {
+        var settings = settings();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+        var fixture = new Discord();
+        fixture.channelExists = false;
+        var calls = new AtomicInteger();
+        var recovered = new AtomicInteger();
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MusicPanelModeResolver.class);
+        var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        logs.start(); logger.addAppender(logs);
+        var modes = new MusicPanelModeResolver(settings, id -> recovered.incrementAndGet(), (g, id) -> {
+            calls.incrementAndGet();
+            return CompletableFuture.failedFuture(ErrorResponseException.create(ErrorResponse.UNKNOWN_CHANNEL,
+                    new Response(new IOException("404"), Set.of())));
+        }, () -> 0);
+        try {
+            for (int i = 0; i < 100; i++) {
+                modes.revalidate(1);
+                assertEquals("UNKNOWN_CHANNEL", modes.resolve(fixture.guild).reason());
+            }
+            assertEquals(100, calls.get());
+            assertEquals(1, logs.list.size(), "One diagnostic, with no separate verification/invalid warning");
+            assertTrue(logs.list.getFirst().getFormattedMessage().contains("event=FALLBACK_LEGACY"));
+            assertEquals(10L, settings.getMusic(1).getCommandChannelId());
+            assertEquals(MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
+            fixture.channelExists = true;
+            for (int i = 0; i < 100; i++) assertTrue(modes.resolveLocal(fixture.guild).modern());
+            assertEquals(1, logs.list.stream().filter(e -> e.getFormattedMessage().contains("event=MODERN_RECOVERED")).count());
+            fixture.channelExists = false;
+            modes.revalidate(1);
+            assertTrue(modes.resolve(fixture.guild).fallback());
+            assertEquals(2, logs.list.stream().filter(e -> e.getFormattedMessage().contains("event=FALLBACK_LEGACY")).count());
+        } finally { modes.close(); logger.detachAppender(logs); logs.stop(); }
+    }
+
+    @Test
+    void delayedRechecksRetainConfirmedReasonAndLogChangedFailures() {
+        var settings = settings();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+        var fixture = new Discord(); fixture.channelExists = false;
+        var now = new java.util.concurrent.atomic.AtomicLong();
+        var next = new java.util.concurrent.atomic.AtomicReference<CompletableFuture<net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel>>(
+                CompletableFuture.failedFuture(new IOException("temporary")));
+        var modes = new MusicPanelModeResolver(settings, id -> {}, (g, id) -> next.get(), now::get);
+        assertEquals("IOException", modes.resolve(fixture.guild).reason());
+        now.set(java.util.concurrent.TimeUnit.MINUTES.toNanos(5));
+        var pending = new CompletableFuture<net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel>();
+        next.set(pending);
+        assertEquals("IOException", modes.resolve(fixture.guild).reason());
+        assertEquals("IOException", modes.inspect(fixture.guild).reason());
+        pending.completeExceptionally(new IllegalStateException("new failure"));
+        assertEquals("IllegalStateException", modes.resolve(fixture.guild).reason());
+        modes.close();
+    }
+
+    @Test
+    void oneHundredGuildsKeepIndependentSingleProbesAndNoProgressGets() {
+        var settings = settings();
+        var fixtures = new ArrayList<Discord>();
+        var pending = new java.util.HashMap<Long, CompletableFuture<net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel>>();
+        var calls = new AtomicInteger();
+        var now = new java.util.concurrent.atomic.AtomicLong();
+        var modes = new MusicPanelModeResolver(settings, id -> {}, (g, id) -> {
+            calls.incrementAndGet();
+            return pending.computeIfAbsent(g.getIdLong(), key -> new CompletableFuture<>());
+        }, now::get);
+        for (int i = 1; i <= 100; i++) {
+            settings.updateSettings(i, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+            var fixture = new Discord(i); fixture.channelExists = i % 2 == 0; fixtures.add(fixture);
+            modes.resolve(fixture.guild);
+        }
+        assertEquals(50, calls.get());
+        for (var future : pending.values()) future.completeExceptionally(ErrorResponseException.create(
+                ErrorResponse.UNKNOWN_CHANNEL, new Response(new IOException("404"), Set.of())));
+        for (int second = 0; second <= 600; second++) {
+            now.set(java.util.concurrent.TimeUnit.SECONDS.toNanos(second));
+            for (var fixture : fixtures) {
+                var selection = modes.resolveLocal(fixture.guild);
+                assertEquals(fixture.channelExists, selection.modern());
+                if (!selection.modern()) assertEquals("UNKNOWN_CHANNEL", selection.reason());
+            }
+        }
+        assertEquals(50, calls.get(), "Ten minutes of progress must add zero channel GETs");
+        modes.close();
+    }
+
+    @Test
+    void settingsIdentityRejectsOldCallbackEvenWhenChannelIdChangesBack() {
+        var settings = settings();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+        var fixture = new Discord(); fixture.channelExists = false;
+        var pending = new CompletableFuture<net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel>();
+        var recovered = new AtomicInteger();
+        var modes = new MusicPanelModeResolver(settings, id -> recovered.incrementAndGet(), (g, id) -> pending, () -> 0);
+        Runnable unsubscribe = settings.onMusicSettingsChanged(modes::settingsChanged);
+        try {
+            modes.resolve(fixture.guild);
+            settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(20L)));
+            settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+            pending.complete(fixture.channel);
+            assertEquals(0, recovered.get());
+            assertFalse(modes.inspect(fixture.guild).modern());
+        } finally { unsubscribe.run(); modes.close(); }
+    }
+
     @TempDir Path directory;
 
     private BotConfig defaults() {
@@ -402,6 +508,9 @@ class MusicPanelModeTest {
     }
 
     private static class Discord {
+        long guildId;
+        Discord() { this(1); }
+        Discord(long guildId) { this.guildId = guildId; }
         boolean channelExists = true;
         boolean accessible = true;
         boolean panelComponents = true;
@@ -417,7 +526,7 @@ class MusicPanelModeTest {
             default -> throw new UnsupportedOperationException(m.getName());
         });
         final Guild guild = proxy(Guild.class, (o, m, a) -> switch (m.getName()) {
-            case "getIdLong" -> 1L;
+            case "getIdLong" -> guildId;
             case "getSelfMember" -> self;
             case "getThreadChannelById", "getNewsChannelById", "getVoiceChannelById", "getGuildChannelById" -> null;
                 case "getTextChannelById" -> {

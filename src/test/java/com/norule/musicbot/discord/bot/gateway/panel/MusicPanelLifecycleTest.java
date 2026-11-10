@@ -72,13 +72,17 @@ class MusicPanelLifecycleTest {
     MusicPanelSqliteRepository bindings;
     Runnable unsubscribe;
     boolean simulatedLoads;
+    boolean simulatedProgress;
+    long progressPosition;
+    com.norule.musicbot.discord.bot.gateway.DiscordBackgroundRestQueue progressQueue;
     Consumer<String> loaded;
     int loadCalls;
     final com.sedmelluq.discord.lavaplayer.track.AudioTrack searchTrack = proxy(
             com.sedmelluq.discord.lavaplayer.track.AudioTrack.class, (o, m, a) -> switch (m.getName()) {
                 case "getInfo" -> new com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo(
                         "Test track", "Artist", 60_000, "track-id", false, "https://youtu.be/test-track1");
-                case "getDuration" -> 60_000L;
+                case "getDuration" -> simulatedProgress ? 1_200_000L : 60_000L;
+                case "getPosition" -> progressPosition;
                 default -> null;
             });
 
@@ -92,6 +96,9 @@ class MusicPanelLifecycleTest {
         var config = MusicConfig.defaultValues();
         music = new MusicPlayerService(directory, id -> 100, id -> 365, id -> 100, config, policy,
                 auth -> YouTubePlaybackRuntimeFactory.createSource(config.getCipher(), policy, auth, YouTubePlaybackTrackFactory.youtubeSource())) {
+            @Override public com.sedmelluq.discord.lavaplayer.track.AudioTrack getCurrentTrack(Guild guild) {
+                return simulatedProgress ? searchTrack : super.getCurrentTrack(guild);
+            }
             @Override public void searchTopTracks(String query, int limit,
                     Consumer<List<com.sedmelluq.discord.lavaplayer.track.AudioTrack>> success, Consumer<String> failure) {
                 if (!simulatedLoads) throw new AssertionError("Unexpected network search");
@@ -112,6 +119,9 @@ class MusicPanelLifecycleTest {
                 new com.norule.musicbot.ModerationService(directory.resolve("moderation")), null,
                 new ShortUrlService(new SqliteShortUrlRepository(directory.resolve("urls.db"))), null, null, null,
                 new MusicCommandChannelProvisioningService(new MusicCommandChannelProvisioningSqliteRepository(database))) {
+            @Override public com.norule.musicbot.discord.bot.gateway.DiscordBackgroundRestQueue backgroundRest() {
+                return progressQueue == null ? super.backgroundRest() : progressQueue;
+            }
             @Override public JDA currentJda() { return discord.jda; }
             @Override public java.util.concurrent.ScheduledExecutorService scheduler() { return scheduler; }
             @Override public Map<Long, MusicPanelStateStore.PanelRef> panelRefs() { return store.panelRefs(); }
@@ -133,6 +143,7 @@ class MusicPanelLifecycleTest {
     void close() throws Exception {
         if (unsubscribe != null) unsubscribe.run();
         if (panels != null) panels.close();
+        if (progressQueue != null) progressQueue.close();
         if (owner != null) owner.shutdown();
         scheduler.shutdownNow();
         if (music != null) {
@@ -668,6 +679,45 @@ class MusicPanelLifecycleTest {
         assertTrue(store.isActivePanel(1, 10, 100));
         assertEquals(List.of(20L), discord.creates);
         assertEquals(MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
+    }
+
+    @Test
+    void tenMinutesOfLegacyProgressEditsWithoutRevalidatingConfirmedModernFailure() {
+        panels.close();
+        progressQueue = new com.norule.musicbot.discord.bot.gateway.DiscordBackgroundRestQueue(scheduler, scheduler::nanos);
+        var gets = new java.util.concurrent.atomic.AtomicInteger();
+        modes = new MusicPanelModeResolver(settings, id -> {}, (g, id) -> {
+            gets.incrementAndGet();
+            return CompletableFuture.failedFuture(ErrorResponseException.create(ErrorResponse.UNKNOWN_CHANNEL,
+                    new Response(new IOException("404"), Set.of())));
+        }, scheduler::nanos);
+        panels = new MusicPanelRefreshService(owner, store, new MusicPanelRenderer(owner, store), scheduler, 8_000, modes,
+                scheduler::nanos, (channel, id, snapshot, background, diagnostics) -> channel.editMessageEmbedsById(id, snapshot.embed())
+                        .setComponents(snapshot.components()));
+        discord.channels.remove(10L);
+        simulatedProgress = true; discord.connected = true;
+        panels.playQueued(discord.guild, discord.channels.get(20L));
+        drain();
+        assertEquals(1, gets.get());
+        assertEquals(20, store.getPanelRef(1).channelId);
+        int initialEdits = discord.editResults.size();
+        for (int second = 10; second <= 600; second += 10) {
+            progressPosition = second * 1_000L;
+            // Drive the same periodic reason with a virtual clock; no real ten-minute wait.
+            panels.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+            store.markRefreshed(1, store.getPanelRef(1), 0);
+            scheduler.advance(10_000);
+        }
+        assertEquals(1, gets.get(), "60 progress cycles must add no modern-channel GETs");
+        assertTrue(discord.editResults.size() > initialEdits, "The live LEGACY panel must continue receiving progress edits");
+        assertSame(searchTrack, music.getCurrentTrack(discord.guild));
+        assertEquals(10L, settings.getMusic(1).getCommandChannelId());
+        assertEquals(MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
+        discord.channels.put(10L, discord.channel(10));
+        panels.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+        drain();
+        assertTrue(modes.inspect(discord.guild).modern());
+        assertEquals(10, store.getPanelRef(1).channelId);
     }
 
     @Test

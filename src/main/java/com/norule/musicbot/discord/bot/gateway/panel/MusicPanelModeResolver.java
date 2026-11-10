@@ -25,6 +25,7 @@ public final class MusicPanelModeResolver {
     private final java.util.function.LongSupplier nanoTime;
     private volatile boolean closed;
     private static final long PROBE_CACHE_NANOS = java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
+    private static final long FAILURE_CACHE_NANOS = java.util.concurrent.TimeUnit.MINUTES.toNanos(5);
     private static final class Probe {
         final long channelId;
         volatile long expiresAt = Long.MAX_VALUE;
@@ -60,7 +61,7 @@ public final class MusicPanelModeResolver {
     }
 
     /** Read-only local evidence, including a recent REST proof; never initiates HTTP or transitions. */
-    public Selection inspect(Guild guild) {
+    public synchronized Selection inspect(Guild guild) {
         Selection current = selection(guild, settings.readSettings(guild.getIdLong()).getMusic());
         return "CHANNEL_NOT_CACHED".equals(current.reason())
                 ? verifiedSelection(guild, current, probes.get(guild.getIdLong())) : current;
@@ -77,8 +78,29 @@ public final class MusicPanelModeResolver {
     }
 
     public Selection resolve(Guild guild) {
-        Selection current = verifyMissing(guild, selection(guild, settings.getMusic(guild.getIdLong())));
-        return recordSelection(guild, current);
+        verifyMissing(guild, selection(guild, settings.getMusic(guild.getIdLong())));
+        synchronized (this) {
+            // A synchronous or concurrent completion may have replaced the initial evidence.
+            Selection current = inspect(guild);
+            return closed ? current : recordSelection(guild, current);
+        }
+    }
+
+    /** Progress updates consume local evidence without starting a channel GET. */
+    public synchronized Selection resolveLocal(Guild guild) {
+        return recordSelection(guild, inspect(guild));
+    }
+
+    /** Explicit recovery bypasses completed proof TTL, retaining any in-flight probe. */
+    public synchronized void revalidate(long guildId) {
+        Probe probe = probes.get(guildId);
+        if (probe != null && probe.expiresAt != Long.MAX_VALUE) probe.expiresAt = Long.MIN_VALUE;
+    }
+
+    /** Invalidate identity even for A -> B -> A configuration changes. */
+    public synchronized void settingsChanged(long guildId) {
+        probes.remove(guildId);
+        selections.remove(guildId);
     }
 
     private Selection verifyMissing(Guild guild, Selection current) {
@@ -92,39 +114,47 @@ public final class MusicPanelModeResolver {
         Probe probe = probes.get(guildId);
         if (probe == null || probe.channelId != current.channelId() || nanoTime.getAsLong() >= probe.expiresAt) {
             Probe fresh = new Probe(current.channelId());
+            Selection previous = selections.get(guildId);
+            if (previous != null && previous.fallback() && previous.configured() == current.configured()
+                    && Objects.equals(previous.channelId(), current.channelId())) fresh.reason = previous.reason();
             boolean installed = probe == null ? probes.putIfAbsent(guildId, fresh) == null
                     : probes.replace(guildId, probe, fresh);
             if (installed) {
                 probe = fresh;
                 try {
                     retrieve.apply(guild, fresh.channelId).whenComplete((channel, failure) -> {
-                        if (closed || probes.get(guildId) != fresh) return;
-                        var music = settings.readSettings(guildId).getMusic();
-                        if (music.getPanelMode() != MusicPanelMode.MODERN
-                                || !Objects.equals(music.getCommandChannelId(), fresh.channelId)) {
-                            probes.remove(guildId, fresh);
-                            return;
+                        boolean notifyRecovery;
+                        synchronized (MusicPanelModeResolver.this) {
+                            if (closed || probes.get(guildId) != fresh) return;
+                            var music = settings.readSettings(guildId).getMusic();
+                            if (music.getPanelMode() != MusicPanelMode.MODERN
+                                    || !Objects.equals(music.getCommandChannelId(), fresh.channelId)) {
+                                probes.remove(guildId, fresh);
+                                return;
+                            }
+                            // Expire even if the guild/channel detaches while validating its permissions.
+                            fresh.expiresAt = nanoTime.getAsLong() + PROBE_CACHE_NANOS;
+                            try {
+                                fresh.reason = failure == null ? channel == null ? "UNSUPPORTED_CHANNEL_TYPE"
+                                        : MusicPanelTargetResolver.unavailableReason(channel) : failureReason(failure);
+                                fresh.channel = channel;
+                            } catch (RuntimeException unavailable) {
+                                fresh.reason = failureReason(unavailable);
+                            }
+                            fresh.expiresAt = nanoTime.getAsLong() + ("AVAILABLE".equals(fresh.reason)
+                                    ? PROBE_CACHE_NANOS : FAILURE_CACHE_NANOS);
+                            Selection before = selections.get(guildId);
+                            Selection verified = verifiedSelection(guild, current, fresh);
+                            recordSelection(guild, verified);
+                            notifyRecovery = verified.modern() && (before == null || !before.modern());
                         }
-                        // Expire even if the guild/channel detaches while validating its permissions.
-                        fresh.expiresAt = nanoTime.getAsLong() + PROBE_CACHE_NANOS;
-                        try {
-                            fresh.reason = failure == null ? channel == null ? "UNSUPPORTED_CHANNEL_TYPE"
-                                    : MusicPanelTargetResolver.unavailableReason(channel) : failureReason(failure);
-                            fresh.channel = channel;
-                        } catch (RuntimeException unavailable) {
-                            fresh.reason = failureReason(unavailable);
-                            LOGGER.warn("Music panel channel validation unavailable: guildId={} channelId={} reason={}",
-                                    guildId, fresh.channelId, fresh.reason);
-                        }
-                        if (failure != null) LOGGER.warn("Music panel channel verification failed: guildId={} channelId={} reason={}",
-                                guildId, fresh.channelId, fresh.reason);
-                        if ("AVAILABLE".equals(fresh.reason)) recovered.accept(guildId);
+                        // Coordinator delivery can read mode evidence under its own flight lock.
+                        // Never acquire that lock while holding the resolver monitor.
+                        if (notifyRecovery) recovered.accept(guildId);
                     });
                 } catch (RuntimeException failure) {
                     fresh.reason = failureReason(failure);
-                    fresh.expiresAt = nanoTime.getAsLong() + PROBE_CACHE_NANOS;
-                    LOGGER.warn("Music panel channel verification unavailable: guildId={} channelId={} reason={}",
-                            guildId, fresh.channelId, fresh.reason);
+                    fresh.expiresAt = nanoTime.getAsLong() + FAILURE_CACHE_NANOS;
                 }
             } else probe = probes.get(guildId);
         }
@@ -132,28 +162,30 @@ public final class MusicPanelModeResolver {
     }
 
     private Selection verifiedSelection(Guild guild, Selection current, Probe probe) {
-        if (probe == null || probe.channelId != current.channelId() || nanoTime.getAsLong() >= probe.expiresAt) return current;
+        // Expiration permits a new probe; it does not erase confirmed failure evidence.
+        if (probe == null || probe.channelId != current.channelId()) return current;
         var target = MusicPanelTargetResolver.resolve(guild, current.channelId(), probe.channel);
-        String reason = target.channel() == null ? probe.reason : target.reason();
+        String reason = target.channel() == null
+                ? "AVAILABLE".equals(probe.reason) ? "CHANNEL_VERIFICATION_PENDING" : probe.reason : target.reason();
         return new Selection(current.configured(), current.configured().effective("AVAILABLE".equals(reason)),
                 current.channelId(), "AVAILABLE".equals(reason) ? target.channel() : null, reason);
     }
 
     private Selection recordSelection(Guild guild, Selection current) {
-        Long channelId = current.channelId();
-        String reason = current.reason();
+        // Pending evidence must not reset the last confirmed transition.
+        if ("CHANNEL_VERIFICATION_PENDING".equals(current.reason()) || "CHANNEL_NOT_CACHED".equals(current.reason())) return current;
         selections.compute(guild.getIdLong(), (id, previous) -> {
-            if (previous != null && previous.configured() != current.configured()) {
-                log("MUSIC_PANEL_MODE_CHANGED", id, channelId, 0, current, "SETTINGS_UPDATED");
-            }
-            boolean changed = previous == null || previous.configured() != current.configured()
-                    || previous.effective() != current.effective()
-                    || !Objects.equals(previous.channelId(), channelId) || !previous.reason().equals(reason);
+            boolean configurationChanged = previous != null && (previous.configured() != current.configured()
+                    || !Objects.equals(previous.channelId(), current.channelId()));
+            if (configurationChanged) log("MUSIC_PANEL_MODE_CHANGED", id, current.channelId(), 0, current, "SETTINGS_UPDATED");
+            boolean changed = previous == null || configurationChanged
+                    || previous.effective() != current.effective() || !previous.reason().equals(current.reason());
             if (current.fallback() && changed) {
-                log("MUSIC_PANEL_CHANNEL_INVALID", id, channelId, 0, current, reason);
-                log("MUSIC_PANEL_FALLBACK_LEGACY", id, channelId, 0, current, reason);
+                log(previous != null && previous.fallback() && !configurationChanged
+                        ? "MUSIC_PANEL_CHANNEL_VERIFICATION_FAILED" : "FALLBACK_LEGACY",
+                        id, current.channelId(), 0, current, current.reason());
             } else if (current.modern() && previous != null && previous.fallback()) {
-                log("MUSIC_PANEL_MODERN_RESTORED", id, channelId, 0, current, "CHANNEL_AVAILABLE");
+                log("MODERN_RECOVERED", id, current.channelId(), 0, current, "CHANNEL_AVAILABLE");
             }
             return current;
         });
@@ -177,9 +209,19 @@ public final class MusicPanelModeResolver {
         var level = event.endsWith("_FAILED") ? org.slf4j.event.Level.WARN
                 : "NOT_CONFIGURED".equals(reason) || "CHANNEL_VERIFICATION_PENDING".equals(reason)
                         || "MUSIC_PANEL_LEGACY_RECREATED".equals(event) ? org.slf4j.event.Level.DEBUG
-                : reason.startsWith("MISSING_") ? org.slf4j.event.Level.WARN : org.slf4j.event.Level.INFO;
+                : "FALLBACK_LEGACY".equals(event) && !expectedUnavailable(reason)
+                        ? org.slf4j.event.Level.WARN : org.slf4j.event.Level.INFO;
         LOGGER.atLevel(level).log("event={} guildId={} channelId={} messageId={} configuredMode={} effectiveMode={} reason={}",
                 event, guildId, channelId, messageId, selection.configured(), selection.effective(), reason);
+    }
+
+    private static boolean expectedUnavailable(String reason) {
+        return switch (reason) {
+            case "UNKNOWN_CHANNEL", "MISSING_ACCESS", "MISSING_PERMISSIONS", "MISSING_VIEW_PERMISSION",
+                    "MISSING_SEND_PERMISSION", "MISSING_EMBED_PERMISSION", "UNSUPPORTED_CHANNEL_TYPE",
+                    "THREAD_LOCKED", "THREAD_ARCHIVED", "CHANNEL_NOT_WRITABLE", "NOT_CONFIGURED" -> true;
+            default -> false;
+        };
     }
 
     public static String failureReason(Throwable failure) {
@@ -193,7 +235,7 @@ public final class MusicPanelModeResolver {
                 ? response.getErrorResponse().name() : failure.getClass().getSimpleName();
     }
 
-    public void forget(long guildId) { selections.remove(guildId); probes.remove(guildId); }
+    public synchronized void forget(long guildId) { selections.remove(guildId); probes.remove(guildId); }
 
-    public void close() { closed = true; probes.clear(); selections.clear(); }
+    public synchronized void close() { closed = true; probes.clear(); selections.clear(); }
 }

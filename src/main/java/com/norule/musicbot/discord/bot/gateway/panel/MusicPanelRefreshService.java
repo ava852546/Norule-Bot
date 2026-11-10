@@ -107,6 +107,8 @@ public final class MusicPanelRefreshService {
     public CompletableFuture<Void> recoverPanel(Guild guild, GuildMessageChannel fallback, String source) {
         if (guild == null) return CompletableFuture.failedFuture(new IllegalArgumentException("Guild is unavailable"));
         long guildId = guild.getIdLong();
+        if (!"settings".equals(source)) modes.revalidate(guildId);
+        modes.resolve(guild);
         var attempt = new AtomicReference<RecoveryAttempt>();
         owner.backgroundRest().cancelPending("music-panel:" + guildId);
         return coordinator.submit(guildId, () -> {
@@ -462,7 +464,9 @@ public final class MusicPanelRefreshService {
     }
 
     private Operation operation(Guild guild, String source, String requestId) {
-        return new Operation(stateStore.revision(guild.getIdLong()), modes.resolve(guild), source, requestId);
+        return new Operation(stateStore.revision(guild.getIdLong()),
+                "settings".equals(source) || "developer".equals(source) ? modes.resolve(guild) : modes.inspect(guild),
+                source, requestId);
     }
 
     private boolean current(Guild guild, Operation operation) {
@@ -594,6 +598,7 @@ public final class MusicPanelRefreshService {
     }
 
     public CompletableFuture<Void> settingsChanged(long guildId) {
+        modes.settingsChanged(guildId);
         JDA jda = owner.currentJda();
         Guild guild = jda == null ? null : jda.getGuildById(guildId);
         stateStore.invalidate(guildId);
@@ -776,7 +781,8 @@ public final class MusicPanelRefreshService {
             }
             return CompletableFuture.completedFuture(null);
         }
-        var mode = modes.resolve(guild);
+        boolean periodicOnly = reasons.equals(Set.of(RefreshReason.PERIODIC_REFRESH));
+        var mode = periodicOnly ? modes.resolveLocal(guild) : modes.resolve(guild);
         // Channel access can recover while the search/load callback is pending;
         // the resolver remains authoritative for the current effective mode.
         if (play != null && (play.mode().configured() != mode.configured()
@@ -790,7 +796,6 @@ public final class MusicPanelRefreshService {
         if (!mode.modern() && play != null) {
             return replaceManagedPanel(guild, playTarget, true, operation(guild, play.source(), play.requestId()), play);
         }
-        boolean periodicOnly = reasons.equals(Set.of(RefreshReason.PERIODIC_REFRESH));
         // Maintenance only restores a known fallback after cache evidence confirms MODERN access.
         if (periodicOnly && mode.modern() && (ref == null || !Objects.equals(ref.channelId, mode.channelId()))
                 && !stateStore.isTransientPanel(guildId)) {
@@ -1026,7 +1031,7 @@ public final class MusicPanelRefreshService {
                     }, failure -> {
                         JDA currentJda = owner.currentJda();
                         Guild currentGuild = currentJda == null ? null : currentJda.getGuildById(guildId);
-                        var mode = currentGuild == null ? null : modes.resolve(currentGuild);
+                        var mode = currentGuild == null ? null : modes.resolveLocal(currentGuild);
                         if (currentGuild == null || !current(currentGuild, operation)) {
                             result.completeExceptionally(superseded(guild));
                             return;
