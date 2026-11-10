@@ -26,7 +26,9 @@ class MusicPanelRuntime {
         MusicCommandChannelProvisioner commandChannelProvisioner = new MusicCommandChannelProvisioner(service, scheduler, provisioningState);
         this.panelStateStore = new MusicPanelStateStore();
         this.musicPanelRenderer = new MusicPanelRenderer(service, this.panelStateStore);
-        MusicPanelModeResolver modes = new MusicPanelModeResolver(service.settingsService());
+        MusicPanelModeResolver modes = new MusicPanelModeResolver(service.settingsService(),
+                guildId -> service.requestPanelRefresh(guildId,
+                        com.norule.musicbot.discord.bot.gateway.panel.RefreshReason.RECOVERY));
         this.musicPanelRefreshService = new MusicPanelRefreshService(
                 service,
                 this.panelStateStore,

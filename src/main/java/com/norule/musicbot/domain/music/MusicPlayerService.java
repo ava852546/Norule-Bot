@@ -825,6 +825,11 @@ public class MusicPlayerService {
                 || trackRecoveryService.isRecoveryInProgress(guild.getIdLong());
     }
 
+    /** Read-only view of the existing playlist jobs; panel pacing never waits for metadata. */
+    public boolean isPlaylistLoading(long guildId) {
+        return playlistLoads.hasPending(guildId);
+    }
+
     private Object beginPlaybackLoad(long guildId) {
         Object token = new Object();
         pendingPlaybackLoads.compute(guildId, (id, loads) -> {

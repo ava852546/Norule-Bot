@@ -16,6 +16,75 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DiscordRateLimitInterceptorTest {
     @Test
+    void realJdaPanelActionFinalizesTaggedBodyWithUnchangedPayload() throws Exception {
+        var threads = new net.dv8tion.jda.internal.utils.config.ThreadingConfig();
+        var meta = new net.dv8tion.jda.internal.utils.config.MetaConfig(2048, new java.util.concurrent.ConcurrentHashMap<>(),
+                java.util.EnumSet.noneOf(net.dv8tion.jda.api.utils.cache.CacheFlag.class),
+                java.util.EnumSet.noneOf(net.dv8tion.jda.internal.utils.config.flags.ConfigFlag.class));
+        var jda = new net.dv8tion.jda.internal.JDAImpl(
+                new net.dv8tion.jda.internal.utils.config.AuthorizationConfig("offline-test"), null, threads, meta, null, null);
+        // Constructor only: no login, requester, gateway, executor or shutdown hook is started.
+        {
+            var channel = (net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel) Proxy.newProxyInstance(
+                    RestAction.class.getClassLoader(),
+                    new Class<?>[]{net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel.class},
+                    (proxy, method, args) -> switch (method.getName()) {
+                        case "getJDA" -> jda;
+                        case "getGuild" -> null;
+                        case "getId" -> "123";
+                        case "getIdLong" -> 123L;
+                        case "getType" -> net.dv8tion.jda.api.entities.channel.ChannelType.TEXT;
+                        default -> throw new AssertionError(method);
+                    });
+            var action = DiscordRateLimitInterceptor.panelEdit(channel, 456L, false, () -> "requestId=test");
+            action.setEmbeds(new net.dv8tion.jda.api.EmbedBuilder().setDescription("latest queue").build());
+            var finalizeData = action.getClass().getDeclaredMethod("finalizeData");
+            finalizeData.setAccessible(true);
+            var body = (RequestBody) finalizeData.invoke(action);
+            assertInstanceOf(DiscordRateLimitInterceptor.TrackedBody.class, body);
+            var bytes = new okio.Buffer();
+            body.writeTo(bytes);
+            var payload = net.dv8tion.jda.api.utils.data.DataObject.fromJson(bytes.readUtf8());
+            assertEquals("latest queue", payload.getArray("embeds").getObject(0).getString("description"));
+            assertFalse(payload.hasKey("requestId"));
+        }
+    }
+
+    @Test
+    void requestBodyProvenanceSurvives429AndCannotBeConfusedWithRouteCandidates() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(DiscordRateLimitInterceptor.class);
+        var logs = new ListAppender<ILoggingEvent>();
+        logs.start();
+        logger.addAppender(logs);
+        try (var clock = new DiscordBackgroundRestQueueTest.VirtualScheduler();
+             var queue = new DiscordBackgroundRestQueue(clock, clock::nanos)) {
+            var body = new DiscordRateLimitInterceptor.TrackedBody(
+                    RequestBody.create(MediaType.get("application/json"), "{\"embeds\":[]}"),
+                    new DiscordRateLimitInterceptor.Source("MUSIC_PANEL_REFRESH", false, false, System.nanoTime(),
+                            () -> "guildId=999 refreshReason=[QUEUE_CHANGED] requestId=test-request"));
+            var bytes = new okio.Buffer();
+            body.writeTo(bytes);
+            assertEquals("{\"embeds\":[]}", bytes.readUtf8());
+            assertEquals(13, body.contentLength());
+            var response = response(429, "shared", "{\"retry_after\":4}");
+            var request = response.request().newBuilder().method("PATCH", body).build();
+            var interceptor = new DiscordRateLimitInterceptor(queue);
+            interceptor.intercept(chain(response.newBuilder().request(request).build()));
+            var log = logs.list.getLast().getFormattedMessage();
+            assertTrue(log.contains("feature=MUSIC_PANEL_REFRESH attribution=REQUEST_BODY_IDENTITY"));
+            assertTrue(log.contains("guildId=999 refreshReason=[QUEUE_CHANGED] requestId=test-request"));
+            assertFalse(log.contains("guildId=UNKNOWN"));
+            // Even after a successful attempt clears the route registry, the same body retains identity.
+            interceptor.intercept(chain(response.newBuilder().request(request).code(200).build()));
+            new DiscordRateLimitInterceptor(queue).intercept(chain(response.newBuilder().request(request).build()));
+            assertTrue(logs.list.getLast().getFormattedMessage().contains("requestAttempt=3"));
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+        }
+    }
+
+    @Test
     void completionProvenanceUsesActionIdentityEvenWhenRoutesCollide() {
         RestAction<?> refresh = action();
         RestAction<?> delete = action();

@@ -123,7 +123,9 @@ class MusicPanelLifecycleTest {
         bindings = new MusicPanelSqliteRepository(database);
         store.initializePersistence(new MusicPanelBindingService(bindings));
         modes = new MusicPanelModeResolver(settings);
-        panels = new MusicPanelRefreshService(owner, store, new MusicPanelRenderer(owner, store), scheduler, 30_000, modes, scheduler::nanos);
+        panels = new MusicPanelRefreshService(owner, store, new MusicPanelRenderer(owner, store), scheduler, 30_000, modes, scheduler::nanos,
+                (channel, id, snapshot, background, diagnostics) -> channel.editMessageEmbedsById(id, snapshot.embed())
+                        .setComponents(snapshot.components()));
         unsubscribe = settings.onMusicSettingsChanged(panels::settingsChanged);
     }
 
@@ -881,7 +883,9 @@ class MusicPanelLifecycleTest {
         var restarted = new MusicPanelStateStore();
         restarted.initializePersistence(new MusicPanelBindingService(bindings));
         panels = new MusicPanelRefreshService(owner, restarted, new MusicPanelRenderer(owner, restarted), scheduler,
-                30_000, modes, scheduler::nanos);
+                30_000, modes, scheduler::nanos,
+                (channel, id, snapshot, background, diagnostics) -> channel.editMessageEmbedsById(id, snapshot.embed())
+                        .setComponents(snapshot.components()));
         var recovery = panels.recoverPanel(discord.guild, discord.channels.get(20L), "music-panel");
         drain(); recovery.join();
         assertEquals(20, restarted.getPanelRef(1).channelId);
@@ -988,7 +992,9 @@ class MusicPanelLifecycleTest {
         var restarted = new MusicPanelStateStore();
         restarted.initializePersistence(new MusicPanelBindingService(bindings));
         panels.close();
-        panels = new MusicPanelRefreshService(owner, restarted, new MusicPanelRenderer(owner, restarted), scheduler, 30_000, modes, scheduler::nanos);
+        panels = new MusicPanelRefreshService(owner, restarted, new MusicPanelRenderer(owner, restarted), scheduler, 30_000, modes, scheduler::nanos,
+                (channel, id, snapshot, background, diagnostics) -> channel.editMessageEmbedsById(id, snapshot.embed())
+                        .setComponents(snapshot.components()));
         var recovery = panels.recoverPanel(discord.guild, null, "restart");
         // LEGACY recovery needs its source; the persisted binding is resolved by ID during refresh.
         drain();

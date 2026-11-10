@@ -31,6 +31,43 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
     private final Map<String, Long> nextWarnings = new LinkedHashMap<>();
     private final Map<String, Integer> suppressed = new LinkedHashMap<>();
 
+    /** JDA 6.7 keeps the same body on retries. Carry provenance locally, without HTTP headers. */
+    public static net.dv8tion.jda.api.requests.restaction.MessageEditAction panelEdit(
+            net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel channel, long messageId,
+            boolean background, Supplier<String> diagnostics) {
+        Source source = new Source("MUSIC_PANEL_REFRESH", background, false, System.nanoTime(), diagnostics);
+        return new TrackedPanelEdit(channel, messageId, source);
+    }
+
+    private static final class TrackedPanelEdit extends net.dv8tion.jda.internal.requests.restaction.MessageEditActionImpl {
+        private final Source source;
+
+        TrackedPanelEdit(net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel channel, long messageId, Source source) {
+            super(channel, Long.toUnsignedString(messageId));
+            this.source = source;
+        }
+
+        @Override
+        protected okhttp3.RequestBody finalizeData() {
+            return new TrackedBody(super.finalizeData(), source);
+        }
+    }
+
+    // This wrapper delegates the bytes unchanged. It is never serialized as diagnostic metadata.
+    static final class TrackedBody extends okhttp3.RequestBody {
+        private final okhttp3.RequestBody delegate;
+        private final Source source;
+
+        TrackedBody(okhttp3.RequestBody delegate, Source source) {
+            this.delegate = delegate;
+            this.source = source;
+        }
+
+        @Override public okhttp3.MediaType contentType() { return delegate.contentType(); }
+        @Override public long contentLength() throws IOException { return delegate.contentLength(); }
+        @Override public void writeTo(okio.BufferedSink sink) throws IOException { delegate.writeTo(sink); }
+    }
+
     public DiscordRateLimitInterceptor(DiscordBackgroundRestQueue background) {
         this(background, (method, path) -> {});
     }
@@ -50,11 +87,13 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
                                                   String method, String path, Supplier<String> diagnostics) {
         synchronized (SOURCES) {
             long now = System.nanoTime();
+            Source registered = action instanceof TrackedPanelEdit edit ? edit.source
+                    : new Source(feature, background, startup, now, diagnostics);
             ACTIONS.removeIf(tracked -> tracked.action.get() == null
                     || now - tracked.source.createdAt > TimeUnit.MINUTES.toNanos(10));
             if (ACTIONS.size() >= 4096) ACTIONS.removeFirst();
             ACTIONS.addLast(new TrackedAction(new WeakReference<>(action),
-                    new Source(feature, background, startup, now, diagnostics)));
+                    registered));
             SOURCES.values().removeIf(source -> now - source.createdAt > TimeUnit.MINUTES.toNanos(10));
             if (SOURCES.size() >= 4096) {
                 SOURCES.remove(SOURCES.keySet().iterator().next());
@@ -62,8 +101,8 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
             String key = method + " " + path;
             Source existing = SOURCES.get(key);
             // Concurrent operations on the same route cannot be distinguished at the HTTP boundary.
-            SOURCES.put(key, new Source(existing == null ? feature : "AMBIGUOUS", background, startup, now,
-                    existing == null ? diagnostics : () -> ""));
+            SOURCES.put(key, existing == null ? registered
+                    : new Source("AMBIGUOUS", background, startup, now, () -> ""));
         }
         return action;
     }
@@ -98,11 +137,12 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
         String path = request.url().encodedPath().replaceFirst("^/api(?:/v[0-9]+)?", "");
         String key = request.method() + " " + path;
         Source source;
+        boolean confirmed = request.body() instanceof TrackedBody;
         int attempt;
         long attemptId = ATTEMPTS.incrementAndGet();
         synchronized (SOURCES) {
-            source = SOURCES.get(key);
-            attempt = source == null ? 0 : ++source.attempts;
+            source = confirmed ? ((TrackedBody) request.body()).source : SOURCES.get(key);
+            attempt = source == null ? 0 : confirmed ? ++source.attempts : ++source.routeAttempts;
         }
         long startedAt = System.nanoTime();
         Response response = chain.proceed(request);
@@ -120,7 +160,7 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
                     || body(response).getBoolean("global", false);
             // Route/resource limits must not freeze unrelated guilds. JDA still retries that bucket.
             if (global) background.pause(retryMs);
-            log(response, path, source, attempt, attemptId, retryMs);
+            log(response, path, source, attempt, attemptId, retryMs, confirmed);
             try {
                 rateLimitObserver.accept(request.method(), path);
             } catch (RuntimeException unavailable) {
@@ -137,9 +177,11 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
         return response;
     }
 
-    private synchronized void log(Response response, String path, Source source, int attempt, long attemptId, long retryMs) {
+    private synchronized void log(Response response, String path, Source source, int attempt, long attemptId, long retryMs,
+                                  boolean confirmed) {
         long now = System.nanoTime();
-        String warningKey = response.request().method() + " " + path + " " + (source == null ? "UNKNOWN" : source.feature);
+        String warningKey = response.request().method() + " " + path + " " + (source == null ? "UNKNOWN" : source.feature)
+                + " " + confirmed;
         if (now < nextWarnings.getOrDefault(warningKey, now)) {
             suppressed.merge(warningKey, 1, Integer::sum);
             return;
@@ -155,32 +197,42 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
         // A route registration cannot prove which RestAction produced this HTTP attempt.
         // In particular, an uninstrumented edit of the same message may share this path.
         String[] ids = path.matches("/channels/[0-9]+/messages/[0-9]+") ? path.split("/") : null;
-        LOGGER.warn("[RateLimit] httpStatus=429 method={} route={} feature=UNKNOWN attribution=ROUTE_CANDIDATE "
-                        + "candidateFeature={} candidatePriority={} candidateStartup={} observedRouteAttempt={} httpAttemptId={} "
+        LOGGER.warn("[RateLimit] httpStatus=429 method={} route={} feature={} attribution={} "
+                        + "candidateFeature={} candidatePriority={} candidateStartup={} {}={} httpAttemptId={} "
                         + "scope={} global={} retryAfterMs={} retryHeaderMs={} resetAfterMs={} bodyRetryMs={} "
-                        + "bucketHash={} guildId=UNKNOWN channelId={} messageId={} refreshReason=UNKNOWN priority=UNKNOWN "
-                        + "pendingRefresh=UNKNOWN inFlight=UNKNOWN coalescedCount=UNKNOWN "
+                        + "bucketHash={} channelId={} messageId={} {} "
                         + "{} pendingBackground={} inFlightBackground={} suppressedSinceLast={}",
-                response.request().method(), routeTemplate(path), source == null ? "UNKNOWN" : source.feature,
+                response.request().method(), routeTemplate(path), confirmed ? source.feature : "UNKNOWN",
+                confirmed ? "REQUEST_BODY_IDENTITY" : "ROUTE_CANDIDATE",
+                source == null || confirmed ? "NONE" : source.feature,
                 source == null || "AMBIGUOUS".equals(source.feature) ? "unknown"
                         : source.background ? "BACKGROUND" : source.startup ? "CONTROL" : "USER",
                 source == null || "AMBIGUOUS".equals(source.feature) ? "unknown" : source.startup,
-                attempt, attemptId,
+                confirmed ? "requestAttempt" : "observedRouteAttempt", attempt, attemptId,
                 scope.replace('\r', ' ').replace('\n', ' '), global, retryMs,
                 secondsToMillis(response.header("Retry-After")), secondsToMillis(response.header("X-RateLimit-Reset-After")),
                 secondsToMillis(String.valueOf(body(response).getDouble("retry_after", -1))),
                 response.header("X-RateLimit-Bucket") == null ? "UNKNOWN"
                         : Integer.toHexString(response.header("X-RateLimit-Bucket").hashCode()),
                 ids == null ? "UNKNOWN" : ids[2], ids == null ? "UNKNOWN" : ids[4],
-                diagnostics(source),
+                confirmed ? "" : "guildId=UNKNOWN refreshReason=UNKNOWN priority=UNKNOWN pendingRefresh=UNKNOWN inFlight=UNKNOWN coalescedCount=UNKNOWN",
+                diagnostics(source, confirmed),
                 background.pendingCount(), background.inFlightCount(), suppressed.getOrDefault(warningKey, 0));
         suppressed.remove(warningKey);
         nextWarnings.put(warningKey, now + TimeUnit.SECONDS.toNanos(10));
     }
 
-    private static String diagnostics(Source source) {
+    private static String diagnostics(Source source, boolean confirmed) {
         try {
-            return source == null ? "" : source.diagnostics.get();
+            String context = source == null ? "" : source.diagnostics.get();
+            if (confirmed) return context;
+            // A registered body source can also be a route candidate for someone else's edit.
+            for (String field : new String[]{"guildId", "refreshReason", "priority", "pendingRefresh", "inFlight",
+                    "coalescedCount", "sentCount", "preparedCount", "unchangedCount", "route429Count",
+                    "scheduleWaitMs", "admissionWaitMs", "restMs", "totalMs", "requestId"}) {
+                context = context.replace(field + "=", "candidate" + Character.toUpperCase(field.charAt(0)) + field.substring(1) + "=");
+            }
+            return context;
         } catch (RuntimeException unavailable) {
             // Diagnostic suppliers must never turn a valid HTTP response into a transport failure.
             return "diagnostics=UNAVAILABLE";
@@ -232,14 +284,15 @@ public final class DiscordRateLimitInterceptor implements Interceptor {
         }
     }
 
-    private static final class Source {
+    static final class Source {
         private final String feature;
         private final boolean background;
         private final boolean startup;
         private final long createdAt;
         private int attempts;
+        private int routeAttempts;
         private final Supplier<String> diagnostics;
-        private Source(String feature, boolean background, boolean startup, long createdAt, Supplier<String> diagnostics) {
+        Source(String feature, boolean background, boolean startup, long createdAt, Supplier<String> diagnostics) {
             this.feature = feature;
             this.background = background;
             this.startup = startup;

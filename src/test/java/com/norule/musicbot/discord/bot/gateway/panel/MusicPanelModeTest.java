@@ -38,6 +38,113 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class MusicPanelModeTest {
     @Test
+    void cacheMissSingleFlightRestVerificationRecoversModernAndKeepsSettings() throws Exception {
+        var settings = settings();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+        var fixture = new Discord();
+        fixture.channelExists = false;
+        var result = new CompletableFuture<net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel>();
+        var calls = new AtomicInteger();
+        var recovered = new AtomicInteger();
+        var now = new java.util.concurrent.atomic.AtomicLong();
+        var modes = new MusicPanelModeResolver(settings, id -> recovered.incrementAndGet(), (guild, id) -> {
+            calls.incrementAndGet();
+            return result;
+        }, now::get);
+        for (int i = 0; i < 41; i++) assertTrue(modes.resolve(fixture.guild).fallback());
+        assertEquals(1, calls.get());
+        assertEquals("CHANNEL_VERIFICATION_PENDING", modes.resolve(fixture.guild).reason());
+        result.complete(fixture.channel);
+        assertEquals(1, recovered.get());
+        assertTrue(modes.resolve(fixture.guild).modern());
+        assertTrue(modes.inspect(fixture.guild).modern(), "Stale-operation checks must see the same REST proof");
+        fixture.accessible = false;
+        assertEquals("MISSING_VIEW_PERMISSION", modes.resolve(fixture.guild).reason());
+        assertEquals("MISSING_VIEW_PERMISSION", modes.inspect(fixture.guild).reason());
+        fixture.accessible = true;
+        assertTrue(modes.resolve(fixture.guild).modern());
+        assertEquals(10L, settings.getMusic(1).getCommandChannelId());
+        assertEquals(MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
+        modes.close();
+    }
+
+    @Test
+    void transientRestFailureIsCachedBrieflyAndNextVerificationCanRestoreModern() throws Exception {
+        var settings = settings();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+        var fixture = new Discord();
+        fixture.channelExists = false;
+        var now = new java.util.concurrent.atomic.AtomicLong();
+        var calls = new AtomicInteger();
+        var modes = new MusicPanelModeResolver(settings, id -> {}, (guild, id) -> calls.incrementAndGet() == 1
+                ? CompletableFuture.failedFuture(new java.io.IOException("temporary"))
+                : CompletableFuture.completedFuture(fixture.channel), now::get);
+        assertEquals("IOException", modes.resolve(fixture.guild).reason());
+        for (int i = 0; i < 41; i++) assertTrue(modes.resolve(fixture.guild).fallback());
+        assertEquals(1, calls.get());
+        now.set(java.util.concurrent.TimeUnit.SECONDS.toNanos(30));
+        assertTrue(modes.resolve(fixture.guild).modern());
+        assertEquals(2, calls.get());
+        assertEquals(10L, settings.getMusic(1).getCommandChannelId());
+        modes.close();
+    }
+
+    @Test
+    void lateChannelVerificationAfterGuildLeftCannotScheduleRecovery() throws Exception {
+        var settings = settings();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+        var fixture = new Discord();
+        fixture.channelExists = false;
+        var future = new CompletableFuture<net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel>();
+        var recovered = new AtomicInteger();
+        var modes = new MusicPanelModeResolver(settings, id -> recovered.incrementAndGet(), (g, id) -> future, () -> 0);
+        modes.resolve(fixture.guild);
+        modes.forget(1);
+        future.complete(fixture.channel);
+        assertEquals(0, recovered.get());
+        modes.close();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = ErrorResponse.class, names = {"UNKNOWN_CHANNEL", "MISSING_ACCESS"})
+    void confirmedRestFailureRetainsConfiguredChannelAndCanRecover(ErrorResponse response) throws Exception {
+        var settings = settings();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+        var fixture = new Discord();
+        fixture.channelExists = false;
+        var calls = new AtomicInteger();
+        var modes = new MusicPanelModeResolver(settings, id -> {}, (g, id) -> {
+            calls.incrementAndGet();
+            return CompletableFuture.failedFuture(ErrorResponseException.create(response, new Response(new IOException("REST failure"), Set.of())));
+        }, () -> 0);
+        assertEquals(response.name(), modes.resolve(fixture.guild).reason());
+        assertEquals(response.name(), modes.resolve(fixture.guild).reason());
+        assertEquals(1, calls.get());
+        assertEquals(10L, settings.getMusic(1).getCommandChannelId());
+        assertEquals(MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
+        fixture.channelExists = true;
+        assertTrue(modes.resolve(fixture.guild).modern());
+        modes.close();
+    }
+
+    @Test
+    void obsoleteChannelVerificationCannotScheduleRecoveryAfterSettingsChange() throws Exception {
+        var settings = settings();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+        var fixture = new Discord();
+        fixture.channelExists = false;
+        var future = new CompletableFuture<net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel>();
+        var recovered = new AtomicInteger();
+        var modes = new MusicPanelModeResolver(settings, id -> recovered.incrementAndGet(), (g, id) -> future, () -> 0);
+        modes.resolve(fixture.guild);
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(20L)));
+        future.complete(fixture.channel);
+        assertEquals(0, recovered.get());
+        assertEquals(20L, settings.getMusic(1).getCommandChannelId());
+        modes.close();
+    }
+
+    @Test
     void diagnosticInspectionDoesNotChangeModesOrResolverTransitionCache() throws Exception {
         var settings = settings();
         var fixture = new Discord();

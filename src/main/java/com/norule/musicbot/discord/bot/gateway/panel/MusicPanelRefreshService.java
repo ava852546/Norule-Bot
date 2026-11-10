@@ -41,6 +41,12 @@ public final class MusicPanelRefreshService {
     private final long panelPeriodicRefreshMs;
     private final PanelRefreshFailurePolicy failurePolicy;
     private final MusicPanelModeResolver modes;
+    @FunctionalInterface
+    interface EditActionFactory {
+        net.dv8tion.jda.api.requests.restaction.MessageEditAction create(GuildMessageChannel channel, long messageId,
+                MusicPanelSnapshot snapshot, boolean background, java.util.function.Supplier<String> diagnostics);
+    }
+    private final EditActionFactory edits;
     private record PlayRequest(Long interactionChannelId, MusicPanelModeResolver.Selection mode,
                                String source, List<Consumer<String>> errors, GuildMessageChannel interactionChannel, String requestId) {
         PlayRequest(Long interactionChannelId, MusicPanelModeResolver.Selection mode, String source,
@@ -67,7 +73,17 @@ public final class MusicPanelRefreshService {
     MusicPanelRefreshService(MusicCommandService owner, MusicPanelStateStore stateStore, MusicPanelRenderer panelRenderer,
             ScheduledExecutorService scheduler, long panelPeriodicRefreshMs, MusicPanelModeResolver modes,
             LongSupplier nanoTime) {
+        this(owner, stateStore, panelRenderer, scheduler, panelPeriodicRefreshMs, modes, nanoTime,
+                (channel, messageId, snapshot, background, diagnostics) ->
+                        DiscordRateLimitInterceptor.panelEdit(channel, messageId, background, diagnostics)
+                                .setEmbeds(snapshot.embed()).setComponents(snapshot.components()));
+    }
+
+    MusicPanelRefreshService(MusicCommandService owner, MusicPanelStateStore stateStore, MusicPanelRenderer panelRenderer,
+            ScheduledExecutorService scheduler, long panelPeriodicRefreshMs, MusicPanelModeResolver modes,
+            LongSupplier nanoTime, EditActionFactory edits) {
         this.owner = owner;
+        this.edits = edits;
         this.modes = modes;
         this.stateStore = stateStore;
         this.panelRenderer = panelRenderer;
@@ -540,7 +556,8 @@ public final class MusicPanelRefreshService {
             // A queued progress update must not hold this guild's barrier ahead of /play.
             owner.backgroundRest().cancelPending("music-panel:" + guildId);
         }
-        coordinator.requestRefresh(guildId, reason);
+        coordinator.requestRefresh(guildId, reason, reason == RefreshReason.QUEUE_CHANGED
+                && owner.musicService().isPlaylistLoading(guildId));
     }
 
     public void refreshPanelPeriodic(long guildId) {
@@ -719,7 +736,7 @@ public final class MusicPanelRefreshService {
             MusicPanelModeResolver.Selection initial, Long interactionChannelId, String source, GuildMessageChannel interaction,
             String requestId, boolean revalidation) {
         Long targetId = mode.modern() ? mode.channelId() : interactionChannelId;
-        var resolved = MusicPanelTargetResolver.resolve(guild, targetId, mode.modern() ? null : interaction);
+        var resolved = MusicPanelTargetResolver.resolve(guild, targetId, mode.modern() ? mode.channel() : interaction);
         GuildMessageChannel target = resolved.channel();
         boolean thread = target instanceof ThreadChannel;
         Permission send = thread ? Permission.MESSAGE_SEND_IN_THREADS : Permission.MESSAGE_SEND;
@@ -791,7 +808,8 @@ public final class MusicPanelRefreshService {
                 System.currentTimeMillis(), panelPeriodicRefreshMs)) {
             return CompletableFuture.completedFuture(null);
         }
-        GuildMessageChannel channel = cachedChannel(guild, ref.channelId);
+        GuildMessageChannel channel = mode.modern() && Objects.equals(mode.channelId(), ref.channelId)
+                ? mode.channel() : cachedChannel(guild, ref.channelId);
         if (channel == null) {
             logOperationalFailure(guildId, ref.channelId, ref.messageId, "UNKNOWN_CHANNEL", null);
             return CompletableFuture.completedFuture(null);
@@ -985,18 +1003,21 @@ public final class MusicPanelRefreshService {
         }
         Operation operation = operation(guild, background ? "background" : "music-panel");
         try {
-            // Measure from actual REST admission, including after a long background cooldown.
-            coordinator.submitted(guildId);
-            DiscordRateLimitInterceptor.track(
-                    channel.editMessageEmbedsById(ref.messageId, snapshot.embed())
-                            .setComponents(snapshot.components()), "MUSIC_PANEL_REFRESH", background, false,
+            var action = DiscordRateLimitInterceptor.track(
+                    edits.create(channel, ref.messageId, snapshot, background,
+                            () -> "guildId=" + guildId + " refreshReason=" + reasons
+                                    + " priority=" + (background ? "BACKGROUND" : "USER")
+                                    + " requestId=" + operation.requestId() + " " + coordinator.diagnostics(guildId)),
+                    "MUSIC_PANEL_REFRESH", background, false,
                     "PATCH", "/channels/" + ref.channelId + "/messages/" + ref.messageId,
                     () -> "candidateGuildId=" + guildId + " candidateRefreshReason=" + reasons
                             + " " + coordinator.diagnostics(guildId)
                                     .replace("pendingRefresh=", "candidatePendingRefresh=")
                                     .replace("inFlight=", "candidateInFlight=")
-                                    .replace("coalescedCount=", "candidateCoalescedCount="))
-                    .queue(success -> {
+                                    .replace("coalescedCount=", "candidateCoalescedCount="));
+            // Measure after payload creation, at REST admission (not background queue insertion).
+            coordinator.patchSubmitted(guildId);
+            action.queue(success -> {
                         if (current(guild, operation) && stateStore.isActivePanel(guildId, ref.channelId, ref.messageId)) {
                             stateStore.markRefreshed(guildId, ref, System.currentTimeMillis());
                             failurePolicy.clearChannel(guildId, ref.channelId);
@@ -1075,6 +1096,7 @@ public final class MusicPanelRefreshService {
 
     public void close() {
         closed = true;
+        if (modes != null) modes.close();
         coordinator.close();
         settingsSyncs.clear();
         playChannels.clear();

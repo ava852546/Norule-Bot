@@ -20,6 +20,108 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class MusicPanelRefreshCoordinatorTest {
     @Test
+    void fortyOneTracksConvergeWithoutWaitingForPanelAndBatchingReducesDeliveries() {
+        int before = playlistRun(false);
+        int after = playlistRun(true);
+        assertTrue(after < before, "Batch window must reduce sustained deliveries");
+        assertTrue(after < 41 / 3, "Panel delivery count must stay well below track events");
+        System.out.printf("PANEL_BATCH tracks=41 events=43 before=%d after=%d finalQueued=41%n", before, after);
+    }
+
+    private int playlistRun(boolean batching) {
+        try (var clock = new ManualScheduler()) {
+            var tracks = new ArrayList<Integer>();
+            var displayed = new ArrayList<Integer>();
+            var requests = new ArrayList<CompletableFuture<Void>>();
+            int[] maxTasks = {0};
+            try (var refresh = new MusicPanelRefreshCoordinator(clock, (guild, reasons) -> {
+                int count = tracks.size();
+                return CompletableFuture.completedFuture(new MusicPanelRefreshCoordinator.Update(10, 100,
+                        snapshot("queued=" + count), () -> {
+                    displayed.add(count);
+                    var request = new CompletableFuture<Void>();
+                    requests.add(request);
+                    return request;
+                }));
+            }, clock::nanos)) {
+                refresh.requestRefresh(1, RefreshReason.TRACK_START);
+                for (int i = 0; i < 41; i++) {
+                    tracks.add(i);
+                    refresh.requestRefresh(1, RefreshReason.QUEUE_CHANGED, batching);
+                    clock.advance(480);
+                    maxTasks[0] = Math.max(maxTasks[0], clock.pending());
+                    // Sender completion is independent of the next track load.
+                    if (!requests.isEmpty()) requests.getLast().complete(null);
+                }
+                refresh.requestRefresh(1, RefreshReason.STATE_CHANGED);
+                clock.advance(1_000);
+                requests.getLast().complete(null);
+                clock.advance(3_000);
+                assertEquals(41, tracks.size());
+                assertEquals(41, displayed.getLast());
+                assertTrue(maxTasks[0] <= 1);
+                assertFalse(refresh.hasPending(1));
+                assertTrue(refresh.metrics(1).coalesced() > 0);
+                return displayed.size();
+            }
+        }
+    }
+
+    @Test
+    void importantOperationAdvancesBatchWindowAndAnotherGuildRemainsIndependent() {
+        coordinator.requestRefresh(1, RefreshReason.QUEUE_CHANGED, true);
+        scheduler.advance(500);
+        coordinator.requestRefresh(1, RefreshReason.PAUSE);
+        coordinator.requestRefresh(2, RefreshReason.TRACK_START);
+        scheduler.advance(750);
+        assertEquals(List.of("1:volume 30", "2:volume 30"), sent);
+        assertEquals(0, scheduler.pending());
+    }
+
+    @Test
+    void latePeriodicEventCannotCancelTheOnlyPendingBatchTask() {
+        coordinator.requestRefresh(1, RefreshReason.QUEUE_CHANGED, true);
+        scheduler.advance(500);
+        coordinator.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+        assertEquals(1, scheduler.pending());
+        scheduler.advance(2_500);
+        assertEquals(1, sent.size());
+        assertEquals(Set.of(RefreshReason.QUEUE_CHANGED), renderedReasons);
+    }
+
+    @Test
+    void explicitRecoveryAdvancesPendingBatchWindow() {
+        coordinator.requestRefresh(1, RefreshReason.QUEUE_CHANGED, true);
+        var recovery = coordinator.submit(1, () -> CompletableFuture.completedFuture(null));
+        scheduler.advance(750);
+        assertTrue(recovery.isDone());
+        assertEquals(1, scheduler.pending()); // The batch remains, behind the manual lifecycle operation.
+        scheduler.advance(3_000);
+        assertEquals(1, sent.size());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(longs = {1_000, 4_000, 5_000})
+    void jdaRateLimitWaitKeepsOnlyLatestFollowUpWithoutApplicationRetries(long retryAfter) {
+        requestAndDrain(1);
+        coordinator.observeRateLimit(1);
+        for (int i = 1; i <= 41; i++) {
+            content = "queued=" + i;
+            coordinator.requestRefresh(1, RefreshReason.QUEUE_CHANGED, true);
+        }
+        scheduler.advance(retryAfter);
+        assertEquals(1, sent.size());
+        assertEquals(0, scheduler.pending());
+        flights.getFirst().complete(null); // JDA completes its own retry; application never resubmits it.
+        scheduler.advance(3_000);
+        assertEquals(List.of("1:volume 30", "1:queued=41"), sent);
+        flights.getLast().complete(null);
+        scheduler.advance(30_000);
+        assertFalse(coordinator.hasPending(1));
+        assertEquals(2, sent.size());
+    }
+
+    @Test
     void completionMetricsKeepSuccessfulFailedAndSkippedWorkSeparate() {
         requestAndDrain(1);
         coordinator.submitted(1);

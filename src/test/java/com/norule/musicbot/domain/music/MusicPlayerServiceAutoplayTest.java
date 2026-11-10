@@ -121,19 +121,21 @@ class MusicPlayerServiceAutoplayTest {
         if (realManager != null) realManager.shutdown();
     }
 
-    @Test
-    void bilibiliPlaylistActuallyQueuesTwentyFiveTracksInOrderWhileCurrentTrackContinues() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {25, 41})
+    void bilibiliPlaylistActuallyQueuesTracksInOrderWhileCurrentTrackContinues(int trackCount) throws Exception {
         AudioTrack seed = startSeed();
-        saveBilibiliPlaylist(25);
+        saveBilibiliPlaylist(trackCount);
         var idleNotification = new CompletableFuture<Void>();
         service.setGuildStateListener(123, () -> {
             if (!service.isPlaybackTransitioning(guild)) idleNotification.complete(null);
         });
         var submission = service.loadPlaylistAsync(guild, "Batch", 1L, "fixture", null);
         assertEquals(com.norule.musicbot.service.music.PlaylistLoadCoordinator.Status.ACCEPTED, submission.status());
+        assertTrue(service.isPlaylistLoading(GUILD_ID));
         assertEquals(com.norule.musicbot.service.music.PlaylistLoadCoordinator.Status.DUPLICATE,
                 service.loadPlaylistAsync(guild, "batch", 1L, "fixture", null).status());
-        for (int i = 0; i < 25; i++) {
+        for (int i = 0; i < trackCount; i++) {
             AudioLoadResultHandler callback = submittedLoads.poll(5, java.util.concurrent.TimeUnit.SECONDS);
             org.junit.jupiter.api.Assertions.assertNotNull(callback);
             assertTrue(submittedLoads.isEmpty(), "Only one entry may be outstanding per batch");
@@ -141,11 +143,12 @@ class MusicPlayerServiceAutoplayTest {
         }
         var result = submission.completion().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
         idleNotification.get(5, java.util.concurrent.TimeUnit.SECONDS);
-        assertEquals(25, result.loaded()); assertEquals(25, result.queued()); assertEquals(0, result.failed());
+        assertEquals(trackCount, result.loaded()); assertEquals(trackCount, result.queued()); assertEquals(0, result.failed());
         assertSame(seed, current);
-        assertEquals(java.util.stream.IntStream.range(0, 25).mapToObj(i -> "Song " + i).toList(),
+        assertEquals(java.util.stream.IntStream.range(0, trackCount).mapToObj(i -> "Song " + i).toList(),
                 manager.getScheduler().snapshotQueue().stream().map(t -> t.getInfo().title).toList());
         assertTrue(!service.isPlaybackTransitioning(guild));
+        assertTrue(!service.isPlaylistLoading(GUILD_ID));
     }
 
     @Test
