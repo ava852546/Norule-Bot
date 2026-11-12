@@ -73,6 +73,8 @@ class MusicPanelLifecycleTest {
     Runnable unsubscribe;
     boolean simulatedLoads;
     boolean simulatedProgress;
+    boolean simulatedStream;
+    boolean simulatedPaused;
     boolean simulatedPlaylist;
     int queuePreviewReads;
     long progressPosition;
@@ -82,7 +84,7 @@ class MusicPanelLifecycleTest {
     final com.sedmelluq.discord.lavaplayer.track.AudioTrack searchTrack = proxy(
             com.sedmelluq.discord.lavaplayer.track.AudioTrack.class, (o, m, a) -> switch (m.getName()) {
                 case "getInfo" -> new com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo(
-                        "Test track", "Artist", 60_000, "track-id", false, "https://youtu.be/test-track1");
+                        "Test track", "Artist", 60_000, "track-id", simulatedStream, "https://youtu.be/test-track1");
                 case "getDuration" -> simulatedProgress ? 1_200_000L : 60_000L;
                 case "getPosition" -> progressPosition;
                 default -> null;
@@ -98,6 +100,9 @@ class MusicPanelLifecycleTest {
         var config = MusicConfig.defaultValues();
         music = new MusicPlayerService(directory, id -> 100, id -> 365, id -> 100, config, policy,
                 auth -> YouTubePlaybackRuntimeFactory.createSource(config.getCipher(), policy, auth, YouTubePlaybackTrackFactory.youtubeSource())) {
+            @Override public boolean isPaused(Guild guild) {
+                return simulatedPaused || super.isPaused(guild);
+            }
             @Override public boolean isPlaylistLoading(long guildId) {
                 return simulatedPlaylist || super.isPlaylistLoading(guildId);
             }
@@ -232,6 +237,41 @@ class MusicPanelLifecycleTest {
         panels.requestRefresh(1, RefreshReason.BATCH_COMPLETE);
         drain(); // Identical final payload is skipped.
         assertEquals(1, discord.editResults.size());
+    }
+
+    @Test
+    void periodicFrozenAndSubsecondProgressSkipsPatchButVisibleSecondsUpdate() {
+        panels.close();
+        progressQueue = new com.norule.musicbot.discord.bot.gateway.DiscordBackgroundRestQueue(scheduler, scheduler::nanos);
+        panels = new MusicPanelRefreshService(owner, store, new MusicPanelRenderer(owner, store), scheduler, 8_000, modes,
+                scheduler::nanos, (channel, id, snapshot, background, diagnostics) ->
+                        channel.editMessageEmbedsById(id, snapshot.embed()).setComponents(snapshot.components()));
+        seed(10, 100);
+        simulatedProgress = true;
+        discord.connected = true;
+        for (long position : new long[]{50_000, 50_000, 50_100, 50_900, 51_000}) {
+            progressPosition = position;
+            store.markRefreshed(1, store.getPanelRef(1), 0);
+            panels.refreshPanelPeriodic(1);
+            drain();
+            scheduler.advance(1_000); // Run background admission scheduled by the coordinator drain.
+        }
+        assertEquals(2, discord.editResults.size(), "Only visible progress changes should PATCH");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"live", "paused", "disconnected", "idle"})
+    void periodicSweepDoesNotRefreshWithoutVisibleProgress(String state) {
+        seed(10, 100);
+        simulatedProgress = !"idle".equals(state);
+        simulatedStream = "live".equals(state);
+        simulatedPaused = "paused".equals(state);
+        discord.connected = !"disconnected".equals(state);
+        store.markRefreshed(1, store.getPanelRef(1), 0);
+        panels.refreshPanelPeriodic(1);
+        drain();
+        assertTrue(discord.editResults.isEmpty());
+        assertEquals(0, queuePreviewReads, "Inactive progress must not even render a payload");
     }
 
     @Test

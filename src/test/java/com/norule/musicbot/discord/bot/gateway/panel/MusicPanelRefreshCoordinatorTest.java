@@ -292,6 +292,67 @@ class MusicPanelRefreshCoordinatorTest {
     }
 
     @Test
+    void trackEndStartAndButtonShareOnePatchAndUnchangedFollowUpIsSkipped() {
+        coordinator.requestRefresh(1, RefreshReason.TRACK_END);
+        coordinator.requestRefresh(1, RefreshReason.TRACK_START);
+        coordinator.requestRefresh(1, RefreshReason.BUTTON_INTERACTION);
+        assertEquals(1, scheduler.pending());
+        scheduler.advance(750);
+        assertEquals(Set.of(RefreshReason.TRACK_END, RefreshReason.TRACK_START,
+                RefreshReason.BUTTON_INTERACTION), renderedReasons);
+        assertEquals(1, sent.size());
+        // A delayed duplicate arriving during REST must still compare the final payload.
+        coordinator.requestRefresh(1, RefreshReason.TRACK_END);
+        coordinator.requestRefresh(1, RefreshReason.BUTTON_INTERACTION);
+        flights.getFirst().complete(null);
+        scheduler.advance(1_000);
+        assertEquals(1, sent.size());
+        assertEquals(1, coordinator.metrics(1).unchanged());
+        assertFalse(coordinator.hasPending(1));
+    }
+
+    @Test
+    void slowWarningExcludesBatchAndAdmissionWaitButIncludesJdaCompletionWait() {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MusicPanelRefreshCoordinator.class);
+        var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            coordinator.requestRefresh(1, RefreshReason.BATCH_PROGRESS, true);
+            scheduler.advance(30_000);
+            coordinator.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+            scheduler.advance(1_000);
+            coordinator.submitted(1);
+            scheduler.advance(100);
+            flights.getLast().complete(null);
+            assertTrue(coordinator.metrics(1).meanMs() > 30_000, "Total latency still includes batch waiting");
+
+            content = "waiting for background admission";
+            coordinator.requestRefresh(1, RefreshReason.PERIODIC_REFRESH);
+            scheduler.advance(1_000);
+            scheduler.advance(6_000);
+            coordinator.submitted(1);
+            scheduler.advance(100);
+            flights.getLast().complete(null);
+            assertTrue(logs.list.stream().noneMatch(log -> log.getFormattedMessage().contains("panel.refresh.slow")));
+
+            content = "slow JDA completion";
+            coordinator.requestRefresh(1, RefreshReason.TRACK_START);
+            scheduler.advance(1_000);
+            coordinator.submitted(1);
+            scheduler.advance(6_000);
+            flights.getLast().complete(null);
+            var warnings = logs.list.stream().filter(log -> log.getFormattedMessage().contains("panel.refresh.slow")).toList();
+            assertEquals(1, warnings.size());
+            assertTrue(warnings.getFirst().getFormattedMessage().contains("phase=REST"));
+            assertTrue(warnings.getFirst().getFormattedMessage().contains("restMs=6000"));
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+        }
+    }
+
+    @Test
     void concurrentPlayerAndInteractionEventsShareOneTask() throws Exception {
         var reasons = List.of(RefreshReason.TRACK_START, RefreshReason.QUEUE_CHANGED,
                 RefreshReason.VOLUME_CHANGED, RefreshReason.PAUSE);

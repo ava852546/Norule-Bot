@@ -598,6 +598,7 @@ public final class MusicPanelRefreshService {
     private boolean isProgressActive(Guild guild) {
         return owner.musicService().getCurrentTitle(guild) != null
                 && !owner.musicService().isPaused(guild)
+                && !owner.musicService().isCurrentStream(guild)
                 && guild.getAudioManager().getConnectedChannel() != null;
     }
 

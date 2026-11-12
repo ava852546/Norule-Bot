@@ -229,9 +229,11 @@ public final class MusicPanelRefreshCoordinator implements AutoCloseable {
                             + "scheduleWaitMs={} admissionWaitMs={} restMs={} totalMs={}",
                     guildId, state.activeReasons, result, state.manual.size() + (state.pending.isEmpty() ? 0 : 1),
                     state.lastScheduleWaitMs, state.lastAdmissionWaitMs, state.lastRestMs, state.lastTotalMs);
-            if (state.lastTotalMs > 5_000 && (!state.slowLogged
+            // Dirty batches can deliberately wait minutes; admission and debounce are
+            // separate from the JDA queue/REST completion measured after submission.
+            if (state.admitted && state.lastRestMs > 5_000 && (!state.slowLogged
                     || now - state.lastSlowLogAt >= TimeUnit.MINUTES.toNanos(1))) {
-                LOGGER.warn("[NoRule] panel.refresh.slow guildId={} reasons={} scheduleWaitMs={} admissionWaitMs={} restMs={} totalMs={}",
+                LOGGER.warn("[NoRule] panel.refresh.slow phase=REST guildId={} reasons={} scheduleWaitMs={} admissionWaitMs={} restMs={} totalMs={}",
                         guildId, state.activeReasons, state.lastScheduleWaitMs, state.lastAdmissionWaitMs,
                         state.lastRestMs, state.lastTotalMs);
                 state.slowLogged = true;
