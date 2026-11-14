@@ -123,6 +123,36 @@ class MusicPlayerServiceAutoplayTest {
         if (realManager != null) realManager.shutdown();
     }
 
+    @ParameterizedTest
+    @EnumSource(value = YoutubeFailureCategory.class, names = {"BOT_DETECTED", "LOGIN_REQUIRED", "HTTP_RATE_LIMITED"})
+    void sourceAccessRestrictionPreservesRemainingQueueWithoutReloadOrAutoplay(YoutubeFailureCategory category) {
+        AudioTrack failed = startSeed();
+        AudioTrack next = track("next_______", "Next song");
+        manager.getScheduler().queue(next);
+        var failure = new FriendlyException("fixture", FriendlyException.Severity.COMMON,
+                new YouTubePlaybackException(category, "fixture", null, null, YouTubePlaybackBackend.YOUTUBE_SOURCE));
+        manager.getScheduler().onTrackException(manager.getPlayer(), failed, failure);
+        manager.getScheduler().onTrackException(manager.getPlayer(), failed, failure);
+        manager.getScheduler().onTrackEnd(manager.getPlayer(), failed, AudioTrackEndReason.LOAD_FAILED);
+        assertNull(current);
+        assertEquals(List.of(next), manager.getScheduler().snapshotQueue());
+        assertTrue(loads.isEmpty());
+        assertTrue(searches.isEmpty());
+        assertFalse(service.isPlaybackTransitioning(guild));
+    }
+
+    @Test
+    void companionAccessFailureKeepsExistingSkipBehavior() {
+        AudioTrack failed = startSeed();
+        AudioTrack next = track("next_______", "Next song");
+        manager.getScheduler().queue(next);
+        var failure = new FriendlyException("fixture", FriendlyException.Severity.COMMON,
+                new YouTubePlaybackException(YoutubeFailureCategory.LOGIN_REQUIRED, "fixture", null, null,
+                        YouTubePlaybackBackend.COMPANION));
+        manager.getScheduler().onTrackException(manager.getPlayer(), failed, failure);
+        assertSame(next, current);
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(ints = {25, 41, 96})
     void bilibiliPlaylistActuallyQueuesTracksInOrderWhileCurrentTrackContinues(int trackCount) throws Exception {

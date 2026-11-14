@@ -214,6 +214,28 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <id>youtube-diagnostic-jar</id>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>youtube-diagnostic</classifier>
+                            <includes>
+                                <include>com/norule/musicbot/gateway/youtube/YouTubeCipherDiagnostic.class</include>
+                                <include>com/norule/musicbot/gateway/youtube/YouTubeCipherDiagnostic$*.class</include>
+                                <include>com/norule/musicbot/gateway/youtube/DiagnosticStreamProbe*.class</include>
+                                <include>youtube-diagnostic/**</include>
+                            </includes>
+                            <archive>
+                                <manifest>
+                                    <mainClass>com.norule.musicbot.gateway.youtube.YouTubeCipherDiagnostic</mainClass>
+                                </manifest>
+                            </archive>
+                        </configuration>
+                    </execution>
+                </executions>
                 <configuration>
                     <archive>
                         <manifest>
@@ -268,6 +290,16 @@
                     <mainClass>com.norule.musicbot.bootstrap.Main</mainClass>
                 </configuration>
                 <executions>
+                    <execution>
+                        <id>youtube-cipher-diagnostic</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>com.norule.musicbot.gateway.youtube.YouTubeCipherDiagnostic</mainClass>
+                            <classpathScope>test</classpathScope>
+                        </configuration>
+                    </execution>
                     <execution>
                         <id>web-npm-ci</id>
                         <phase>prepare-package</phase>

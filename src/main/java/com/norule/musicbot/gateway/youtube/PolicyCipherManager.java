@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -17,6 +18,7 @@ final class PolicyCipherManager implements CipherManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(PolicyCipherManager.class);
     private final CipherPolicy policy;
     private final Supplier<CipherManager> factory;
+    private final CipherDiagnosticTrace diagnostic;
     private CipherManager delegate;
     private static final ThreadLocal<Scope> CURRENT_SCOPE = new ThreadLocal<>();
 
@@ -61,8 +63,13 @@ final class PolicyCipherManager implements CipherManager {
     }
 
     PolicyCipherManager(CipherPolicy policy, Supplier<CipherManager> factory) {
+        this(policy, factory, null);
+    }
+
+    PolicyCipherManager(CipherPolicy policy, Supplier<CipherManager> factory, CipherDiagnosticTrace diagnostic) {
         this.policy = Objects.requireNonNull(policy);
         this.factory = Objects.requireNonNull(factory);
+        this.diagnostic = diagnostic;
     }
 
     void requirePlayerScriptAllowed() {
@@ -87,36 +94,91 @@ final class PolicyCipherManager implements CipherManager {
     @Override
     public URI resolveFormatUrl(HttpInterface http, String script, StreamFormat format) throws IOException {
         synchronized (policy) {
+            format = withUrlNParameter(format);
             // A direct URL without signature/n transformation needs no cipher work.
-            if (!policy.isAllowed() && empty(format.getSignature()) && empty(format.getNParameter())) {
+            if (empty(format.getSignature()) && empty(format.getNParameter())) {
+                if (diagnostic != null) diagnostic.notRequired();
                 return format.getUrl();
             }
-            return delegate().resolveFormatUrl(http, script, format);
+            CipherManager active = delegate();
+            if (diagnostic != null) diagnostic.resolving(format);
+            try {
+                URI result = active.resolveFormatUrl(http, script, format);
+                if (diagnostic != null) diagnostic.resolved(format, result);
+                return result;
+            } catch (IOException | RuntimeException failure) {
+                if (diagnostic != null) diagnostic.resolveFailed();
+                throw failure;
+            }
         }
     }
 
     @Override
     public CachedPlayerScript getCachedPlayerScript(HttpInterface http) {
         synchronized (policy) {
-            return delegate().getCachedPlayerScript(http);
+            CipherManager active = delegate();
+            if (diagnostic != null) diagnostic.scriptRequested();
+            try {
+                CachedPlayerScript result = active.getCachedPlayerScript(http);
+                if (diagnostic != null) diagnostic.scriptMetadata(result);
+                return result;
+            } catch (RuntimeException failure) {
+                if (diagnostic != null) diagnostic.scriptFailed();
+                throw failure;
+            }
         }
     }
 
     @Override
     public CachedPlayerScript getPlayerScript(HttpInterface http) {
         synchronized (policy) {
-            return delegate().getPlayerScript(http);
+            CipherManager active = delegate();
+            if (diagnostic != null) diagnostic.scriptRequested();
+            try {
+                CachedPlayerScript result = active.getPlayerScript(http);
+                if (diagnostic != null) diagnostic.scriptMetadata(result);
+                return result;
+            } catch (RuntimeException failure) {
+                if (diagnostic != null) diagnostic.scriptFailed();
+                throw failure;
+            }
         }
     }
 
     @Override
     public String getTimestamp(HttpInterface http, String script) throws IOException {
         synchronized (policy) {
-            return delegate().getTimestamp(http, script);
+            CipherManager active = delegate();
+            if (diagnostic != null) diagnostic.scriptRequested();
+            try {
+                String result = active.getTimestamp(http, script);
+                if (diagnostic != null) diagnostic.timestamp(result);
+                return result;
+            } catch (IOException | RuntimeException failure) {
+                if (diagnostic != null) diagnostic.scriptFailed();
+                throw failure;
+            }
         }
     }
 
     private static boolean empty(String value) {
         return value == null || value.isEmpty();
+    }
+
+    private static StreamFormat withUrlNParameter(StreamFormat format) {
+        if (!empty(format.getNParameter())) return format;
+        // 1.18.2 parses a whole URL as form data and can miss n when it is the first query item.
+        String n = queryParameter(format.getUrl(), "n");
+        if (empty(n)) return format;
+        return new StreamFormat(format.getType(), format.getItag(), format.getBitrate(), format.getContentLength(),
+                format.getAudioChannels(), format.getUrl().toString(), n, format.getSignature(),
+                format.getSignatureKey(), format.isDefaultAudioTrack(), format.isDrc());
+    }
+
+    static String queryParameter(URI uri, String name) {
+        if (uri == null || name == null) return null;
+        return org.apache.http.client.utils.URLEncodedUtils.parse(uri, StandardCharsets.UTF_8).stream()
+                .filter(pair -> name.equals(pair.getName())).map(pair -> pair.getValue())
+                .filter(Objects::nonNull).findFirst().orElse(null);
     }
 }

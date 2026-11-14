@@ -3,6 +3,7 @@ package com.norule.musicbot.domain.music;
 public enum YoutubeFailureCategory {
     HTTP_FORBIDDEN,
     HTTP_BAD_REQUEST,
+    HTTP_RATE_LIMITED,
     BOT_DETECTED,
     LOGIN_REQUIRED,
     NO_SUPPORTED_AUDIO_STREAM,

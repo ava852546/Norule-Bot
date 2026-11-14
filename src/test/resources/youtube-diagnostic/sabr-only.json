@@ -1,0 +1,7 @@
+{
+  "playabilityStatus": { "status": "OK" },
+  "streamingData": {
+    "adaptiveFormats": [],
+    "serverAbrStreamingUrl": "https://fixture.googlevideo.com/sabr"
+  }
+}

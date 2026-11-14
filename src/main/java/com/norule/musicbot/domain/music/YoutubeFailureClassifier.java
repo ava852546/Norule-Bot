@@ -153,7 +153,16 @@ public final class YoutubeFailureClassifier {
         if (failure instanceof SocketTimeoutException || failure instanceof HttpTimeoutException) {
             return YoutubeFailureCategory.NETWORK_TIMEOUT;
         }
+        if (failure instanceof dev.lavalink.youtube.cipher.ScriptExtractionException extraction) {
+            return switch (extraction.getFailureType()) {
+                case SIG_ACTIONS_NOT_FOUND, DECIPHER_FUNCTION_NOT_FOUND -> YoutubeFailureCategory.SIGNATURE_FAILURE;
+                case TIMESTAMP_NOT_FOUND, N_FUNCTION_NOT_FOUND, VARIABLES_NOT_FOUND -> YoutubeFailureCategory.CIPHER_FAILURE;
+            };
+        }
         if (httpStatus != null) {
+            if (httpStatus == 429) {
+                return YoutubeFailureCategory.HTTP_RATE_LIMITED;
+            }
             if (httpStatus == 403) {
                 return YoutubeFailureCategory.HTTP_FORBIDDEN;
             }
@@ -239,6 +248,9 @@ public final class YoutubeFailureClassifier {
         }
         Integer status = httpStatusFromMessage(message);
         if (status != null) {
+            if (status == 429) {
+                return YoutubeFailureCategory.HTTP_RATE_LIMITED;
+            }
             if (status == 403) {
                 return YoutubeFailureCategory.HTTP_FORBIDDEN;
             }
@@ -264,6 +276,8 @@ public final class YoutubeFailureClassifier {
                     YoutubeRecoveryClass.RETRYABLE;
             case CIPHER_REQUIRED_BUT_DISABLED, COMPANION_AUTH_FAILED, COMPANION_BAD_REQUEST -> YoutubeRecoveryClass.CONFIGURATION_ERROR;
             case BOT_DETECTED, LOGIN_REQUIRED -> YoutubeRecoveryClass.AUTH_MAY_HELP;
+            // Rate limiting is not evidence of a broken cipher or an invitation to rotate clients.
+            case HTTP_RATE_LIMITED -> YoutubeRecoveryClass.UNKNOWN;
             case NO_SUPPORTED_AUDIO_STREAM, PLAYER_CONFIGURATION_ERROR,
                     HTTP_FORBIDDEN, HTTP_BAD_REQUEST, SIGNATURE_FAILURE, CIPHER_FAILURE ->
                     YoutubeRecoveryClass.CLIENT_FALLBACK_MAY_HELP;
@@ -282,6 +296,7 @@ public final class YoutubeFailureClassifier {
             case REGION_RESTRICTED -> 980;
             case DECODER_FAILURE -> 900;
             case BOT_DETECTED -> 850;
+            case HTTP_RATE_LIMITED -> 860;
             case LOGIN_REQUIRED -> 840;
             case NO_SUPPORTED_AUDIO_STREAM -> 800;
             case SIGNATURE_FAILURE -> 790;
@@ -366,7 +381,7 @@ public final class YoutubeFailureClassifier {
         Matcher matcher = HTTP_STATUS.matcher(message);
         while (matcher.find()) {
             int status = Integer.parseInt(matcher.group(1));
-            if (status == 400 || status == 403) {
+            if (status == 400 || status == 403 || status == 429) {
                 return status;
             }
         }

@@ -39,4 +39,15 @@ public record YoutubeFailureReport(
             case CONFIGURATION_ERROR, PERMANENT, UNKNOWN -> false;
         };
     }
+
+    public boolean accessRestricted() {
+        return isAccessRestriction(category) || clientFailures.stream()
+                .anyMatch(failure -> isAccessRestriction(failure.category()));
+    }
+
+    private static boolean isAccessRestriction(YoutubeFailureCategory category) {
+        return category == YoutubeFailureCategory.BOT_DETECTED
+                || category == YoutubeFailureCategory.LOGIN_REQUIRED
+                || category == YoutubeFailureCategory.HTTP_RATE_LIMITED;
+    }
 }

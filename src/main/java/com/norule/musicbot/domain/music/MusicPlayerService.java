@@ -2264,6 +2264,18 @@ public class MusicPlayerService {
                     exception,
                     failureContext == null ? "-" : failureContext.correlationId()
             );
+            if ("YOUTUBE_SOURCE".equals(YOUTUBE_FAILURE_CLASSIFIER.provider(exception))
+                    && youtubeFailure.accessRestricted()) {
+                trackRecoveryService.cancel(guildId);
+                GuildMusicManager manager = musicManagers.get(guildId);
+                if (manager != null) {
+                    var scheduler = manager.getScheduler();
+                    scheduler.stopIfCurrent(track, scheduler.getPlaybackGeneration());
+                }
+                logFinalYoutubePlaybackFailure(guildId, track, exception);
+                notifyPlaybackFailure(guildId, trackTitle(track), youtubeFailure.errorKey());
+                return;
+            }
             if (youtubeFailure.allowsPlaybackRecovery(effectiveYoutubeAuthMode)) {
                 TrackRecoveryService.StartResult recovery = recoverTrack(
                         guildId,

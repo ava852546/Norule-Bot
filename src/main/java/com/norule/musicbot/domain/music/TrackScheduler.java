@@ -217,6 +217,15 @@ public class TrackScheduler extends AudioEventAdapter {
         return false;
     }
 
+    public synchronized boolean stopIfCurrent(AudioTrack expectedTrack, long expectedGeneration) {
+        if (!isActiveTrack(expectedTrack, expectedGeneration)) return false;
+        failedTrackAwaitingEnd = expectedTrack;
+        // Invalidate identity before stop callbacks; retain the queue and do not request autoplay.
+        startReplacement(null);
+        notifyStateChanged(MusicStateChange.RECOVERY);
+        return true;
+    }
+
     public synchronized void invalidatePlaybackGeneration() {
         scheduledTrack = null;
         playbackGeneration++;

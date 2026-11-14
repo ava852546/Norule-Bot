@@ -16,6 +16,28 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class TrackSchedulerRecoveryTest {
     @Test
+    void accessStopRetainsQueueAndIgnoresLateEndRepeatAndDuplicateEvents() {
+        FakePlayer player = new FakePlayer();
+        TrackScheduler scheduler = new TrackScheduler(player.proxy);
+        AudioTrack failed = new FakeTrack("failed", true).proxy;
+        AudioTrack next = new FakeTrack("next", true).proxy;
+        scheduler.queue(failed);
+        scheduler.queue(next);
+        scheduler.setRepeatMode("ALL");
+        long generation = scheduler.getPlaybackGeneration();
+        assertTrue(scheduler.stopIfCurrent(failed, generation));
+        assertFalse(scheduler.stopIfCurrent(failed, generation));
+        scheduler.onTrackEnd(player.proxy, failed, AudioTrackEndReason.LOAD_FAILED);
+        scheduler.onTrackEnd(player.proxy, failed, AudioTrackEndReason.FINISHED);
+        assertEquals(null, player.current);
+        assertEquals(java.util.List.of(next), scheduler.snapshotQueue());
+        scheduler.nextTrack();
+        assertSame(next, player.current);
+        assertFalse(scheduler.stopIfCurrent(failed, generation));
+        assertSame(next, player.current);
+    }
+
+    @Test
     void previewCountRemainsCorrectWhenRepeatingAllOrSingle() {
         FakePlayer player = new FakePlayer();
         TrackScheduler scheduler = new TrackScheduler(player.proxy);
