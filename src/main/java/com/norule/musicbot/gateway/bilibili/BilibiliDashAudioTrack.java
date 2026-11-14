@@ -6,6 +6,7 @@ import com.norule.musicbot.domain.music.bilibili.BilibiliFailureStage;
 import com.norule.musicbot.domain.music.bilibili.BilibiliRequestException;
 import com.sedmelluq.discord.lavaplayer.container.mpeg.MpegAudioTrack;
 import com.sedmelluq.discord.lavaplayer.tools.JsonBrowser;
+import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface;
 import com.sedmelluq.discord.lavaplayer.tools.io.PersistentHttpStream;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
@@ -19,14 +20,11 @@ import org.apache.http.util.EntityUtils;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 /** Uses the existing MP4/AAC decoder; signed CDN URLs are resolved per playback, never cached in metadata. */
 final class BilibiliDashAudioTrack extends DelegatedAudioTrack {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(BilibiliDashAudioTrack.class);
     private final String id;
     private final Long cid;
     private final BilibiliAudioSourceAdapter source;
@@ -48,6 +46,11 @@ final class BilibiliDashAudioTrack extends DelegatedAudioTrack {
                 processDelegate(new MpegAudioTrack(trackInfo, stream), executor);
             }
         } catch (BilibiliRequestException failure) {
+            if (failure.category().isAudioSelectionFailure()) {
+                // Expected deterministic selection failures are summarized by MusicPlayerService.
+                // COMMON keeps LavaPlayer from also printing a FAULT stack trace for this event.
+                throw new FriendlyException(failure.getMessage(), FriendlyException.Severity.COMMON, failure);
+            }
             throw failure;
         } catch (Exception failure) {
             // The nested stack identifies MP4 header parsing, AAC initialisation, decoding or PCM pipeline.
@@ -100,43 +103,33 @@ final class BilibiliDashAudioTrack extends DelegatedAudioTrack {
                 + id + "&cid=" + cid + "&fnval=16&fnver=0&fourk=0"))) {
             int status = response.getStatusLine().getStatusCode();
             if (status != 200) throw failure(BilibiliFailureStage.PLAY_URL, status, "PlayURL HTTP " + status);
-            JsonBrowser root = JsonBrowser.parse(EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8));
-            int code = root.get("code").asInt(Integer.MIN_VALUE);
-            if (code != 0) throw failure(BilibiliFailureStage.PLAY_URL, 0, "PlayURL API code " + code);
+            String body = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+            JsonBrowser root;
             try {
-                return audioUrls(root.get("data"));
-            } catch (IOException selection) {
-                throw new BilibiliRequestException(BilibiliFailureCategory.BILIBILI_PLAYBACK_FAILED,
-                        BilibiliFailureStage.AUDIO_SELECTION, 0, selection.getMessage(), false, id, selection);
+                root = JsonBrowser.parse(body);
+            } catch (IOException malformed) {
+                throw new BilibiliRequestException(BilibiliFailureCategory.AUDIO_RESPONSE_INVALID,
+                        BilibiliFailureStage.PLAY_URL, 0,
+                        "Bilibili PlayURL invalid JSON: playUrlHttpStatus=" + status + " playUrlApiCode=UNKNOWN",
+                        false, id, null);
             }
+            int code = root.get("code").asInt(Integer.MIN_VALUE);
+            if (code == Integer.MIN_VALUE) {
+                throw new BilibiliRequestException(BilibiliFailureCategory.AUDIO_RESPONSE_INVALID,
+                        BilibiliFailureStage.PLAY_URL, 0,
+                        "Bilibili PlayURL missing API code: playUrlHttpStatus=" + status,
+                        false, id, null);
+            }
+            if (code != 0) throw failure(BilibiliFailureStage.PLAY_URL, 0, "PlayURL API code " + code);
+            var selection = BilibiliDashAudioSelector.select(root.get("data"), id, cid, status, code);
+            LOGGER.debug(
+                    "[Bilibili] AUDIO_SELECTED videoId={} codec={} {}", id, selection.codec(), selection.diagnostics());
+            return selection.urls();
         }
     }
 
     static List<URI> audioUrls(JsonBrowser data) throws IOException {
-        var audio = new ArrayList<>(data.get("dash").get("audio").values());
-        audio.removeIf(a -> !"mp4a.40.2".equalsIgnoreCase(a.get("codecs").safeText()));
-        audio.sort(Comparator.comparingLong((JsonBrowser a) -> a.get("bandwidth").asLong(0L)).reversed());
-        var urls = new LinkedHashSet<URI>();
-        for (JsonBrowser entry : audio) {
-            addUrl(urls, entry.get("baseUrl").safeText());
-            addUrl(urls, entry.get("base_url").safeText());
-            for (String key : List.of("backupUrl", "backup_url")) {
-                for (JsonBrowser backup : entry.get(key).values()) addUrl(urls, backup.safeText());
-            }
-            // Do not switch representations at a byte offset when reconnecting.
-            if (!urls.isEmpty()) return List.copyOf(urls);
-        }
-        throw new IOException("Bilibili DASH audio selection: no MP4 AAC-LC baseUrl or backupUrl");
-    }
-
-    private static void addUrl(Set<URI> urls, String value) {
-        try {
-            URI uri = URI.create(value);
-            if (uri.getHost() != null && ("https".equalsIgnoreCase(uri.getScheme())
-                    || "http".equalsIgnoreCase(uri.getScheme()))) urls.add(uri);
-        } catch (IllegalArgumentException ignored) {
-            // Invalid individual candidates do not prevent a valid backup from being selected.
-        }
+        return BilibiliDashAudioSelector.select(data, "", null, 0, null).urls();
     }
 
     private BilibiliRequestException failure(BilibiliFailureStage stage, int status, String message) {

@@ -1,0 +1,306 @@
+[
+  {
+    "name": "single-aac",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "codecs": "mp4a.40.2",
+            "baseUrl": "https://cdn.example/audio?sign=SECRET"
+          }
+        ]
+      }
+    },
+    "codec": "mp4a.40.2"
+  },
+  {
+    "name": "highest-valid-aac",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "codecs": "mp4a.40.2",
+            "baseUrl": "invalid",
+            "bandwidth": 900
+          },
+          {
+            "codecs": "mp4a.40.2",
+            "baseUrl": "https://cdn.example/high",
+            "bandwidth": 200
+          },
+          {
+            "codecs": "mp4a.40.2",
+            "baseUrl": "https://cdn.example/audio?sign=SECRET",
+            "bandwidth": 100
+          }
+        ]
+      }
+    },
+    "codec": "mp4a.40.2"
+  },
+  {
+    "name": "backup-only",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "codecs": "mp4a.40.2",
+            "baseUrl": null,
+            "backup_url": [
+              "file:///secret",
+              "https://cdn.example/backup"
+            ]
+          }
+        ]
+      }
+    },
+    "codec": "mp4a.40.2"
+  },
+  {
+    "name": "missing-url",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "codecs": "mp4a.40.2",
+            "baseUrl": null
+          }
+        ]
+      }
+    },
+    "codec": null,
+    "category": "AUDIO_URL_MISSING"
+  },
+  {
+    "name": "he-aac-observed",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "codecs": "mp4a.40.5",
+            "baseUrl": "https://cdn.example/audio?sign=SECRET",
+            "id": 30216,
+            "mimeType": "audio/mp4",
+            "bandwidth": 52283
+          }
+        ]
+      }
+    },
+    "codec": "mp4a.40.5"
+  },
+  {
+    "name": "unsupported-codecs",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "codecs": "opus",
+            "baseUrl": "https://cdn.example/audio?sign=SECRET",
+            "mimeType": "audio/webm"
+          },
+          {
+            "codecs": "fLaC",
+            "baseUrl": "https://cdn.example/audio?sign=SECRET"
+          },
+          {
+            "codecs": "ec-3",
+            "baseUrl": "https://cdn.example/audio?sign=SECRET"
+          }
+        ]
+      }
+    },
+    "codec": null,
+    "category": "AUDIO_FORMAT_UNSUPPORTED"
+  },
+  {
+    "name": "empty-audio",
+    "data": {
+      "dash": {
+        "audio": []
+      }
+    },
+    "codec": null,
+    "category": "DASH_AUDIO_EMPTY"
+  },
+  {
+    "name": "missing-dash",
+    "data": {},
+    "codec": null,
+    "category": "AUDIO_RESPONSE_INVALID"
+  },
+  {
+    "name": "missing-codec",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "baseUrl": "https://cdn.example/a"
+          }
+        ]
+      }
+    },
+    "codec": null,
+    "category": "AUDIO_FORMAT_UNSUPPORTED"
+  },
+  {
+    "name": "missing-bandwidth",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "codecs": "MP4A.40.2 ",
+            "baseUrl": "https://cdn.example/audio?sign=SECRET"
+          }
+        ]
+      }
+    },
+    "codec": "mp4a.40.2"
+  },
+  {
+    "name": "invalid-base-backup",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "codecs": "mp4a.40.2",
+            "baseUrl": "https://[bad",
+            "backupUrl": [
+              "https://cdn.example/backup"
+            ]
+          }
+        ]
+      }
+    },
+    "codec": "mp4a.40.2"
+  },
+  {
+    "name": "invalid-audio-shape",
+    "data": {
+      "dash": {
+        "audio": {
+          "codecs": "mp4a.40.2"
+        }
+      }
+    },
+    "codec": null,
+    "category": "AUDIO_RESPONSE_INVALID"
+  },
+  {
+    "name": "unsafe-url",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "codecs": "mp4a.40.2",
+            "baseUrl": "file:///secret",
+            "backupUrl": [
+              "https://user:pass@cdn.example/a",
+              "https://cdn.example/a#secret",
+              "//cdn.example/a"
+            ]
+          }
+        ]
+      }
+    },
+    "codec": null,
+    "category": "AUDIO_URL_MISSING"
+  },
+  {
+    "name": "aac-priority",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "codecs": "mp4a.40.5",
+            "baseUrl": "https://cdn.example/audio?sign=SECRET",
+            "bandwidth": 999999
+          },
+          {
+            "codecs": "mp4a.40.2",
+            "baseUrl": "https://cdn.example/audio?sign=SECRET",
+            "bandwidth": 1
+          }
+        ]
+      }
+    },
+    "codec": "mp4a.40.2"
+  },
+  {
+    "name": "aac-no-url-he-fallback",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "codecs": "mp4a.40.2",
+            "baseUrl": "invalid"
+          },
+          {
+            "codecs": "mp4a.40.5",
+            "baseUrl": "https://cdn.example/audio?sign=SECRET"
+          }
+        ]
+      }
+    },
+    "codec": "mp4a.40.5"
+  },
+  {
+    "name": "wrong-container",
+    "data": {
+      "dash": {
+        "audio": [
+          {
+            "codecs": "mp4a.40.2",
+            "baseUrl": "https://cdn.example/audio?sign=SECRET",
+            "mimeType": "audio/webm"
+          }
+        ]
+      }
+    },
+    "codec": null,
+    "category": "AUDIO_FORMAT_UNSUPPORTED"
+  },
+  {
+    "name": "missing-audio",
+    "data": {
+      "dash": {}
+    },
+    "codec": null,
+    "category": "DASH_AUDIO_EMPTY"
+  },
+  {
+    "name": "invalid-entry",
+    "data": {
+      "dash": {
+        "audio": [
+          null
+        ]
+      }
+    },
+    "codec": null,
+    "category": "AUDIO_RESPONSE_INVALID"
+  },
+  {
+    "name": "special-sections-not-enabled",
+    "data": {
+      "dash": {
+        "audio": [],
+        "flac": {
+          "audio": {
+            "codecs": "fLaC",
+            "baseUrl": "https://cdn.example/audio?sign=SECRET"
+          }
+        },
+        "dolby": {
+          "audio": [
+            {
+              "codecs": "ec-3",
+              "baseUrl": "https://cdn.example/audio?sign=SECRET"
+            }
+          ]
+        }
+      }
+    },
+    "codec": null,
+    "category": "DASH_AUDIO_EMPTY"
+  }
+]

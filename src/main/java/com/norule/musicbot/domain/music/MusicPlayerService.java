@@ -2624,13 +2624,25 @@ public class MusicPlayerService {
                 .orElseGet(() -> input != null && input.regionMatches(true, 0, "BV", 0, 2)
                         ? input
                         : "-");
+        String selectionDiagnostics = "UNKNOWN";
         for (Throwable current = exception; current != null; current = current.getCause()) {
-            if (current instanceof BilibiliRequestException requestFailure && !requestFailure.videoId().isBlank()) {
-                videoId = requestFailure.videoId();
+            if (current instanceof BilibiliRequestException requestFailure) {
+                if (!requestFailure.videoId().isBlank()) videoId = requestFailure.videoId();
+                if (requestFailure.category().isAudioSelectionFailure()) {
+                    // The selector builds bounded diagnostics from numeric fields, validated labels and
+                    // URL-presence flags. Preserve these fields instead of the generic 300-character cap.
+                    selectionDiagnostics = requestFailure.getMessage();
+                }
                 break;
             }
         }
         String breakerState = bilibiliSourceLifecycle == null ? "UNKNOWN" : bilibiliSourceLifecycle.breakerState();
+        if (failure.category().isAudioSelectionFailure()) {
+            LOGGER.warn("[Bilibili] PLAYBACK_FAILED guildId={} videoId={} stage={} category={} breakerState={} retryable={} diagnostics={}",
+                    guildId, sanitizeInputForLog(videoId), failure.stage(), failure.category(), breakerState,
+                    failure.retryable(), selectionDiagnostics);
+            return;
+        }
         String summary = "[NoRule] Bilibili request rejected: guildId=" + guildId
                 + " videoId=" + sanitizeInputForLog(videoId)
                 + " stage=" + failure.stage()

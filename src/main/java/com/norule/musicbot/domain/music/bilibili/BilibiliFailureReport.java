@@ -8,6 +8,6 @@ public record BilibiliFailureReport(
         boolean breakerFailure
 ) {
     public String errorKey() {
-        return category.name();
+        return category.isAudioSelectionFailure() ? "BILIBILI_" + category.name() : category.name();
     }
 }

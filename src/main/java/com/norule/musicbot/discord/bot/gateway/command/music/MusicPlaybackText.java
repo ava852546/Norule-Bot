@@ -186,6 +186,30 @@ public final class MusicPlaybackText {
 
     private String bilibiliFailureText(String lang, String rawError) {
         String normalized = rawError.toUpperCase(java.util.Locale.ROOT);
+        switch (normalized) {
+            case "BILIBILI_DASH_AUDIO_EMPTY":
+                return translatedOrFallback(lang, "music.bilibili_dash_audio_empty",
+                        "Bilibili did not provide an audio track for this video.",
+                        "Bilibili \u672a\u63d0\u4f9b\u9019\u90e8\u5f71\u7247\u7684\u97f3\u8a0a\u3002",
+                        "Bilibili \u672a\u63d0\u4f9b\u8fd9\u90e8\u89c6\u9891\u7684\u97f3\u9891\u3002");
+            case "BILIBILI_AUDIO_FORMAT_UNSUPPORTED":
+                return translatedOrFallback(lang, "music.bilibili_audio_format_unsupported",
+                        "This Bilibili video's audio format is not supported.",
+                        "\u9019\u90e8 Bilibili \u5f71\u7247\u7684\u97f3\u8a0a\u683c\u5f0f\u5c1a\u4e0d\u652f\u63f4\u3002",
+                        "\u8fd9\u90e8 Bilibili \u89c6\u9891\u7684\u97f3\u9891\u683c\u5f0f\u5c1a\u4e0d\u652f\u6301\u3002");
+            case "BILIBILI_AUDIO_URL_MISSING":
+                return translatedOrFallback(lang, "music.bilibili_audio_url_missing",
+                        "Bilibili did not provide a usable audio URL for this video.",
+                        "Bilibili \u672a\u63d0\u4f9b\u9019\u90e8\u5f71\u7247\u53ef\u7528\u7684\u97f3\u8a0a\u7db2\u5740\u3002",
+                        "Bilibili \u672a\u63d0\u4f9b\u8fd9\u90e8\u89c6\u9891\u53ef\u7528\u7684\u97f3\u9891\u7f51\u5740\u3002");
+            case "BILIBILI_AUDIO_RESPONSE_INVALID":
+                return translatedOrFallback(lang, "music.bilibili_audio_response_invalid",
+                        "Bilibili returned invalid audio information for this video.",
+                        "Bilibili \u56de\u50b3\u7684\u5f71\u7247\u97f3\u8a0a\u8cc7\u6599\u4e0d\u5b8c\u6574\u6216\u683c\u5f0f\u7570\u5e38\u3002",
+                        "Bilibili \u8fd4\u56de\u7684\u89c6\u9891\u97f3\u9891\u4fe1\u606f\u4e0d\u5b8c\u6574\u6216\u683c\u5f0f\u5f02\u5e38\u3002");
+            default:
+                break;
+        }
         String key = switch (normalized) {
             case "BILIBILI_RISK_CONTROL" -> "music.bilibili_risk_control";
             case "BILIBILI_ACCESS_DENIED" -> "music.bilibili_access_denied";

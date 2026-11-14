@@ -26,7 +26,7 @@ class BilibiliDashAudioTrackTest {
                   {"codecs":"mp4a.40.2","bandwidth":10,"baseUrl":"https://cdn/other"}]}}
                 """));
         assertEquals(List.of(URI.create("https://cdn/main"), URI.create("https://cdn/backup")), urls);
-        assertThrows(IOException.class, () -> BilibiliDashAudioTrack.audioUrls(JsonBrowser.parse("{}")));
+        assertThrows(BilibiliRequestException.class, () -> BilibiliDashAudioTrack.audioUrls(JsonBrowser.parse("{}")));
     }
 
     @Test void failsOverAndReconnectsUsingByteRanges() throws Exception {

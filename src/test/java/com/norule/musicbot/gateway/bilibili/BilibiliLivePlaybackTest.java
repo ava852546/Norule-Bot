@@ -32,8 +32,11 @@ class BilibiliLivePlaybackTest {
         var scheduler = new com.norule.musicbot.domain.music.TrackScheduler(first);
         first.addListener(scheduler);
         try {
-            AudioItem item = source.loadItem(manager, new AudioReference("https://www.bilibili.com/video/BV1VqsQ6KEoy/", null));
+            String video = System.getProperty("bilibili.live.video", "BV1VqsQ6KEoy");
+            assertTrue(video.matches("BV[0-9A-Za-z]{10}"));
+            AudioItem item = source.loadItem(manager, new AudioReference("https://www.bilibili.com/video/" + video + "/", null));
             AudioTrack track = item instanceof AudioPlaylist list ? list.getTracks().get(0) : (AudioTrack) item;
+            Thread.sleep(Math.max(1100L, source.nextPlaybackDelayMillis()));
             var next = track.makeClone();
             scheduler.queue(track);
             scheduler.queue(next);
@@ -86,10 +89,13 @@ class BilibiliLivePlaybackTest {
             }
         });
         try {
+            String video = System.getProperty("bilibili.live.video", "BV1VqsQ6KEoy");
+            assertTrue(video.matches("BV[0-9A-Za-z]{10}"));
             AudioItem item = source.loadItem(manager, new AudioReference(
-                    "https://www.bilibili.com/video/BV1VqsQ6KEoy/", null));
+                    "https://www.bilibili.com/video/" + video + "/", null));
             AudioTrack track = item instanceof AudioPlaylist list ? list.getTracks().get(0) : (AudioTrack) item;
-            System.out.println("LIVE_METADATA title=" + track.getInfo().title + " duration=" + track.getDuration());
+            System.out.println("LIVE_METADATA duration=" + track.getDuration());
+            Thread.sleep(Math.max(1100L, source.nextPlaybackDelayMillis()));
             player.playTrack(track);
             long required = Long.getLong("bilibili.live.millis", 30_000L);
             long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(
