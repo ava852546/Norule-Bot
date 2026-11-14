@@ -57,7 +57,7 @@ public final class PlaylistLoadCoordinator implements AutoCloseable {
         synchronized (this) {
             Job existing = jobs.get(key);
             if (existing != null) {
-                LOG.info("[BilibiliBatch] event=DUPLICATE_SUPPRESSED guildId={} batchId={} source=PLAYLIST_LOAD playlistId={}",
+                LOG.info("[PlaylistBatch] event=DUPLICATE_SUPPRESSED guildId={} batchId={} source=PLAYLIST_LOAD playlistId={}",
                         guildId, existing.id, existing.playlistId);
                 return new Submission(Status.DUPLICATE, snapshot(existing), existing.completion);
             }
@@ -70,7 +70,7 @@ public final class PlaylistLoadCoordinator implements AutoCloseable {
             jobs.put(key, job);
             pending += tracks.size();
             job.timeout = executor.schedule(() -> {
-                LOG.info("[BilibiliBatch] event=WAIT_TIMEOUT batchId={} guildId={} source=PLAYLIST_LOAD", job.id, guildId);
+                LOG.info("[PlaylistBatch] event=WAIT_TIMEOUT batchId={} guildId={} source=PLAYLIST_LOAD", job.id, guildId);
                 cancel(job);
             }, 10, TimeUnit.MINUTES);
             log("START", job);
@@ -86,7 +86,7 @@ public final class PlaylistLoadCoordinator implements AutoCloseable {
             if (jobs.get(job.key) != job) return;
             if (job.finished == job.tracks.size()) { finish(job); return; }
             track = job.tracks.get(job.finished);
-            LOG.debug("[BilibiliBatch] event=ENTRY_SUBMITTED batchId={} requestId={} guildId={} userId={} source=PLAYLIST_LOAD playlistId={} index={}",
+            LOG.debug("[PlaylistBatch] event=ENTRY_SUBMITTED batchId={} requestId={} guildId={} userId={} source=PLAYLIST_LOAD playlistId={} index={}",
                     job.id, job.requestId, job.key.guildId, job.userId, job.playlistId, job.finished);
         }
         try {
@@ -106,7 +106,7 @@ public final class PlaylistLoadCoordinator implements AutoCloseable {
     private void entryCompleted(Job job, TrackResult result, Throwable error) {
         synchronized (this) {
             if (jobs.get(job.key) != job) return;
-            LOG.debug("[BilibiliBatch] event=ENTRY_COMPLETE batchId={} requestId={} guildId={} index={} result={} errorType={}",
+            LOG.debug("[PlaylistBatch] event=ENTRY_COMPLETE batchId={} requestId={} guildId={} index={} result={} errorType={}",
                     job.id, job.requestId, job.key.guildId, job.finished, result,
                     error == null ? "-" : error.getClass().getSimpleName());
             job.finished++;
@@ -164,7 +164,7 @@ public final class PlaylistLoadCoordinator implements AutoCloseable {
     }
 
     private void log(String event, Job job) {
-        LOG.info("[BilibiliBatch] event={} state={}", event, snapshot(job));
+        LOG.info("[PlaylistBatch] event={} state={}", event, snapshot(job));
     }
 
     @Override public void close() {

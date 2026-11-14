@@ -79,7 +79,7 @@ music:
   youtube_companion_stream_unavailable: "⚠️ No playable audio source is available for this track. Please try again later or choose another track."
   youtube_audio_source_unavailable: "⚠️ No playable audio source is available for this track. Please try again later or choose another track."
   youtube_playback_skipped: "⚠️ This track cannot be played right now and was skipped automatically."
-  youtube_bot_detected: "YouTube temporarily requires additional verification, so this track cannot be played right now."
+  youtube_bot_detected: "The music playback service is unavailable. Please try again later and use /report if this persists. Unplayed tracks are retained; wait one minute, then skip manually to resume."
   bilibili_risk_control: "Bilibili temporarily rejected the playback request. Please try again later."
   bilibili_access_denied: "Bilibili denied access to this video. Please try another video."
   bilibili_rate_limited: "Bilibili is receiving too many requests. Please try again later."
@@ -557,6 +557,14 @@ settings:
   reset_cancelled: "Reset cancelled."
 
 room_settings:
+  enable_missing_permissions: "Cannot enable private voice rooms: the bot lacks {permissions}. Guild {guild}, trigger channel {channel}, category {category}. Fix the server and channel/category permissions, then retry. Other settings can still be saved."
+  trigger_unavailable: "Cannot enable private voice rooms: trigger voice channel {channel} in guild {guild} is unavailable. Select another channel. Other settings can still be saved."
+  runtime_permission_failure: "Private voice room operation failed. Check the bot's Manage Channels, Manage Permissions and Move Members permissions in the server, trigger channel and category. Existing rooms are retained."
+  permission_manage_channel: "Manage Channels"
+  permission_manage_permissions: "Manage Permissions"
+  permission_voice_move_others: "Move Members"
+  permission_view_channel: "View Channel"
+  permission_voice_connect: "Connect"
   action: "Choose a room action"
   title: "Private Room Settings"
   desc: "Use the dropdown to manage your current private room."

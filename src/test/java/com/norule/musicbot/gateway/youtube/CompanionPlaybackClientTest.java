@@ -28,6 +28,18 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CompanionPlaybackClientTest {
+    @Test void botVerificationTakesPrecedenceOverLoginStatus() {
+        try (var client = client(request -> response(200,
+                "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\",\"reason\":\"Sign in to confirm you’re not a bot\"}}"))) {
+            assertEquals(YoutubeFailureCategory.BOT_DETECTED,
+                    assertThrows(YouTubePlaybackException.class, () -> client.resolve(VIDEO_ID)).category());
+        }
+        try (var client = client(request -> response(200,
+                "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\",\"reason\":\"Sign in to watch this video\"}}"))) {
+            assertEquals(YoutubeFailureCategory.LOGIN_REQUIRED,
+                    assertThrows(YouTubePlaybackException.class, () -> client.resolve(VIDEO_ID)).category());
+        }
+    }
     private static final String VIDEO_ID = "dQw4w9WgXcQ";
     private static final String SECRET = "ChangeMe12345678";
 

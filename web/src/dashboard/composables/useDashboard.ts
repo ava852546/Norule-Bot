@@ -466,7 +466,7 @@ function createDashboardStore() {
     if (!state.selectedGuildId || state.saving) return false
     state.saving = true
     try {
-      await dashboardApi(`/api/guild/${state.selectedGuildId}/settings`, {
+      const result = await dashboardApi<{ privateRoomWarning?: string }>(`/api/guild/${state.selectedGuildId}/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildSavePayload()),
@@ -475,6 +475,11 @@ function createDashboardStore() {
       state.loadedSections.clear()
       state.dirtySections.clear()
       for (const section of loaded) await loadSection(section, true)
+      if (result.privateRoomWarning) {
+        setStatus(result.privateRoomWarning)
+        toast(result.privateRoomWarning, 'error')
+        return false
+      }
       const message = i18n.t('settingsSaved', '設定已儲存')
       setStatus(message)
       toast(message, 'success')

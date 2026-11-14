@@ -733,6 +733,7 @@ public class MusicPlayerService {
                     (track, thresholdMs) -> handleTrackStuck(id, track, thresholdMs),
                     () -> guild.getAudioManager().getConnectedChannel() != null
             );
+            manager.getScheduler().setGuildId(id);
             manager.getScheduler().setStateChangeListener(reason -> notifyStateChanged(id, reason));
             manager.getScheduler().setDiagnosticFrameListener(track -> confirmDiagnosticPlayback(id, track));
             manager.getScheduler().setRecoveryFrameListener(track -> {
@@ -820,6 +821,8 @@ public class MusicPlayerService {
     }
 
     public boolean isPlaybackTransitioning(Guild guild) {
+        var manager = musicManagers.get(guild.getIdLong());
+        if (manager != null && manager.getScheduler().isPreparing()) return true;
         var loads = pendingPlaybackLoads.get(guild.getIdLong());
         return (loads != null && !loads.isEmpty()) || playlistLoads.hasPending(guild.getIdLong())
                 || trackRecoveryService.isRecoveryInProgress(guild.getIdLong());
@@ -865,8 +868,11 @@ public class MusicPlayerService {
             if (!current.getAsBoolean()) { callback.noMatches(); return; }
             if (bilibiliSourceLifecycle != null && BilibiliVideoIdentifier.isBilibiliInput(identifier))
                 bilibiliSourceLifecycle.traceNextLoad(identifier, "loadRequestId=" + requestId + " guildId=" + guildId + " source=" + source);
-            if (manager == null) playerManager.loadItem(identifier, callback);
-            else playerManager.loadItemOrdered(manager, identifier, callback);
+            String tracedIdentifier = identifier;
+            var youtube = playerManager.source(YoutubeAudioSourceManager.class);
+            if (youtube instanceof SourceLoadTracing tracing) tracedIdentifier = tracing.traceLoad(identifier, guildId, requestId, source);
+            if (manager == null) playerManager.loadItem(tracedIdentifier, callback);
+            else playerManager.loadItemOrdered(manager, tracedIdentifier, callback);
         };
         if (BilibiliVideoIdentifier.isBilibiliInput(identifier)) {
             bilibiliLoads.submitTraced(guildId, source, source.startsWith("PLAYLIST") || "AUTOPLAY".equals(source),
@@ -1748,6 +1754,11 @@ public class MusicPlayerService {
     }
 
     public void cancelLoads(long guildId) {
+        GuildMusicManager existingManager = musicManagers.get(guildId);
+        if (existingManager != null && existingManager.getScheduler().isPreparing())
+            existingManager.getScheduler().invalidatePlaybackGeneration();
+        var youtube = playerManager.source(YoutubeAudioSourceManager.class);
+        if (youtube instanceof SourceLoadTracing tracing) tracing.cancelGuildLoads(guildId);
         deferredAutoplaySeeds.remove(guildId);
         trackRecoveryService.cancel(guildId);
         playlistLoads.cancelGuild(guildId);
@@ -1762,6 +1773,8 @@ public class MusicPlayerService {
         playlistLoads.close();
         for (Long guildId : musicManagers.keySet()) cancelLoads(guildId);
         bilibiliLoads.close();
+        var youtube = playerManager.source(YoutubeAudioSourceManager.class);
+        if (youtube instanceof SourceLoadTracing tracing) tracing.closeLoads();
     }
 
     public void stop(Guild guild) {
@@ -2246,15 +2259,29 @@ public class MusicPlayerService {
         }
         if (isYoutubeTrack(track) || YOUTUBE_FAILURE_CLASSIFIER.isYoutubeSourceFailure(exception)) {
             YoutubeFailureReport youtubeFailure = YOUTUBE_FAILURE_CLASSIFIER.classify(exception);
-            var attemptLog = youtubeFailure.recoveryClass() == YoutubeRecoveryClass.PERMANENT
+            recordYoutubePlaybackFailure(youtubeFailure);
+            recordYoutubePrecheckFailure(track, youtubeFailure);
+            GuildMusicManager failureManager = musicManagers.get(guildId);
+            if (failureManager != null && failureManager.getScheduler().shouldHoldSource(youtubeFailure.category())) {
+                trackRecoveryService.cancel(guildId);
+                GuildMusicManager manager = musicManagers.get(guildId);
+                if (manager != null) {
+                    var scheduler = manager.getScheduler();
+                    scheduler.holdSource(candidate -> isYoutubeTrack(candidate)
+                            || (candidate.getSourceManager() != null && "spotify".equals(candidate.getSourceManager().getSourceName())), 60_000);
+                    scheduler.stopIfCurrent(track, scheduler.getPlaybackGeneration());
+                }
+                logFinalYoutubePlaybackFailure(guildId, track, exception);
+                notifyPlaybackFailure(guildId, trackTitle(track), youtubeFailure.errorKey());
+                return;
+            }
+            var attemptLog = youtubeFailure.category() != YoutubeFailureCategory.UNKNOWN
                     ? LOGGER.atDebug() : LOGGER.atWarn();
             attemptLog.log("[NoRule] YouTube attempt failed: guildId={} correlationId={} attempt={} history={}",
                     guildId, failureContext == null ? "-" : failureContext.correlationId(),
                     failureContext == null ? 0 : failureContext.recoveryAttempts(),
                     failureContext == null ? java.util.List.of() : failureContext.failures().stream()
                             .map(cause -> YOUTUBE_FAILURE_CLASSIFIER.classify(cause).category()).toList());
-            recordYoutubePlaybackFailure(youtubeFailure);
-            recordYoutubePrecheckFailure(track, youtubeFailure);
             logYoutubeFailure(
                     "playback",
                     guildId,
@@ -2768,7 +2795,7 @@ public class MusicPlayerService {
                 + " category=" + report.category()
                 + " recoveryClass=" + report.recoveryClass()
                 + " clients=" + report.clientsSummary();
-        var attemptLog = report.recoveryClass() == YoutubeRecoveryClass.PERMANENT
+        var attemptLog = report.category() != YoutubeFailureCategory.UNKNOWN
                 ? LOGGER.atDebug() : LOGGER.atWarn();
         attemptLog.log(summary + " configuredBackend=" + youtubePlaybackTrackFactory.backend()
                 + " provider=" + YOUTUBE_FAILURE_CLASSIFIER.provider(exception)
@@ -2777,7 +2804,7 @@ public class MusicPlayerService {
                 + " httpStatus=" + report.httpStatus()
                 + " reason=" + YOUTUBE_FAILURE_CLASSIFIER.safeDescription(exception));
         for (YoutubeClientFailure client : report.clientFailures()) {
-            var clientLog = report.recoveryClass() == YoutubeRecoveryClass.PERMANENT
+            var clientLog = report.category() != YoutubeFailureCategory.UNKNOWN
                     ? LOGGER.atDebug() : LOGGER.atWarn();
             clientLog.log("[NoRule] YouTube client failure: correlationId={} guildId={} videoId={} client={} category={} httpStatus={} reason={}",
                     correlationId, guildId, sanitizeInputForLog(videoId), client.clientName(), client.category(),
@@ -2798,6 +2825,21 @@ public class MusicPlayerService {
                 guildId, sanitizeInputForLog(youtubeVideoId(track)), youtubePlaybackTrackFactory.backend(), actualBackend,
                 report.category(), report.httpStatus(), fallbackAttempted,
                 context == null ? 0 : context.recoveryAttempts(), context == null ? "-" : context.correlationId());
+        if (LOGGER.isDebugEnabled()) {
+            var seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Throwable, Boolean>());
+            var causes = new java.util.ArrayDeque<Throwable>();
+            if (failure != null) causes.add(failure);
+            while (!causes.isEmpty() && seen.size() < 64) {
+                Throwable cause = causes.removeFirst();
+                if (!seen.add(cause)) continue;
+                // Raw Throwable rendering can include signed media URLs in nested messages.
+                LOGGER.debug("YouTube playback diagnostic: correlationId={} failureType={} reason={} stack={}",
+                        context == null ? "-" : context.correlationId(), cause.getClass().getSimpleName(),
+                        YOUTUBE_FAILURE_CLASSIFIER.safeDescription(cause), java.util.Arrays.toString(cause.getStackTrace()));
+                if (cause.getCause() != null) causes.add(cause.getCause());
+                for (Throwable suppressed : cause.getSuppressed()) if (causes.size() < 64) causes.add(suppressed);
+            }
+        }
     }
 
     private String trackTitle(AudioTrack track) {
@@ -2972,6 +3014,8 @@ public class MusicPlayerService {
             return;
         }
         applyTrackMetadata(track, "autoplay", null, "AutoPlay");
+        TrackLoadContext context = readContext(track);
+        if (context != null) track.setUserData(context.withRequestTrace(guildId, context.correlationId(), "-", "AUTOPLAY"));
         if (guildMusicManager.getScheduler().queueIfIdle(preparePlaybackTrack(track), generation)) {
             clearAutoplayNotice(guildId);
         }
@@ -3456,8 +3500,19 @@ public class MusicPlayerService {
     }
 
     private AudioTrack queuePlaybackTrack(GuildMusicManager guildMusicManager, AudioTrack track, LoadProgress progress) {
+        TrackLoadContext context = readContext(track);
+        if (context != null) {
+            context = context.withRequestTrace(guildMusicManager.getScheduler().getGuildId(),
+                    progress == null || progress.context == null ? context.correlationId() : progress.context.requestId(),
+                    progress == null || progress.context == null ? "-" : progress.context.batchId(),
+                    (progress == null ? "USER_PLAY" : progress.source.split(" ", 2)[0])
+                            + "_" + context.sourceName().toUpperCase(java.util.Locale.ROOT));
+            track.setUserData(context);
+        }
         AudioTrack playbackTrack = preparePlaybackTrack(track);
         guildMusicManager.getScheduler().queue(playbackTrack, progress != null && progress.context != null);
+        if (context != null) LOGGER.debug("event=MUSIC_REQUEST guildId={} requestId={} batchId={} videoId={} source={} stage=QUEUE_COMMIT backend={} requestCount=0 result=QUEUED",
+                context.guildId(), context.requestId(), context.batchId(), youtubeVideoId(track), context.requestSource(), youtubePlaybackTrackFactory.backend());
         return playbackTrack;
     }
 
@@ -3471,9 +3526,6 @@ public class MusicPlayerService {
             return null;
         }
         String videoId = youtubeVideoId(track);
-        if (videoId == null || videoId.isBlank()) {
-            return track;
-        }
         return youtubePlaybackTrackFactory.prepare(videoId, track);
     }
 

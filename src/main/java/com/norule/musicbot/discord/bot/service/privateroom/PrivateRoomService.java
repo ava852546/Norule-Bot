@@ -46,6 +46,8 @@ public class PrivateRoomService {
     private static final Map<Long, Set<Long>> PRIVATE_CHANNELS = new ConcurrentHashMap<>();
     private static final Map<Long, Map<Long, Long>> ROOM_OWNERS = new ConcurrentHashMap<>();
     private static volatile PrivateRoomService activeInstance;
+    private final Map<Long, Long> permissionNoticeAt = new ConcurrentHashMap<>();
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(PrivateRoomService.class);
 
     public PrivateRoomService(GuildSettingsService settingsService,
                               I18nService i18n,
@@ -87,39 +89,70 @@ public class PrivateRoomService {
         }
 
         Member member = event.getEntity();
+        var permissionCheck = PrivateRoomPermissions.check(event.getGuild(), cfg.getTriggerVoiceChannelId());
+        if (!permissionCheck.allowed()) {
+            reportPermissionFailure(event.getGuild(), permissionCheck, null);
+            return;
+        }
         String roomName = buildRoomName(member);
-        event.getGuild().createVoiceChannel(roomName)
-                .setParent(resolveCategory(event, cfg.getTriggerVoiceChannelId()))
-                .setUserlimit(cfg.getUserLimit())
-                .setBitrate(resolveMaxBitrate(event))
-                .addRolePermissionOverride(
-                        event.getGuild().getPublicRole().getIdLong(),
-                        Permission.getRaw(
-                                Permission.CREATE_INSTANT_INVITE,
-                                Permission.VIEW_CHANNEL,
-                                Permission.VOICE_CONNECT,
-                                Permission.VOICE_SPEAK,
-                                Permission.VOICE_STREAM,
-                                Permission.VOICE_USE_VAD
-                        ),
-                        0L
-                )
-                .addMemberPermissionOverride(
-                        member.getIdLong(),
-                        ROOM_OWNER_PERMISSION_RAW,
-                        0L
-                )
-                .queue(created -> {
-                    long guildId = created.getGuild().getIdLong();
-                    long channelId = created.getIdLong();
-                    long ownerId = member.getIdLong();
-                    rememberPrivateChannel(created);
-                    ROOM_OWNERS
-                            .computeIfAbsent(guildId, id -> new ConcurrentHashMap<>())
-                            .put(channelId, ownerId);
-                    upsertCacheEntry(guildId, channelId, ownerId);
-                    event.getGuild().moveVoiceMember(member, created).queue();
-                });
+        try {
+            event.getGuild().createVoiceChannel(roomName)
+                    .setParent(resolveCategory(event, cfg.getTriggerVoiceChannelId()))
+                    .setUserlimit(cfg.getUserLimit())
+                    .setBitrate(resolveMaxBitrate(event))
+                    .addRolePermissionOverride(
+                            event.getGuild().getPublicRole().getIdLong(),
+                            Permission.getRaw(
+                                    Permission.CREATE_INSTANT_INVITE,
+                                    Permission.VIEW_CHANNEL,
+                                    Permission.VOICE_CONNECT,
+                                    Permission.VOICE_SPEAK,
+                                    Permission.VOICE_STREAM,
+                                    Permission.VOICE_USE_VAD
+                            ),
+                            0L
+                    )
+                    .addMemberPermissionOverride(
+                            member.getIdLong(),
+                            ROOM_OWNER_PERMISSION_RAW,
+                            0L
+                    )
+                    .queue(created -> {
+                        long guildId = created.getGuild().getIdLong();
+                        long channelId = created.getIdLong();
+                        long ownerId = member.getIdLong();
+                        rememberPrivateChannel(created);
+                        ROOM_OWNERS
+                                .computeIfAbsent(guildId, id -> new ConcurrentHashMap<>())
+                                .put(channelId, ownerId);
+                        upsertCacheEntry(guildId, channelId, ownerId);
+                        try {
+                            event.getGuild().moveVoiceMember(member, created).queue(ignored -> { },
+                                    failure -> reportPermissionFailure(event.getGuild(), permissionCheck, failure));
+                    } catch (net.dv8tion.jda.api.exceptions.PermissionException failure) {
+                        reportPermissionFailure(event.getGuild(), permissionCheck, failure);
+                    }
+                }, failure -> reportPermissionFailure(event.getGuild(), permissionCheck, failure));
+        } catch (net.dv8tion.jda.api.exceptions.PermissionException failure) {
+            reportPermissionFailure(event.getGuild(), permissionCheck, failure);
+        }
+    }
+
+    private void reportPermissionFailure(Guild guild, PrivateRoomPermissions.Check check, Throwable failure) {
+        long now = System.currentTimeMillis();
+        permissionNoticeAt.entrySet().removeIf(entry -> now - entry.getValue() >= 300_000);
+        if (permissionNoticeAt.putIfAbsent(guild.getIdLong(), now) != null) return;
+        LOG.warn("event=PRIVATE_ROOM_OPERATION_FAILED guildId={} channelId={} categoryId={} missing={} failureType={}",
+                guild.getIdLong(), check.channelId(), check.categoryId(), check.missing(),
+                failure == null ? "PREFLIGHT_DENIED" : failure.getClass().getSimpleName());
+        if (failure != null) LOG.debug("Private room operation diagnostic", failure);
+        String language = settingsService.getLanguage(guild.getIdLong());
+        String message = check.allowed() ? i18n.t(language, "room_settings.runtime_permission_failure") : check.message(i18n, language);
+        // A private owner notice avoids posting to arbitrary public channels. No retry loop.
+        guild.retrieveOwner().queue(owner -> owner.getUser().openPrivateChannel().queue(
+                channel -> channel.sendMessage(message).queue(ignored -> { }, error -> LOG.debug("Private room owner notice unavailable")),
+                error -> LOG.debug("Private room owner DM unavailable")),
+                error -> LOG.debug("Private room owner unavailable"));
     }
 
     private int resolveMaxBitrate(GuildVoiceUpdateEvent event) {
@@ -139,13 +172,19 @@ public class PrivateRoomService {
         if (!voice.getMembers().isEmpty()) {
             return;
         }
-        voice.delete().queue(v -> {
-            long guildId = event.getGuild().getIdLong();
-            long channelId = voice.getIdLong();
-            removeManagedPrivateChannel(guildId, channelId);
-            removeCacheEntry(guildId, channelId);
-        }, e -> {
-        });
+        try {
+            voice.delete().queue(v -> {
+                long guildId = event.getGuild().getIdLong();
+                long channelId = voice.getIdLong();
+                removeManagedPrivateChannel(guildId, channelId);
+                removeCacheEntry(guildId, channelId);
+            }, e -> {
+                LOG.debug("Private room cleanup deferred: guildId={} channelId={}", event.getGuild().getIdLong(), voice.getIdLong());
+            });
+        } catch (net.dv8tion.jda.api.exceptions.PermissionException failure) {
+            reportPermissionFailure(event.getGuild(), PrivateRoomPermissions.check(event.getGuild(),
+                    settingsService.getPrivateRoom(event.getGuild().getIdLong()).getTriggerVoiceChannelId()), failure);
+        }
     }
 
     private Category resolveCategory(GuildVoiceUpdateEvent event, Long triggerVoiceChannelId) {
@@ -213,16 +252,20 @@ public class PrivateRoomService {
                 }
                 if (channel.getMembers().isEmpty()) {
                     long targetChannelId = channelId;
-                    deleteRoom.apply(channelId, channel.delete().setCheck(() -> channel.getMembers().isEmpty()))
-                            .thenRun(() -> {
-                                removeManagedPrivateChannel(guildId, targetChannelId);
-                                removeCacheEntry(guildId, targetChannelId);
-                            }).exceptionally(error -> {
-                                org.slf4j.LoggerFactory.getLogger(PrivateRoomService.class).debug(
-                                        "Startup private room cleanup deferred: guildId={} channelId={}",
-                                        guildId, targetChannelId, error);
-                                return null;
-                            });
+                    try {
+                        deleteRoom.apply(channelId, channel.delete().setCheck(() -> channel.getMembers().isEmpty()))
+                                .thenRun(() -> {
+                                    removeManagedPrivateChannel(guildId, targetChannelId);
+                                    removeCacheEntry(guildId, targetChannelId);
+                                }).exceptionally(error -> {
+                                    org.slf4j.LoggerFactory.getLogger(PrivateRoomService.class).debug(
+                                            "Startup private room cleanup deferred: guildId={} channelId={}",
+                                            guildId, targetChannelId, error);
+                                    return null;
+                                });
+                    } catch (net.dv8tion.jda.api.exceptions.PermissionException failure) {
+                        LOG.debug("Startup private room cleanup denied: guildId={} channelId={}", guildId, channelId, failure);
+                    }
                 }
             }
         }

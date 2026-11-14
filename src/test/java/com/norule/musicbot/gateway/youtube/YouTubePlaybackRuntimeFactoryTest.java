@@ -61,7 +61,7 @@ class YouTubePlaybackRuntimeFactoryTest {
                 } else {
                     org.junit.jupiter.api.Assertions.assertThrows(Exception.class, () -> track.process(executor));
                 }
-                assertEquals(2, requests.get(), "A transient player API 503 has one bounded Companion retry");
+                assertEquals(1, requests.get(), "A transient player API failure must not amplify Companion requests");
                 assertEquals(optIn ? 1 : 0, sourceCalls.get());
             } finally {
                 server.stop(0);

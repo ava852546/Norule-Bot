@@ -15,6 +15,62 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class TrackSchedulerRecoveryTest {
+    @Test void sourceOutageRetainsFiveHundredTracksAllowsOtherSourceAndManualRecoveryAfterCooldown() {
+        FakePlayer player = new FakePlayer();
+        var now = new java.util.concurrent.atomic.AtomicLong(100_000);
+        var clock = new java.time.Clock() {
+            public java.time.ZoneId getZone() { return java.time.ZoneOffset.UTC; }
+            public java.time.Clock withZone(java.time.ZoneId zone) { return this; }
+            public java.time.Instant instant() { return java.time.Instant.ofEpochMilli(now.get()); }
+            public long millis() { return now.get(); }
+        };
+        TrackScheduler scheduler = new TrackScheduler(player.proxy, clock);
+        var failed = new FakeTrack("yt-failed", true).proxy;
+        scheduler.queue(failed);
+        for (int i = 0; i < 500; i++) scheduler.queue(new FakeTrack("yt-" + i, true).proxy, true);
+        scheduler.setTrackExceptionListener((track, error) -> {
+            scheduler.holdSource(candidate -> candidate.getIdentifier().startsWith("yt-"), 60_000);
+            scheduler.stopIfCurrent(track, scheduler.getPlaybackGeneration());
+        });
+        var error = new FriendlyException("fixture", FriendlyException.Severity.COMMON, null);
+        scheduler.onTrackException(player.proxy, failed, error);
+        scheduler.onTrackException(player.proxy, failed, error);
+        scheduler.onTrackEnd(player.proxy, failed, AudioTrackEndReason.LOAD_FAILED);
+        assertEquals(500, scheduler.previewQueue(1).total());
+        assertEquals(null, player.current);
+        var other = new FakeTrack("other-source", true).proxy;
+        scheduler.queue(other); assertSame(other, player.current);
+        scheduler.nextTrack(); assertEquals(null, player.current);
+        assertEquals(500, scheduler.previewQueue(1).total());
+        now.addAndGet(60_000); scheduler.nextTrack();
+        assertEquals("yt-0", player.current.getIdentifier());
+        assertEquals(499, scheduler.previewQueue(1).total());
+    }
+
+    @Test void asynchronousPreparationIsLazyAndSkipCancelsBeforeLateCallbackCanPlay() {
+        FakePlayer player = new FakePlayer();
+        TrackScheduler scheduler = new TrackScheduler(player.proxy);
+        var pending = new java.util.concurrent.CompletableFuture<Void>();
+        var base = new FakeTrack("async", true).proxy;
+        var async = (AudioTrack) Proxy.newProxyInstance(AudioTrack.class.getClassLoader(),
+                new Class<?>[]{AudioTrack.class, PlaybackPreparation.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "preparePlayback" -> pending;
+                    case "cancelPreparation" -> { pending.cancel(false); yield null; }
+                    default -> method.invoke(base, args);
+                });
+        var failures = new java.util.concurrent.atomic.AtomicInteger();
+        scheduler.setTrackExceptionListener((track, error) -> failures.incrementAndGet());
+        scheduler.queue(async);
+        assertFalse(scheduler.isIdle(scheduler.getPlaybackGeneration()), "Pending preparation must not start a second autoplay lookup");
+        for (int i = 0; i < 100; i++) scheduler.queue(new FakeTrack("next-" + i, true).proxy, true);
+        assertTrue(scheduler.isPreparing()); assertEquals(null, player.current);
+        assertEquals(100, scheduler.previewQueue(1).total());
+        scheduler.nextTrack();
+        assertTrue(pending.isCancelled()); assertEquals(0, failures.get());
+        assertEquals("next-0", player.current.getIdentifier());
+        pending.complete(null);
+        assertEquals("next-0", player.current.getIdentifier());
+    }
     @Test
     void accessStopRetainsQueueAndIgnoresLateEndRepeatAndDuplicateEvents() {
         FakePlayer player = new FakePlayer();

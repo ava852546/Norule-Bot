@@ -538,6 +538,19 @@ public final class GuildSettingsWebService {
             owner.sendJson(exchange, 400, DataObject.empty().put("error", "Invalid music panel mode"));
             return;
         }
+        var privateInput = owner.asMap(root.get("privateRoom"));
+        var currentPrivate = owner.settingsService().getPrivateRoom(guild.getIdLong());
+        String privateRoomWarning = null;
+        if (!privateInput.isEmpty() && owner.boolOrDefault(privateInput, "enabled", currentPrivate.isEnabled())) {
+            var check = com.norule.musicbot.discord.bot.service.privateroom.PrivateRoomPermissions.check(guild,
+                    owner.idOrDefault(privateInput, "triggerVoiceChannelId", currentPrivate.getTriggerVoiceChannelId()));
+            if (!check.allowed()) {
+                String language = owner.stringOrDefault(root, "language", owner.settingsService().getLanguage(guild.getIdLong()));
+                privateRoomWarning = check.message(owner.i18n(), language);
+                // Other settings sections may still be saved; rejected room settings remain unchanged.
+                root.remove("privateRoom");
+            }
+        }
         GuildSettingsService.GuildSettings updated = owner.settingsService().updateSettings(guild.getIdLong(), current -> {
             String oldLanguage = current.getLanguage();
             String language = owner.stringOrDefault(root, "language", current.getLanguage());
@@ -684,7 +697,8 @@ public final class GuildSettingsWebService {
                     .withTicket(t);
         });
 
-        owner.sendJson(exchange, 200, DataObject.empty().put("ok", true).put("language", updated.getLanguage())
+        owner.sendJson(exchange, 200, DataObject.empty().put("ok", privateRoomWarning == null)
+                .put("privateRoomWarning", privateRoomWarning).put("language", updated.getLanguage())
                 .put("musicPanelChannelValid", musicPanelChannelValid(guild, updated.getMusic().getCommandChannelId()))
                 .put("musicPanelMode", updated.getMusic().getPanelMode().name()));
     }

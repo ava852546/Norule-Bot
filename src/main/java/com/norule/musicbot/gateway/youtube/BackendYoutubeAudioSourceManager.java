@@ -26,11 +26,44 @@ import java.util.Objects;
 /** Search/list metadata use youtube-source; direct Companion videos use its player API.
  * Every resulting track routes playback here,
  * including tracks resolved lazily inside LavaSrc's Spotify mirroring resolver. */
-final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
+final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager implements com.norule.musicbot.domain.music.SourceLoadTracing {
     private static final Logger LOGGER = LoggerFactory.getLogger(BackendYoutubeAudioSourceManager.class);
     private static final java.util.regex.Pattern SPOTIFY_TRACK = java.util.regex.Pattern.compile(
             "open\\.spotify\\.com/(?:intl-[a-z]{2}/)?track/([A-Za-z0-9]+)");
     private final YouTubePlaybackTrackFactory trackFactory;
+    private final java.util.Map<String, TracedLoad> tracedLoads = new java.util.concurrent.ConcurrentHashMap<>();
+    private record TracedLoad(String identifier, CompanionRequestTrace trace, long expires) { }
+
+    @Override public synchronized String traceLoad(String identifier, long guildId, String requestId, String source) {
+        if (trackFactory.backend() != YouTubePlaybackBackend.COMPANION) return identifier;
+        if (identifier == null || !(identifier.startsWith("ytsearch:") || identifier.startsWith("ytmsearch:")
+                || identifier.matches("[A-Za-z0-9_-]{11}")
+                || identifier.matches("(?i)https?://(?:www\\.)?(?:youtube\\.com|youtu\\.be)/.*"))) return identifier;
+        long now = System.currentTimeMillis();
+        tracedLoads.entrySet().removeIf(entry -> entry.getValue().expires < now);
+        if (tracedLoads.size() >= 4096) throw new java.util.concurrent.RejectedExecutionException("YouTube load tracing capacity reached");
+        String token = "norule-youtube-load:" + java.util.UUID.randomUUID();
+        var batch = java.util.regex.Pattern.compile("(?:^| )batchId=([^ ]+)").matcher(source);
+        var request = java.util.regex.Pattern.compile("(?:^| )requestId=([^ ]+)").matcher(source);
+        tracedLoads.put(token, new TracedLoad(identifier, new CompanionRequestTrace(guildId, request.find() ? request.group(1) : requestId,
+                batch.find() ? batch.group(1) : "-", source.split(" ", 2)[0]), now + 30_000));
+        return token;
+    }
+
+    @Override public void cancelGuildLoads(long guildId) {
+        tracedLoads.entrySet().removeIf(entry -> entry.getValue().trace.guildId() == guildId);
+        if (trackFactory instanceof CompanionYouTubePlaybackTrackFactory companion) companion.cancelGuild(guildId);
+    }
+
+    @Override public void closeLoads() {
+        tracedLoads.clear();
+        if (trackFactory instanceof CompanionYouTubePlaybackTrackFactory companion) companion.close();
+    }
+
+    @Override public void shutdown() {
+        closeLoads();
+        super.shutdown();
+    }
 
     BackendYoutubeAudioSourceManager(YouTubePlaybackTrackFactory trackFactory, Client... clients) {
         super(java.util.Arrays.stream(clients).map(ObservedYoutubeClient::new).toArray(Client[]::new));
@@ -39,12 +72,25 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
 
     @Override
     public AudioItem loadItem(AudioPlayerManager manager, AudioReference reference) {
+        if (reference.identifier != null && reference.identifier.startsWith("norule-youtube-load:")) {
+            TracedLoad load = tracedLoads.remove(reference.identifier);
+            if (load == null || load.expires < System.currentTimeMillis())
+                throw new FriendlyException("YouTube load was cancelled or expired.", FriendlyException.Severity.COMMON, null);
+            CompanionRequestTrace previous = CompanionRequestTrace.CURRENT.get();
+            CompanionRequestTrace.CURRENT.set(load.trace);
+            try { return loadItem(manager, new AudioReference(load.identifier, reference.title)); }
+            finally {
+                if (previous == null) CompanionRequestTrace.CURRENT.remove();
+                else CompanionRequestTrace.CURRENT.set(previous);
+            }
+        }
         String identifier = reference.identifier;
         String search = identifier != null && (identifier.startsWith("ytsearch:") || identifier.startsWith("ytmsearch:"))
                 ? identifier.replace('\r', ' ').replace('\n', ' ') : "-";
         LOGGER.debug("[NoRule] YouTube candidate discovery: stage=METADATA_DISCOVERY configuredBackend={} searchQuery={}",
                 trackFactory.backend(), search.substring(0, Math.min(search.length(), 240)));
-        var diagnostics = new YoutubeClientDiagnostics(super.getClients(), "METADATA_DISCOVERY", "-");
+        var trace = CompanionRequestTrace.CURRENT.get();
+        var diagnostics = new YoutubeClientDiagnostics(super.getClients(), "METADATA_DISCOVERY", trace == null ? "-" : trace.requestId());
         try (diagnostics) {
             try (var scope = PolicyCipherManager.metadataScope()) {
                 return super.loadItem(manager, reference);
@@ -61,7 +107,7 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
                     + "stage=METADATA_DISCOVERY category={} httpStatus={} clients={} failureType={} {}",
                     trackFactory.backend(), classifier.provider(failure), report.category(), report.httpStatus(),
                     diagnostics.clientFailuresSummary(report), failure.getClass().getSimpleName(), diagnostics.summary());
-            if ((report.allClientsFailed()
+            if ((CompanionRequestScheduler.sourceFailure(report.category()) || report.allClientsFailed()
                     || report.recoveryClass() == com.norule.musicbot.domain.music.YoutubeRecoveryClass.PERMANENT)
                     && isExpectedFailure(failure, classifier,
                         java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) {
@@ -124,7 +170,8 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
                 if (!companion.allowsSourceFallback(videoId, failure)) {
                     throw new com.sedmelluq.discord.lavaplayer.tools.FriendlyException(
                         "YouTube metadata is unavailable.",
-                        new com.norule.musicbot.domain.music.YoutubeFailureClassifier().classify(failure).recoveryClass()
+                        CompanionRequestScheduler.sourceFailure(failure.category())
+                                || new com.norule.musicbot.domain.music.YoutubeFailureClassifier().classify(failure).recoveryClass()
                                 == com.norule.musicbot.domain.music.YoutubeRecoveryClass.PERMANENT
                                 ? com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.COMMON
                                 : com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity.SUSPICIOUS, failure);
@@ -195,8 +242,20 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
         return buildAudioTrack(info);
     }
 
-    final class BackendTrack extends YoutubeAudioTrack {
+    final class BackendTrack extends YoutubeAudioTrack implements com.norule.musicbot.domain.music.PlaybackPreparation {
         private final YoutubeAudioTrack sourceTrack;
+        private AudioTrack prepared;
+
+        @Override public java.util.concurrent.CompletableFuture<Void> preparePlayback(long guildId) {
+            prepared = trackFactory.prepare(trackInfo.identifier, sourceTrack);
+            prepared.setUserData(getUserData());
+            return prepared instanceof com.norule.musicbot.domain.music.PlaybackPreparation async
+                    ? async.preparePlayback(guildId) : java.util.concurrent.CompletableFuture.completedFuture(null);
+        }
+
+        @Override public void cancelPreparation() {
+            if (prepared instanceof com.norule.musicbot.domain.music.PlaybackPreparation async) async.cancelPreparation();
+        }
 
         BackendTrack(YoutubeAudioTrack sourceTrack) {
             super(sourceTrack.getInfo(), BackendYoutubeAudioSourceManager.this);
@@ -205,7 +264,7 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
 
         @Override
         public void process(LocalAudioTrackExecutor executor) throws Exception {
-            AudioTrack selected = trackFactory.prepare(trackInfo.identifier, sourceTrack);
+            AudioTrack selected = prepared == null ? trackFactory.prepare(trackInfo.identifier, sourceTrack) : prepared;
             YouTubePlaybackBackend actual = selected instanceof CompanionAudioTrack
                     ? YouTubePlaybackBackend.COMPANION : YouTubePlaybackBackend.YOUTUBE_SOURCE;
             TrackLoadContext context = getUserData() instanceof TrackLoadContext value ? value : null;

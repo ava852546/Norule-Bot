@@ -38,9 +38,46 @@ public class TrackScheduler extends AudioEventAdapter {
     private Consumer<AudioTrack> recoveryFrameListener;
     private Consumer<AudioTrack> diagnosticFrameListener;
     private volatile AudioTrack diagnosticConfirmedTrack;
+    private long guildId;
+    private final java.time.Clock clock;
+    private long sourceHeldUntil;
+    private java.util.function.Predicate<AudioTrack> heldSource = ignored -> false;
+    private int transientSourceFailures;
+    private long lastSourceFailure;
+
+    public synchronized boolean shouldHoldSource(YoutubeFailureCategory category) {
+        if (category == YoutubeFailureCategory.BOT_DETECTED || category == YoutubeFailureCategory.HTTP_RATE_LIMITED
+                || category == YoutubeFailureCategory.COMPANION_AUTH_FAILED || category == YoutubeFailureCategory.COMPANION_BAD_REQUEST) return true;
+        if (category != YoutubeFailureCategory.COMPANION_TIMEOUT && category != YoutubeFailureCategory.COMPANION_UNAVAILABLE) return false;
+        long now = clock.millis();
+        transientSourceFailures = now - lastSourceFailure <= 30_000 ? transientSourceFailures + 1 : 1;
+        lastSourceFailure = now;
+        return transientSourceFailures >= 3;
+    }
 
     public TrackScheduler(AudioPlayer player) {
+        this(player, java.time.Clock.systemUTC());
+    }
+
+    TrackScheduler(AudioPlayer player, java.time.Clock clock) {
         this.player = player;
+        this.clock = clock;
+    }
+
+    public synchronized void setGuildId(long guildId) { this.guildId = guildId; }
+    public synchronized long getGuildId() { return guildId; }
+    public synchronized boolean isPreparing() {
+        return scheduledTrack instanceof PlaybackPreparation && player.getPlayingTrack() == null;
+    }
+
+    /** No automatic retry timer: a later user operation may probe after cooldown. */
+    public synchronized void holdSource(java.util.function.Predicate<AudioTrack> source, long cooldownMillis) {
+        heldSource = source;
+        sourceHeldUntil = clock.millis() + cooldownMillis;
+    }
+
+    private boolean sourceHeld(AudioTrack track) {
+        return clock.millis() < sourceHeldUntil && heldSource.test(track);
     }
 
     public synchronized void queue(AudioTrack track) {
@@ -49,7 +86,13 @@ public class TrackScheduler extends AudioEventAdapter {
 
     /** Only metadata commits belonging to a playlist job may defer their queue notification. */
     public synchronized void queue(AudioTrack track, boolean playlistEntry) {
-        if (!player.startTrack(track, true)) {
+        if (sourceHeld(track) || (scheduledTrack != null && player.getPlayingTrack() == null)
+                || (track instanceof PlaybackPreparation && player.getPlayingTrack() != null)) {
+            queue.offer(track);
+            queuedCount++;
+        } else if (track instanceof PlaybackPreparation) {
+            startReplacement(track);
+        } else if (!player.startTrack(track, true)) {
             queue.offer(track);
             queuedCount++;
         } else {
@@ -69,16 +112,16 @@ public class TrackScheduler extends AudioEventAdapter {
         if (previous == null) {
             previous = recoveringTrack;
         }
-        AudioTrack next = queue.poll();
-        if (next != null) queuedCount--;
+        AudioTrack next = pollPlayable();
         startReplacement(next);
-        if (next == null && recommendWhenEmpty) {
+        if (next == null && queue.isEmpty() && recommendWhenEmpty) {
             notifyQueueExhausted(previous);
         }
         notifyStateChanged(MusicStateChange.QUEUE_CHANGED);
     }
 
     public synchronized void clear() {
+        cancelPendingPreparation();
         queue.clear();
         queuedCount = 0;
         scheduledTrack = null;
@@ -165,7 +208,8 @@ public class TrackScheduler extends AudioEventAdapter {
     }
 
     public synchronized boolean isIdle(long expectedGeneration) {
-        return playbackGeneration == expectedGeneration && player.getPlayingTrack() == null && queue.isEmpty();
+        return playbackGeneration == expectedGeneration && player.getPlayingTrack() == null
+                && scheduledTrack == null && queue.isEmpty();
     }
 
     public synchronized boolean queueIfIdle(AudioTrack track, long expectedGeneration) {
@@ -178,7 +222,7 @@ public class TrackScheduler extends AudioEventAdapter {
 
     public synchronized boolean isActiveTrack(AudioTrack track, long expectedGeneration) {
         return track != null
-                && (player.getPlayingTrack() == track || recoveringTrack == track)
+                && (player.getPlayingTrack() == track || recoveringTrack == track || scheduledTrack == track)
                 && playbackGeneration == expectedGeneration;
     }
 
@@ -227,6 +271,7 @@ public class TrackScheduler extends AudioEventAdapter {
     }
 
     public synchronized void invalidatePlaybackGeneration() {
+        cancelPendingPreparation();
         scheduledTrack = null;
         playbackGeneration++;
         clearRecoveryMarker();
@@ -241,6 +286,7 @@ public class TrackScheduler extends AudioEventAdapter {
     /** Called only for a valid frame already obtained by the ordinary audio send flow. */
     synchronized void observeAudioFrame(AudioTrack track) {
         if (track != null && player.getPlayingTrack() == track && diagnosticConfirmedTrack != track) {
+            transientSourceFailures = 0;
             diagnosticConfirmedTrack = track;
             if (diagnosticFrameListener != null) diagnosticFrameListener.accept(track);
         }
@@ -304,8 +350,7 @@ public class TrackScheduler extends AudioEventAdapter {
             queuedCount++;
         }
 
-        AudioTrack next = queue.poll();
-        if (next != null) queuedCount--;
+        AudioTrack next = pollPlayable();
         if (next != null) {
             startReplacement(next);
             notifyStateChanged(MusicStateChange.TRACK_END);
@@ -313,7 +358,7 @@ public class TrackScheduler extends AudioEventAdapter {
         }
 
         startReplacement(null);
-        notifyQueueExhausted(track);
+        if (queue.isEmpty()) notifyQueueExhausted(track);
         notifyStateChanged(MusicStateChange.TRACK_END);
     }
 
@@ -328,7 +373,7 @@ public class TrackScheduler extends AudioEventAdapter {
 
     @Override
     public synchronized void onTrackException(AudioPlayer player, AudioTrack track, FriendlyException exception) {
-        if (track == failedTrackAwaitingEnd || (player.getPlayingTrack() != track && recoveringTrack != track)) return;
+        if (track == failedTrackAwaitingEnd || (player.getPlayingTrack() != track && recoveringTrack != track && scheduledTrack != track)) return;
         BiConsumer<AudioTrack, FriendlyException> listener = trackExceptionListener;
         if (listener != null) {
             listener.accept(track, exception);
@@ -351,11 +396,47 @@ public class TrackScheduler extends AudioEventAdapter {
     }
 
     private void startReplacement(AudioTrack track) {
+        cancelPendingPreparation();
         scheduledTrack = track;
         playbackGeneration++;
         clearRecoveryMarker();
         player.setPaused(false);
-        player.startTrack(track, false);
+        if (track instanceof PlaybackPreparation preparation) {
+            long generation = playbackGeneration;
+            player.startTrack(null, false);
+            preparation.preparePlayback(guildId).whenComplete((ignored, failure) -> {
+                synchronized (TrackScheduler.this) {
+                    if (scheduledTrack != track || playbackGeneration != generation) return;
+                    if (failure == null) player.startTrack(track, false);
+                    else {
+                        Throwable cause = failure instanceof java.util.concurrent.CompletionException ? failure.getCause() : failure;
+                        onTrackException(player, track, new FriendlyException("YouTube playback preparation failed.",
+                                FriendlyException.Severity.COMMON, cause));
+                    }
+                }
+            });
+        } else player.startTrack(track, false);
+    }
+
+    private void cancelPendingPreparation() {
+        if (scheduledTrack instanceof PlaybackPreparation preparation && player.getPlayingTrack() != scheduledTrack) {
+            scheduledTrack = null;
+            playbackGeneration++;
+            preparation.cancelPreparation();
+        }
+    }
+
+    private AudioTrack pollPlayable() {
+        var iterator = queue.iterator();
+        while (iterator.hasNext()) {
+            AudioTrack track = iterator.next();
+            if (!sourceHeld(track)) {
+                iterator.remove();
+                queuedCount--;
+                return track;
+            }
+        }
+        return null;
     }
 
     private void clearRecoveryMarker() {

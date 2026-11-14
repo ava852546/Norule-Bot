@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
-public final class CompanionPlaybackClient {
+public final class CompanionPlaybackClient implements AutoCloseable {
     private static final Logger LOGGER = LoggerFactory.getLogger(CompanionPlaybackClient.class);
     private static final int MAX_RESPONSE_CHARACTERS = 8 * 1024 * 1024;
     private static final int MAX_REASON_INPUT_CHARACTERS = 2_048;
@@ -44,6 +44,7 @@ public final class CompanionPlaybackClient {
     private final Duration requestTimeout;
     private final ObjectMapper objectMapper;
     private final HttpTransport transport;
+    private final CompanionRequestScheduler requests = new CompanionRequestScheduler();
 
     public CompanionPlaybackClient(String configuredUrl,
                                    String secret,
@@ -73,9 +74,7 @@ public final class CompanionPlaybackClient {
     }
 
     private JsonNode requestPlayer(String videoId) throws YouTubePlaybackException {
-        if (videoId == null || !videoId.matches("[A-Za-z0-9_-]{11}")) {
-            throw streamUnavailable("Invalid YouTube video ID.", null, null);
-        }
+        validateVideoId(videoId);
         HttpRequest request = HttpRequest.newBuilder(playerUri)
                 .timeout(requestTimeout)
                 .header("Authorization", "Bearer " + secret)
@@ -90,7 +89,7 @@ public final class CompanionPlaybackClient {
         try {
             response = send(request);
         } catch (YouTubePlaybackException failure) {
-            LOGGER.warn(
+            LOGGER.debug(
                     "[NoRule] Companion player request failed: videoId={} stage=PLAYER_REQUEST path={} "
                             + "status={} category={} failureType={}",
                     videoId,
@@ -106,7 +105,7 @@ public final class CompanionPlaybackClient {
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             YoutubeFailureCategory category = playerRequestCategory(response.statusCode());
             String reason = safeResponseReason(response.body());
-            LOGGER.warn(
+            LOGGER.debug(
                     "[NoRule] Companion player request failed: videoId={} stage=PLAYER_REQUEST path={} "
                             + "status={} contentType={} category={} reason={}",
                     videoId,
@@ -132,7 +131,7 @@ public final class CompanionPlaybackClient {
         );
         String body = response.body() == null ? "" : response.body();
         if (body.length() > MAX_RESPONSE_CHARACTERS) {
-            LOGGER.warn(
+            LOGGER.debug(
                     "[NoRule] Companion player response failed: videoId={} stage=PLAYER_RESPONSE "
                             + "category={} reason=response-too-large",
                     videoId,
@@ -149,7 +148,7 @@ public final class CompanionPlaybackClient {
             if (!"OK".equalsIgnoreCase(status)) {
                 String reason = root.path("playabilityStatus").path("reason").asText("stream unavailable");
                 YoutubeFailureCategory category = playabilityCategory(status, reason);
-                LOGGER.warn(
+                LOGGER.debug(
                         "[NoRule] Companion player response failed: videoId={} stage=PLAYER_RESPONSE "
                                 + "playability={} category={} reason={}",
                         videoId,
@@ -168,7 +167,7 @@ public final class CompanionPlaybackClient {
         } catch (YouTubePlaybackException failure) {
             throw failure;
         } catch (IOException | IllegalArgumentException failure) {
-            LOGGER.warn(
+            LOGGER.debug(
                     "[NoRule] Companion player response failed: videoId={} stage=PLAYER_RESPONSE "
                             + "category={} failureType={}",
                     videoId,
@@ -181,7 +180,8 @@ public final class CompanionPlaybackClient {
 
     public com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo loadMetadata(String videoId)
             throws YouTubePlaybackException {
-        JsonNode details = requestPlayer(videoId).path("videoDetails");
+        validateVideoId(videoId);
+        JsonNode details = await(requests.submit(0L, videoId, false, () -> requestPlayer(videoId))).path("videoDetails");
         String title = details.path("title").asText("");
         Long seconds = parseLong(details.path("lengthSeconds").asText(""));
         boolean live = details.path("isLive").asBoolean(false);
@@ -195,13 +195,47 @@ public final class CompanionPlaybackClient {
     }
 
     public ResolvedYouTubePlayback resolve(String videoId) throws YouTubePlaybackException {
+        validateVideoId(videoId);
+        return await(requests.submitImmediate(videoId, () -> resolvePlayer(videoId)));
+    }
+
+    public java.util.concurrent.CompletableFuture<ResolvedYouTubePlayback> resolveAsync(String videoId, long guildId) {
+        try { validateVideoId(videoId); }
+        catch (YouTubePlaybackException invalid) { return java.util.concurrent.CompletableFuture.failedFuture(invalid); }
+        return requests.submit(guildId, videoId, true, () -> resolvePlayer(videoId));
+    }
+
+    private static void validateVideoId(String videoId) throws YouTubePlaybackException {
+        if (videoId == null || !videoId.matches("[A-Za-z0-9_-]{11}"))
+            throw streamUnavailable("Invalid YouTube video ID.", null, null);
+    }
+
+    private static <T> T await(java.util.concurrent.CompletableFuture<T> future) throws YouTubePlaybackException {
+        try { return future.get(35, java.util.concurrent.TimeUnit.SECONDS); }
+        catch (InterruptedException interrupted) {
+            future.cancel(false);
+            Thread.currentThread().interrupt();
+            throw new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_UNAVAILABLE, "Companion request cancelled.", null, interrupted);
+        } catch (java.util.concurrent.ExecutionException failure) {
+            if (failure.getCause() instanceof YouTubePlaybackException classified) throw classified;
+            throw new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_UNAVAILABLE, "Companion request failed.", null, failure.getCause());
+        } catch (java.util.concurrent.TimeoutException timeout) {
+            future.cancel(false);
+            throw new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_TIMEOUT, "Companion wait expired.", null, timeout);
+        }
+    }
+
+    @Override public void close() { requests.close(); }
+    void cancelGuild(long guildId) { requests.cancelGuild(guildId); }
+
+    private ResolvedYouTubePlayback resolvePlayer(String videoId) throws YouTubePlaybackException {
         JsonNode root = requestPlayer(videoId);
         String status = "OK";
         FormatSelection selection;
         try {
             selection = selectAudioFormat(root.path("streamingData").path("adaptiveFormats"));
         } catch (YouTubePlaybackException failure) {
-            LOGGER.warn(
+            LOGGER.debug(
                     "[NoRule] Companion audio selection failed: videoId={} stage=FORMAT_SELECTION "
                             + "category={} reason={}",
                     videoId,
@@ -220,7 +254,7 @@ public final class CompanionPlaybackClient {
         );
         CompanionFormat format = selection.selected();
         if (format == null) {
-            LOGGER.warn(
+            LOGGER.debug(
                     "[NoRule] Companion audio selection failed: videoId={} stage=FORMAT_SELECTION "
                             + "adaptiveFormats={} audioFormats={} compatibleFormats={} category={}",
                     videoId,
@@ -249,7 +283,7 @@ public final class CompanionPlaybackClient {
         try {
             expiresAt = expiration(format.directUri());
         } catch (YouTubePlaybackException failure) {
-            LOGGER.warn(
+            LOGGER.debug(
                     "[NoRule] Companion proxy URL failed: videoId={} stage=PROXY_URL category={} reason={}",
                     videoId,
                     failure.category(),
@@ -397,7 +431,7 @@ public final class CompanionPlaybackClient {
     }
 
     private YouTubePlaybackException proxyUrlFailure(String videoId, String message, Throwable cause) {
-        LOGGER.warn(
+        LOGGER.debug(
                 "[NoRule] Companion proxy URL failed: videoId={} stage=PROXY_URL category={} reason={}",
                 videoId,
                 YoutubeFailureCategory.COMPANION_STREAM_UNAVAILABLE,
@@ -534,6 +568,9 @@ public final class CompanionPlaybackClient {
     private static YoutubeFailureCategory playabilityCategory(String status, String reason) {
         String normalized = ((status == null ? "" : status) + " " + (reason == null ? "" : reason))
                 .toLowerCase(Locale.ROOT);
+        if (normalized.contains("bot")) {
+            return YoutubeFailureCategory.BOT_DETECTED;
+        }
         if (normalized.contains("private")) {
             return YoutubeFailureCategory.VIDEO_PRIVATE;
         }
@@ -545,9 +582,6 @@ public final class CompanionPlaybackClient {
         }
         if (normalized.contains("login") || normalized.contains("sign in")) {
             return YoutubeFailureCategory.LOGIN_REQUIRED;
-        }
-        if (normalized.contains("bot")) {
-            return YoutubeFailureCategory.BOT_DETECTED;
         }
         if (normalized.contains("unavailable") || normalized.contains("not available")) {
             return YoutubeFailureCategory.VIDEO_UNAVAILABLE;

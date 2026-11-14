@@ -26,7 +26,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class CompanionAudioTrack extends DelegatedAudioTrack {
+public final class CompanionAudioTrack extends DelegatedAudioTrack implements com.norule.musicbot.domain.music.PlaybackPreparation {
     private static final Logger LOGGER = LoggerFactory.getLogger(CompanionAudioTrack.class);
     private static final Pattern HTTP_STATUS = Pattern.compile(
             "(?i)(?:HTTP(?: status)?[ :=]*|status code[^\\r\\n:]{0,80}:[ ]*)([45]\\d{2})\\b");
@@ -36,6 +36,26 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
     private final YouTubePlaybackResolver resolver;
     private final HttpAudioSourceManager companionHttpSource;
     private final java.time.Clock clock;
+    private volatile java.util.concurrent.CompletableFuture<ResolvedYouTubePlayback> preparation;
+
+    @Override public java.util.concurrent.CompletableFuture<Void> preparePlayback(long guildId) {
+        var context = getUserData() instanceof com.norule.musicbot.domain.music.TrackLoadContext value ? value : null;
+        CompanionRequestTrace previous = CompanionRequestTrace.CURRENT.get();
+        CompanionRequestTrace.CURRENT.set(new CompanionRequestTrace(guildId,
+                context == null ? java.util.UUID.randomUUID().toString() : context.requestId(),
+                context == null ? "-" : context.batchId(), context == null ? "UNKNOWN" : context.requestSource()));
+        try { preparation = resolver.resolveAsync(videoId, guildId); }
+        finally {
+            if (previous == null) CompanionRequestTrace.CURRENT.remove();
+            else CompanionRequestTrace.CURRENT.set(previous);
+        }
+        return preparation.thenAccept(ignored -> { });
+    }
+
+    @Override public void cancelPreparation() {
+        var pending = preparation;
+        if (pending != null) pending.cancel(false);
+    }
 
     public CompanionAudioTrack(String videoId,
                                AudioTrack youtubeSourceTrack,
@@ -62,13 +82,17 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
     public void process(LocalAudioTrackExecutor executor) throws Exception {
         ResolvedYouTubePlayback resolved;
         try {
-            resolved = resolver.resolve(videoId);
+            var pending = preparation;
+            // The scheduler starts playback only after this future has completed.
+            resolved = pending == null ? resolver.resolve(videoId) : pending.join();
         } catch (YouTubePlaybackException failure) {
             LOGGER.debug("[NoRule] YouTube playback resolution ended: configuredBackend=COMPANION actualBackend=COMPANION "
                     + "videoId={} reason={} fallbackAttempted=false", videoId, failure.category());
             throw friendly(failure);
         }
         if (resolved.usesCompanionStream() && expiresSoon(resolved, clock.instant())) {
+            if (preparation != null) throw friendly(new YouTubePlaybackException(YoutubeFailureCategory.COMPANION_TIMEOUT,
+                    "Prepared Companion stream expired before playback; a new user operation is required."));
             resolved = resolver.resolve(videoId);
         }
         if (!resolved.usesCompanionStream()) {
@@ -270,7 +294,8 @@ public final class CompanionAudioTrack extends DelegatedAudioTrack {
     private FriendlyException friendly(YouTubePlaybackException failure) {
         return new FriendlyException(
                 "YouTube playback failed: backend=" + failure.backend() + " category=" + failure.category(),
-                new com.norule.musicbot.domain.music.YoutubeFailureClassifier().classify(failure).recoveryClass()
+                CompanionRequestScheduler.sourceFailure(failure.category())
+                        || new com.norule.musicbot.domain.music.YoutubeFailureClassifier().classify(failure).recoveryClass()
                         == com.norule.musicbot.domain.music.YoutubeRecoveryClass.PERMANENT
                         ? FriendlyException.Severity.COMMON : FriendlyException.Severity.SUSPICIOUS,
                 failure

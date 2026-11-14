@@ -9,8 +9,23 @@ public record TrackLoadContext(
         int recoveryAttempts,
         long recoveryResumePosition,
         String correlationId,
-        java.util.List<Throwable> failures
+        java.util.List<Throwable> failures,
+        long guildId,
+        String requestId,
+        String batchId,
+        String requestSource
 ) {
+    public TrackLoadContext(String originalInput, String resolvedIdentifier, String sourceName, Long requesterId,
+                            String requesterName, int recoveryAttempts, long recoveryResumePosition,
+                            String correlationId, java.util.List<Throwable> failures) {
+        this(originalInput, resolvedIdentifier, sourceName, requesterId, requesterName, recoveryAttempts,
+                recoveryResumePosition, correlationId, failures, 0L, correlationId, "-", "UNKNOWN");
+    }
+
+    public TrackLoadContext withRequestTrace(long guildId, String requestId, String batchId, String requestSource) {
+        return new TrackLoadContext(originalInput, resolvedIdentifier, sourceName, requesterId, requesterName,
+                recoveryAttempts, recoveryResumePosition, correlationId, failures, guildId, requestId, batchId, requestSource);
+    }
     public TrackLoadContext(String originalInput, String resolvedIdentifier, String sourceName,
                             Long requesterId, String requesterName, int recoveryAttempts,
                             long recoveryResumePosition) {
@@ -47,7 +62,7 @@ public record TrackLoadContext(
                 attempts,
                 resumePosition,
                 correlationId,
-                failures
+                failures, guildId, requestId, batchId, requestSource
         );
     }
 
@@ -56,10 +71,11 @@ public record TrackLoadContext(
         var history = new java.util.ArrayList<>(failures);
         history.add(failure);
         return new TrackLoadContext(originalInput, resolvedIdentifier, sourceName, requesterId, requesterName,
-                recoveryAttempts, recoveryResumePosition, correlationId, history);
+                recoveryAttempts, recoveryResumePosition, correlationId, history, guildId, requestId, batchId, requestSource);
     }
 
     public TrackLoadContext resetRecovery() {
-        return new TrackLoadContext(originalInput, resolvedIdentifier, sourceName, requesterId, requesterName, 0, 0L);
+        return new TrackLoadContext(originalInput, resolvedIdentifier, sourceName, requesterId, requesterName, 0, 0L)
+                .withRequestTrace(guildId, requestId, batchId, requestSource);
     }
 }

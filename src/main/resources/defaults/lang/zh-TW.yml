@@ -79,7 +79,7 @@ music:
   youtube_companion_stream_unavailable: "⚠️ 無法取得這首歌曲的可播放音源，請稍後再試或選擇其他歌曲。"
   youtube_audio_source_unavailable: "⚠️ 無法取得這首歌曲的可播放音源，請稍後再試或選擇其他歌曲。"
   youtube_playback_skipped: "⚠️ 目前無法播放這首歌曲，已自動跳過。"
-  youtube_bot_detected: "YouTube 暫時要求額外驗證，這首歌曲目前無法播放。"
+  youtube_bot_detected: "音樂播放服務異常，請稍後再試；若持續遇到此錯誤，請使用 /report 回報。尚未播放的佇列已保留，請稍候一分鐘後手動跳過以恢復。"
   bilibili_risk_control: "Bilibili 暫時拒絕播放請求，請稍後再試。"
   bilibili_access_denied: "Bilibili 拒絕存取這部影片，請改用其他影片。"
   bilibili_rate_limited: "Bilibili 目前收到過多請求，請稍後再試。"
@@ -558,6 +558,14 @@ settings:
   reset_cancelled: "已取消重設。"
 
 room_settings:
+  enable_missing_permissions: "無法啟用私人語音房：機器人缺少『{permissions}』權限。伺服器 {guild}，觸發頻道 {channel}，類別 {category}。請修正伺服器及對應頻道／類別權限後重試；其他設定仍可儲存。"
+  trigger_unavailable: "無法啟用私人語音房：伺服器 {guild} 的觸發語音頻道 {channel} 不存在或不可用。請重新選擇頻道；其他設定仍可儲存。"
+  runtime_permission_failure: "私人語音房操作失敗。請檢查機器人在伺服器、觸發頻道及類別的管理頻道、管理權限與移動成員權限。既有房間已保留。"
+  permission_manage_channel: "管理頻道"
+  permission_manage_permissions: "管理權限覆寫"
+  permission_voice_move_others: "移動成員"
+  permission_view_channel: "檢視頻道"
+  permission_voice_connect: "連接語音"
   action: "選擇設定操作"
   title: "私人包廂設定"
   desc: "使用下拉選單管理你目前的私人包廂。"

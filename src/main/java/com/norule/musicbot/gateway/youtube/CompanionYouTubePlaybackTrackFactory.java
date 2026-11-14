@@ -12,6 +12,10 @@ public final class CompanionYouTubePlaybackTrackFactory implements YouTubePlayba
     private final YouTubePlaybackResolver resolver;
     private final CompanionPlaybackClient metadataClient;
     private final HttpAudioSourceManager companionHttpSource;
+    private final java.util.concurrent.ThreadPoolExecutor mirrorWorkers = new java.util.concurrent.ThreadPoolExecutor(
+            2, 2, 30, java.util.concurrent.TimeUnit.SECONDS, new java.util.concurrent.ArrayBlockingQueue<>(64), runnable -> {
+                Thread thread = new Thread(runnable, "companion-spotify-metadata"); thread.setDaemon(true); return thread;
+            });
 
     CompanionYouTubePlaybackTrackFactory(YouTubePlaybackResolver resolver, HttpAudioSourceManager httpSource) {
         this(resolver, httpSource, null);
@@ -64,6 +68,13 @@ public final class CompanionYouTubePlaybackTrackFactory implements YouTubePlayba
         }
     }
 
+    void cancelGuild(long guildId) { if (metadataClient != null) metadataClient.cancelGuild(guildId); }
+    void close() {
+        mirrorWorkers.shutdownNow();
+        if (metadataClient != null) metadataClient.close();
+        companionHttpSource.shutdown();
+    }
+
     @Override
     public com.norule.musicbot.domain.music.YouTubePlaybackBackend backend() {
         return com.norule.musicbot.domain.music.YouTubePlaybackBackend.COMPANION;
@@ -71,6 +82,8 @@ public final class CompanionYouTubePlaybackTrackFactory implements YouTubePlayba
 
     @Override
     public AudioTrack prepare(String videoId, AudioTrack youtubeSourceTrack) {
+        if (youtubeSourceTrack instanceof com.github.topi314.lavasrc.mirror.MirroringAudioTrack mirror && !mirror.isPreview())
+            return new CompanionMirroredAudioTrack(mirror, mirrorWorkers);
         if (videoId == null
                 || !videoId.matches("[A-Za-z0-9_-]{11}")
                 || youtubeSourceTrack == null

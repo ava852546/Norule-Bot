@@ -37,6 +37,28 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MusicPlayerServiceAutoplayTest {
+    @ParameterizedTest
+    @EnumSource(value = YoutubeFailureCategory.class, names = {"BOT_DETECTED", "HTTP_RATE_LIMITED", "COMPANION_AUTH_FAILED", "COMPANION_BAD_REQUEST"})
+    void companionBotStormStopsAfterFirstFailurePreservesQueueAndBoundsPanelStateEvents(YoutubeFailureCategory category) {
+        AudioTrack failed = startSeed();
+        for (int i = 0; i < 500; i++) manager.getScheduler().queue(track("queued" + i, "Queued " + i), true);
+        var changes = new java.util.concurrent.atomic.AtomicInteger();
+        var notices = new java.util.concurrent.atomic.AtomicInteger();
+        service.addStateChangeListener((id, reason) -> changes.incrementAndGet());
+        service.setPlaybackFailureListener((id, failure) -> notices.incrementAndGet());
+        var failure = new FriendlyException("fixture", FriendlyException.Severity.COMMON,
+                new YouTubePlaybackException(category, "fixture"));
+        manager.getScheduler().onTrackException(manager.getPlayer(), failed, failure);
+        manager.getScheduler().onTrackEnd(manager.getPlayer(), failed, AudioTrackEndReason.LOAD_FAILED);
+        int settledChanges = changes.get();
+        for (int i = 0; i < 100; i++) manager.getScheduler().onTrackException(manager.getPlayer(), failed, failure);
+        assertNull(current);
+        assertEquals(500, manager.getScheduler().previewQueue(10).total());
+        assertEquals(1, notices.get());
+        assertEquals(settledChanges, changes.get());
+        assertTrue(settledChanges <= 4);
+        assertTrue(loads.isEmpty());
+    }
     private static final long GUILD_ID = 123L;
     @TempDir
     Path tempDir;

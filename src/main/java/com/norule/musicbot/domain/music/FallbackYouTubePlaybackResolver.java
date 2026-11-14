@@ -22,6 +22,22 @@ public final class FallbackYouTubePlaybackResolver implements YouTubePlaybackRes
     }
 
     @Override
+    public java.util.concurrent.CompletableFuture<ResolvedYouTubePlayback> resolveAsync(String videoId, long guildId) {
+        var pending = primary.resolveAsync(videoId, guildId);
+        var result = pending.handle((value, error) -> {
+            if (error == null) return value;
+            Throwable cause = error instanceof java.util.concurrent.CompletionException ? error.getCause() : error;
+            if (cause instanceof YouTubePlaybackException failure) {
+                try { return fallback(videoId, failure); }
+                catch (YouTubePlaybackException rejected) { throw new java.util.concurrent.CompletionException(rejected); }
+            }
+            throw new java.util.concurrent.CompletionException(cause);
+        });
+        result.whenComplete((value, error) -> { if (result.isCancelled()) pending.cancel(false); });
+        return result;
+    }
+
+    @Override
     public ResolvedYouTubePlayback fallback(String videoId,
                                             YouTubePlaybackException primaryFailure)
             throws YouTubePlaybackException {

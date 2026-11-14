@@ -79,7 +79,7 @@ music:
   youtube_companion_stream_unavailable: "⚠️ 无法获取这首歌曲的可播放音源，请稍后重试或选择其他歌曲。"
   youtube_audio_source_unavailable: "⚠️ 无法获取这首歌曲的可播放音源，请稍后重试或选择其他歌曲。"
   youtube_playback_skipped: "⚠️ 目前无法播放这首歌曲，已自动跳过。"
-  youtube_bot_detected: "YouTube 暂时要求额外验证，这首歌曲目前无法播放。"
+  youtube_bot_detected: "音乐播放服务异常，请稍后重试；若持续遇到此错误，请使用 /report 反馈。尚未播放的队列已保留，请等待一分钟后手动跳过以恢复。"
   bilibili_risk_control: "Bilibili 暂时拒绝播放请求，请稍后再试。"
   bilibili_access_denied: "Bilibili 拒绝访问这部视频，请改用其他视频。"
   bilibili_rate_limited: "Bilibili 当前收到过多请求，请稍后再试。"
@@ -558,6 +558,14 @@ settings:
   reset_cancelled: "已取消重置。"
 
 room_settings:
+  enable_missing_permissions: "无法启用私人语音房：机器人缺少『{permissions}』权限。服务器 {guild}，触发频道 {channel}，分类 {category}。请修正服务器及对应频道／分类权限后重试；其他设置仍可保存。"
+  trigger_unavailable: "无法启用私人语音房：服务器 {guild} 的触发语音频道 {channel} 不存在或不可用。请重新选择频道；其他设置仍可保存。"
+  runtime_permission_failure: "私人语音房操作失败。请检查机器人在服务器、触发频道及分类的管理频道、管理权限与移动成员权限。现有房间已保留。"
+  permission_manage_channel: "管理频道"
+  permission_manage_permissions: "管理权限覆盖"
+  permission_voice_move_others: "移动成员"
+  permission_view_channel: "查看频道"
+  permission_voice_connect: "连接语音"
   action: "选择设置操作"
   title: "私人包厢设置"
   desc: "使用下拉菜单管理你当前的私人包厢。"
