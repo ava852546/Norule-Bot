@@ -5,15 +5,6 @@ import com.norule.musicbot.domain.music.CipherPolicy;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
 import dev.lavalink.youtube.cipher.LocalSignatureCipherManager;
 import dev.lavalink.youtube.cipher.RemoteCipherManager;
-import dev.lavalink.youtube.clients.AndroidMusicWithThumbnail;
-import dev.lavalink.youtube.clients.AndroidVrWithThumbnail;
-import dev.lavalink.youtube.clients.IosWithThumbnail;
-import dev.lavalink.youtube.clients.MWebWithThumbnail;
-import dev.lavalink.youtube.clients.MusicWithThumbnail;
-import dev.lavalink.youtube.clients.Tv;
-import dev.lavalink.youtube.clients.TvHtml5SimplyWithThumbnail;
-import dev.lavalink.youtube.clients.WebEmbeddedWithThumbnail;
-import dev.lavalink.youtube.clients.WebWithThumbnail;
 import com.norule.musicbot.domain.music.FallbackYouTubePlaybackResolver;
 import com.norule.musicbot.domain.music.YouTubePlaybackBackend;
 import com.norule.musicbot.domain.music.YouTubePlaybackException;
@@ -25,8 +16,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.function.Function;
-import java.util.ArrayList;
-import java.util.List;
 
 public final class YouTubePlaybackRuntimeFactory {
     private static final Logger LOGGER = LoggerFactory.getLogger(YouTubePlaybackRuntimeFactory.class);
@@ -147,18 +136,16 @@ public final class YouTubePlaybackRuntimeFactory {
     public static YoutubeAudioSourceManager createSource(MusicConfig.Cipher cipherConfig, CipherPolicy policy,
                                                          MusicConfig.Youtube.AuthMode authMode,
                                                          YouTubePlaybackTrackFactory trackFactory) {
-        List<dev.lavalink.youtube.clients.skeleton.Client> clients = new ArrayList<>();
-        clients.add(new MusicWithThumbnail());
-        if (authMode == MusicConfig.Youtube.AuthMode.OAUTH) {
-            clients.add(new Tv());
-        }
-        clients.add(new WebWithThumbnail());
-        clients.add(new MWebWithThumbnail());
-        clients.add(new WebEmbeddedWithThumbnail());
-        clients.add(new TvHtml5SimplyWithThumbnail());
-        clients.add(new AndroidVrWithThumbnail());
-        clients.add(new AndroidMusicWithThumbnail());
-        clients.add(new IosWithThumbnail());
+        return createSource(MusicConfig.defaultValues().getYoutube(), cipherConfig, policy, authMode, trackFactory);
+    }
+
+    public static YoutubeAudioSourceManager createSource(MusicConfig.Youtube youtubeConfig,
+                                                         MusicConfig.Cipher cipherConfig, CipherPolicy policy,
+                                                         MusicConfig.Youtube.AuthMode authMode,
+                                                         YouTubePlaybackTrackFactory trackFactory) {
+        var clientArray = YoutubeClientRegistry.create(youtubeConfig, authMode);
+        LOGGER.info("[NoRule] YouTube clients: state=CONFIGURED clients={} authMode={} restartRequired=true",
+                java.util.Arrays.stream(clientArray).map(client -> client.getIdentifier()).toList(), authMode);
         // Capture endpoint settings without creating a client. Runtime policy controls use,
         // including a later disabled -> enabled reload.
         String remoteCipherUrl = firstNonBlank(
@@ -166,8 +153,6 @@ public final class YouTubePlaybackRuntimeFactory {
                 System.getenv("YOUTUBE_REMOTE_CIPHER_URL"),
                 cipherConfig.getServer()
         );
-        dev.lavalink.youtube.clients.skeleton.Client[] clientArray =
-                clients.toArray(dev.lavalink.youtube.clients.skeleton.Client[]::new);
         String remoteCipherPassword = firstNonBlank(
                 System.getenv("YOUTUBE_CIPHER_PASSWORD"),
                 System.getenv("YOUTUBE_REMOTE_CIPHER_PASSWORD"),

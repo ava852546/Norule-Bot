@@ -4,7 +4,6 @@ import com.norule.musicbot.domain.music.YouTubePlaybackBackend;
 import com.norule.musicbot.domain.music.YouTubePlaybackTrackFactory;
 import com.norule.musicbot.domain.music.TrackLoadContext;
 import com.norule.musicbot.domain.music.YoutubeFailureClassifier;
-import com.norule.musicbot.domain.music.YoutubeRecoveryClass;
 import com.norule.musicbot.domain.music.YouTubePlaybackException;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
@@ -34,7 +33,7 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
     private final YouTubePlaybackTrackFactory trackFactory;
 
     BackendYoutubeAudioSourceManager(YouTubePlaybackTrackFactory trackFactory, Client... clients) {
-        super(clients);
+        super(java.util.Arrays.stream(clients).map(ObservedYoutubeClient::new).toArray(Client[]::new));
         this.trackFactory = Objects.requireNonNull(trackFactory);
     }
 
@@ -45,18 +44,25 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
                 ? identifier.replace('\r', ' ').replace('\n', ' ') : "-";
         LOGGER.debug("[NoRule] YouTube candidate discovery: stage=METADATA_DISCOVERY configuredBackend={} searchQuery={}",
                 trackFactory.backend(), search.substring(0, Math.min(search.length(), 240)));
-        try (var scope = PolicyCipherManager.metadataScope()) {
-            return super.loadItem(manager, reference);
+        var diagnostics = new YoutubeClientDiagnostics(super.getClients(), "METADATA_DISCOVERY", "-");
+        try (diagnostics) {
+            try (var scope = PolicyCipherManager.metadataScope()) {
+                return super.loadItem(manager, reference);
+            } catch (RuntimeException failure) {
+                diagnostics.failed(failure);
+                throw failure;
+            }
         } catch (RuntimeException failure) {
             var classifier = new YoutubeFailureClassifier();
             var report = classifier.classify(failure);
             var log = report.recoveryClass() == com.norule.musicbot.domain.music.YoutubeRecoveryClass.PERMANENT
                     ? LOGGER.atInfo() : LOGGER.atWarn();
             log.log("[NoRule] YouTube candidate discovery failed: configuredBackend={} provider={} "
-                    + "stage=METADATA_DISCOVERY category={} httpStatus={} clients={} failureType={}",
+                    + "stage=METADATA_DISCOVERY category={} httpStatus={} clients={} failureType={} {}",
                     trackFactory.backend(), classifier.provider(failure), report.category(), report.httpStatus(),
-                    report.clientsSummary(), failure.getClass().getSimpleName());
-            if (report.recoveryClass() == YoutubeRecoveryClass.PERMANENT
+                    diagnostics.clientFailuresSummary(report), failure.getClass().getSimpleName(), diagnostics.summary());
+            if ((report.allClientsFailed()
+                    || report.recoveryClass() == com.norule.musicbot.domain.music.YoutubeRecoveryClass.PERMANENT)
                     && isExpectedFailure(failure, classifier,
                         java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()))) {
                 // AllClientsFailedException is always SUSPICIOUS and embeds stack traces
@@ -93,10 +99,12 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
                 return isExpectedFailure(failure.getCause(), classifier, visited);
             }
             return !(failure.getClass() == RuntimeException.class)
-                    && classifier.classify(failure).recoveryClass() == YoutubeRecoveryClass.PERMANENT;
+                    && classifier.classify(failure).category()
+                        != com.norule.musicbot.domain.music.YoutubeFailureCategory.UNKNOWN;
         }
         return failure instanceof java.io.IOException
-                && classifier.classify(failure).recoveryClass() == YoutubeRecoveryClass.PERMANENT;
+                && classifier.classify(failure).category()
+                    != com.norule.musicbot.domain.music.YoutubeFailureCategory.UNKNOWN;
     }
 
     @Override
@@ -133,6 +141,7 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
             // Capability, not a hardcoded client name: this upstream video path calls
             // getCachedPlayerScript before requesting metadata when this flag is true.
             if (client.requirePlayerScript() && getCipherManager() instanceof PolicyCipherManager guard) {
+                if (!guard.isAllowed()) YoutubeClientDiagnostics.skipped(client);
                 guard.requirePlayerScriptAllowed();
             }
             return route.route(client);
@@ -152,6 +161,16 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
     }
 
     @Override
+    public <T extends Client> T getClient(Class<T> type) {
+        // Preserve youtube-source's concrete-class lookup contract despite observation.
+        for (Client client : super.getClients()) {
+            Client original = client instanceof ObservedYoutubeClient observed ? observed.delegate : client;
+            if (type.isInstance(original)) return type.cast(original);
+        }
+        return null;
+    }
+
+    @Override
     public Client[] getClients() {
         Client[] configured = super.getClients();
         if (!PolicyCipherManager.isStreamScope()
@@ -159,7 +178,11 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
             return configured;
         }
         Client[] capable = java.util.Arrays.stream(configured)
-                .filter(client -> client.supportsFormatLoading() && !client.requirePlayerScript())
+                .filter(client -> {
+                    boolean eligible = client.supportsFormatLoading() && !client.requirePlayerScript();
+                    if (!eligible) YoutubeClientDiagnostics.skipped(client);
+                    return eligible;
+                })
                 .toArray(Client[]::new);
         if (capable.length == 0) {
             throw new com.norule.musicbot.domain.music.CipherDisabledException();
@@ -203,8 +226,14 @@ final class BackendYoutubeAudioSourceManager extends YoutubeAudioSourceManager {
                 throw new IllegalStateException("Playback backend violation");
             }
             selected.setUserData(getUserData());
-            try (var scope = PolicyCipherManager.streamScope()) {
-                processDelegate((InternalAudioTrack) selected, executor);
+            try (var diagnostics = new YoutubeClientDiagnostics(BackendYoutubeAudioSourceManager.super.getClients(),
+                    "STREAM_EXTRACTION", context == null ? "-" : context.correlationId())) {
+                try (var scope = PolicyCipherManager.streamScope()) {
+                    processDelegate((InternalAudioTrack) selected, executor);
+                } catch (Exception failure) {
+                    diagnostics.failed(failure);
+                    throw failure;
+                }
             } catch (Exception failure) {
                 LOGGER.debug("[NoRule] YouTube playback attempt ended: source={} sourceTrackId={} videoId={} "
                                 + "configuredBackend={} failureType={}",

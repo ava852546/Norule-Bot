@@ -26,7 +26,8 @@ class PolicyCipherManagerTest {
         try {
             assertEquals(2, source.getClients().length);
             try (var scope = PolicyCipherManager.streamScope()) {
-                assertArrayEquals(new dev.lavalink.youtube.clients.skeleton.Client[]{direct}, source.getClients());
+                assertEquals(1, source.getClients().length);
+                assertSame(direct, ((ObservedYoutubeClient) source.getClients()[0]).delegate);
                 policy.update(true);
                 assertEquals(2, source.getClients().length);
                 policy.update(false);

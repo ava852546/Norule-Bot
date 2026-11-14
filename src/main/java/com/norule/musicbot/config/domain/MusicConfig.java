@@ -152,6 +152,8 @@ public final class MusicConfig {
     }
 
     public static final class Youtube {
+        private final java.util.List<String> clients;
+        private final boolean clientsConfigured;
         private final YouTubePlaybackBackend playbackBackend;
         private final String configuredPlaybackBackend;
         private final Companion companion;
@@ -160,7 +162,9 @@ public final class MusicConfig {
         private Youtube(YouTubePlaybackBackend playbackBackend,
                        String configuredPlaybackBackend,
                        Companion companion,
-                       StrictPrecheck strictPrecheck) {
+                       StrictPrecheck strictPrecheck, java.util.List<String> clients, boolean clientsConfigured) {
+            this.clients = java.util.List.copyOf(clients);
+            this.clientsConfigured = clientsConfigured;
             this.playbackBackend = playbackBackend == null
                     ? YouTubePlaybackBackend.YOUTUBE_SOURCE
                     : playbackBackend;
@@ -176,11 +180,13 @@ public final class MusicConfig {
                     YouTubePlaybackBackend.parse(configuredBackend),
                     configuredBackend,
                     Companion.fromLegacy(value.getCompanion()),
-                    StrictPrecheck.fromLegacy(value.getStrictPrecheck())
+                    StrictPrecheck.fromLegacy(value.getStrictPrecheck()), value.getClients(), value.isClientsConfigured()
             );
         }
 
         public YouTubePlaybackBackend getPlaybackBackend() { return playbackBackend; }
+        public java.util.List<String> getClients() { return clients; }
+        public boolean isClientsConfigured() { return clientsConfigured; }
         public String getConfiguredPlaybackBackend() { return configuredPlaybackBackend; }
         public Companion getCompanion() { return companion; }
         public StrictPrecheck getStrictPrecheck() { return strictPrecheck; }

@@ -217,7 +217,7 @@ public final class RuntimeBootstrap {
                 youtubeTrackFactory,
                 new BilibiliAudioSourceAdapter(globalMusicConfig.getBilibili()),
                 cipherPolicy,
-                authMode -> YouTubePlaybackRuntimeFactory.createSource(globalMusicConfig.getCipher(), cipherPolicy, authMode, youtubeTrackFactory)
+                authMode -> YouTubePlaybackRuntimeFactory.createSource(globalMusicConfig.getYoutube(), globalMusicConfig.getCipher(), cipherPolicy, authMode, youtubeTrackFactory)
         );
         Path moderationDataPath = resolveDataPath(baseDir, config.getModerationDataDir());
         ModerationSqliteRepository moderationSqliteRepository = sharedSqliteDatabase == null ? null : new ModerationSqliteRepository(sharedSqliteDatabase);
@@ -715,6 +715,12 @@ public final class RuntimeBootstrap {
         try {
             Path baseDir = resolveBaseDir(context.configPath());
             BotConfig reloaded = new ConfigLoader().reload(context.configPath());
+            var previousYoutube = RUNTIME_CONFIG.get().getMusic().getYoutube();
+            var reloadedYoutube = reloaded.getMusic().getYoutube();
+            if (previousYoutube.isClientsConfigured() != reloadedYoutube.isClientsConfigured()
+                    || !previousYoutube.getClients().equals(reloadedYoutube.getClients())) {
+                logInfo("[NoRule] YouTube clients changed; restart the Bot to apply. The shared source manager remains unchanged.");
+            }
             RUNTIME_CONFIG.set(reloaded);
             RuntimeConfigSnapshot snapshot = RuntimeConfigSnapshot.from(reloaded, baseDir);
             RUNTIME_SNAPSHOT.set(snapshot);

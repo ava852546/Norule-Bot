@@ -112,6 +112,17 @@ music:
     # 支援的後端：YOUTUBE_SOURCE 或 COMPANION。
     # 接受 youtube_source、YOUTUBE_SOURCE 與 youtube-source；無效值安全退回預設。
     playbackBackend: YOUTUBE_SOURCE
+    # 選用的全域 youtube-source Client 清單；修改後需重啟 Bot，reload 不會替換共用來源。
+    # 不設定時保留 MUSIC、TV（僅有效 OAuth 模式）、WEB、MWEB、WEB_EMBEDDED_PLAYER、
+    # TVHTML5_SIMPLY、ANDROID_VR、ANDROID_MUSIC、IOS 的原順序。
+    # 設定後只使用列出的 Client，依序嘗試，不會補回其他 Client 或增加重試。
+    # 名稱忽略大小寫與頭尾空白；空清單、重複、未知名稱或非字串項目會拒絕載入。
+    # TV 僅限有效 OAUTH 模式；不會自動啟用驗證或要求 Token。
+    # Cipher 停用或 Client 能力限制仍可跳過 Client；可配置不代表支援 SABR。
+    # COMPANION 內部 Client 不受影響；原有來源備援與搜尋／歌單使用此清單。
+    # clients:
+    #   - WEB
+    #   - MWEB
     # Invidious Companion 僅負責 YouTube 音訊播放；搜尋與中繼資料仍由 youtube-source 處理。
     companion:
       # 須啟用才允許 COMPANION 發出 API 請求；環境變數 YOUTUBE_COMPANION_ENABLED。

@@ -2215,13 +2215,17 @@ public String getToken() {
         }
 
         public static class Youtube {
+            private final List<String> clients;
+            private final boolean clientsConfigured;
             private final String playbackBackend;
             private final Companion companion;
             private final StrictPrecheck strictPrecheck;
 
             private Youtube(String playbackBackend,
                             Companion companion,
-                            StrictPrecheck strictPrecheck) {
+                            StrictPrecheck strictPrecheck, List<String> clients, boolean clientsConfigured) {
+                this.clients = List.copyOf(clients);
+                this.clientsConfigured = clientsConfigured;
                 this.playbackBackend = nullToEmpty(playbackBackend);
                 this.companion = companion == null ? Companion.defaultValues() : companion;
                 this.strictPrecheck = strictPrecheck == null ? StrictPrecheck.defaultValues() : strictPrecheck;
@@ -2232,7 +2236,9 @@ public String getToken() {
                 return new Youtube(
                         getString(map, "playbackBackend", defaults.getPlaybackBackend()),
                         Companion.fromMap(asMap(map.get("companion")), defaults.getCompanion()),
-                        StrictPrecheck.fromMap(asMap(map.get("strictPrecheck")), defaults.getStrictPrecheck())
+                        StrictPrecheck.fromMap(asMap(map.get("strictPrecheck")), defaults.getStrictPrecheck()),
+                        map.containsKey("clients") ? parseClients(map.get("clients")) : defaults.getClients(),
+                        map.containsKey("clients") || defaults.isClientsConfigured()
                 );
             }
 
@@ -2240,9 +2246,30 @@ public String getToken() {
                 return new Youtube(
                         "YOUTUBE_SOURCE",
                         Companion.defaultValues(),
-                        StrictPrecheck.defaultValues()
+                        StrictPrecheck.defaultValues(), List.of(), false
                 );
             }
+
+            private static List<String> parseClients(Object raw) {
+                if (!(raw instanceof List<?> values) || values.isEmpty()) {
+                    throw new IllegalArgumentException("music.youtube.clients must be a non-empty list of client names");
+                }
+                List<String> result = new java.util.ArrayList<>();
+                for (int index = 0; index < values.size(); index++) {
+                    if (!(values.get(index) instanceof String name) || name.isBlank()) {
+                        throw new IllegalArgumentException("music.youtube.clients[" + index + "] must be a non-blank string");
+                    }
+                    String normalized = com.norule.musicbot.domain.music.YoutubeClientType.parse(name).name();
+                    if (result.contains(normalized)) {
+                        throw new IllegalArgumentException("music.youtube.clients contains a duplicate client at index " + index);
+                    }
+                    result.add(normalized);
+                }
+                return List.copyOf(result);
+            }
+
+            public List<String> getClients() { return clients; }
+            public boolean isClientsConfigured() { return clientsConfigured; }
 
             public String getPlaybackBackend() {
                 return playbackBackend;

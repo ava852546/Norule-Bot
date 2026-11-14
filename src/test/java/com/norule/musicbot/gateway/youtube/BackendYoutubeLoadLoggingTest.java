@@ -58,6 +58,21 @@ class BackendYoutubeLoadLoggingTest {
     }
 
     @Test
+    void rateLimitFailureKeepsRecoveryClassificationWithoutAggregateConsoleStacks() {
+        var failure = new FriendlyException("YouTube returned HTTP 429", FriendlyException.Severity.SUSPICIOUS,
+                new HttpResponseException(429, "Too Many Requests"));
+        try (var capture = new LoadCapture(failure)) {
+            var classifier = new YoutubeFailureClassifier();
+            assertEquals(classifier.classify(failure).category(), classifier.classify(capture.failure).category());
+            assertEquals(classifier.classify(failure).recoveryClass(), classifier.classify(capture.failure).recoveryClass());
+            assertEquals(FriendlyException.Severity.COMMON, capture.failure.severity);
+            assertEquals(1, capture.logs.list.size());
+            assertFalse(capture.consoleText().contains("\tat "));
+            assertFalse(capture.consoleText().contains("Caused by:"));
+        }
+    }
+
+    @Test
     void unknownSourceFailureKeepsStacks() {
         assertTraceable(new IllegalStateException("unexpected fixture bug"));
     }
