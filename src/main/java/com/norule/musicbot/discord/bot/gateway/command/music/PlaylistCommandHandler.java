@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.music;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
 import com.norule.musicbot.service.music.PlaylistLoadCoordinator;
 import com.norule.musicbot.discord.bot.gateway.command.routing.DiscordCommandRouteMapper;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelController;
@@ -64,33 +65,18 @@ public final class PlaylistCommandHandler implements AutoCloseable {
     }
 
     public void handlePlaylistSlash(SlashCommandInteractionEvent event, String lang) {
-        long receivedAt = System.currentTimeMillis();
-        long createdAt = event.getTimeCreated().toInstant().toEpochMilli();
-        if (!interactionWork.claim(event.getIdLong(), createdAt, event.isAcknowledged())) return;
-        long submittedAt = System.currentTimeMillis();
-        event.deferReply(true).deadline(createdAt + 2800).queue(hook -> {
-            logAck("SLASH", createdAt, receivedAt, submittedAt, null);
-            try {
-                interactionWork.command(() -> {
-                    try {
-                        dispatchPlaylistSlash(event, lang);
-                    } catch (RuntimeException failure) {
-                        LOGGER.warn("event=DISCORD_INTERACTION_FAILED command=playlist interactionType=SLASH reason=PROCESSING_FAILED failureType={}",
-                                failure.getClass().getSimpleName());
-                        hook.editOriginal(owner.musicText(lang, "playlist_operation_failed")).queue();
-                    }
-                });
-            } catch (java.util.concurrent.RejectedExecutionException overloaded) {
-                hook.editOriginal(owner.musicText(lang, "playlist_operation_failed")).queue();
-            }
-        }, failure -> logAck("SLASH", createdAt, receivedAt, submittedAt, failure));
+        DeferredInteractionResponse.acknowledge(event, () -> event.deferReply(true), "EPHEMERAL", "playlist",
+                interactionWork.deadlines(), "load".equals(routeMapper.canonicalPlaylistSubcommand(event.getSubcommandName()))
+                        ? java.time.Duration.ofMinutes(11) : java.time.Duration.ofSeconds(60),
+                hook -> hook.editOriginal(owner.musicText(lang, "playlist_operation_failed")),
+                response -> interactionWork.command(() -> response.run(() -> dispatchPlaylistSlash(event, lang, response))));
     }
 
-    private void dispatchPlaylistSlash(SlashCommandInteractionEvent event, String lang) {
+    private void dispatchPlaylistSlash(SlashCommandInteractionEvent event, String lang, DeferredInteractionResponse interactionResponse) {
         owner.logCommandUsage(event.getGuild(), event.getMember(), "/" + routeMapper.buildSlashRoute(event), event.getChannel().getIdLong());
         String sub = routeMapper.canonicalPlaylistSubcommand(event.getSubcommandName());
         if (sub == null || sub.isBlank()) {
-            replyPlaylistListOverview(event, lang);
+            replyPlaylistListOverview(event, lang, interactionResponse);
             return;
         }
         String playlistName = event.getOption("name") == null ? "" : event.getOption("name").getAsString().trim();
@@ -98,16 +84,16 @@ public final class PlaylistCommandHandler implements AutoCloseable {
         String playlistCode = event.getOption("code") == null ? "" : event.getOption("code").getAsString().trim();
         String playlistScope = event.getOption("scope") == null ? SCOPE_MINE : event.getOption("scope").getAsString().trim();
         switch (sub) {
-            case "list" -> replyPlaylistList(event, lang, playlistScope);
-            case "save" -> handleSlashSave(event, lang, playlistName);
-            case "load" -> handleSlashLoad(event, lang, playlistName);
-            case "add" -> handleSlashAdd(event, lang, playlistName, playlistUrl);
-            case "delete" -> handleSlashDelete(event, lang, playlistName);
-            case "remove-track" -> replyRemoveTrackConfirmation(event, lang, playlistName);
-            case "export" -> handleSlashExport(event, lang, playlistName);
-            case "import" -> handleSlashImport(event, lang, playlistCode, playlistName);
-            case "view" -> replyPlaylistView(event, lang, playlistName);
-            default -> event.getHook().editOriginal(owner.i18nService().t(lang, "general.unknown_command")).queue();
+            case "list" -> replyPlaylistList(event, lang, interactionResponse, playlistScope);
+            case "save" -> handleSlashSave(event, lang, interactionResponse, playlistName);
+            case "load" -> handleSlashLoad(event, lang, interactionResponse, playlistName);
+            case "add" -> handleSlashAdd(event, lang, interactionResponse, playlistName, playlistUrl);
+            case "delete" -> handleSlashDelete(event, lang, interactionResponse, playlistName);
+            case "remove-track" -> replyRemoveTrackConfirmation(event, lang, interactionResponse, playlistName);
+            case "export" -> handleSlashExport(event, lang, interactionResponse, playlistName);
+            case "import" -> handleSlashImport(event, lang, interactionResponse, playlistCode, playlistName);
+            case "view" -> replyPlaylistView(event, lang, interactionResponse, playlistName);
+            default -> interactionResponse.complete(hook -> hook.editOriginal(owner.i18nService().t(lang, "general.unknown_command")));
         }
     }
     public void handlePlaylistPrefix(MessageReceivedEvent event, Guild guild, String arg, String lang) {
@@ -128,16 +114,16 @@ public final class PlaylistCommandHandler implements AutoCloseable {
         }
     }
 
-    void replyPlaylistListOverview(SlashCommandInteractionEvent event, String lang) {
-        event.getHook().editOriginalEmbeds(playlistListEmbed(event.getGuild(), lang, null, 0).build())
-                .queue();
+    void replyPlaylistListOverview(SlashCommandInteractionEvent event, String lang, DeferredInteractionResponse interactionResponse) {
+        interactionResponse.complete(hook -> hook.editOriginalEmbeds(playlistListEmbed(event.getGuild(), lang, null, 0).build())
+                );
     }
 
-    void replyPlaylistList(SlashCommandInteractionEvent event, String lang, String scope) {
+    void replyPlaylistList(SlashCommandInteractionEvent event, String lang, DeferredInteractionResponse interactionResponse, String scope) {
         Long ownerIdFilter = resolveOwnerFilter(scope, event.getUser().getIdLong());
-        event.getHook().editOriginalEmbeds(playlistListEmbed(event.getGuild(), lang, ownerIdFilter, 0).build())
+        interactionResponse.complete(hook -> hook.editOriginalEmbeds(playlistListEmbed(event.getGuild(), lang, ownerIdFilter, 0).build())
                 .setComponents(ActionRow.of(playlistListButtons(lang, scope, event.getUser().getIdLong(), 0, playlistListTotalPages(event.getGuild(), ownerIdFilter))))
-                .queue();
+                );
     }
 
     void sendPlaylistList(MessageReceivedEvent event, Guild guild, String lang, String scopeArg) {
@@ -148,20 +134,20 @@ public final class PlaylistCommandHandler implements AutoCloseable {
                 .queue();
     }
 
-    void replyPlaylistView(SlashCommandInteractionEvent event, String lang, String playlistName) {
+    void replyPlaylistView(SlashCommandInteractionEvent event, String lang, DeferredInteractionResponse interactionResponse, String playlistName) {
         if (playlistName.isBlank()) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_name_required")).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_name_required")));
             return;
         }
         String token = rememberPlaylistViewRequest(event.getGuild().getIdLong(), event.getUser().getIdLong(), playlistName);
         EmbedBuilder embed = playlistViewEmbed(event.getGuild(), lang, playlistName, 0);
         if (embed == null) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_view_missing", Map.of("name", playlistName))).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_view_missing", Map.of("name", playlistName))));
             return;
         }
-        event.getHook().editOriginalEmbeds(embed.build())
+        interactionResponse.complete(hook -> hook.editOriginalEmbeds(embed.build())
                 .setComponents(ActionRow.of(playlistViewButtons(lang, token, 0, playlistViewTotalPages(event.getGuild(), playlistName))))
-                .queue();
+                );
     }
 
     void sendPlaylistView(MessageReceivedEvent event, Guild guild, String lang, String playlistName) {
@@ -180,44 +166,44 @@ public final class PlaylistCommandHandler implements AutoCloseable {
                 .queue();
     }
 
-    void replyRemoveTrackConfirmation(SlashCommandInteractionEvent event, String lang, String playlistName) {
+    void replyRemoveTrackConfirmation(SlashCommandInteractionEvent event, String lang, DeferredInteractionResponse interactionResponse, String playlistName) {
         if (playlistName.isBlank()) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_name_required")).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_name_required")));
             return;
         }
         long guildId = event.getGuild().getIdLong();
         int index = event.getOption("index") == null ? 0 : (int) event.getOption("index").getAsLong();
         MusicDataService.PlaylistSummary summary = owner.musicService().getPlaylistSummary(guildId, playlistName);
         if (summary == null) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_view_missing", Map.of("name", playlistName))).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_view_missing", Map.of("name", playlistName))));
             return;
         }
         long requesterId = event.getUser().getIdLong();
         if (summary.ownerId() != null && summary.ownerId() != requesterId) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_track_remove_not_owner", Map.of(
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_track_remove_not_owner", Map.of(
                             "name", summary.name(),
                             "owner", summary.ownerName() == null || summary.ownerName().isBlank() ? "-" : summary.ownerName()
                     )))
-                    .queue();
+                    );
             return;
         }
         List<MusicDataService.PlaybackEntry> tracks = owner.musicService().getPlaylistTracks(guildId, summary.name());
         if (tracks.isEmpty()) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_view_empty")).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_view_empty")));
             return;
         }
         if (index <= 0 || index > tracks.size()) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_track_remove_invalid_index", Map.of(
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_track_remove_invalid_index", Map.of(
                             "index", String.valueOf(index),
                             "count", String.valueOf(tracks.size())
                     )) + "\n" + owner.musicText(lang, "playlist_track_remove_hint", Map.of("name", summary.name())))
-                    .queue();
+                    );
             return;
         }
         MusicDataService.PlaybackEntry target = tracks.get(index - 1);
         String title = target == null ? "-" : safe(target.title(), 80);
         String token = rememberPlaylistTrackRemoveRequest(guildId, requesterId, summary.name(), index);
-        event.getHook().editOriginalEmbeds(new EmbedBuilder()
+        interactionResponse.complete(hook -> hook.editOriginalEmbeds(new EmbedBuilder()
                         .setColor(new Color(231, 76, 60))
                         .setTitle("\uD83D\uDDD1\uFE0F " + owner.musicText(lang, "playlist_track_remove_confirm_title"))
                         .setDescription(owner.musicText(lang, "playlist_track_remove_confirm_desc", Map.of(
@@ -230,12 +216,12 @@ public final class PlaylistCommandHandler implements AutoCloseable {
                         Button.danger(TRACK_REMOVE_CONFIRM_PREFIX + token, owner.i18nService().t(lang, "delete.confirm_button")),
                         Button.secondary(TRACK_REMOVE_CANCEL_PREFIX + token, owner.i18nService().t(lang, "delete.cancel_button"))
                 ))
-                .queue();
+                );
     }
 
-    private void handleSlashSave(SlashCommandInteractionEvent event, String lang, String playlistName) {
+    private void handleSlashSave(SlashCommandInteractionEvent event, String lang, DeferredInteractionResponse interactionResponse, String playlistName) {
         if (playlistName.isBlank()) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_name_required")).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_name_required")));
             return;
         }
         MusicDataService.PlaylistSaveResult saved = owner.musicService().saveCurrentPlaylist(
@@ -245,27 +231,27 @@ public final class PlaylistCommandHandler implements AutoCloseable {
                 event.getMember() == null ? event.getUser().getName() : event.getMember().getEffectiveName()
         );
         switch (saved.status()) {
-            case SUCCESS -> event.getHook().editOriginal(owner.musicText(lang, "playlist_save_success", Map.of(
+            case SUCCESS -> interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_save_success", Map.of(
                             "name", saved.playlistName(),
                             "count", String.valueOf(saved.trackCount())
                     )))
-                    .queue();
-            case NAME_CONFLICT -> event.getHook().editOriginal(playlistNameConflictText(lang, saved.playlistName(), saved.ownerName())).queue();
-            case DUPLICATE -> event.getHook().editOriginal(owner.musicText(lang, "playlist_save_duplicate", Map.of("name", saved.playlistName())))
-                    .queue();
-            default -> event.getHook().editOriginal(owner.musicText(lang, "playlist_save_empty")).queue();
+                    );
+            case NAME_CONFLICT -> interactionResponse.complete(hook -> hook.editOriginal(playlistNameConflictText(lang, saved.playlistName(), saved.ownerName())));
+            case DUPLICATE -> interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_save_duplicate", Map.of("name", saved.playlistName())))
+                    );
+            default -> interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_save_empty")));
         }
     }
 
-    private void handleSlashLoad(SlashCommandInteractionEvent event, String lang, String playlistName) {
+    private void handleSlashLoad(SlashCommandInteractionEvent event, String lang, DeferredInteractionResponse interactionResponse, String playlistName) {
         var diagnosticRequest = owner.musicService().recordDiagnosticRequest(event.getGuild().getIdLong(), event.getChannel().getIdLong(),
                 event.getUser().getIdLong(), "/playlist load", "RECEIVED");
         if (playlistName.isBlank()) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_name_required")).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_name_required")));
             owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             return;
         }
-        if (!ensureMemberReadyForPlaylistLoad(event.getGuild(), event.getMember(), text -> event.getHook().editOriginal(text).queue())) {
+        if (!ensureMemberReadyForPlaylistLoad(event.getGuild(), event.getMember(), text -> interactionResponse.complete(hook -> hook.editOriginal(text)))) {
             owner.musicService().completeDiagnosticRequest(diagnosticRequest, "REJECTED");
             return;
         }
@@ -277,22 +263,23 @@ public final class PlaylistCommandHandler implements AutoCloseable {
         var submission = owner.musicService().loadPlaylistAsync(event.getGuild(), playlistName,
                 event.getUser().getIdLong(), event.getMember().getEffectiveName(), owner.musicText(lang, "playlist_source"));
         owner.musicService().completeDiagnosticRequest(diagnosticRequest, submission.status().name());
-        event.getHook().editOriginal(batchInitialText(lang, playlistName, submission)).queue(message -> {
-            if (submission.status() != PlaylistLoadCoordinator.Status.ACCEPTED) return;
-            panelController.refreshPanel(event.getGuild().getIdLong());
-            TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
-            panelController.moveActivePanelToBottom(event.getGuild(), panelChannel);
-            submission.completion().thenAccept(result -> {
-                if (!event.getHook().isExpired()) event.getHook().editOriginal(batchCompleteText(lang, playlistName, result))
-                        .queue(ignored -> {}, error -> logBatchNotificationFailure(result, error));
-            });
-        }, error -> LOGGER.debug("Playlist initial notification failed: type={}", error.getClass().getSimpleName()));
+        if (submission.status() != PlaylistLoadCoordinator.Status.ACCEPTED) {
+            interactionResponse.text(batchInitialText(lang, playlistName, submission));
+            return;
+        }
+        panelController.refreshPanel(event.getGuild().getIdLong());
+        TextChannel panelChannel = event.getChannelType() == ChannelType.TEXT ? event.getChannel().asTextChannel() : null;
+        panelController.moveActivePanelToBottom(event.getGuild(), panelChannel);
+        submission.completion().whenComplete((result, failure) -> {
+            if (failure != null) interactionResponse.fail(failure);
+            else interactionResponse.run(() -> interactionResponse.text(batchCompleteText(lang, playlistName, result)));
+        });
     }
 
-    private void handleSlashDelete(SlashCommandInteractionEvent event, String lang, String playlistName) {
+    private void handleSlashDelete(SlashCommandInteractionEvent event, String lang, DeferredInteractionResponse interactionResponse, String playlistName) {
         boolean allowManageOverride = event.getMember() != null && event.getMember().hasPermission(Permission.MANAGE_SERVER);
         if (playlistName.isBlank()) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_name_required")).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_name_required")));
             return;
         }
         MusicDataService.PlaylistDeleteResult removed = owner.musicService().deletePlaylist(
@@ -302,19 +289,19 @@ public final class PlaylistCommandHandler implements AutoCloseable {
                 allowManageOverride
         );
         switch (removed.status()) {
-            case SUCCESS -> event.getHook().editOriginal(owner.musicText(lang, "playlist_delete_success", Map.of("name", removed.playlistName()))).queue();
-            case NOT_OWNER -> event.getHook().editOriginal(playlistDeleteForbiddenText(lang, removed.playlistName(), removed.ownerName())).queue();
-            default -> event.getHook().editOriginal(owner.musicText(lang, "playlist_delete_missing", Map.of("name", playlistName))).queue();
+            case SUCCESS -> interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_delete_success", Map.of("name", removed.playlistName()))));
+            case NOT_OWNER -> interactionResponse.complete(hook -> hook.editOriginal(playlistDeleteForbiddenText(lang, removed.playlistName(), removed.ownerName())));
+            default -> interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_delete_missing", Map.of("name", playlistName))));
         }
     }
 
-    private void handleSlashAdd(SlashCommandInteractionEvent event, String lang, String playlistName, String playlistUrl) {
+    private void handleSlashAdd(SlashCommandInteractionEvent event, String lang, DeferredInteractionResponse interactionResponse, String playlistName, String playlistUrl) {
         if (playlistName.isBlank()) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_name_required")).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_name_required")));
             return;
         }
         if (playlistUrl.isBlank()) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_add_no_track")).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_add_no_track")));
             return;
         }
         owner.musicService().addTrackToPlaylistByInput(
@@ -323,34 +310,34 @@ public final class PlaylistCommandHandler implements AutoCloseable {
                 playlistUrl,
                 event.getUser().getIdLong(),
                 event.getMember() == null ? event.getUser().getName() : event.getMember().getEffectiveName(),
-                added -> event.getHook().editOriginal(formatAddResult(lang, playlistName, added)).queue(),
-                error -> event.getHook().editOriginal(owner.musicText(lang, "playlist_add_failed",
-                        Map.of("reason", safe(owner.mapMusicLoadError(lang, error), 120)))).queue()
+                added -> interactionResponse.complete(hook -> hook.editOriginal(formatAddResult(lang, playlistName, added))),
+                error -> interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_add_failed",
+                        Map.of("reason", safe(owner.mapMusicLoadError(lang, error), 120)))))
         );
     }
 
-    private void handleSlashExport(SlashCommandInteractionEvent event, String lang, String playlistName) {
+    private void handleSlashExport(SlashCommandInteractionEvent event, String lang, DeferredInteractionResponse interactionResponse, String playlistName) {
         if (playlistName.isBlank()) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_name_required")).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_name_required")));
             return;
         }
         MusicDataService.PlaylistShareCode share = owner.musicService().exportPlaylist(event.getGuild().getIdLong(), playlistName);
         if (share == null) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_export_missing", Map.of("name", playlistName))).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_export_missing", Map.of("name", playlistName))));
             return;
         }
-        event.getHook().editOriginal(owner.musicText(lang, "playlist_export_success", Map.of(
+        interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_export_success", Map.of(
                         "name", share.playlistName(),
                         "count", String.valueOf(share.trackCount()),
                         "code", share.code(),
                         "minutes", "3"
                 )))
-                .queue();
+                );
     }
 
-    private void handleSlashImport(SlashCommandInteractionEvent event, String lang, String playlistCode, String playlistName) {
+    private void handleSlashImport(SlashCommandInteractionEvent event, String lang, DeferredInteractionResponse interactionResponse, String playlistCode, String playlistName) {
         if (playlistCode.isBlank()) {
-            event.getHook().editOriginal(owner.musicText(lang, "playlist_code_required")).queue();
+            interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_code_required")));
             return;
         }
         MusicDataService.PlaylistImportResult imported = owner.musicService().importPlaylist(
@@ -361,14 +348,14 @@ public final class PlaylistCommandHandler implements AutoCloseable {
                 event.getMember() == null ? event.getUser().getName() : event.getMember().getEffectiveName()
         );
         switch (imported.status()) {
-            case SUCCESS -> event.getHook().editOriginal(owner.musicText(lang, "playlist_import_success", Map.of(
+            case SUCCESS -> interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_import_success", Map.of(
                             "name", imported.playlistName(),
                             "count", String.valueOf(imported.trackCount()),
                             "code", playlistCode
                     )))
-                    .queue();
-            case NAME_CONFLICT -> event.getHook().editOriginal(playlistNameConflictText(lang, imported.playlistName(), imported.ownerName())).queue();
-            default -> event.getHook().editOriginal(owner.musicText(lang, "playlist_import_invalid_code", Map.of("code", playlistCode))).queue();
+                    );
+            case NAME_CONFLICT -> interactionResponse.complete(hook -> hook.editOriginal(playlistNameConflictText(lang, imported.playlistName(), imported.ownerName())));
+            default -> interactionResponse.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_import_invalid_code", Map.of("code", playlistCode))));
         }
     }
 
@@ -576,11 +563,15 @@ public final class PlaylistCommandHandler implements AutoCloseable {
         }
         String scope = parts[2];
         Long ownerIdFilter = resolveOwnerFilter(scope, requesterId);
-        int totalPages = playlistListTotalPages(event.getGuild(), ownerIdFilter);
-        int safePage = Math.max(0, Math.min(page, totalPages - 1));
-        event.editMessageEmbeds(playlistListEmbed(event.getGuild(), lang, ownerIdFilter, safePage).build())
-                .setComponents(ActionRow.of(playlistListButtons(lang, scope, requesterId, safePage, totalPages)))
-                .queue();
+        DeferredInteractionResponse.edit(event, "playlist.button", owner.scheduler(),
+                owner.musicText(lang, "playlist_operation_failed"), response ->
+                interactionWork.command(() -> response.run(() -> {
+            int totalPages = playlistListTotalPages(event.getGuild(), ownerIdFilter);
+            int safePage = Math.max(0, Math.min(page, totalPages - 1));
+            response.complete(hook -> hook.editOriginalEmbeds(playlistListEmbed(event.getGuild(), lang, ownerIdFilter, safePage).build())
+                    .setComponents(ActionRow.of(playlistListButtons(lang, scope, requesterId, safePage, totalPages)))
+                    );
+        })));
     }
     public void handlePlaylistViewButtons(ButtonInteractionEvent event, String lang) {
         String token = event.getComponentId().substring(VIEW_BUTTON_PREFIX.length());
@@ -610,19 +601,23 @@ public final class PlaylistCommandHandler implements AutoCloseable {
             event.reply(owner.i18nService().t(lang, "general.unknown_command")).setEphemeral(true).queue();
             return;
         }
-        int totalPages = playlistViewTotalPages(event.getGuild(), request.playlistName);
-        int safePage = Math.max(0, Math.min(page, totalPages - 1));
-        EmbedBuilder embed = playlistViewEmbed(event.getGuild(), lang, request.playlistName, safePage);
-        if (embed == null) {
-            playlistViewRequests.remove(parts[0]);
-            event.editMessage(owner.musicText(lang, "playlist_view_missing", Map.of("name", request.playlistName)))
-                    .setComponents(List.of())
-                    .queue();
-            return;
-        }
-        event.editMessageEmbeds(embed.build())
-                .setComponents(ActionRow.of(playlistViewButtons(lang, parts[0], safePage, totalPages)))
-                .queue();
+        DeferredInteractionResponse.edit(event, "playlist.button", owner.scheduler(),
+                owner.musicText(lang, "playlist_operation_failed"), response ->
+                interactionWork.command(() -> response.run(() -> {
+            int totalPages = playlistViewTotalPages(event.getGuild(), request.playlistName);
+            int safePage = Math.max(0, Math.min(page, totalPages - 1));
+            EmbedBuilder embed = playlistViewEmbed(event.getGuild(), lang, request.playlistName, safePage);
+            if (embed == null) {
+                playlistViewRequests.remove(parts[0]);
+                response.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_view_missing", Map.of("name", request.playlistName)))
+                        .setComponents(List.of())
+                        );
+                return;
+            }
+            response.complete(hook -> hook.editOriginalEmbeds(embed.build())
+                    .setComponents(ActionRow.of(playlistViewButtons(lang, parts[0], safePage, totalPages)))
+                    );
+        })));
     }
     public void handlePlaylistTrackRemoveButtons(ButtonInteractionEvent event, String lang) {
         String id = event.getComponentId();
@@ -647,38 +642,42 @@ public final class PlaylistCommandHandler implements AutoCloseable {
             event.editMessage(owner.musicText(lang, "playlist_track_remove_cancelled")).setComponents(List.of()).queue();
             return;
         }
-        MusicDataService.PlaylistTrackRemoveResult removed = owner.musicService().removePlaylistTrack(
-                request.guildId,
-                request.playlistName,
-                request.index,
-                request.requestUserId
-        );
-        playlistTrackRemoveRequests.remove(token);
-        switch (removed.status()) {
-            case SUCCESS -> event.editMessage(owner.musicText(lang, "playlist_track_remove_success", Map.of(
-                            "name", removed.playlistName(),
-                            "index", String.valueOf(removed.removedIndex()),
-                            "title", removed.removedTitle() == null || removed.removedTitle().isBlank() ? "-" : removed.removedTitle(),
-                            "count", String.valueOf(removed.trackCount())
-                    )))
-                    .setComponents(List.of())
-                    .queue();
-            case NOT_OWNER -> event.editMessage(owner.musicText(lang, "playlist_track_remove_not_owner", Map.of(
-                            "name", removed.playlistName(),
-                            "owner", removed.ownerName() == null || removed.ownerName().isBlank() ? "-" : removed.ownerName()
-                    )))
-                    .setComponents(List.of())
-                    .queue();
-            case INVALID_INDEX -> event.editMessage(owner.musicText(lang, "playlist_track_remove_invalid_index", Map.of(
-                            "index", String.valueOf(removed.removedIndex()),
-                            "count", String.valueOf(removed.trackCount())
-                    )) + "\n" + owner.musicText(lang, "playlist_track_remove_hint", Map.of("name", removed.playlistName())))
-                    .setComponents(List.of())
-                    .queue();
-            default -> event.editMessage(owner.musicText(lang, "playlist_view_missing", Map.of("name", request.playlistName)))
-                    .setComponents(List.of())
-                    .queue();
-        }
+        DeferredInteractionResponse.edit(event, "playlist.button", owner.scheduler(),
+                owner.musicText(lang, "playlist_operation_failed"), response ->
+                interactionWork.command(() -> response.run(() -> {
+            MusicDataService.PlaylistTrackRemoveResult removed = owner.musicService().removePlaylistTrack(
+                    request.guildId,
+                    request.playlistName,
+                    request.index,
+                    request.requestUserId
+            );
+            playlistTrackRemoveRequests.remove(token);
+            switch (removed.status()) {
+                case SUCCESS -> response.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_track_remove_success", Map.of(
+                                "name", removed.playlistName(),
+                                "index", String.valueOf(removed.removedIndex()),
+                                "title", removed.removedTitle() == null || removed.removedTitle().isBlank() ? "-" : removed.removedTitle(),
+                                "count", String.valueOf(removed.trackCount())
+                        )))
+                        .setComponents(List.of())
+                        );
+                case NOT_OWNER -> response.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_track_remove_not_owner", Map.of(
+                                "name", removed.playlistName(),
+                                "owner", removed.ownerName() == null || removed.ownerName().isBlank() ? "-" : removed.ownerName()
+                        )))
+                        .setComponents(List.of())
+                        );
+                case INVALID_INDEX -> response.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_track_remove_invalid_index", Map.of(
+                                "index", String.valueOf(removed.removedIndex()),
+                                "count", String.valueOf(removed.trackCount())
+                        )) + "\n" + owner.musicText(lang, "playlist_track_remove_hint", Map.of("name", removed.playlistName())))
+                        .setComponents(List.of())
+                        );
+                default -> response.complete(hook -> hook.editOriginal(owner.musicText(lang, "playlist_view_missing", Map.of("name", request.playlistName)))
+                        .setComponents(List.of())
+                        );
+            }
+        })));
     }
     public void handlePlaylistAutocomplete(CommandAutoCompleteInteractionEvent event) {
         long createdAt = event.getTimeCreated().toInstant().toEpochMilli();

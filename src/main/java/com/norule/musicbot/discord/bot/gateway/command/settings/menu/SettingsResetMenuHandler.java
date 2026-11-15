@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import com.norule.musicbot.config.GuildSettingsService;
 import com.norule.musicbot.config.domain.QuestNotificationConfig;
@@ -142,19 +143,22 @@ public final class SettingsResetMenuHandler {
             return;
         }
 
-        if (!applyResetSelection(request.guildId, request.selection)) {
-            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
-            return;
-        }
-        resetConfirmRequests.remove(token);
-        event.editMessageEmbeds(new EmbedBuilder()
-                        .setColor(new Color(46, 204, 113))
-                        .setTitle(owner.i18nService().t(lang, "settings.reset_title"))
-                        .setDescription(owner.i18nService().t(lang, "settings.reset_done",
-                                Map.of("target", owner.i18nService().t(lang, "settings.reset_target_" + request.selection))))
-                        .build())
-                .setComponents(List.of())
-                .queue();
+        DeferredInteractionResponse.edit(event, "settings.reset", owner.scheduler(),
+                owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+            if (!applyResetSelection(request.guildId, request.selection)) {
+                response.text(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND));
+                return;
+            }
+            resetConfirmRequests.remove(token);
+            response.complete(hook -> hook.editOriginalEmbeds(new EmbedBuilder()
+                            .setColor(new Color(46, 204, 113))
+                            .setTitle(owner.i18nService().t(lang, "settings.reset_title"))
+                            .setDescription(owner.i18nService().t(lang, "settings.reset_done",
+                                    Map.of("target", owner.i18nService().t(lang, "settings.reset_target_" + request.selection))))
+                            .build())
+                    .setComponents(List.of())
+                    );
+        });
     }
 
     private StringSelectMenu settingsResetMenu(String token, String lang) {

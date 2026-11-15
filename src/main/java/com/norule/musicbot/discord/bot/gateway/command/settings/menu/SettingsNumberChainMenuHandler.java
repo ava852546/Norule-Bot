@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
+
 import com.norule.musicbot.ModerationService;
 import com.norule.musicbot.discord.bot.gateway.command.CommandOptions;
 import com.norule.musicbot.i18n.I18nService;
@@ -37,12 +39,15 @@ public final class SettingsNumberChainMenuHandler {
     private static final String KEY_UNKNOWN_COMMAND       = "general.unknown_command";
     private static final String KEY_DELETE_ONLY_REQUESTER = "delete.only_requester";
 
+    private final java.util.concurrent.ScheduledExecutorService scheduler;
     private final Supplier<I18nService> i18n;
     private final ModerationService moderationService;
     private final SettingsUiText uiText;
     private final ConcurrentHashMap<String, MenuRequest> numberChainMenuRequests = new ConcurrentHashMap<>();
 
-    public SettingsNumberChainMenuHandler(Supplier<I18nService> i18n, ModerationService moderationService) {
+    public SettingsNumberChainMenuHandler(Supplier<I18nService> i18n, ModerationService moderationService,
+            java.util.concurrent.ScheduledExecutorService scheduler) {
+        this.scheduler = scheduler;
         this.i18n = i18n;
         this.moderationService = moderationService;
         this.uiText = new SettingsUiText(i18n, moderationService);
@@ -94,14 +99,16 @@ public final class SettingsNumberChainMenuHandler {
         String action = event.getValues().isEmpty() ? "" : event.getValues().get(0);
         switch (action) {
             case "enable-toggle" -> {
-                boolean value = !moderationService.isNumberChainEnabled(guildId);
-                moderationService.setNumberChainEnabled(guildId, value);
-                String changed = i18n.get().t(lang, "general.settings_saved",
-                        Map.of("key", i18n.get().t(lang, "settings.info_key_number_chain_enabled"),
-                               OPTION_VALUE, boolText(lang, value)));
-                event.editMessageEmbeds(numberChainMenuEmbed(event.getGuild(), lang, changed).build())
-                        .setComponents(ActionRow.of(settingsNumberChainMenu(token, event.getGuild(), lang)))
-                        .queue();
+                DeferredInteractionResponse.edit(event, "settings.numberchain", scheduler,
+                        i18n.get().t(lang, "general.interaction_failed"), response -> {
+                    boolean value = !moderationService.isNumberChainEnabled(guildId);
+                    moderationService.setNumberChainEnabled(guildId, value);
+                    String changed = i18n.get().t(lang, "general.settings_saved",
+                            Map.of("key", i18n.get().t(lang, "settings.info_key_number_chain_enabled"),
+                                   OPTION_VALUE, boolText(lang, value)));
+                    response.complete(hook -> hook.editOriginalEmbeds(numberChainMenuEmbed(event.getGuild(), lang, changed).build())
+                            .setComponents(ActionRow.of(settingsNumberChainMenu(token, event.getGuild(), lang))));
+                });
             }
             case "set-channel" -> {
                 EntitySelectMenu channelMenu = EntitySelectMenu
@@ -119,11 +126,13 @@ public final class SettingsNumberChainMenuHandler {
                         .queue();
             }
             case OPTION_RESET -> {
-                moderationService.resetNumberChain(guildId);
-                String changed = i18n.get().t(lang, "number_chain.result_reset");
-                event.editMessageEmbeds(numberChainMenuEmbed(event.getGuild(), lang, changed).build())
-                        .setComponents(ActionRow.of(settingsNumberChainMenu(token, event.getGuild(), lang)))
-                        .queue();
+                DeferredInteractionResponse.edit(event, "settings.numberchain", scheduler,
+                        i18n.get().t(lang, "general.interaction_failed"), response -> {
+                    moderationService.resetNumberChain(guildId);
+                    String changed = i18n.get().t(lang, "number_chain.result_reset");
+                    response.complete(hook -> hook.editOriginalEmbeds(numberChainMenuEmbed(event.getGuild(), lang, changed).build())
+                            .setComponents(ActionRow.of(settingsNumberChainMenu(token, event.getGuild(), lang))));
+                });
             }
             default -> event.reply(i18n.get().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
         }
@@ -155,13 +164,15 @@ public final class SettingsNumberChainMenuHandler {
         }
 
         long guildId = event.getGuild().getIdLong();
-        moderationService.setNumberChainChannelId(guildId, channel.getIdLong());
-        moderationService.resetNumberChain(guildId);
-        String changed = i18n.get().t(lang, "number_chain.result_set_channel",
-                Map.of(OPTION_CHANNEL, channel.getAsMention()));
-        event.editMessageEmbeds(numberChainMenuEmbed(event.getGuild(), lang, changed).build())
-                .setComponents(ActionRow.of(settingsNumberChainMenu(token, event.getGuild(), lang)))
-                .queue();
+        DeferredInteractionResponse.edit(event, "settings.numberchain", scheduler,
+                i18n.get().t(lang, "general.interaction_failed"), response -> {
+            moderationService.setNumberChainChannelId(guildId, channel.getIdLong());
+            moderationService.resetNumberChain(guildId);
+            String changed = i18n.get().t(lang, "number_chain.result_set_channel",
+                    Map.of(OPTION_CHANNEL, channel.getAsMention()));
+            response.complete(hook -> hook.editOriginalEmbeds(numberChainMenuEmbed(event.getGuild(), lang, changed).build())
+                    .setComponents(ActionRow.of(settingsNumberChainMenu(token, event.getGuild(), lang))));
+        });
     }
 
     private StringSelectMenu settingsNumberChainMenu(String token, Guild guild, String lang) {
@@ -198,8 +209,7 @@ public final class SettingsNumberChainMenuHandler {
                         + i18n.get().t(lang, "settings.value_label") + ": "
                         + moderationService.getNumberChainHighestNumber(guildId),
                 "👥 " + uiText.numberChainTopContributorsLabel(lang) + "\n> "
-                        + uiText.formatNumberChainTopContributors(guild, lang)
-        );
+                        + uiText.formatNumberChainTopContributors(guild, lang));
         EmbedBuilder eb = new EmbedBuilder()
                 .setColor(new Color(46, 204, 113))
                 .setTitle("🔢 " + i18n.get().t(lang, "settings.number_chain_menu_title"))

@@ -1211,8 +1211,9 @@ class MusicPanelLifecycleTest {
         assertTrue(discord.messages.containsKey(101L), "User messages must survive panel moves");
     }
 
-    @Test
-    void voicePanelButtonAcknowledgesAndRefreshesTheActiveManagedMessage() {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void voicePanelButtonAcknowledgesAndRefreshesTheActiveManagedMessage(boolean ackSucceeds) {
         discord.connected = true;
         unsubscribe.run();
         settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(null).withPanelMode(MusicPanelMode.LEGACY)));
@@ -1220,6 +1221,7 @@ class MusicPanelLifecycleTest {
         discord.voices.put(40L, voice);
         seed(40, 100);
         var interaction = new PlaybackInteraction("");
+        interaction.delayAcks = true;
         int[] acknowledgements = {0};
         var channel = (net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion) Proxy.newProxyInstance(
                 getClass().getClassLoader(), new Class<?>[]{net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion.class,
@@ -1230,6 +1232,8 @@ class MusicPanelLifecycleTest {
                     default -> null;
                 });
         var button = proxy(net.dv8tion.jda.api.interactions.components.buttons.ButtonInteraction.class, (o, m, a) -> switch (m.getName()) {
+            case "getIdLong" -> interaction.selectionId;
+            case "isAcknowledged" -> false;
             case "getGuild" -> discord.guild;
             case "getChannel" -> channel;
             case "getComponentId" -> MusicCommandService.PANEL_REFRESH;
@@ -1242,11 +1246,37 @@ class MusicPanelLifecycleTest {
         var controller = new MusicPanelController(owner, null, panels::refreshPanel, panels, modes);
         assertTrue(controller.handlePanelButtonInteraction(
                 new net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent(discord.jda, 1, button), "en"));
+        assertEquals(0, discord.editResults.size(), "Panel work must wait for ACK confirmation");
+        if (ackSucceeds) interaction.ackCompleted.accept(interaction.hook);
+        else interaction.ackFailed.accept(new IllegalStateException("simulated ACK timeout"));
         drain();
         assertEquals(1, acknowledgements[0]);
-        assertEquals(1, discord.editResults.size());
+        assertEquals(ackSucceeds ? 1 : 0, discord.editResults.size());
         assertTrue(discord.creates.isEmpty());
         assertTrue(discord.deletes.isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void musicSettingsPersistOnlyAfterSuccessfulAckAndKeepMenuOnOriginal(boolean ackSucceeds) {
+        var interaction = new PlaybackInteraction("");
+        var handler = new com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsMusicMenuHandler(owner);
+        handler.openMusicMenu(new net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent(
+                discord.jda, 1, interaction.slash()), "en");
+        String originalMenuId = interaction.menuId;
+        interaction.selectionValue = "panel-mode-legacy";
+        interaction.delayAcks = true;
+        handler.handleMusicMenuSelect(new net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent(
+                discord.jda, 2, interaction.selection()), "en");
+        assertEquals(MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
+        assertEquals(0, interaction.hookEdits);
+        if (ackSucceeds) interaction.ackCompleted.accept(interaction.hook);
+        else interaction.ackFailed.accept(new IllegalStateException("simulated ACK failure"));
+        assertEquals(ackSucceeds ? MusicPanelMode.LEGACY : MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
+        assertEquals(ackSucceeds ? 1 : 0, interaction.hookEdits);
+        assertEquals(originalMenuId, interaction.menuId);
+        assertEquals(0, interaction.panelErrors);
+        assertTrue(discord.creates.isEmpty());
     }
 
     @ParameterizedTest
@@ -1451,10 +1481,22 @@ class MusicPanelLifecycleTest {
         }
     }
 
+    private static final java.util.concurrent.atomic.AtomicLong INTERACTION_IDS = new java.util.concurrent.atomic.AtomicLong();
+    private static long nextInteractionId() {
+        return ((System.currentTimeMillis() - 1420070400000L) << 22) | (INTERACTION_IDS.incrementAndGet() & 0x3FFFFF);
+    }
+
     final class PlaybackInteraction {
+        final long slashId = nextInteractionId();
+        final long selectionId = nextInteractionId();
         final String query;
         GuildMessageChannel incomingChannel = discord.channels.get(20L);
         String menuId;
+        String selectionValue = "0";
+        boolean delayAcks;
+        Consumer<Object> ackCompleted;
+        Consumer<Throwable> ackFailed;
+        int hookEdits;
         int panelErrors;
         final User user = proxy(User.class, (o, m, a) -> m.getName().equals("getIdLong") ? 42L : "Requester");
         final net.dv8tion.jda.api.entities.GuildVoiceState voiceState = proxy(
@@ -1463,6 +1505,7 @@ class MusicPanelLifecycleTest {
                 (o, m, a) -> switch (m.getName()) {
                     case "getVoiceState" -> voiceState;
                     case "getIdLong" -> 42L;
+                    case "hasPermission" -> true;
                     default -> "Requester";
                 });
         final net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion channel = proxy(
@@ -1474,7 +1517,10 @@ class MusicPanelLifecycleTest {
                 });
         final net.dv8tion.jda.api.interactions.InteractionHook hook = proxy(
                 net.dv8tion.jda.api.interactions.InteractionHook.class, (o, m, a) -> {
+                    if (m.getName().equals("isExpired")) return false;
+                    if (m.getName().equals("getExpirationTimestamp")) return System.currentTimeMillis() + 900_000;
                     if (m.getName().equals("sendMessage")) panelErrors++;
+                    if (m.getName().startsWith("editOriginal")) hookEdits++;
                     return action(m.getReturnType(), proxy(Message.class, (msg, accessor, args) -> "12345"));
                 });
 
@@ -1490,6 +1536,8 @@ class MusicPanelLifecycleTest {
 
         Object interaction(Object proxy, java.lang.reflect.Method method, Object[] args) {
             return switch (method.getName()) {
+                case "getIdLong" -> proxy instanceof net.dv8tion.jda.api.interactions.commands.SlashCommandInteraction ? slashId : selectionId;
+                case "isAcknowledged" -> false;
                 case "getGuild" -> discord.guild;
                 case "getChannel" -> channel;
                 case "getChannelType" -> incomingChannel.getType();
@@ -1500,7 +1548,7 @@ class MusicPanelLifecycleTest {
                         net.dv8tion.jda.api.utils.data.DataObject.empty().put("name", "query").put("type", 3).put("value", query),
                         new gnu.trove.map.hash.TLongObjectHashMap<>(), null, discord.guild));
                 case "getComponentId" -> menuId;
-                case "getValues" -> List.of("0");
+                case "getValues" -> List.of(selectionValue);
                 case "deferReply", "deferEdit", "replyEmbeds" -> action(method.getReturnType(), hook);
                 default -> throw new AssertionError("Unexpected interaction method " + method.getName());
             };
@@ -1509,12 +1557,17 @@ class MusicPanelLifecycleTest {
         @SuppressWarnings("unchecked")
         Object action(Class<?> type, Object result) {
             return Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[]{type}, (o, m, a) -> {
-                if (m.getName().equals("setComponents") && a[0] instanceof Object[] rows && rows.length > 0) {
+                if ((m.getName().equals("setComponents") || m.getName().equals("addComponents")) && a[0] instanceof Object[] rows && rows.length > 0) {
                     var child = ((ActionRow) rows[0]).getComponents().getFirst();
                     if (child instanceof net.dv8tion.jda.api.components.selections.StringSelectMenu menu) menuId = menu.getCustomId();
                 }
                 if (m.getName().equals("setEphemeral")) assertEquals(true, a[0]);
                 if (m.getName().equals("queue")) {
+                    if (result == hook && delayAcks) {
+                        ackCompleted = (Consumer<Object>) a[0];
+                        ackFailed = (Consumer<Throwable>) a[1];
+                        return null;
+                    }
                     if (a != null && a.length > 0 && a[0] != null) ((Consumer<Object>) a[0]).accept(result);
                     return null;
                 }

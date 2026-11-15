@@ -5,7 +5,9 @@ import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
-import net.dv8tion.jda.api.interactions.InteractionHook;
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
+import java.time.Duration;
+import java.util.concurrent.ScheduledExecutorService;
 import net.dv8tion.jda.api.interactions.callbacks.IReplyCallback;
 
 import java.util.function.Consumer;
@@ -14,25 +16,24 @@ import java.util.function.Supplier;
 
 /** Owns the /play response target, keeping fallback warnings separate from results. */
 final class MusicPlayReply {
-    private final InteractionHook hook;
+    private final DeferredInteractionResponse response;
     private final boolean followup;
 
-    private MusicPlayReply(InteractionHook hook, boolean followup) {
-        this.hook = hook;
+    private MusicPlayReply(DeferredInteractionResponse response, boolean followup) {
+        this.response = response;
         this.followup = followup;
     }
 
     static void acknowledge(IReplyCallback interaction, MusicPanelModeResolver.Selection mode,
-                            Supplier<MessageEmbed> notice, Consumer<MusicPlayReply> continuation) {
+                            Supplier<MessageEmbed> notice, ScheduledExecutorService scheduler, String failureText,
+                            Consumer<MusicPlayReply> continuation) {
         boolean fallback = mode.fallback();
-        // A sendMessage immediately after deferReply can consume the original response.
-        // Finish the warning ACK first, then allow playback to send independent follow-ups.
-        var acknowledgement = fallback
-                ? interaction.replyEmbeds(notice.get()).setEphemeral(true)
-                : interaction.deferReply(true);
-        acknowledgement.queue(hook -> continuation.accept(new MusicPlayReply(hook, fallback)),
-                failure -> org.slf4j.LoggerFactory.getLogger(MusicPlayReply.class).debug(
-                        "Music play acknowledgement failed: reason={}", MusicPanelModeResolver.failureReason(failure)));
+        // The warning is the original response; playback/search remain independent private results.
+        DeferredInteractionResponse.acknowledge(interaction,
+                () -> fallback ? interaction.replyEmbeds(notice.get()).setEphemeral(true) : interaction.deferReply(true),
+                "EPHEMERAL", "play", scheduler, Duration.ofSeconds(60),
+                hook -> fallback ? hook.sendMessage(failureText).setEphemeral(true) : hook.editOriginal(failureText),
+                response -> continuation.accept(new MusicPlayReply(response, fallback)));
     }
 
     static MessageEmbed fallbackNotice(Function<String, String> text) {
@@ -45,30 +46,20 @@ final class MusicPlayReply {
     }
 
     void sendText(String text) {
-        if (followup) {
-            hook.sendMessage(text).setEphemeral(true).queue();
-        } else {
-            hook.editOriginal(text).queue();
-        }
+        response.complete(hook -> followup ? hook.sendMessage(text).setEphemeral(true) : hook.editOriginal(text));
     }
 
     void sendPanelError(String text) {
-        hook.sendMessage(text).setEphemeral(true).queue(ignored -> {}, failure ->
-                org.slf4j.LoggerFactory.getLogger(MusicPlayReply.class).debug("Music panel feedback failed", failure));
+        response.auxiliary(hook -> hook.sendMessage(text).setEphemeral(true));
     }
 
     void sendSearch(MessageEmbed embed, ActionRow menu, Consumer<Message> success) {
-        if (followup) {
-            hook.sendMessageEmbeds(embed).setComponents(menu).setEphemeral(true).queue(success);
-        } else {
-            hook.editOriginalEmbeds(embed).setComponents(menu).queue(success);
-        }
+        response.complete(hook -> followup
+                ? hook.sendMessageEmbeds(embed).setComponents(menu).setEphemeral(true)
+                : hook.editOriginalEmbeds(embed).setComponents(menu), success);
     }
 
     void editSearch(String messageId, MessageEmbed embed, ActionRow menu) {
-        hook.editMessageEmbedsById(messageId, embed).setComponents(menu).queue(success -> {
-        }, failure -> {
-            // The ephemeral search message may already have been dismissed.
-        });
+        response.auxiliary(hook -> hook.editMessageEmbedsById(messageId, embed).setComponents(menu));
     }
 }

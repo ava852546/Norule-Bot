@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
+
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -139,20 +141,24 @@ public final class SettingsTemplateMenuHandler {
             }
         }
 
-        String displayKey = applyTemplate(event.getGuild().getIdLong(), templateType, template, color, lang);
-        if (displayKey == null) {
-            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
-            return true;
-        }
+        Integer selectedColor = color;
+        DeferredInteractionResponse.reply(event, true, "settings.template", owner.scheduler(),
+                owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+            String displayKey = applyTemplate(event.getGuild().getIdLong(), templateType, template, selectedColor, lang);
+            if (displayKey == null) {
+                response.text(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND));
+                return;
+            }
 
-        int previewColor = owner.resolveTemplateColor(event.getGuild().getIdLong(), templateType);
-        String preview = renderTemplatePreview(template, event.getGuild().getName());
-        EmbedBuilder previewEmbed = new EmbedBuilder()
-                .setTitle(owner.i18nService().t(lang, "settings.template_preview_title"))
-                .setDescription(preview)
-                .setColor(previewColor)
-                .addField(owner.i18nService().t(lang, "settings.template_updated"), displayKey, false);
-        event.replyEmbeds(previewEmbed.build()).setEphemeral(true).queue();
+            int previewColor = owner.resolveTemplateColor(event.getGuild().getIdLong(), templateType);
+            String preview = renderTemplatePreview(template, event.getGuild().getName());
+            EmbedBuilder previewEmbed = new EmbedBuilder()
+                    .setTitle(owner.i18nService().t(lang, "settings.template_preview_title"))
+                    .setDescription(preview)
+                    .setColor(previewColor)
+                    .addField(owner.i18nService().t(lang, "settings.template_updated"), displayKey, false);
+            response.complete(hook -> hook.editOriginalEmbeds(previewEmbed.build()));
+        });
         return true;
     }
 

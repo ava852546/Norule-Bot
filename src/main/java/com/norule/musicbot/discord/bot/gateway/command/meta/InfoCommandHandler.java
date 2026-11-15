@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.meta;
 
 import com.norule.musicbot.config.GuildSettingsService;
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
 import com.norule.musicbot.i18n.I18nService;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
@@ -25,8 +26,11 @@ import java.util.stream.Collectors;
 public final class InfoCommandHandler {
     private final Supplier<I18nService> i18n;
     private final GuildSettingsService settingsService;
+    private final java.util.concurrent.ScheduledExecutorService scheduler;
 
-    public InfoCommandHandler(Supplier<I18nService> i18n, GuildSettingsService settingsService) {
+    public InfoCommandHandler(Supplier<I18nService> i18n, GuildSettingsService settingsService,
+                              java.util.concurrent.ScheduledExecutorService scheduler) {
+        this.scheduler = scheduler;
         this.i18n = i18n;
         this.settingsService = settingsService;
     }
@@ -38,9 +42,10 @@ public final class InfoCommandHandler {
             return;
         }
 
-        event.deferReply().queue(hook -> target.getUser().retrieveProfile().queue(
-                profile -> hook.sendMessageEmbeds(userEmbed(target, lang, profile.getBannerUrl()).build()).queue(),
-                error -> hook.sendMessageEmbeds(userEmbed(target, lang, null).build()).queue()
+        DeferredInteractionResponse.reply(event, false, "info", scheduler,
+                i18n.get().t(lang, "general.interaction_failed"), response -> target.getUser().retrieveProfile().timeout(20, java.util.concurrent.TimeUnit.SECONDS).queue(
+                profile -> response.complete(hook -> hook.editOriginalEmbeds(userEmbed(target, lang, profile.getBannerUrl()).build())),
+                error -> response.complete(hook -> hook.editOriginalEmbeds(userEmbed(target, lang, null).build()))
         ));
     }
 
@@ -51,15 +56,16 @@ public final class InfoCommandHandler {
             event.reply(text(lang, "roleMissing")).setEphemeral(true).queue();
             return;
         }
-        event.deferReply().queue(hook -> {
+        DeferredInteractionResponse.reply(event, false, "info", scheduler,
+                i18n.get().t(lang, "general.interaction_failed"), response -> {
             if (role.isPublicRole()) {
-                hook.sendMessageEmbeds(roleEmbed(role, lang, role.getGuild().getMemberCount()).build()).queue();
+                response.complete(hook -> hook.editOriginalEmbeds(roleEmbed(role, lang, role.getGuild().getMemberCount()).build()));
                 return;
             }
             role.getGuild().findMembersWithRoles(role)
                     .setTimeout(Duration.ofSeconds(20))
-                    .onSuccess(members -> hook.sendMessageEmbeds(roleEmbed(role, lang, members.size()).build()).queue())
-                    .onError(error -> hook.sendMessageEmbeds(roleEmbed(role, lang, role.getGuild().getMembersWithRoles(role).size()).build()).queue());
+                    .onSuccess(members -> response.complete(hook -> hook.editOriginalEmbeds(roleEmbed(role, lang, members.size()).build())))
+                    .onError(error -> response.complete(hook -> hook.editOriginalEmbeds(roleEmbed(role, lang, role.getGuild().getMembersWithRoles(role).size()).build())));
         });
     }
 
@@ -69,10 +75,11 @@ public final class InfoCommandHandler {
             event.reply(i18n.get().t(lang, "general.only_guild")).setEphemeral(true).queue();
             return;
         }
-        event.deferReply().queue(hook -> guild.findMembers(member -> true)
+        DeferredInteractionResponse.reply(event, false, "info", scheduler,
+                i18n.get().t(lang, "general.interaction_failed"), response -> guild.findMembers(member -> true)
                 .setTimeout(Duration.ofSeconds(20))
-                .onSuccess(members -> hook.sendMessageEmbeds(serverEmbed(guild, lang, members).build()).queue())
-                .onError(error -> hook.sendMessageEmbeds(serverEmbed(guild, lang, guild.getMembers()).build()).queue()));
+                .onSuccess(members -> response.complete(hook -> hook.editOriginalEmbeds(serverEmbed(guild, lang, members).build())))
+                .onError(error -> response.complete(hook -> hook.editOriginalEmbeds(serverEmbed(guild, lang, guild.getMembers()).build()))));
     }
 
     private Member resolveTargetMember(SlashCommandInteractionEvent event) {

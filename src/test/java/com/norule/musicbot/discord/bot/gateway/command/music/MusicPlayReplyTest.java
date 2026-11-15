@@ -23,6 +23,12 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.*;
 
 class MusicPlayReplyTest {
+    private static final java.util.concurrent.ScheduledThreadPoolExecutor TIMER = new java.util.concurrent.ScheduledThreadPoolExecutor(1);
+    private static final java.util.concurrent.atomic.AtomicLong IDS = new java.util.concurrent.atomic.AtomicLong(1000);
+
+    @org.junit.jupiter.api.AfterAll
+    static void closeTimer() { TIMER.shutdownNow(); }
+
     private static final MusicPanelModeResolver.Selection FALLBACK = new MusicPanelModeResolver.Selection(
             MusicPanelMode.MODERN, MusicPanelMode.LEGACY, null, null, "NOT_CONFIGURED");
     private static final MessageEmbed WARNING = new EmbedBuilder().setTitle("Configuration warning").build();
@@ -123,6 +129,8 @@ class MusicPlayReplyTest {
     private static final class Discord {
         final Map<String, Object> messages = new LinkedHashMap<>();
         final Map<String, Boolean> ephemeral = new LinkedHashMap<>();
+        final long id = IDS.incrementAndGet();
+        final java.time.OffsetDateTime createdAt = java.time.OffsetDateTime.now();
         int acknowledgements;
         int originalEdits;
         boolean deferred;
@@ -134,6 +142,8 @@ class MusicPlayReplyTest {
         final InteractionHook hook = proxy(InteractionHook.class, (o, method, args) -> {
             assertTrue(acknowledged, "Unknown Interaction: hook used before ACK completed");
             String name = method.getName();
+            if (name.equals("isExpired")) return false;
+            if (name.equals("getExpirationTimestamp")) return System.currentTimeMillis() + 900_000;
             boolean original = name.equals("editOriginal") || name.equals("editOriginalEmbeds");
             boolean byId = name.equals("editMessageEmbedsById");
             assertTrue(original || byId || name.equals("sendMessage") || name.equals("sendMessageEmbeds"), name);
@@ -147,7 +157,7 @@ class MusicPlayReplyTest {
                     (action, m, a) -> {
                         switch (m.getName()) {
                             case "setEphemeral" -> privateMessage[0] = (boolean) a[0];
-                            case "setComponents" -> { }
+                            case "setComponents", "deadline" -> { }
                             case "queue" -> {
                                 assertTrue(privateMessage[0], "Unexpected public message");
                                 messages.put(id, content);
@@ -172,12 +182,20 @@ class MusicPlayReplyTest {
         AtomicReference<MusicPlayReply> start(MusicPanelModeResolver.Selection mode) {
             var result = new AtomicReference<MusicPlayReply>();
             IReplyCallback interaction = proxy(IReplyCallback.class, (o, method, args) -> {
+                switch (method.getName()) {
+                    case "getIdLong": return id;
+                    case "getTimeCreated": return createdAt;
+                    case "getGuild": return null;
+                    case "isAcknowledged": return acknowledged;
+                    default: break;
+                }
                 assertEquals(0, acknowledgements++, "Interaction Already Acknowledged");
                 deferred = method.getName().equals("deferReply");
                 assertTrue(deferred || method.getName().equals("replyEmbeds"));
                 if (deferred) ackEphemeral = (boolean) args[0];
                 else warning = args[0];
                 return proxy(ReplyCallbackAction.class, (action, m, a) -> {
+                    if (m.getName().equals("deadline")) return action;
                     if (m.getName().equals("setEphemeral")) {
                         ackEphemeral = (boolean) a[0];
                         return action;
@@ -191,7 +209,7 @@ class MusicPlayReplyTest {
             MusicPlayReply.acknowledge(interaction, mode, () -> {
                 assertTrue(mode.fallback(), "Normal modes must not build a notice");
                 return WARNING;
-            }, result::set);
+            }, TIMER, "Operation failed", result::set);
             return result;
         }
 

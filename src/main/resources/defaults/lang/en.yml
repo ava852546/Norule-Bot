@@ -1,5 +1,6 @@
 lang: "English"
 general:
+  interaction_failed: "The operation failed or timed out. Check its current status before trying again."
   only_guild: "This command can only be used in a server."
   no_permission: "You do not have permission to use this command."
   missing_permissions: "Missing required permissions: {permissions}"

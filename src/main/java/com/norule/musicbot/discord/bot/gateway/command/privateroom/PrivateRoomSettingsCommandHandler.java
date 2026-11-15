@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.privateroom;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
 import com.norule.musicbot.discord.bot.gateway.command.CommandOptions;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import com.norule.musicbot.discord.bot.gateway.listener.PrivateRoomListener;
@@ -114,20 +115,20 @@ public final class PrivateRoomSettingsCommandHandler {
                             .setEphemeral(true).queue();
                     return;
                 }
-                boolean currentlyLocked = isRoomLocked(room);
-                var overrideAction = room.upsertPermissionOverride(event.getGuild().getPublicRole());
-                if (currentlyLocked) {
-                    overrideAction.clear(Permission.VOICE_CONNECT, Permission.VIEW_CHANNEL);
-                    overrideAction.grant(Permission.VOICE_CONNECT, Permission.VIEW_CHANNEL);
-                } else {
-                    overrideAction.deny(Permission.VOICE_CONNECT, Permission.VIEW_CHANNEL);
-                }
-                overrideAction.queue(
-                        success -> event.editMessageEmbeds(privateRoomSettingsEmbed(room, lang).build())
-                                .setComponents(ActionRow.of(privateRoomSettingsMenu(token, lang)))
-                                .queue(),
-                        error -> event.reply(owner.i18nService().t(lang, "room_settings.action_failed"))
-                                .setEphemeral(true).queue());
+                DeferredInteractionResponse.edit(event, "private-room.lock", owner.scheduler(),
+                        owner.i18nService().t(lang, "room_settings.action_failed"), response -> {
+                    boolean currentlyLocked = isRoomLocked(room);
+                    var overrideAction = room.upsertPermissionOverride(event.getGuild().getPublicRole());
+                    if (currentlyLocked) {
+                        overrideAction.clear(Permission.VOICE_CONNECT, Permission.VIEW_CHANNEL);
+                        overrideAction.grant(Permission.VOICE_CONNECT, Permission.VIEW_CHANNEL);
+                    } else {
+                        overrideAction.deny(Permission.VOICE_CONNECT, Permission.VIEW_CHANNEL);
+                    }
+                    overrideAction.timeout(45, java.util.concurrent.TimeUnit.SECONDS).queue(
+                            success -> response.complete(hook -> hook.editOriginalEmbeds(privateRoomSettingsEmbed(room, lang).build())
+                                    .setComponents(ActionRow.of(privateRoomSettingsMenu(token, lang)))), response::fail);
+                });
             }
             case "limit"    -> openRoomLimitModal(event, token, room, lang);
             case "rename"   -> openRoomRenameModal(event, token, room, lang);
@@ -185,19 +186,10 @@ public final class PrivateRoomSettingsCommandHandler {
                     return;
                 }
             }
-            room.getManager().setUserLimit(limit).queue(
-                    success -> {
-                        roomSettingRequests.put(token, new RoomSettingsRequest(
-                                request.requestUserId, request.guildId, request.roomChannelId,
-                                Instant.now().plusSeconds(120)
-                        ));
-                        event.replyEmbeds(privateRoomSettingsEmbed(room, lang).build())
-                                .addComponents(ActionRow.of(privateRoomSettingsMenu(token, lang)))
-                                .setEphemeral(true).queue();
-                    },
-                    error -> event.reply(owner.i18nService().t(lang, "room_settings.action_failed"))
-                            .setEphemeral(true).queue()
-            );
+            DeferredInteractionResponse.reply(event, true, "private-room.limit", owner.scheduler(),
+                    owner.i18nService().t(lang, "room_settings.action_failed"), response ->
+                    room.getManager().setUserLimit(limit).timeout(45, java.util.concurrent.TimeUnit.SECONDS).queue(
+                            success -> response.run(() -> refreshRoomSettings(response, token, request, room, lang)), response::fail));
             return;
         }
 
@@ -206,19 +198,18 @@ public final class PrivateRoomSettingsCommandHandler {
             event.reply(owner.i18nService().t(lang, "room_settings.rename_invalid")).setEphemeral(true).queue();
             return;
         }
-        room.getManager().setName(name).queue(
-                success -> {
-                    roomSettingRequests.put(token, new RoomSettingsRequest(
-                            request.requestUserId, request.guildId, request.roomChannelId,
-                            Instant.now().plusSeconds(120)
-                    ));
-                    event.replyEmbeds(privateRoomSettingsEmbed(room, lang).build())
-                            .addComponents(ActionRow.of(privateRoomSettingsMenu(token, lang)))
-                            .setEphemeral(true).queue();
-                },
-                error -> event.reply(owner.i18nService().t(lang, "room_settings.action_failed"))
-                        .setEphemeral(true).queue()
-        );
+        DeferredInteractionResponse.reply(event, true, "private-room.rename", owner.scheduler(),
+                owner.i18nService().t(lang, "room_settings.action_failed"), response ->
+                room.getManager().setName(name).timeout(45, java.util.concurrent.TimeUnit.SECONDS).queue(
+                        success -> response.run(() -> refreshRoomSettings(response, token, request, room, lang)), response::fail));
+    }
+
+    private void refreshRoomSettings(DeferredInteractionResponse response, String token, RoomSettingsRequest request,
+                                     VoiceChannel room, String lang) {
+        roomSettingRequests.put(token, new RoomSettingsRequest(request.requestUserId, request.guildId,
+                request.roomChannelId, Instant.now().plusSeconds(120)));
+        response.complete(hook -> hook.editOriginalEmbeds(privateRoomSettingsEmbed(room, lang).build())
+                .setComponents(ActionRow.of(privateRoomSettingsMenu(token, lang))));
     }
 
     public void handleRoomTransferSelect(EntitySelectInteractionEvent event, String lang) {
@@ -263,25 +254,23 @@ public final class PrivateRoomSettingsCommandHandler {
         }
 
         long oldOwnerId = request.requestUserId;
-        room.upsertPermissionOverride(target)
-                .grant(Permission.getPermissions(PrivateRoomListener.getRoomOwnerPermissionRaw()))
-                .queue(success -> removeOldRoomOwnerOverride(room, oldOwnerId, () -> {
-                            PrivateRoomListener.setRoomOwner(
-                                    event.getGuild().getIdLong(), room.getIdLong(), target.getIdLong());
-                            roomSettingRequests.remove(token);
-                            event.editMessageEmbeds(new EmbedBuilder()
-                                            .setColor(new Color(46, 204, 113))
-                                            .setTitle(owner.i18nService().t(lang, "room_settings.title"))
-                                            .setDescription(owner.i18nService().t(lang, "room_settings.transfer_success",
-                                                    Map.of("user", target.getAsMention())))
-                                            .build())
-                                    .setComponents(List.of())
-                                    .queue();
-                        },
-                        () -> event.reply(owner.i18nService().t(lang, "room_settings.action_failed"))
-                                .setEphemeral(true).queue()),
-                error -> event.reply(owner.i18nService().t(lang, "room_settings.action_failed"))
-                        .setEphemeral(true).queue());
+        DeferredInteractionResponse.edit(event, "private-room.transfer", owner.scheduler(),
+                owner.i18nService().t(lang, "room_settings.action_failed"), response ->
+                room.upsertPermissionOverride(target)
+                        .grant(Permission.getPermissions(PrivateRoomListener.getRoomOwnerPermissionRaw()))
+                        .timeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                        .queue(success -> response.run(() -> removeOldRoomOwnerOverride(room, oldOwnerId, () -> response.run(() -> {
+                                    PrivateRoomListener.setRoomOwner(
+                                            event.getGuild().getIdLong(), room.getIdLong(), target.getIdLong());
+                                    roomSettingRequests.remove(token);
+                                    response.complete(hook -> hook.editOriginalEmbeds(new EmbedBuilder()
+                                                    .setColor(new Color(46, 204, 113))
+                                                    .setTitle(owner.i18nService().t(lang, "room_settings.title"))
+                                                    .setDescription(owner.i18nService().t(lang, "room_settings.transfer_success",
+                                                            Map.of("user", target.getAsMention())))
+                                                    .build())
+                                            .setComponents(List.of()));
+                                }), response::fail)), response::fail));
     }
 
     private StringSelectMenu privateRoomSettingsMenu(String token, String lang) {
@@ -369,7 +358,7 @@ public final class PrivateRoomSettingsCommandHandler {
     }
 
     private void removeOldRoomOwnerOverride(VoiceChannel room, long oldOwnerId,
-                                            Runnable onSuccess, Runnable onError) {
+                                            Runnable onSuccess, java.util.function.Consumer<Throwable> onError) {
         var oldOverride = room.getMemberPermissionOverrides().stream()
                 .filter(o -> o.getIdLong() == oldOwnerId)
                 .findFirst()
@@ -378,7 +367,7 @@ public final class PrivateRoomSettingsCommandHandler {
             onSuccess.run();
             return;
         }
-        oldOverride.delete().queue(success -> onSuccess.run(), error -> onError.run());
+        oldOverride.delete().timeout(20, java.util.concurrent.TimeUnit.SECONDS).queue(success -> onSuccess.run(), onError);
     }
 
     private boolean isRoomLocked(VoiceChannel room) {

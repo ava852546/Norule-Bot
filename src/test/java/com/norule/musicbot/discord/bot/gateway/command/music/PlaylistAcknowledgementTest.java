@@ -15,6 +15,7 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PlaylistAcknowledgementTest {
+    private static final java.util.concurrent.atomic.AtomicLong IDS = new java.util.concurrent.atomic.AtomicLong();
     @Test
     void autocompleteFiltersAndNeverReturnsMoreThanTwentyFiveChoices() {
         var summaries = java.util.stream.IntStream.range(0, 40)
@@ -46,8 +47,10 @@ class PlaylistAcknowledgementTest {
                 }
                 return null;
             });
-            long id = (System.currentTimeMillis() - 1420070400000L) << 22;
+            long id = ((System.currentTimeMillis() - 1420070400000L) << 22) | IDS.incrementAndGet();
             SlashCommandInteraction interaction = proxy(SlashCommandInteraction.class, (method, args) -> {
+                if (method.equals("getGuild")) return null;
+                if (method.equals("getSubcommandName")) return "load";
                 if (method.equals("getIdLong")) return id;
                 if (method.equals("isAcknowledged")) return false;
                 if (method.equals("deferReply")) {
@@ -79,8 +82,10 @@ class PlaylistAcknowledgementTest {
                 }
                 return null;
             });
-            long id = (System.currentTimeMillis() - 1420070400000L) << 22;
+            long id = ((System.currentTimeMillis() - 1420070400000L) << 22) | IDS.incrementAndGet();
             var interaction = proxy(SlashCommandInteraction.class, (method, args) -> switch (method) {
+                case "getGuild" -> null;
+                case "getSubcommandName" -> "load";
                 case "getIdLong" -> id;
                 case "isAcknowledged" -> false;
                 case "deferReply" -> action;

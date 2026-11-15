@@ -82,18 +82,18 @@ class CommandHandlerRegistry {
                 new MusicDiagnosticsOps(service.musicService(), diagnosticsHistory));
         this.settingsCommandHandler = new SettingsCommandHandler(service);
         this.helpCommandHandler = new HelpCommandHandler(service);
-        this.pingCommandHandler = new PingCommandHandler(service::i18nService);
+        this.pingCommandHandler = new PingCommandHandler(service::i18nService, service.scheduler());
         this.welcomeCommandHandler = new WelcomeCommandHandler(service.settingsService(), service::i18nService, boolTextHelper, welcomeTextPreviewer);
         this.historyCommandHandler = new HistoryCommandHandler(service);
         this.deleteMessagesCommandHandler = new DeleteMessagesCommandHandler(service);
         this.privateRoomSettingsCommandHandler = new PrivateRoomSettingsCommandHandler(service);
         this.antiDuplicateCommandHandler = new AntiDuplicateCommandHandler(service.moderationService(), service::i18nService, boolTextHelper);
-        this.languageMenuHandler = new SettingsLanguageMenuHandler(service::i18nService, service.settingsService());
-        this.numberChainMenuHandler = new SettingsNumberChainMenuHandler(service::i18nService, service.moderationService());
+        this.languageMenuHandler = new SettingsLanguageMenuHandler(service::i18nService, service.settingsService(), service.scheduler());
+        this.numberChainMenuHandler = new SettingsNumberChainMenuHandler(service::i18nService, service.moderationService(), service.scheduler());
         this.wordChainMenuHandler = new SettingsWordChainMenuHandler(service::i18nService, service.wordChainOps(), service.moderationService());
         this.warningCommandHandler = new WarningCommandHandler(service);
         this.honeypotCommandHandler = new HoneypotCommandHandler(service.honeypotService());
-        this.infoCommandHandler = new InfoCommandHandler(service::i18nService, service.settingsService());
+        this.infoCommandHandler = new InfoCommandHandler(service::i18nService, service.settingsService(), service.scheduler());
         this.urlCommandHandler = new UrlCommandHandler(service.shortUrlService());
         this.playlistCommandHandler = new PlaylistCommandHandler(service, musicPanelController);
         this.playbackCommandHandler = new MusicPlaybackCommandHandler(service, musicPanelController, musicPlaybackText);
@@ -107,7 +107,7 @@ class CommandHandlerRegistry {
                 : null;
         this.reportCommandHandler = new ReportCommandHandler(
                 service::i18nService,
-                () -> service.runtimeConfigSnapshot().getReportDeveloperChannelId());
+                () -> service.runtimeConfigSnapshot().getReportDeveloperChannelId(), service.scheduler());
         this.questNotificationCommandHandler = new QuestNotificationCommandHandler(
                 new QuestNotificationService(service.settingsService()), service::i18nService);
     }

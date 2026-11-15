@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
+
 import com.norule.musicbot.config.GuildSettingsService;
 import com.norule.musicbot.discord.bot.gateway.command.CommandNames;
 import com.norule.musicbot.i18n.I18nService;
@@ -43,11 +45,14 @@ public final class SettingsLogsMenuHandler {
     private static final String CMD_LEAVE      = CommandNames.CMD_LEAVE;
     private static final String ROUTE_MODULE   = "module";
 
+    private final java.util.concurrent.ScheduledExecutorService scheduler;
     private final Supplier<I18nService> i18n;
     private final GuildSettingsService settingsService;
     private final Map<String, MenuRequest> logsMenuRequests = new ConcurrentHashMap<>();
 
-    public SettingsLogsMenuHandler(Supplier<I18nService> i18n, GuildSettingsService settingsService) {
+    public SettingsLogsMenuHandler(Supplier<I18nService> i18n, GuildSettingsService settingsService,
+            java.util.concurrent.ScheduledExecutorService scheduler) {
+        this.scheduler = scheduler;
         this.i18n = i18n;
         this.settingsService = settingsService;
     }
@@ -320,73 +325,73 @@ public final class SettingsLogsMenuHandler {
             return;
         }
 
-        long guildId = event.getGuild().getIdLong();
-        switch (target) {
-            case "default-channel" ->
-                    settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withChannelId(textChannel.getIdLong())));
-            case "messages-channel" ->
-                    settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withMessageLogChannelId(textChannel.getIdLong())));
-            case "member-channel-shared" ->
-                    settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications()
-                            .withMemberChannelId(textChannel.getIdLong())
-                            .withMemberJoinChannelId(null)
-                            .withMemberLeaveChannelId(null)));
-            case "member-join-channel" ->
-                    settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications()
-                            .withMemberChannelId(null)
-                            .withMemberJoinChannelId(textChannel.getIdLong())));
-            case "member-leave-channel" ->
-                    settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications()
-                            .withMemberChannelId(null)
-                            .withMemberLeaveChannelId(textChannel.getIdLong())));
-            case "voice-channel" ->
-                    settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications().withVoiceChannelId(textChannel.getIdLong())));
-            case "command-usage-channel" ->
-                    settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withCommandUsageChannelId(textChannel.getIdLong())));
-            case "channel-events-channel" ->
-                    settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withChannelLifecycleChannelId(textChannel.getIdLong())));
-            case "role-events-channel" ->
-                    settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withRoleLogChannelId(textChannel.getIdLong())));
-            case "moderation-channel" ->
-                    settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withModerationLogChannelId(textChannel.getIdLong())));
-            default -> {
-                event.reply(i18n.get().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+        DeferredInteractionResponse.edit(event, "settings.logs", scheduler,
+                i18n.get().t(lang, "general.interaction_failed"), response -> {
+            long guildId = event.getGuild().getIdLong();
+            switch (target) {
+                case "default-channel" ->
+                        settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withChannelId(textChannel.getIdLong())));
+                case "messages-channel" ->
+                        settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withMessageLogChannelId(textChannel.getIdLong())));
+                case "member-channel-shared" ->
+                        settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications()
+                                .withMemberChannelId(textChannel.getIdLong())
+                                .withMemberJoinChannelId(null)
+                                .withMemberLeaveChannelId(null)));
+                case "member-join-channel" ->
+                        settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications()
+                                .withMemberChannelId(null)
+                                .withMemberJoinChannelId(textChannel.getIdLong())));
+                case "member-leave-channel" ->
+                        settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications()
+                                .withMemberChannelId(null)
+                                .withMemberLeaveChannelId(textChannel.getIdLong())));
+                case "voice-channel" ->
+                        settingsService.updateSettings(guildId, s -> s.withNotifications(s.getNotifications().withVoiceChannelId(textChannel.getIdLong())));
+                case "command-usage-channel" ->
+                        settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withCommandUsageChannelId(textChannel.getIdLong())));
+                case "channel-events-channel" ->
+                        settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withChannelLifecycleChannelId(textChannel.getIdLong())));
+                case "role-events-channel" ->
+                        settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withRoleLogChannelId(textChannel.getIdLong())));
+                case "moderation-channel" ->
+                        settingsService.updateSettings(guildId, s -> s.withMessageLogs(s.getMessageLogs().withModerationLogChannelId(textChannel.getIdLong())));
+                default -> {
+                    response.text(i18n.get().t(lang, KEY_UNKNOWN_COMMAND));
+                    return;
+                }
+            }
+
+            String key     = logsTargetKey(target);
+            String keyText = key == null ? target : i18n.get().t(lang, key);
+            String savedText = i18n.get().t(lang, "general.settings_saved",
+                    Map.of("key", keyText, OPTION_VALUE, textChannel.getAsMention()));
+
+            if ("member-join-channel".equals(target) || "member-leave-channel".equals(target)) {
+                response.complete(hook -> hook.editOriginalEmbeds(new EmbedBuilder()
+                                .setColor(new Color(46, 204, 113))
+                                .setTitle(i18n.get().t(lang, "settings.logs_member_split_title"))
+                                .setDescription(savedText)
+                                .build())
+                        .setComponents(ActionRow.of(settingsMemberSplitMenu(token, event.getGuild(), lang))));
                 return;
             }
-        }
-
-        String key     = logsTargetKey(target);
-        String keyText = key == null ? target : i18n.get().t(lang, key);
-        String savedText = i18n.get().t(lang, "general.settings_saved",
-                Map.of("key", keyText, OPTION_VALUE, textChannel.getAsMention()));
-
-        if ("member-join-channel".equals(target) || "member-leave-channel".equals(target)) {
-            event.editMessageEmbeds(new EmbedBuilder()
+            if ("member-channel-shared".equals(target)) {
+                response.complete(hook -> hook.editOriginalEmbeds(new EmbedBuilder()
+                                .setColor(new Color(46, 204, 113))
+                                .setTitle(i18n.get().t(lang, "settings.logs_member_mode_title"))
+                                .setDescription(savedText)
+                                .build())
+                        .setComponents(ActionRow.of(settingsMemberChannelModeMenu(token, lang))));
+                return;
+            }
+            response.complete(hook -> hook.editOriginalEmbeds(new EmbedBuilder()
                             .setColor(new Color(46, 204, 113))
-                            .setTitle(i18n.get().t(lang, "settings.logs_member_split_title"))
+                            .setTitle(i18n.get().t(lang, "settings.logs_menu_title"))
                             .setDescription(savedText)
                             .build())
-                    .setComponents(ActionRow.of(settingsMemberSplitMenu(token, event.getGuild(), lang)))
-                    .queue();
-            return;
-        }
-        if ("member-channel-shared".equals(target)) {
-            event.editMessageEmbeds(new EmbedBuilder()
-                            .setColor(new Color(46, 204, 113))
-                            .setTitle(i18n.get().t(lang, "settings.logs_member_mode_title"))
-                            .setDescription(savedText)
-                            .build())
-                    .setComponents(ActionRow.of(settingsMemberChannelModeMenu(token, lang)))
-                    .queue();
-            return;
-        }
-        event.editMessageEmbeds(new EmbedBuilder()
-                        .setColor(new Color(46, 204, 113))
-                        .setTitle(i18n.get().t(lang, "settings.logs_menu_title"))
-                        .setDescription(savedText)
-                        .build())
-                .setComponents(ActionRow.of(settingsLogsMenu(token, event.getGuild(), lang)))
-                .queue();
+                    .setComponents(ActionRow.of(settingsLogsMenu(token, event.getGuild(), lang))));
+        });
     }
 
     private String logsTargetKey(String target) {

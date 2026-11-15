@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
+
 import com.norule.musicbot.config.GuildSettingsService;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import com.norule.musicbot.i18n.I18nService;
@@ -23,11 +25,14 @@ public final class SettingsLanguageMenuHandler {
     private static final String KEY_UNKNOWN_COMMAND       = "general.unknown_command";
     private static final String KEY_DELETE_ONLY_REQUESTER = "delete.only_requester";
 
+    private final java.util.concurrent.ScheduledExecutorService scheduler;
     private final Supplier<I18nService> i18n;
     private final GuildSettingsService settingsService;
     private final ConcurrentHashMap<String, MenuRequest> languageMenuRequests = new ConcurrentHashMap<>();
 
-    public SettingsLanguageMenuHandler(Supplier<I18nService> i18n, GuildSettingsService settingsService) {
+    public SettingsLanguageMenuHandler(Supplier<I18nService> i18n, GuildSettingsService settingsService,
+            java.util.concurrent.ScheduledExecutorService scheduler) {
+        this.scheduler = scheduler;
         this.i18n = i18n;
         this.settingsService = settingsService;
     }
@@ -85,16 +90,18 @@ public final class SettingsLanguageMenuHandler {
             return;
         }
         String normalized = i18n.get().normalizeLanguage(code);
-        settingsService.updateSettings(event.getGuild().getIdLong(), s -> s.withLanguage(normalized));
-        String languageDisplay = languageDisplayText(normalized);
-        event.editMessageEmbeds(new EmbedBuilder()
-                        .setColor(new Color(46, 204, 113))
-                        .setTitle(i18n.get().t(normalized, "settings.language_menu_title"))
-                        .setDescription(i18n.get().t(normalized, "settings.language_updated",
-                                Map.of(ROUTE_LANGUAGE, languageDisplay)))
-                        .build())
-                .setComponents(ActionRow.of(settingsLanguageMenu(token, event.getGuild().getIdLong(), normalized)))
-                .queue();
+        DeferredInteractionResponse.edit(event, "settings.language", scheduler,
+                i18n.get().t(lang, "general.interaction_failed"), response -> {
+            settingsService.updateSettings(event.getGuild().getIdLong(), s -> s.withLanguage(normalized));
+            String languageDisplay = languageDisplayText(normalized);
+            response.complete(hook -> hook.editOriginalEmbeds(new EmbedBuilder()
+                            .setColor(new Color(46, 204, 113))
+                            .setTitle(i18n.get().t(normalized, "settings.language_menu_title"))
+                            .setDescription(i18n.get().t(normalized, "settings.language_updated",
+                                    Map.of(ROUTE_LANGUAGE, languageDisplay)))
+                            .build())
+                    .setComponents(ActionRow.of(settingsLanguageMenu(token, event.getGuild().getIdLong(), normalized))));
+        });
     }
 
     private StringSelectMenu settingsLanguageMenu(String token, long guildId, String lang) {

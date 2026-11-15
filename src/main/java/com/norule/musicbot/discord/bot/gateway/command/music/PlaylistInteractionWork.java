@@ -71,6 +71,10 @@ final class PlaylistInteractionWork implements AutoCloseable {
         commands.execute(command);
     }
 
+    ScheduledExecutorService deadlines() {
+        return deadlines;
+    }
+
     private static ExecutorService pool(String name, int size, int capacity) {
         return new ThreadPoolExecutor(size, size, 0, TimeUnit.MILLISECONDS,
                 new ArrayBlockingQueue<>(capacity), runnable -> {

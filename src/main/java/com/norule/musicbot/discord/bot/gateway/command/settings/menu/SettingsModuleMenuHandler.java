@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings.menu;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
 import com.norule.musicbot.discord.bot.gateway.command.settings.view.SettingsUiText;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import net.dv8tion.jda.api.EmbedBuilder;
@@ -100,17 +101,20 @@ public final class SettingsModuleMenuHandler {
             event.reply(owner.i18nService().t(lang, "settings.logs_default_required")).setEphemeral(true).queue();
             return;
         }
-        ToggleResult result = toggleModuleValue(event.getGuild().getIdLong(), action);
-        if (result == null) {
-            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
-            return;
-        }
-        String keyText = owner.i18nService().t(lang, result.key);
-        String changed = owner.i18nService().t(lang, "general.settings_saved",
-                Map.of("key", keyText, OPTION_VALUE, moduleSwitchTextCode(lang, result.value)));
-        event.editMessageEmbeds(moduleMenuEmbed(event.getGuild(), lang, changed).build())
-                .setComponents(ActionRow.of(settingsModuleMenu(token, event.getGuild().getIdLong(), lang)), uiText.autoLeaveStatusRow(lang))
-                .queue();
+        DeferredInteractionResponse.edit(event, "settings.module", owner.scheduler(),
+                owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+            ToggleResult result = toggleModuleValue(event.getGuild().getIdLong(), action);
+            if (result == null) {
+                response.text(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND));
+                return;
+            }
+            String keyText = owner.i18nService().t(lang, result.key);
+            String changed = owner.i18nService().t(lang, "general.settings_saved",
+                    Map.of("key", keyText, OPTION_VALUE, moduleSwitchTextCode(lang, result.value)));
+            response.complete(hook -> hook.editOriginalEmbeds(moduleMenuEmbed(event.getGuild(), lang, changed).build())
+                    .setComponents(ActionRow.of(settingsModuleMenu(token, event.getGuild().getIdLong(), lang)), uiText.autoLeaveStatusRow(lang))
+                    );
+        });
     }
 
     private StringSelectMenu settingsModuleMenu(String token, long guildId, String lang) {

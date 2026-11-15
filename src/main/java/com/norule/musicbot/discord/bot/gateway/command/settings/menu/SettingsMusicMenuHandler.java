@@ -4,6 +4,7 @@ import com.norule.musicbot.domain.music.MusicPanelMode;
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver;
 
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
 import com.norule.musicbot.discord.bot.gateway.command.CommandOptions;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import com.norule.musicbot.discord.bot.gateway.command.settings.view.SettingsUiText;
@@ -108,26 +109,32 @@ public final class SettingsMusicMenuHandler {
         String action = event.getValues().isEmpty() ? "" : event.getValues().get(0);
         switch (action) {
             case A_PANEL_MODE_MODERN, A_PANEL_MODE_LEGACY -> {
-                var mode = A_PANEL_MODE_MODERN.equals(action)
-                        ? MusicPanelMode.MODERN
-                        : MusicPanelMode.LEGACY;
-                owner.settingsService().updateSettings(guildId, settings -> settings.withMusic(settings.getMusic().withPanelMode(mode)));
-                event.editMessageEmbeds(musicMenuEmbed(event.getGuild(), lang, owner.i18nService().t(lang,
-                                MSG_SETTINGS_SAVED, Map.of("key", owner.musicText(lang, "panel_mode_label"), OPTION_VALUE, mode.name()))).build())
-                        .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)), uiText.autoLeaveStatusRow(lang)).queue();
+                DeferredInteractionResponse.edit(event, "settings.music", owner.scheduler(),
+                        owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+                    var mode = A_PANEL_MODE_MODERN.equals(action)
+                            ? MusicPanelMode.MODERN
+                            : MusicPanelMode.LEGACY;
+                    owner.settingsService().updateSettings(guildId, settings -> settings.withMusic(settings.getMusic().withPanelMode(mode)));
+                    response.complete(hook -> hook.editOriginalEmbeds(musicMenuEmbed(event.getGuild(), lang, owner.i18nService().t(lang,
+                                    MSG_SETTINGS_SAVED, Map.of("key", owner.musicText(lang, "panel_mode_label"), OPTION_VALUE, mode.name()))).build())
+                            .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)), uiText.autoLeaveStatusRow(lang)));
+                });
             }
             case "auto-leave-toggle" -> event.reply(owner.i18nService().t(lang, MSG_MENU_EXPIRED)).setEphemeral(true).queue();
             case A_AUTOPLAY_TOGGLE -> {
-                boolean value = !owner.settingsService().getMusic(guildId).isAutoplayEnabled();
-                owner.settingsService().updateSettings(guildId, s -> s.withMusic(s.getMusic().withAutoplayEnabled(value)));
-                if (!value) {
-                    owner.musicService().clearAutoplayNotice(guildId);
-                }
-                String changed = owner.i18nService().t(lang, MSG_SETTINGS_SAVED,
-                        Map.of("key", owner.i18nService().t(lang, K_AUTOPLAY_ENABLED), OPTION_VALUE, owner.boolText(lang, value)));
-                event.editMessageEmbeds(musicMenuEmbed(event.getGuild(), lang, changed).build())
-                        .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)), uiText.autoLeaveStatusRow(lang))
-                        .queue();
+                DeferredInteractionResponse.edit(event, "settings.music", owner.scheduler(),
+                        owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+                    boolean value = !owner.settingsService().getMusic(guildId).isAutoplayEnabled();
+                    owner.settingsService().updateSettings(guildId, s -> s.withMusic(s.getMusic().withAutoplayEnabled(value)));
+                    if (!value) {
+                        owner.musicService().clearAutoplayNotice(guildId);
+                    }
+                    String changed = owner.i18nService().t(lang, MSG_SETTINGS_SAVED,
+                            Map.of("key", owner.i18nService().t(lang, K_AUTOPLAY_ENABLED), OPTION_VALUE, owner.boolText(lang, value)));
+                    response.complete(hook -> hook.editOriginalEmbeds(musicMenuEmbed(event.getGuild(), lang, changed).build())
+                            .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)), uiText.autoLeaveStatusRow(lang))
+                            );
+                });
             }
             case A_COMMAND_CHANNEL, A_PRIVATE_ROOM_CHANNEL -> {
                 String componentId = SETTINGS_MUSIC_CHANNEL_PREFIX + token + ":" + action;
@@ -217,66 +224,65 @@ public final class SettingsMusicMenuHandler {
         }
         GuildChannel selected = channels.get(0);
         long guildId = event.getGuild().getIdLong();
-        String displayValue;
-        switch (target) {
-            case A_COMMAND_CHANNEL -> {
-                if (selected.getType() != ChannelType.TEXT) {
-                    event.reply(owner.i18nService().t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
-                    return;
-                }
-                TextChannel channel = event.getGuild().getTextChannelById(selected.getIdLong());
-                if (channel == null) {
-                    event.reply(owner.i18nService().t(lang, "general.invalid_channel")).setEphemeral(true).queue();
-                    return;
-                }
-                if (!MusicPanelModeResolver.usable(channel)) {
-                    event.reply(owner.i18nService().t(lang, "general.missing_permissions", Map.of("permissions",
-                                    owner.formatMissingPermissionsForPanel(event.getGuild().getSelfMember(), channel,
-                                            Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND, Permission.MESSAGE_EMBED_LINKS))))
-                            .setEphemeral(true).queue();
-                    return;
-                }
-                owner.settingsService().updateSettings(guildId,
-                        s -> s.withMusic(s.getMusic().withCommandChannelId(selected.getIdLong())));
-                displayValue = "<#" + selected.getId() + ">";
-            }
-            case A_PRIVATE_ROOM_CHANNEL -> {
-                if (selected.getType() != ChannelType.VOICE && selected.getType() != ChannelType.STAGE) {
-                    event.reply(owner.i18nService().t(lang, "settings.validation_expected_voice_channel")).setEphemeral(true).queue();
-                    return;
-                }
-                owner.settingsService().updateSettings(guildId, s -> s.withPrivateRoom(
-                        s.getPrivateRoom()
-                                .withTriggerVoiceChannelId(selected.getIdLong())
-                                .withEnabled(true)
-                ));
-                displayValue = "<#" + selected.getId() + ">";
-            }
-            default -> {
-                event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+        if (A_COMMAND_CHANNEL.equals(target)) {
+            TextChannel channel = selected.getType() == ChannelType.TEXT
+                    ? event.getGuild().getTextChannelById(selected.getIdLong()) : null;
+            if (channel == null) {
+                event.reply(owner.i18nService().t(lang, "settings.validation_expected_text_channel")).setEphemeral(true).queue();
                 return;
             }
+            if (!MusicPanelModeResolver.usable(channel)) {
+                event.reply(owner.i18nService().t(lang, "general.missing_permissions", Map.of("permissions",
+                                owner.formatMissingPermissionsForPanel(event.getGuild().getSelfMember(), channel,
+                                        Permission.VIEW_CHANNEL, Permission.MESSAGE_SEND, Permission.MESSAGE_EMBED_LINKS))))
+                        .setEphemeral(true).queue();
+                return;
+            }
+        } else if (A_PRIVATE_ROOM_CHANNEL.equals(target)) {
+            if (selected.getType() != ChannelType.VOICE && selected.getType() != ChannelType.STAGE) {
+                event.reply(owner.i18nService().t(lang, "settings.validation_expected_voice_channel")).setEphemeral(true).queue();
+                return;
+            }
+        } else {
+            event.reply(owner.i18nService().t(lang, KEY_UNKNOWN_COMMAND)).setEphemeral(true).queue();
+            return;
         }
-        String key = musicTargetKey(target);
-        String keyText = key == null ? target : owner.i18nService().t(lang, key);
-        String changed = owner.i18nService().t(lang, MSG_SETTINGS_SAVED, Map.of("key", keyText, OPTION_VALUE, displayValue));
-        if (A_PRIVATE_ROOM_CHANNEL.equals(target)) {
-            changed = changed + "\n" + owner.i18nService().t(lang, "settings.private_room_auto_enabled_notice");
-        }
-        event.editMessageEmbeds(musicMenuEmbed(event.getGuild(), lang, changed).build())
-                .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)), uiText.autoLeaveStatusRow(lang))
-                .queue(hook -> {
-                    if (A_COMMAND_CHANNEL.equals(target)
-                            && owner.settingsService().getMusic(guildId).getPanelMode() == MusicPanelMode.MODERN) {
-                        owner.musicPanelController().synchronizeSettings(event.getGuild(), selected.getIdLong()).whenComplete((ignored, failure) -> {
+        DeferredInteractionResponse.edit(event, "settings.music-channel", owner.scheduler(),
+                owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+            if (A_COMMAND_CHANNEL.equals(target)) {
+                owner.settingsService().updateSettings(guildId,
+                        settings -> settings.withMusic(settings.getMusic().withCommandChannelId(selected.getIdLong())));
+            } else {
+                owner.settingsService().updateSettings(guildId, settings -> settings.withPrivateRoom(
+                        settings.getPrivateRoom().withTriggerVoiceChannelId(selected.getIdLong()).withEnabled(true)));
+            }
+            String key = musicTargetKey(target);
+            String changed = owner.i18nService().t(lang, MSG_SETTINGS_SAVED, Map.of("key",
+                    owner.i18nService().t(lang, key), OPTION_VALUE, "<#" + selected.getId() + ">"));
+            if (A_PRIVATE_ROOM_CHANNEL.equals(target)) {
+                changed += "\n" + owner.i18nService().t(lang, "settings.private_room_auto_enabled_notice");
+            }
+            String saved = changed;
+            if (A_COMMAND_CHANNEL.equals(target)
+                    && owner.settingsService().getMusic(guildId).getPanelMode() == MusicPanelMode.MODERN) {
+                owner.musicPanelController().synchronizeSettings(event.getGuild(), selected.getIdLong())
+                        .whenComplete((ignored, failure) -> response.run(() -> {
                             String message = failure == null
                                     ? owner.musicText(lang, "panel_ready", Map.of("channel", "<#" + selected.getId() + ">"))
                                     : owner.musicText(lang, "panel_update_failed", Map.of("error",
-                                            failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage()));
-                            hook.sendMessage(message).setEphemeral(true).queue();
-                        });
-                    }
-                });
+                                            DeferredInteractionResponse.failureReason(failure, false)));
+                            completeChannelSelection(response, event, token, lang, saved + "\n" + message);
+                        }));
+            } else {
+                completeChannelSelection(response, event, token, lang, saved);
+            }
+        });
+    }
+
+    private void completeChannelSelection(DeferredInteractionResponse response, EntitySelectInteractionEvent event,
+                                          String token, String lang, String changed) {
+        response.complete(hook -> hook.editOriginalEmbeds(musicMenuEmbed(event.getGuild(), lang, changed).build())
+                .setComponents(ActionRow.of(settingsMusicMenu(token, event.getGuild(), lang)), uiText.autoLeaveStatusRow(lang)));
     }
 
     private StringSelectMenu settingsMusicMenu(String token, Guild guild, String lang) {

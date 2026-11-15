@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.report;
 
 import com.norule.musicbot.domain.discord.DiscordEmbedSanitizer;
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
 import com.norule.musicbot.discord.bot.gateway.command.CommandOptions;
 import com.norule.musicbot.discord.bot.gateway.component.ComponentIds;
 import com.norule.musicbot.i18n.I18nService;
@@ -51,6 +52,7 @@ public final class ReportCommandHandler {
     private static final Color COLOR_BUG = new Color(0xE74C3C);
     private static final Color COLOR_FEEDBACK = new Color(0x3498DB);
 
+    private final java.util.concurrent.ScheduledExecutorService scheduler;
     private final Supplier<I18nService> i18nServiceSupplier;
     private final Supplier<Long> developerChannelIdSupplier;
 
@@ -59,7 +61,9 @@ public final class ReportCommandHandler {
     private final ConcurrentHashMap<Long, Long> cooldowns = new ConcurrentHashMap<>();
 
     public ReportCommandHandler(Supplier<I18nService> i18nServiceSupplier,
-                                Supplier<Long> developerChannelIdSupplier) {
+                                Supplier<Long> developerChannelIdSupplier,
+                                java.util.concurrent.ScheduledExecutorService scheduler) {
+        this.scheduler = scheduler;
         this.i18nServiceSupplier = i18nServiceSupplier;
         this.developerChannelIdSupplier = developerChannelIdSupplier;
     }
@@ -155,23 +159,19 @@ public final class ReportCommandHandler {
             return;
         }
 
-        boolean bug = TYPE_BUG.equals(request.type);
-        String title = readValue(event, FIELD_TITLE);
-        String detail = readValue(event, FIELD_DETAIL);
-        String steps = readValue(event, FIELD_STEPS);
-        String contact = readValue(event, FIELD_CONTACT);
-
-        EmbedBuilder embed = buildReportEmbed(event, lang, request, bug, title, detail, steps, contact);
-        long userId = event.getUser().getIdLong();
-
-        event.deferReply(true).queue(hook ->
-                channel.sendMessageEmbeds(embed.build()).queue(
-                        success -> {
-                            cooldowns.put(userId, System.currentTimeMillis());
-                            hook.sendMessage(i18n.t(lang, "report.sent")).queue();
-                        },
-                        error -> hook.sendMessage(i18n.t(lang, "report.send_failed")).queue()
-                ));
+        DeferredInteractionResponse.reply(event, true, "report.submit", scheduler,
+                i18n.t(lang, "report.send_failed"), response -> {
+            boolean bug = TYPE_BUG.equals(request.type);
+            EmbedBuilder embed = buildReportEmbed(event, lang, request, bug,
+                    readValue(event, FIELD_TITLE), readValue(event, FIELD_DETAIL),
+                    readValue(event, FIELD_STEPS), readValue(event, FIELD_CONTACT));
+            long userId = event.getUser().getIdLong();
+            channel.sendMessageEmbeds(embed.build()).timeout(45, java.util.concurrent.TimeUnit.SECONDS).queue(
+                    success -> {
+                        cooldowns.put(userId, System.currentTimeMillis());
+                        response.text(i18n.t(lang, "report.sent"));
+                    }, response::fail);
+        });
     }
 
     private EmbedBuilder buildReportEmbed(ModalInteractionEvent event, String lang, ReportRequest request,

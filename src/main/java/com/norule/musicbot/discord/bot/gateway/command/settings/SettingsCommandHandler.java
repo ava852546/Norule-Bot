@@ -1,5 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.settings;
 
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
+
 import com.norule.musicbot.discord.bot.app.MusicCommandService;
 import com.norule.musicbot.discord.bot.gateway.command.routing.DiscordCommandRouteMapper;
 import com.norule.musicbot.discord.bot.gateway.command.settings.menu.SettingsLogsMenuHandler;
@@ -64,7 +66,7 @@ public final class SettingsCommandHandler {
         this.settingsInfoView = new SettingsInfoView(owner::i18nService, owner.settingsService(), owner.moderationService());
         this.settingsTemplateMenuHandler = new SettingsTemplateMenuHandler(owner);
         this.settingsModuleMenuHandler = new SettingsModuleMenuHandler(owner);
-        this.settingsLogsMenuHandler = new SettingsLogsMenuHandler(owner::i18nService, owner.settingsService());
+        this.settingsLogsMenuHandler = new SettingsLogsMenuHandler(owner::i18nService, owner.settingsService(), owner.scheduler());
         this.settingsMusicMenuHandler = new SettingsMusicMenuHandler(owner);
         this.settingsResetMenuHandler = new SettingsResetMenuHandler(owner);
     }
@@ -174,24 +176,26 @@ public final class SettingsCommandHandler {
             return;
         }
         User user = event.getMentions().getUsers().get(0);
-        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
-        List<Long> updated = new ArrayList<>(logs.getIgnoredMemberIds());
-        if (!updated.contains(user.getIdLong())) {
-            updated.add(user.getIdLong());
-        }
-        owner.settingsService().updateSettings(event.getGuild().getIdLong(),
-                settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredMemberIds(updated)));
-        event.editMessageEmbeds(new EmbedBuilder()
-                        .setColor(new Color(46, 204, 113))
-                        .setTitle(owner.i18nService().t(lang, "settings.log_settings.title"))
-                        .setDescription(owner.i18nService().t(lang, "general.settings_saved",
-                                Map.of(
-                                        "key", owner.i18nService().t(lang, "settings.log_settings.ignore_member"),
-                                        "value", user.getAsMention()
-                                )))
-                        .build())
-                .setComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                .queue();
+        DeferredInteractionResponse.edit(event, "settings.log-filter", owner.scheduler(),
+                owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+            var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+            List<Long> updated = new ArrayList<>(logs.getIgnoredMemberIds());
+            if (!updated.contains(user.getIdLong())) {
+                updated.add(user.getIdLong());
+            }
+            owner.settingsService().updateSettings(event.getGuild().getIdLong(),
+                    settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredMemberIds(updated)));
+            response.complete(hook -> hook.editOriginalEmbeds(new EmbedBuilder()
+                            .setColor(new Color(46, 204, 113))
+                            .setTitle(owner.i18nService().t(lang, "settings.log_settings.title"))
+                            .setDescription(owner.i18nService().t(lang, "general.settings_saved",
+                                    Map.of(
+                                            "key", owner.i18nService().t(lang, "settings.log_settings.ignore_member"),
+                                            "value", user.getAsMention()
+                                    )))
+                            .build())
+                    .setComponents(ActionRow.of(logSettingsMenu(token, lang))));
+        });
     }
 
     private void handleIgnoredChannelSelect(EntitySelectInteractionEvent event, String token, String lang) {
@@ -201,24 +205,26 @@ public final class SettingsCommandHandler {
             return;
         }
         TextChannel channel = channels.get(0);
-        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
-        List<Long> updated = new ArrayList<>(logs.getIgnoredChannelIds());
-        if (!updated.contains(channel.getIdLong())) {
-            updated.add(channel.getIdLong());
-        }
-        owner.settingsService().updateSettings(event.getGuild().getIdLong(),
-                settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredChannelIds(updated)));
-        event.editMessageEmbeds(new EmbedBuilder()
-                        .setColor(new Color(46, 204, 113))
-                        .setTitle(owner.i18nService().t(lang, "settings.log_settings.title"))
-                        .setDescription(owner.i18nService().t(lang, "general.settings_saved",
-                                Map.of(
-                                        "key", owner.i18nService().t(lang, "settings.log_settings.ignore_channel"),
-                                        "value", channel.getAsMention()
-                                )))
-                        .build())
-                .setComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                .queue();
+        DeferredInteractionResponse.edit(event, "settings.log-filter", owner.scheduler(),
+                owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+            var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+            List<Long> updated = new ArrayList<>(logs.getIgnoredChannelIds());
+            if (!updated.contains(channel.getIdLong())) {
+                updated.add(channel.getIdLong());
+            }
+            owner.settingsService().updateSettings(event.getGuild().getIdLong(),
+                    settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredChannelIds(updated)));
+            response.complete(hook -> hook.editOriginalEmbeds(new EmbedBuilder()
+                            .setColor(new Color(46, 204, 113))
+                            .setTitle(owner.i18nService().t(lang, "settings.log_settings.title"))
+                            .setDescription(owner.i18nService().t(lang, "general.settings_saved",
+                                    Map.of(
+                                            "key", owner.i18nService().t(lang, "settings.log_settings.ignore_channel"),
+                                            "value", channel.getAsMention()
+                                    )))
+                            .build())
+                    .setComponents(ActionRow.of(logSettingsMenu(token, lang))));
+        });
     }
 
     private void handleIgnoredRoleSelect(EntitySelectInteractionEvent event, String token, String lang) {
@@ -227,24 +233,26 @@ public final class SettingsCommandHandler {
             return;
         }
         Role role = event.getMentions().getRoles().get(0);
-        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
-        List<Long> updated = new ArrayList<>(logs.getIgnoredRoleIds());
-        if (!updated.contains(role.getIdLong())) {
-            updated.add(role.getIdLong());
-        }
-        owner.settingsService().updateSettings(event.getGuild().getIdLong(),
-                settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredRoleIds(updated)));
-        event.editMessageEmbeds(new EmbedBuilder()
-                        .setColor(new Color(46, 204, 113))
-                        .setTitle(owner.i18nService().t(lang, "settings.log_settings.title"))
-                        .setDescription(owner.i18nService().t(lang, "general.settings_saved",
-                                Map.of(
-                                        "key", logSettingsIgnoreRoleLabel(lang),
-                                        "value", role.getAsMention()
-                                )))
-                        .build())
-                .setComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                .queue();
+        DeferredInteractionResponse.edit(event, "settings.log-filter", owner.scheduler(),
+                owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+            var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+            List<Long> updated = new ArrayList<>(logs.getIgnoredRoleIds());
+            if (!updated.contains(role.getIdLong())) {
+                updated.add(role.getIdLong());
+            }
+            owner.settingsService().updateSettings(event.getGuild().getIdLong(),
+                    settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredRoleIds(updated)));
+            response.complete(hook -> hook.editOriginalEmbeds(new EmbedBuilder()
+                            .setColor(new Color(46, 204, 113))
+                            .setTitle(owner.i18nService().t(lang, "settings.log_settings.title"))
+                            .setDescription(owner.i18nService().t(lang, "general.settings_saved",
+                                    Map.of(
+                                            "key", logSettingsIgnoreRoleLabel(lang),
+                                            "value", role.getAsMention()
+                                    )))
+                            .build())
+                    .setComponents(ActionRow.of(logSettingsMenu(token, lang))));
+        });
     }
 
     private void handleIgnoredPrefixModal(ModalInteractionEvent event, String token, String lang) {
@@ -253,25 +261,26 @@ public final class SettingsCommandHandler {
             event.reply(owner.i18nService().t(lang, "settings.log_settings.prefix_required")).setEphemeral(true).queue();
             return;
         }
-        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
-        List<String> updated = new ArrayList<>(logs.getIgnoredPrefixes());
-        if (!updated.contains(prefix)) {
-            updated.add(prefix);
-        }
-        owner.settingsService().updateSettings(event.getGuild().getIdLong(),
-                settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredPrefixes(updated)));
-        event.replyEmbeds(new EmbedBuilder()
-                        .setColor(new Color(46, 204, 113))
-                        .setTitle(owner.i18nService().t(lang, "settings.log_settings.title"))
-                        .setDescription(owner.i18nService().t(lang, "general.settings_saved",
-                                Map.of(
-                                        "key", owner.i18nService().t(lang, "settings.log_settings.ignore_prefix"),
-                                        "value", "`" + prefix.replace("`", "'") + "`"
-                                )))
-                        .build())
-                .addComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                .setEphemeral(true)
-                .queue();
+        DeferredInteractionResponse.reply(event, true, "settings.log-filter", owner.scheduler(),
+                owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+            var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+            List<String> updated = new ArrayList<>(logs.getIgnoredPrefixes());
+            if (!updated.contains(prefix)) {
+                updated.add(prefix);
+            }
+            owner.settingsService().updateSettings(event.getGuild().getIdLong(),
+                    settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredPrefixes(updated)));
+            response.complete(hook -> hook.editOriginalEmbeds(new EmbedBuilder()
+                            .setColor(new Color(46, 204, 113))
+                            .setTitle(owner.i18nService().t(lang, "settings.log_settings.title"))
+                            .setDescription(owner.i18nService().t(lang, "general.settings_saved",
+                                    Map.of(
+                                            "key", owner.i18nService().t(lang, "settings.log_settings.ignore_prefix"),
+                                            "value", "`" + prefix.replace("`", "'") + "`"
+                                    )))
+                            .build())
+                    .setComponents(ActionRow.of(logSettingsMenu(token, lang))));
+        });
     }
 
     private void handleRemovedMemberSelect(EntitySelectInteractionEvent event, String token, String lang) {
@@ -280,26 +289,27 @@ public final class SettingsCommandHandler {
             return;
         }
         User user = event.getMentions().getUsers().get(0);
-        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
-        List<Long> updated = new ArrayList<>(logs.getIgnoredMemberIds());
-        boolean removed = updated.remove(Long.valueOf(user.getIdLong()));
-        if (!removed) {
-            event.editMessageEmbeds(logSettingsStatusEmbed(lang, new Color(241, 196, 15), logSettingsMemberNotIgnoredText(lang)).build())
-                    .setComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                    .queue();
-            return;
-        }
-        owner.settingsService().updateSettings(event.getGuild().getIdLong(),
-                settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredMemberIds(updated)));
-        event.editMessageEmbeds(logSettingsStatusEmbed(lang, new Color(46, 204, 113),
-                        owner.i18nService().t(lang, "general.settings_saved",
-                                Map.of(
-                                        "key", logSettingsRemoveMemberLabel(lang),
-                                        "value", user.getAsMention()
-                                )))
-                        .build())
-                .setComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                .queue();
+        DeferredInteractionResponse.edit(event, "settings.log-filter", owner.scheduler(),
+                owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+            var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+            List<Long> updated = new ArrayList<>(logs.getIgnoredMemberIds());
+            boolean removed = updated.remove(Long.valueOf(user.getIdLong()));
+            if (!removed) {
+                response.complete(hook -> hook.editOriginalEmbeds(logSettingsStatusEmbed(lang, new Color(241, 196, 15), logSettingsMemberNotIgnoredText(lang)).build())
+                        .setComponents(ActionRow.of(logSettingsMenu(token, lang))));
+                return;
+            }
+            owner.settingsService().updateSettings(event.getGuild().getIdLong(),
+                    settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredMemberIds(updated)));
+            response.complete(hook -> hook.editOriginalEmbeds(logSettingsStatusEmbed(lang, new Color(46, 204, 113),
+                            owner.i18nService().t(lang, "general.settings_saved",
+                                    Map.of(
+                                            "key", logSettingsRemoveMemberLabel(lang),
+                                            "value", user.getAsMention()
+                                    )))
+                            .build())
+                    .setComponents(ActionRow.of(logSettingsMenu(token, lang))));
+        });
     }
 
     private void handleRemovedChannelSelect(EntitySelectInteractionEvent event, String token, String lang) {
@@ -309,26 +319,27 @@ public final class SettingsCommandHandler {
             return;
         }
         TextChannel channel = channels.get(0);
-        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
-        List<Long> updated = new ArrayList<>(logs.getIgnoredChannelIds());
-        boolean removed = updated.remove(Long.valueOf(channel.getIdLong()));
-        if (!removed) {
-            event.editMessageEmbeds(logSettingsStatusEmbed(lang, new Color(241, 196, 15), logSettingsChannelNotIgnoredText(lang)).build())
-                    .setComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                    .queue();
-            return;
-        }
-        owner.settingsService().updateSettings(event.getGuild().getIdLong(),
-                settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredChannelIds(updated)));
-        event.editMessageEmbeds(logSettingsStatusEmbed(lang, new Color(46, 204, 113),
-                        owner.i18nService().t(lang, "general.settings_saved",
-                                Map.of(
-                                        "key", logSettingsRemoveChannelLabel(lang),
-                                        "value", channel.getAsMention()
-                                )))
-                        .build())
-                .setComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                .queue();
+        DeferredInteractionResponse.edit(event, "settings.log-filter", owner.scheduler(),
+                owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+            var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+            List<Long> updated = new ArrayList<>(logs.getIgnoredChannelIds());
+            boolean removed = updated.remove(Long.valueOf(channel.getIdLong()));
+            if (!removed) {
+                response.complete(hook -> hook.editOriginalEmbeds(logSettingsStatusEmbed(lang, new Color(241, 196, 15), logSettingsChannelNotIgnoredText(lang)).build())
+                        .setComponents(ActionRow.of(logSettingsMenu(token, lang))));
+                return;
+            }
+            owner.settingsService().updateSettings(event.getGuild().getIdLong(),
+                    settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredChannelIds(updated)));
+            response.complete(hook -> hook.editOriginalEmbeds(logSettingsStatusEmbed(lang, new Color(46, 204, 113),
+                            owner.i18nService().t(lang, "general.settings_saved",
+                                    Map.of(
+                                            "key", logSettingsRemoveChannelLabel(lang),
+                                            "value", channel.getAsMention()
+                                    )))
+                            .build())
+                    .setComponents(ActionRow.of(logSettingsMenu(token, lang))));
+        });
     }
 
     private void handleRemovedRoleSelect(EntitySelectInteractionEvent event, String token, String lang) {
@@ -337,26 +348,27 @@ public final class SettingsCommandHandler {
             return;
         }
         Role role = event.getMentions().getRoles().get(0);
-        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
-        List<Long> updated = new ArrayList<>(logs.getIgnoredRoleIds());
-        boolean removed = updated.remove(Long.valueOf(role.getIdLong()));
-        if (!removed) {
-            event.editMessageEmbeds(logSettingsStatusEmbed(lang, new Color(241, 196, 15), logSettingsRoleNotIgnoredText(lang)).build())
-                    .setComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                    .queue();
-            return;
-        }
-        owner.settingsService().updateSettings(event.getGuild().getIdLong(),
-                settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredRoleIds(updated)));
-        event.editMessageEmbeds(logSettingsStatusEmbed(lang, new Color(46, 204, 113),
-                        owner.i18nService().t(lang, "general.settings_saved",
-                                Map.of(
-                                        "key", logSettingsRemoveRoleLabel(lang),
-                                        "value", role.getAsMention()
-                                )))
-                        .build())
-                .setComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                .queue();
+        DeferredInteractionResponse.edit(event, "settings.log-filter", owner.scheduler(),
+                owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+            var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+            List<Long> updated = new ArrayList<>(logs.getIgnoredRoleIds());
+            boolean removed = updated.remove(Long.valueOf(role.getIdLong()));
+            if (!removed) {
+                response.complete(hook -> hook.editOriginalEmbeds(logSettingsStatusEmbed(lang, new Color(241, 196, 15), logSettingsRoleNotIgnoredText(lang)).build())
+                        .setComponents(ActionRow.of(logSettingsMenu(token, lang))));
+                return;
+            }
+            owner.settingsService().updateSettings(event.getGuild().getIdLong(),
+                    settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredRoleIds(updated)));
+            response.complete(hook -> hook.editOriginalEmbeds(logSettingsStatusEmbed(lang, new Color(46, 204, 113),
+                            owner.i18nService().t(lang, "general.settings_saved",
+                                    Map.of(
+                                            "key", logSettingsRemoveRoleLabel(lang),
+                                            "value", role.getAsMention()
+                                    )))
+                            .build())
+                    .setComponents(ActionRow.of(logSettingsMenu(token, lang))));
+        });
     }
 
     private void handleRemovedPrefixModal(ModalInteractionEvent event, String token, String lang) {
@@ -365,28 +377,27 @@ public final class SettingsCommandHandler {
             event.reply(owner.i18nService().t(lang, "settings.log_settings.prefix_required")).setEphemeral(true).queue();
             return;
         }
-        var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
-        List<String> updated = new ArrayList<>(logs.getIgnoredPrefixes());
-        boolean removed = updated.remove(prefix);
-        if (!removed) {
-            event.replyEmbeds(logSettingsStatusEmbed(lang, new Color(241, 196, 15), logSettingsPrefixNotIgnoredText(lang)).build())
-                    .addComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                    .setEphemeral(true)
-                    .queue();
-            return;
-        }
-        owner.settingsService().updateSettings(event.getGuild().getIdLong(),
-                settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredPrefixes(updated)));
-        event.replyEmbeds(logSettingsStatusEmbed(lang, new Color(46, 204, 113),
-                        owner.i18nService().t(lang, "general.settings_saved",
-                                Map.of(
-                                        "key", logSettingsRemovePrefixLabel(lang),
-                                        "value", "`" + prefix.replace("`", "'") + "`"
-                                )))
-                        .build())
-                .addComponents(ActionRow.of(logSettingsMenu(token, lang)))
-                .setEphemeral(true)
-                .queue();
+        DeferredInteractionResponse.reply(event, true, "settings.log-filter", owner.scheduler(),
+                owner.i18nService().t(lang, "general.interaction_failed"), response -> {
+            var logs = owner.settingsService().getMessageLogs(event.getGuild().getIdLong());
+            List<String> updated = new ArrayList<>(logs.getIgnoredPrefixes());
+            boolean removed = updated.remove(prefix);
+            if (!removed) {
+                response.complete(hook -> hook.editOriginalEmbeds(logSettingsStatusEmbed(lang, new Color(241, 196, 15), logSettingsPrefixNotIgnoredText(lang)).build())
+                        .setComponents(ActionRow.of(logSettingsMenu(token, lang))));
+                return;
+            }
+            owner.settingsService().updateSettings(event.getGuild().getIdLong(),
+                    settings -> settings.withMessageLogs(settings.getMessageLogs().withIgnoredPrefixes(updated)));
+            response.complete(hook -> hook.editOriginalEmbeds(logSettingsStatusEmbed(lang, new Color(46, 204, 113),
+                            owner.i18nService().t(lang, "general.settings_saved",
+                                    Map.of(
+                                            "key", logSettingsRemovePrefixLabel(lang),
+                                            "value", "`" + prefix.replace("`", "'") + "`"
+                                    )))
+                            .build())
+                    .setComponents(ActionRow.of(logSettingsMenu(token, lang))));
+        });
     }
 
     private EmbedBuilder logSettingsListEmbed(String lang, List<String> ignoredPrefixes, List<Long> ignoredMemberIds, List<Long> ignoredRoleIds, List<Long> ignoredChannelIds) {
@@ -589,8 +600,7 @@ public final class SettingsCommandHandler {
                     event.getGuild().getIdLong(),
                     event.getUser().getIdLong(),
                     lang,
-                    message -> event.reply(message).setEphemeral(true).queue()
-            );
+                    message -> event.reply(message).setEphemeral(true).queue());
             if (request == null) {
                 return true;
             }
@@ -700,8 +710,7 @@ public final class SettingsCommandHandler {
                     event.getGuild().getIdLong(),
                     event.getUser().getIdLong(),
                     lang,
-                    message -> event.reply(message).setEphemeral(true).queue()
-            );
+                    message -> event.reply(message).setEphemeral(true).queue());
             if (request == null) {
                 return true;
             }
@@ -715,8 +724,7 @@ public final class SettingsCommandHandler {
                     event.getGuild().getIdLong(),
                     event.getUser().getIdLong(),
                     lang,
-                    message -> event.reply(message).setEphemeral(true).queue()
-            );
+                    message -> event.reply(message).setEphemeral(true).queue());
             if (request == null) {
                 return true;
             }
@@ -756,8 +764,7 @@ public final class SettingsCommandHandler {
                     event.getGuild().getIdLong(),
                     event.getUser().getIdLong(),
                     lang,
-                    message -> event.reply(message).setEphemeral(true).queue()
-            );
+                    message -> event.reply(message).setEphemeral(true).queue());
             if (request == null) {
                 return true;
             }
@@ -771,8 +778,7 @@ public final class SettingsCommandHandler {
                     event.getGuild().getIdLong(),
                     event.getUser().getIdLong(),
                     lang,
-                    message -> event.reply(message).setEphemeral(true).queue()
-            );
+                    message -> event.reply(message).setEphemeral(true).queue());
             if (request == null) {
                 return true;
             }
@@ -786,8 +792,7 @@ public final class SettingsCommandHandler {
                     event.getGuild().getIdLong(),
                     event.getUser().getIdLong(),
                     lang,
-                    message -> event.reply(message).setEphemeral(true).queue()
-            );
+                    message -> event.reply(message).setEphemeral(true).queue());
             if (request == null) {
                 return true;
             }
@@ -801,8 +806,7 @@ public final class SettingsCommandHandler {
                     event.getGuild().getIdLong(),
                     event.getUser().getIdLong(),
                     lang,
-                    message -> event.reply(message).setEphemeral(true).queue()
-            );
+                    message -> event.reply(message).setEphemeral(true).queue());
             if (request == null) {
                 return true;
             }
@@ -816,8 +820,7 @@ public final class SettingsCommandHandler {
                     event.getGuild().getIdLong(),
                     event.getUser().getIdLong(),
                     lang,
-                    message -> event.reply(message).setEphemeral(true).queue()
-            );
+                    message -> event.reply(message).setEphemeral(true).queue());
             if (request == null) {
                 return true;
             }
@@ -831,8 +834,7 @@ public final class SettingsCommandHandler {
                     event.getGuild().getIdLong(),
                     event.getUser().getIdLong(),
                     lang,
-                    message -> event.reply(message).setEphemeral(true).queue()
-            );
+                    message -> event.reply(message).setEphemeral(true).queue());
             if (request == null) {
                 return true;
             }

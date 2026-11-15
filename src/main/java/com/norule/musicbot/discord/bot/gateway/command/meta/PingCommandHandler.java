@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.meta;
 
 import com.norule.musicbot.i18n.I18nService;
+import com.norule.musicbot.discord.bot.gateway.DeferredInteractionResponse;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 
@@ -10,13 +11,16 @@ import java.util.function.Supplier;
 
 public final class PingCommandHandler {
     private final Supplier<I18nService> i18n;
+    private final java.util.concurrent.ScheduledExecutorService scheduler;
 
-    public PingCommandHandler(Supplier<I18nService> i18n) {
+    public PingCommandHandler(Supplier<I18nService> i18n, java.util.concurrent.ScheduledExecutorService scheduler) {
+        this.scheduler = scheduler;
         this.i18n = i18n;
     }
     public void handlePingSlash(SlashCommandInteractionEvent event, String lang) {
         long start = System.currentTimeMillis();
-        event.deferReply().queue(hook -> {
+        DeferredInteractionResponse.reply(event, false, "ping", scheduler,
+                i18n.get().t(lang, "general.interaction_failed"), response -> {
             long responseMs = Math.max(1L, System.currentTimeMillis() - start);
             long gatewayMs = event.getJDA().getGatewayPing();
             EmbedBuilder eb = new EmbedBuilder()
@@ -26,8 +30,8 @@ public final class PingCommandHandler {
                     .addField(pingText(lang, "gateway"), "`" + gatewayMs + " ms`", true)
                     .addField(pingText(lang, "response"), "`" + responseMs + " ms`", true)
                     .setTimestamp(Instant.now());
-            hook.editOriginalEmbeds(eb.build()).queue();
-        }, error -> event.reply("Pong").queue());
+            response.complete(hook -> hook.editOriginalEmbeds(eb.build()));
+        });
     }
 
     private String pingText(String lang, String key) {
