@@ -38,6 +38,47 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class MusicPanelModeTest {
     @Test
+    void permissionTransitionsLogOncePerGuildAndChangedPermissionSetAndRecover() {
+        var settings = settings();
+        for (long id : List.of(1L, 2L)) {
+            settings.updateSettings(id, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
+        }
+        var first = new Discord(1);
+        var second = new Discord(2);
+        first.denied = Set.of(net.dv8tion.jda.api.Permission.VIEW_CHANNEL, net.dv8tion.jda.api.Permission.MESSAGE_SEND);
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MusicPanelModeResolver.class);
+        var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        logs.start();
+        logger.addAppender(logs);
+        var modes = new MusicPanelModeResolver(settings, id -> {}, (g, id) -> {
+            throw new AssertionError("Cached permission checks must not make REST requests");
+        }, () -> 0);
+        try {
+            for (int i = 0; i < 100; i++) {
+                if (i == 50) modes.settingsChanged(1);
+                assertTrue(modes.resolve(first.guild).fallback());
+                assertTrue(modes.resolve(second.guild).modern());
+            }
+            assertEquals(1, logs.list.size());
+            assertTrue(logs.list.getFirst().getFormattedMessage().contains("event=PERMISSION_MISSING"));
+            assertTrue(logs.list.getFirst().getFormattedMessage().contains("permission=VIEW_CHANNEL,MESSAGE_SEND"));
+            first.denied = Set.of(net.dv8tion.jda.api.Permission.VIEW_CHANNEL, net.dv8tion.jda.api.Permission.MESSAGE_EMBED_LINKS);
+            modes.resolve(first.guild);
+            assertEquals(2, logs.list.size(), "A changed permission set must log even if the primary reason is unchanged");
+            first.denied = Set.of();
+            for (int i = 0; i < 100; i++) assertTrue(modes.resolve(first.guild).modern());
+            assertEquals(3, logs.list.size());
+            assertTrue(logs.list.getLast().getFormattedMessage().contains("event=MODERN_RECOVERED"));
+            assertEquals(10L, settings.getMusic(1).getCommandChannelId());
+            assertEquals(MusicPanelMode.MODERN, settings.getMusic(1).getPanelMode());
+        } finally {
+            modes.close();
+            logger.detachAppender(logs);
+            logs.stop();
+        }
+    }
+
+    @Test
     void cacheMissSingleFlightRestVerificationRecoversModernAndKeepsSettings() throws Exception {
         var settings = settings();
         settings.updateSettings(1, s -> s.withMusic(s.getMusic().withCommandChannelId(10L)));
@@ -513,6 +554,7 @@ class MusicPanelModeTest {
         Discord(long guildId) { this.guildId = guildId; }
         boolean channelExists = true;
         boolean accessible = true;
+        Set<net.dv8tion.jda.api.Permission> denied = Set.of();
         boolean panelComponents = true;
         long authorId = 1000;
         int channelReads;
@@ -522,7 +564,8 @@ class MusicPanelModeTest {
         final CompletableFuture<Void> deleteResult = new CompletableFuture<>();
         final SelfMember self = proxy(SelfMember.class, (o, m, a) -> switch (m.getName()) {
             case "getIdLong" -> 1000L;
-            case "hasPermission" -> accessible;
+            case "hasPermission" -> accessible && java.util.Arrays.stream((net.dv8tion.jda.api.Permission[]) a[1])
+                    .noneMatch(denied::contains);
             default -> throw new UnsupportedOperationException(m.getName());
         });
         final Guild guild = proxy(Guild.class, (o, m, a) -> switch (m.getName()) {

@@ -30,23 +30,36 @@ class MusicPanelFallbackNoticeTest {
     }
 
     @Test
-    void warningEmbedUsesRequestedCopyAndLocalizedFallbacks() throws Exception {
-        AtomicReference<I18nService> i18n = new AtomicReference<>(I18nService.load(directory, "en"));
+    void plainTextWarningIncludesSpecificPermissionsAndReloadFallbacks() throws Exception {
+        var i18n = new AtomicReference<>(I18nService.load(directory, "en"));
         var resolver = new MusicTextResolver(i18n::get);
-        var embed = MusicPlayReply.fallbackNotice(key -> resolver.musicText("zh-TW", key));
-        assertEquals("音樂面板設定異常", embed.getTitle());
-        assertEquals("目前暫時使用傳統模式，請透過 `/settings` 設定有效的預設音樂面板頻道，或切換為傳統模式以停止提醒。", embed.getDescription());
-        assertEquals("僅執行指令者可見 · 保留提示", embed.getFooter().getText());
-        assertEquals(0xF0B232, embed.getColorRaw());
         for (String language : List.of("en", "zh-TW", "zh-CN")) {
-            var localized = MusicPlayReply.fallbackNotice(key -> resolver.musicText(language, key));
-            assertFalse(localized.getTitle().startsWith("music."));
-            assertTrue(localized.getDescription().contains("`/settings`"));
-            assertFalse(localized.getFooter().getText().startsWith("music."));
+            for (String permission : List.of("VIEW_CHANNEL", "MESSAGE_SEND", "MESSAGE_SEND_IN_THREADS", "MESSAGE_EMBED_LINKS")) {
+                var mode = new com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver.Selection(
+                        com.norule.musicbot.domain.music.MusicPanelMode.MODERN,
+                        com.norule.musicbot.domain.music.MusicPanelMode.LEGACY, 123L, null,
+                        "MISSING_EMBED_PERMISSION", List.of(permission));
+                String notice = resolver.panelStatus(language, mode);
+                assertTrue(notice.contains(resolver.musicText(language, "panel_permission_" + permission)));
+                assertTrue(notice.contains("123"));
+                assertTrue(notice.contains("MODERN"));
+                assertTrue(notice.contains("LEGACY"));
+                assertTrue(notice.contains("/settings"));
+                assertFalse(notice.contains("music.panel_"));
+                assertFalse(notice.contains("???"));
+                assertTrue(notice.length() <= 1024, "Must fit the settings warning field");
+            }
         }
-        Files.writeString(directory.resolve("en.yml"), "music:\n  panel_fallback_title: Reloaded title\n");
+        Files.writeString(directory.resolve("en.yml"), "music:\n  panel_permission_title: music.panel_permission_title\n");
         i18n.set(I18nService.load(directory, "en"));
-        assertEquals("Reloaded title", MusicPlayReply.fallbackNotice(key -> resolver.musicText("en", key)).getTitle());
+        assertEquals("Music panel permissions missing", resolver.musicText("en", "panel_permission_title"));
+        Files.writeString(directory.resolve("en.yml"), "music:\n  panel_permission_title: Reloaded title\n");
+        i18n.set(I18nService.load(directory, "en"));
+        assertEquals("Reloaded title", resolver.musicText("en", "panel_permission_title"));
+        assertEquals("panel_reason_deleted", MusicTextResolver.panelReasonKey("UNKNOWN_CHANNEL"));
+        for (String reason : List.of("CHANNEL_NOT_CACHED", "CHANNEL_VERIFICATION_PENDING", "IOException")) {
+            assertEquals("panel_reason_verification", MusicTextResolver.panelReasonKey(reason));
+        }
     }
 
     @Test

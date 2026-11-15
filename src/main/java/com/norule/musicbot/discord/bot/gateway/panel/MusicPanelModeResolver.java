@@ -38,7 +38,14 @@ public final class MusicPanelModeResolver {
     // null means NOT_CONFIGURED (or an unset ID in explicit LEGACY); missing/access-denied
     // configured channels retain their ID and are distinguished by reason and effective mode.
     public record Selection(MusicPanelMode configured, MusicPanelMode effective,
-                            Long channelId, GuildMessageChannel channel, String reason) {
+                            Long channelId, GuildMessageChannel channel, String reason, java.util.List<String> missingPermissions) {
+        public Selection {
+            missingPermissions = java.util.List.copyOf(missingPermissions);
+        }
+        public Selection(MusicPanelMode configured, MusicPanelMode effective, Long channelId,
+                         GuildMessageChannel channel, String reason) {
+            this(configured, effective, channelId, channel, reason, java.util.List.of());
+        }
         public boolean modern() { return effective == MusicPanelMode.MODERN; }
         public boolean fallback() { return configured == MusicPanelMode.MODERN && !modern(); }
     }
@@ -68,13 +75,18 @@ public final class MusicPanelModeResolver {
     }
 
     private Selection selection(Guild guild, com.norule.musicbot.config.BotConfig.Music music) {
-        Long id = music.getCommandChannelId();
-        boolean legacy = music.getPanelMode() == MusicPanelMode.LEGACY;
+        return inspectChannel(guild, music.getPanelMode(), music.getCommandChannelId());
+    }
+
+    /** Shared local validation for settings boundaries; cache misses are never proof of deletion. */
+    public static Selection inspectChannel(Guild guild, MusicPanelMode configured, Long id) {
+        boolean legacy = configured == MusicPanelMode.LEGACY;
         var target = legacy || id == null ? null : MusicPanelTargetResolver.resolve(guild, id, null);
         String reason = legacy ? "LEGACY_MODE" : id == null ? "NOT_CONFIGURED"
                 : target.reason();
-        return new Selection(music.getPanelMode(), music.getPanelMode().effective("AVAILABLE".equals(reason)), id,
-                "AVAILABLE".equals(reason) ? target.channel() : null, reason);
+        return new Selection(configured, configured.effective("AVAILABLE".equals(reason)), id,
+                "AVAILABLE".equals(reason) ? target.channel() : null, reason,
+                target == null ? java.util.List.of() : target.missingPermissions());
     }
 
     public Selection resolve(Guild guild) {
@@ -100,7 +112,7 @@ public final class MusicPanelModeResolver {
     /** Invalidate identity even for A -> B -> A configuration changes. */
     public synchronized void settingsChanged(long guildId) {
         probes.remove(guildId);
-        selections.remove(guildId);
+        // Retain the last logged state: unrelated music edits must not repeat the same warning.
     }
 
     private Selection verifyMissing(Guild guild, Selection current) {
@@ -168,7 +180,7 @@ public final class MusicPanelModeResolver {
         String reason = target.channel() == null
                 ? "AVAILABLE".equals(probe.reason) ? "CHANNEL_VERIFICATION_PENDING" : probe.reason : target.reason();
         return new Selection(current.configured(), current.configured().effective("AVAILABLE".equals(reason)),
-                current.channelId(), "AVAILABLE".equals(reason) ? target.channel() : null, reason);
+                current.channelId(), "AVAILABLE".equals(reason) ? target.channel() : null, reason, target.missingPermissions());
     }
 
     private Selection recordSelection(Guild guild, Selection current) {
@@ -179,9 +191,11 @@ public final class MusicPanelModeResolver {
                     || !Objects.equals(previous.channelId(), current.channelId()));
             if (configurationChanged) log("MUSIC_PANEL_MODE_CHANGED", id, current.channelId(), 0, current, "SETTINGS_UPDATED");
             boolean changed = previous == null || configurationChanged
-                    || previous.effective() != current.effective() || !previous.reason().equals(current.reason());
+                    || previous.effective() != current.effective() || !previous.reason().equals(current.reason())
+                    || !previous.missingPermissions().equals(current.missingPermissions());
             if (current.fallback() && changed) {
-                log(previous != null && previous.fallback() && !configurationChanged
+                log(!current.missingPermissions().isEmpty() ? "PERMISSION_MISSING"
+                        : previous != null && previous.fallback() && !configurationChanged
                         ? "MUSIC_PANEL_CHANNEL_VERIFICATION_FAILED" : "FALLBACK_LEGACY",
                         id, current.channelId(), 0, current, current.reason());
             } else if (current.modern() && previous != null && previous.fallback()) {
@@ -211,8 +225,8 @@ public final class MusicPanelModeResolver {
                         || "MUSIC_PANEL_LEGACY_RECREATED".equals(event) ? org.slf4j.event.Level.DEBUG
                 : "FALLBACK_LEGACY".equals(event) && !expectedUnavailable(reason)
                         ? org.slf4j.event.Level.WARN : org.slf4j.event.Level.INFO;
-        LOGGER.atLevel(level).log("event={} guildId={} channelId={} messageId={} configuredMode={} effectiveMode={} reason={}",
-                event, guildId, channelId, messageId, selection.configured(), selection.effective(), reason);
+        LOGGER.atLevel(level).log("[MusicPanel] event={} guildId={} channelId={} messageId={} configuredMode={} effectiveMode={} reason={} permission={}",
+                event, guildId, channelId, messageId, selection.configured(), selection.effective(), reason, String.join(",", selection.missingPermissions()));
     }
 
     private static boolean expectedUnavailable(String reason) {

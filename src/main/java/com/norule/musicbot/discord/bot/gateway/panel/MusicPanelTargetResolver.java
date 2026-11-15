@@ -11,9 +11,16 @@ import net.dv8tion.jda.api.entities.channel.middleman.GuildChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 
 /** Shared channel validation; REST verification is only invoked on demand by mode selection. */
-final class MusicPanelTargetResolver {
-    record Target(GuildMessageChannel channel, ChannelType type, boolean cacheHit, String reason) {
-        boolean available() { return "AVAILABLE".equals(reason); }
+public final class MusicPanelTargetResolver {
+    public record Target(GuildMessageChannel channel, ChannelType type, boolean cacheHit, String reason) {
+        public boolean available() { return "AVAILABLE".equals(reason); }
+        public java.util.List<String> missingPermissions() {
+            if (channel == null || "UNSUPPORTED_CHANNEL_TYPE".equals(reason)) return java.util.List.of();
+            var self = channel.getGuild().getSelfMember();
+            return java.util.stream.Stream.of(Permission.VIEW_CHANNEL, MusicPanelModeResolver.sendPermission(channel),
+                            Permission.MESSAGE_EMBED_LINKS)
+                    .filter(permission -> !self.hasPermission(channel, permission)).map(Enum::name).toList();
+        }
     }
 
     private MusicPanelTargetResolver() {}
@@ -48,7 +55,7 @@ final class MusicPanelTargetResolver {
         return channel;
     }
 
-    static Target resolve(Guild guild, Long id, GuildMessageChannel interaction) {
+    public static Target resolve(Guild guild, Long id, GuildMessageChannel interaction) {
         if (id == null) return new Target(null, null, false, "NO_INTERACTION_CHANNEL");
         GuildChannel known = cached(guild, id);
         boolean cacheHit = known != null;

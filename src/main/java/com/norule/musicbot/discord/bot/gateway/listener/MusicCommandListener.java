@@ -10,6 +10,8 @@ import com.norule.musicbot.ShortUrlService;
 import com.norule.musicbot.TicketService;
 import com.norule.musicbot.config.domain.RuntimeConfigSnapshot;
 import com.norule.musicbot.config.GuildSettingsService;
+import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver;
+import net.dv8tion.jda.api.entities.Guild;
 import com.norule.musicbot.discord.bot.service.stats.MessageStatsEventService;
 import com.norule.musicbot.discord.bot.gateway.InteractionGateway;
 import com.norule.musicbot.discord.bot.gateway.DiscordRateLimitInterceptor;
@@ -149,6 +151,10 @@ public class MusicCommandListener extends ListenerAdapter {
     @Override
     public void onGuildJoin(GuildJoinEvent event) {
         service.onGuildJoin(event);
+    }
+
+    public MusicPanelModeResolver.Selection musicPanelStatus(Guild guild) {
+        return service.musicPanelController().panelMode(guild);
     }
 
     @Override

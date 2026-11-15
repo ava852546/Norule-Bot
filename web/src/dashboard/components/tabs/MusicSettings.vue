@@ -6,8 +6,24 @@ const dashboard = useDashboard()
 const cfg = computed(() => dashboard.state.settings.music)
 const stats = computed(() => dashboard.state.settings.musicStats)
 const dirty = () => dashboard.markDirty('music')
-const invalidModernChannel = computed(() => cfg.value.musicPanelMode === 'MODERN'
-  && !dashboard.state.textChannels.some((channel) => channel.id === cfg.value.commandChannelId && channel.musicPanelUsable))
+const panelStatus = computed(() => {
+  const channel = dashboard.state.textChannels.find((item) => item.id === cfg.value.commandChannelId)
+  const saved = cfg.value.commandChannelId === cfg.value.musicPanelStatusChannelId
+  const available = saved ? cfg.value.musicPanelChannelValid : channel?.musicPanelUsable
+  const reasonKey = saved ? cfg.value.musicPanelReasonKey : channel?.musicPanelReasonKey
+  const permissions = (saved ? cfg.value.musicPanelMissingPermissions : channel?.musicPanelMissingPermissions) || []
+  return {
+    invalid: cfg.value.musicPanelMode === 'MODERN' && !available,
+    titleKey: permissions.length ? 'panel_permission_title' : 'panel_mode_label',
+    text: dashboard.i18n.t('panel_status', 'Channel: {channel} · Configured mode: {configured} · Effective mode: {effective}\nReason: {reason}\nMissing permissions: {permissions}', {
+      channel: channel ? `# ${channel.name} (${channel.id})` : cfg.value.commandChannelId || '—',
+      configured: cfg.value.musicPanelMode,
+      effective: available ? 'MODERN' : 'LEGACY',
+      reason: dashboard.i18n.t(reasonKey || (cfg.value.commandChannelId ? 'panel_reason_verification' : 'panel_reason_not_configured'), 'Channel verification is temporarily unavailable'),
+      permissions: permissions.length ? permissions.map((permission) => dashboard.i18n.t(`panel_permission_${permission}`, permission)).join(', ') : dashboard.i18n.t('panel_permissions_unknown', 'Not confirmed'),
+    }),
+  }
+})
 
 const statCards = computed(() => [
   { label: dashboard.i18n.t('music_stats_top_song', '最常播放歌曲'), value: stats.value.topSongLabel || dashboard.i18n.t('music_stats_none', '尚無資料'), meta: stats.value.topSongCount ? dashboard.i18n.t('dashboard_count_times', '{count} 次', { count: stats.value.topSongCount }) : '' },
@@ -35,11 +51,15 @@ const statCards = computed(() => [
             ? dashboard.i18n.t('panel_mode_modern_description', '常駐音樂控制面板，自動清理指定音樂頻道訊息。')
             : dashboard.i18n.t('panel_mode_legacy_description', '每次成功點歌後，移除舊音樂面板並在頻道底部建立新面板；不清理一般訊息。') }}</small>
         </label>
-        <p v-if="invalidModernChannel" class="nr-field is-full" role="status">{{ dashboard.i18n.t('panel_fallback_legacy', '預設音樂面板頻道不存在、無法存取或尚未設定，目前暫時使用傳統模式，仍可正常點歌。請透過 /settings 設定有效的預設音樂面板頻道。如果不希望每次點歌都收到提示，可以在設定中切換為 LEGACY 傳統模式。在頻道恢復有效或手動切換為 LEGACY 前，每次 /play 都會顯示此私人提示。') }}</p>
+        <div v-if="panelStatus.invalid" class="nr-field is-full" role="status">
+          <strong>{{ dashboard.i18n.t(panelStatus.titleKey, 'Music panel') }}</strong>
+          <p style="white-space: pre-line">{{ panelStatus.text }}</p>
+          <small>{{ dashboard.i18n.t('panel_repair', '修正頻道權限後會自動恢復 MODERN，保留原設定；請透過 /settings 檢查頻道。') }}</small>
+        </div>
         <label class="nr-field"><span>{{ dashboard.i18n.t('m_defaultRepeatMode', '預設循環模式') }}</span><select v-model="cfg.defaultRepeatMode" @change="dirty"><option value="OFF">{{ dashboard.i18n.t('repeat_mode_off', '關閉') }}</option><option value="SINGLE">{{ dashboard.i18n.t('repeat_mode_single', '單曲循環') }}</option><option value="ALL">{{ dashboard.i18n.t('repeat_mode_all', '佇列循環') }}</option></select></label>
         <label class="nr-field"><span>{{ dashboard.i18n.t('m_historyLimit', '歷史紀錄上限') }}</span><input v-model.number="cfg.historyLimit" type="number" min="1" max="500" @input="dirty"><small>{{ dashboard.i18n.t('dashboard_range', '允許範圍：{min}–{max}', { min: 1, max: 500 }) }}</small></label>
         <label class="nr-field"><span>{{ dashboard.i18n.t('m_statsRetentionDays', '統計保留天數') }}</span><input v-model.number="cfg.statsRetentionDays" type="number" min="0" max="3650" @input="dirty"><small>{{ dashboard.i18n.t('dashboard_zero_system_default', '0 代表使用系統預設') }}</small></label>
-        <label class="nr-field is-full"><span>{{ dashboard.i18n.t('panel_default_channel', '預設音樂面板頻道（新版模式）') }}</span><select v-model="cfg.commandChannelId" @change="dirty"><option value="">{{ dashboard.i18n.t('panel_channel_not_configured', '尚未設定') }}</option><option v-for="channel in dashboard.state.textChannels" :key="channel.id" :value="channel.id"># {{ channel.name }}</option></select></label>
+        <label class="nr-field is-full"><span>{{ dashboard.i18n.t('panel_default_channel', '預設音樂面板頻道（新版模式）') }}</span><select v-model="cfg.commandChannelId" @change="dirty"><option value="">{{ dashboard.i18n.t('panel_channel_not_configured', '尚未設定') }}</option><option v-if="cfg.commandChannelId && !dashboard.state.textChannels.some((channel) => channel.id === cfg.commandChannelId)" :value="cfg.commandChannelId">{{ cfg.commandChannelId }}</option><option v-for="channel in dashboard.state.textChannels" :key="channel.id" :value="channel.id"># {{ channel.name }}</option></select></label>
       </div>
     </DashboardSection>
     <DashboardSection :title="dashboard.i18n.t('music_stats_title', '音樂統計')" :description="dashboard.i18n.t('dashboard_music_stats_description', '依目前伺服器的播放紀錄即時整理。')">

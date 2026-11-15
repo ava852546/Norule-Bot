@@ -60,6 +60,33 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** Exercises the real refresh service, coordinator, renderer and durable bindings against delayed Discord actions. */
 class MusicPanelLifecycleTest {
+    @Test
+    void legacyMissingEmbedPermissionRejectsBeforeAnyPanelSendOrDeletion() {
+        unsubscribe.run();
+        settings.updateSettings(1, s -> s.withMusic(s.getMusic().withPanelMode(MusicPanelMode.LEGACY)));
+        discord.deniedPermission = Permission.MESSAGE_EMBED_LINKS;
+        var source = discord.channels.get(20L);
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MusicPanelRefreshService.class);
+        var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            for (int i = 0; i < 20; i++) {
+                assertThrows(IllegalStateException.class, () -> panels.validatePlayTarget(discord.guild, source, "/play"));
+            }
+            assertEquals(1, logs.list.stream().filter(e -> e.getLevel() == ch.qos.logback.classic.Level.WARN
+                    && e.getFormattedMessage().contains("MUSIC_PANEL_TARGET_RESOLUTION_FAILED")).count());
+            discord.deniedPermission = null;
+            panels.validatePlayTarget(discord.guild, source, "/play");
+            assertEquals(1, logs.list.stream().filter(e -> e.getFormattedMessage().contains("event=PERMISSION_RESTORED")).count());
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+        }
+        assertTrue(discord.creates.isEmpty());
+        assertTrue(discord.deletes.isEmpty());
+    }
+
     @TempDir Path directory;
     final MusicPanelRefreshCoordinatorTest.ManualScheduler scheduler = new MusicPanelRefreshCoordinatorTest.ManualScheduler();
     final Discord discord = new Discord();
@@ -1356,12 +1383,14 @@ class MusicPanelLifecycleTest {
         boolean delayRetrieves;
         final List<CompletableFuture<Message>> retrieveResults = new ArrayList<>();
         long denied;
+        Permission deniedPermission;
         long nextId = 1000;
         final SelfMember self = proxy(SelfMember.class, (o, m, a) -> switch (m.getName()) {
             case "getIdLong" -> 500L;
             case "hasPermission" -> {
                 if (a[1] instanceof Permission[] permissions) checkedPermissions.addAll(List.of(permissions));
-                yield !(a[0] instanceof GuildMessageChannel text) || text.getIdLong() != denied;
+                yield (!(a[0] instanceof GuildMessageChannel text) || text.getIdLong() != denied)
+                        && java.util.Arrays.stream((Permission[]) a[1]).noneMatch(permission -> permission == deniedPermission);
             }
             case "hasAccess" -> true;
             default -> null;

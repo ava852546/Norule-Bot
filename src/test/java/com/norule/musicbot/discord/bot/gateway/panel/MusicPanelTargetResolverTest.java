@@ -20,12 +20,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class MusicPanelTargetResolverTest {
     Permission denied;
+    java.util.Set<Permission> deniedPermissions = java.util.Set.of();
     boolean archived;
     boolean locked;
     boolean writable = true;
     GuildMessageChannel cached;
     final SelfMember self = proxy(SelfMember.class, (o, m, a) -> switch (m.getName()) {
-        case "hasPermission" -> !Arrays.asList((Permission[]) a[1]).contains(denied);
+        case "hasPermission" -> Arrays.stream((Permission[]) a[1])
+                .noneMatch(permission -> permission == denied || deniedPermissions.contains(permission));
         default -> throw new UnsupportedOperationException(m.getName());
     });
     final Guild guild = proxy(Guild.class, (o, m, a) -> switch (m.getName()) {
@@ -64,6 +66,22 @@ class MusicPanelTargetResolverTest {
         denied = permission;
         cached = channel(VoiceChannel.class);
         assertEquals(reason, MusicPanelTargetResolver.resolve(guild, 10L, null).reason());
+        assertEquals(java.util.List.of(permission.name()), MusicPanelTargetResolver.resolve(guild, 10L, null).missingPermissions());
+    }
+
+    @Test
+    void reportsAllMissingPermissionsAndRecoversWithoutLosingConfiguredChannel() {
+        cached = channel(ThreadChannel.class);
+        deniedPermissions = java.util.Set.of(Permission.MESSAGE_SEND_IN_THREADS, Permission.MESSAGE_EMBED_LINKS);
+        var blocked = MusicPanelModeResolver.inspectChannel(guild, com.norule.musicbot.domain.music.MusicPanelMode.MODERN, 10L);
+        assertTrue(blocked.fallback());
+        assertEquals(java.util.List.of("MESSAGE_SEND_IN_THREADS", "MESSAGE_EMBED_LINKS"), blocked.missingPermissions());
+        assertEquals(10L, blocked.channelId());
+        deniedPermissions = java.util.Set.of();
+        var recovered = MusicPanelModeResolver.inspectChannel(guild, blocked.configured(), blocked.channelId());
+        assertTrue(recovered.modern());
+        assertSame(cached, recovered.channel());
+        assertTrue(recovered.missingPermissions().isEmpty());
     }
 
     @Test

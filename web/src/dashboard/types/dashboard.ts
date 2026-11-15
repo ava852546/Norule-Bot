@@ -33,6 +33,8 @@ export interface GuildSummary {
 
 export interface DiscordOption {
   musicPanelUsable?: boolean
+  musicPanelReasonKey?: string
+  musicPanelMissingPermissions?: string[]
   id: string
   name: string
   mention?: string
@@ -104,6 +106,10 @@ export interface MessageLogSettings {
 export interface MusicSettings {
   musicPanelMode: 'MODERN' | 'LEGACY'
   musicPanelChannelValid?: boolean
+  musicPanelStatusChannelId?: string
+  musicPanelEffectiveMode?: 'MODERN' | 'LEGACY'
+  musicPanelReasonKey?: string
+  musicPanelMissingPermissions?: string[]
   autoplayEnabled: boolean
   defaultRepeatMode: 'OFF' | 'SINGLE' | 'ALL'
   commandChannelId: string

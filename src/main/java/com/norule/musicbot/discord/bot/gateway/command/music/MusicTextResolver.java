@@ -1,6 +1,7 @@
 package com.norule.musicbot.discord.bot.gateway.command.music;
 
 import com.norule.musicbot.i18n.I18nService;
+import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver;
 
 import java.util.Map;
 import java.util.Objects;
@@ -23,6 +24,34 @@ public final class MusicTextResolver {
         return isMissingTranslation(value, fullKey) ? musicUx(lang, key, placeholders) : value;
     }
 
+    public String panelStatus(String lang, MusicPanelModeResolver.Selection mode) {
+        String reasonKey = panelReasonKey(mode.reason());
+        String permissions = mode.missingPermissions().isEmpty()
+                ? musicText(lang, mode.modern() ? "panel_permissions_none" : "panel_permissions_unknown")
+                : mode.missingPermissions().stream().map(permission -> musicText(lang, "panel_permission_" + permission))
+                        .collect(java.util.stream.Collectors.joining(", "));
+        return "⚠️ " + musicText(lang, mode.missingPermissions().isEmpty() ? "panel_fallback_title" : "panel_permission_title")
+                + "\n" + musicText(lang, "panel_status", Map.of("channel", mode.channelId() == null ? "—" : mode.channelId().toString(),
+                        "configured", mode.configured().name(), "effective", mode.effective().name(),
+                        "reason", musicText(lang, reasonKey), "permissions", permissions))
+                + "\n" + musicText(lang, "panel_repair");
+    }
+
+    public static String panelReasonKey(String reason) {
+        return switch (reason) {
+            case "AVAILABLE", "LEGACY_MODE" -> "panel_permissions_none";
+            case "NOT_CONFIGURED", "NO_INTERACTION_CHANNEL" -> "panel_reason_not_configured";
+            case "UNKNOWN_CHANNEL" -> "panel_reason_deleted";
+            case "MISSING_VIEW_PERMISSION", "MISSING_SEND_PERMISSION", "MISSING_EMBED_PERMISSION" -> "panel_reason_permissions";
+            case "MISSING_ACCESS", "MISSING_PERMISSIONS" -> "panel_reason_access";
+            case "UNSUPPORTED_CHANNEL_TYPE" -> "panel_reason_unsupported";
+            case "THREAD_LOCKED" -> "panel_reason_locked";
+            case "THREAD_ARCHIVED" -> "panel_reason_archived";
+            case "CHANNEL_NOT_WRITABLE" -> "panel_reason_not_writable";
+            default -> "panel_reason_verification";
+        };
+    }
+
     private boolean isMissingTranslation(String value, String key) {
         return value == null || value.isBlank() || value.equals(key);
     }
@@ -31,6 +60,24 @@ public final class MusicTextResolver {
         boolean zhCn = lang != null && lang.startsWith("zh-CN");
         boolean zh = lang != null && lang.startsWith("zh");
         String value = switch (key) {
+            case "panel_permission_title" -> zhCn ? "音乐面板权限不足" : (zh ? "音樂面板權限不足" : "Music panel permissions missing");
+            case "panel_status" -> zhCn ? "频道：{channel} · 设置模式：{configured} · 实际模式：{effective}\n原因：{reason}\n缺少权限：{permissions}" : (zh ? "頻道：{channel} · 設定模式：{configured} · 實際模式：{effective}\n原因：{reason}\n缺少權限：{permissions}" : "Channel: {channel} · Configured mode: {configured} · Effective mode: {effective}\nReason: {reason}\nMissing permissions: {permissions}");
+            case "panel_repair" -> zhCn ? "请管理员在指定频道允许 NoRule Bot 查看频道、发送消息（讨论串需对应权限）及嵌入链接，并解除讨论串归档／锁定。修正后自动恢复 MODERN，保留原设置，不必重新设置。频道已删除或尚未设置时，请用 /settings 选择有效频道；暂时无法验证时请稍后重试。" : (zh ? "請管理員在指定頻道允許 NoRule Bot 檢視頻道、傳送訊息（討論串需對應權限）及嵌入連結，並解除討論串封存／鎖定。修正後自動恢復 MODERN，保留原設定，不必重新設定。頻道已刪除或尚未設定時，請用 /settings 選擇有效頻道；暫時無法驗證時請稍後再試。" : "Ask an administrator to allow NoRule Bot to View Channel, Send Messages (in Threads for threads), and Embed Links, and unlock/unarchive the thread. MODERN resumes automatically after repair; your channel setting is retained. For a deleted or unset channel, choose a valid channel in /settings. If verification is temporarily unavailable, try again later.");
+            case "panel_reason_permissions" -> zhCn ? "缺少必要的频道权限，部分面板功能可能无法工作。" : (zh ? "缺少必要的頻道權限，部分面板功能可能無法工作。" : "Required channel permissions are missing; some panel features may not work.");
+            case "panel_reason_not_configured" -> zhCn ? "尚未设置面板频道" : (zh ? "尚未設定面板頻道" : "No panel channel configured");
+            case "panel_reason_deleted" -> zhCn ? "Discord 已确认频道不存在" : (zh ? "Discord 已確認頻道不存在" : "Discord confirmed the channel does not exist");
+            case "panel_reason_verification" -> zhCn ? "暂时无法验证频道；不代表频道已删除" : (zh ? "暫時無法驗證頻道；不代表頻道已刪除" : "Channel verification is temporarily unavailable; this does not mean it was deleted");
+            case "panel_reason_access" -> zhCn ? "无法访问频道；请检查 Bot 角色及频道权限" : (zh ? "無法存取頻道；請檢查 Bot 角色及頻道權限" : "Cannot access the channel; check the bot role and channel permissions");
+            case "panel_reason_unsupported" -> zhCn ? "不支持的频道类型" : (zh ? "不支援的頻道類型" : "Unsupported channel type");
+            case "panel_reason_locked" -> zhCn ? "讨论串已锁定" : (zh ? "討論串已鎖定" : "Thread is locked");
+            case "panel_reason_archived" -> zhCn ? "讨论串已归档" : (zh ? "討論串已封存" : "Thread is archived");
+            case "panel_reason_not_writable" -> zhCn ? "讨论串目前无法写入" : (zh ? "討論串目前無法寫入" : "Thread is not writable");
+            case "panel_permission_VIEW_CHANNEL" -> zhCn ? "查看频道（View Channel）" : (zh ? "檢視頻道（View Channel）" : "View Channel");
+            case "panel_permission_MESSAGE_SEND" -> zhCn ? "发送消息（Send Messages）" : (zh ? "傳送訊息（Send Messages）" : "Send Messages");
+            case "panel_permission_MESSAGE_SEND_IN_THREADS" -> zhCn ? "在讨论串发送消息（Send Messages in Threads）" : (zh ? "在討論串傳送訊息（Send Messages in Threads）" : "Send Messages in Threads");
+            case "panel_permission_MESSAGE_EMBED_LINKS" -> zhCn ? "嵌入链接（Embed Links）" : (zh ? "嵌入連結（Embed Links）" : "Embed Links");
+            case "panel_permissions_unknown" -> zhCn ? "无法确认" : (zh ? "無法確認" : "Not confirmed");
+            case "panel_permissions_none" -> zhCn ? "无" : (zh ? "無" : "None");
             case "panel_mode_label" -> zhCn ? "音乐面板模式" : (zh ? "音樂面板模式" : "Music panel mode");
             case "panel_mode_modern" -> zhCn ? "新版模式（默认）" : (zh ? "新版模式（預設）" : "Modern mode (default)");
             case "panel_mode_legacy" -> zhCn ? "传统模式" : (zh ? "傳統模式" : "Legacy mode");

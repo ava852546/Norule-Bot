@@ -31,7 +31,7 @@ class MusicPlayReplyTest {
 
     private static final MusicPanelModeResolver.Selection FALLBACK = new MusicPanelModeResolver.Selection(
             MusicPanelMode.MODERN, MusicPanelMode.LEGACY, null, null, "NOT_CONFIGURED");
-    private static final MessageEmbed WARNING = new EmbedBuilder().setTitle("Configuration warning").build();
+    private static final String WARNING = "Configuration warning: missing Embed Links";
 
     @Test
     void successAndAllFailureResultsLeaveAnIndependentEphemeralWarning() {
@@ -108,8 +108,9 @@ class MusicPlayReplyTest {
         var reply = discord.start(legacy);
         discord.finishAck();
         var menu = ActionRow.of(StringSelectMenu.create("play:pick:test").addOption("Track", "0").build());
-        reply.get().sendSearch(WARNING, menu, message -> assertEquals("original", message.getId()));
-        assertEquals(Map.of("original", WARNING), discord.messages);
+        var search = new EmbedBuilder().setTitle("Search results").build();
+        reply.get().sendSearch(search, menu, message -> assertEquals("original", message.getId()));
+        assertEquals(Map.of("original", search), discord.messages);
         assertTrue(discord.ephemeral.get("original"));
         assertEquals(1, discord.originalEdits);
     }
@@ -191,7 +192,7 @@ class MusicPlayReplyTest {
                 }
                 assertEquals(0, acknowledgements++, "Interaction Already Acknowledged");
                 deferred = method.getName().equals("deferReply");
-                assertTrue(deferred || method.getName().equals("replyEmbeds"));
+                assertTrue(deferred || method.getName().equals("reply"));
                 if (deferred) ackEphemeral = (boolean) args[0];
                 else warning = args[0];
                 return proxy(ReplyCallbackAction.class, (action, m, a) -> {

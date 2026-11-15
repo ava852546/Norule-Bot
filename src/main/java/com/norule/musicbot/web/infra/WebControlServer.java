@@ -1,6 +1,7 @@
 package com.norule.musicbot.web.infra;
 
 import com.norule.musicbot.config.GuildSettingsService;
+import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver;
 import com.norule.musicbot.config.domain.MinecraftStatusConfig;
 import com.norule.musicbot.domain.music.*;
 import com.norule.musicbot.gateway.minecraft.McSrvStatGateway;
@@ -84,6 +85,18 @@ import java.util.function.Supplier;
 
     private volatile HttpServer server;
     private volatile int bindPort = -1;
+    private volatile java.util.function.Function<Guild, MusicPanelModeResolver.Selection> musicPanelStatusResolver;
+
+    public void setMusicPanelStatusResolver(java.util.function.Function<Guild, MusicPanelModeResolver.Selection> resolver) {
+        this.musicPanelStatusResolver = java.util.Objects.requireNonNull(resolver);
+    }
+
+    public MusicPanelModeResolver.Selection musicPanelStatus(Guild guild) {
+        if (musicPanelStatusResolver != null) return musicPanelStatusResolver.apply(guild);
+        var music = settingsService.getMusic(guild.getIdLong());
+        return MusicPanelModeResolver.inspectChannel(
+                guild, music.getPanelMode(), music.getCommandChannelId());
+    }
     public WebControlServer(JDA jda,
                             MusicPlayerService musicService,
                             GuildSettingsService settingsService,

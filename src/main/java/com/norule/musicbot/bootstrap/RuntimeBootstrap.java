@@ -364,7 +364,7 @@ public final class RuntimeBootstrap {
         try {
             jda.awaitReady();
             startActivityRotation(jda, config.getBotProfile());
-            syncWebServer(jda, playerService, guildSettingsService, moderationService, TICKET_SERVICE.get(), SHORT_URL_SERVICE.get(), I18N_SERVICE.get());
+            syncWebServer(jda, playerService, guildSettingsService, moderationService, TICKET_SERVICE.get(), SHORT_URL_SERVICE.get(), I18N_SERVICE.get(), musicCommandListener);
             syncShortUrlGateway();
             logLifecycleMessage(i18nService, config.getDefaultLanguage(), true);
         } catch (InterruptedException e) {
@@ -756,7 +756,8 @@ public final class RuntimeBootstrap {
                     context.moderationService(),
                     TICKET_SERVICE.get(),
                     SHORT_URL_SERVICE.get(),
-                    I18N_SERVICE.get()
+                    I18N_SERVICE.get(),
+                    context.musicCommandListener()
             );
             syncShortUrlGateway();
             logInfo("[NoRule] Config reloaded successfully.");
@@ -838,7 +839,8 @@ public final class RuntimeBootstrap {
                                       ModerationService moderationService,
                                       TicketService ticketService,
                                       ShortUrlService shortUrlService,
-                                      I18nService i18nService) {
+                                      I18nService i18nService,
+                                      MusicCommandListener musicCommandListener) {
         BotConfig runtime = RUNTIME_CONFIG.get();
         if (runtime == null || i18nService == null || ticketService == null || shortUrlService == null) {
             return;
@@ -888,6 +890,7 @@ public final class RuntimeBootstrap {
                     },
                     i18nService
             );
+            server.setMusicPanelStatusResolver(musicCommandListener::musicPanelStatus);
             WEB_SERVER.set(server);
         }
         server.syncWithConfig();

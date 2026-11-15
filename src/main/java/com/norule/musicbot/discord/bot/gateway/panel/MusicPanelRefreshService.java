@@ -60,6 +60,8 @@ public final class MusicPanelRefreshService {
         }
     }
     private final Map<Long, PlayRequest> playChannels = new ConcurrentHashMap<>();
+    private record TargetDiagnostic(Long channelId, String reason, List<String> permissions) {}
+    private final Map<Long, TargetDiagnostic> targetDiagnostics = new ConcurrentHashMap<>();
     private volatile boolean closed;
 
     public MusicPanelRefreshService(MusicCommandService owner,
@@ -755,17 +757,25 @@ public final class MusicPanelRefreshService {
         boolean embed = target != null && guild.getSelfMember().hasPermission(target, Permission.MESSAGE_EMBED_LINKS);
         boolean talk = target != null && (!(target instanceof ThreadChannel) || target.canTalk());
         String reason = resolved.reason();
-        LOGGER.atLevel(resolved.available() ? org.slf4j.event.Level.DEBUG : org.slf4j.event.Level.WARN)
+        var diagnostic = new TargetDiagnostic(targetId, reason, resolved.missingPermissions());
+        var previous = targetDiagnostics.put(guild.getIdLong(), diagnostic);
+        boolean repeatedPermission = !diagnostic.permissions().isEmpty() && diagnostic.equals(previous);
+        if (resolved.available() && previous != null && Objects.equals(previous.channelId(), targetId)
+                && !previous.permissions().isEmpty()) {
+            LOGGER.info("[MusicPanel] event=PERMISSION_RESTORED guildId={} channelId={} configuredMode={} effectiveMode={}",
+                    guild.getIdLong(), targetId, mode.configured(), mode.effective());
+        }
+        LOGGER.atLevel(resolved.available() || repeatedPermission ? org.slf4j.event.Level.DEBUG : org.slf4j.event.Level.WARN)
                 .log("event={} guildId={} configuredMode={} effectiveMode={} configuredChannelId={} selectionChannelId={} "
                         + "interactionChannelId={} finalTargetChannelId={} selectionReason={} reason={} source={} "
-                        + "channelType={} cacheHit={} interactionFallback={} isThread={} viewAllowed={} sendAllowed={} embedAllowed={} canTalk={} requestId={}",
+                        + "channelType={} cacheHit={} interactionFallback={} isThread={} viewAllowed={} sendAllowed={} embedAllowed={} canTalk={} requestId={} permission={}",
                 resolved.available() ? (revalidation ? "MUSIC_PANEL_TARGET_REVALIDATED" : "MUSIC_PANEL_TARGET_RESOLVED")
                         : "MUSIC_PANEL_TARGET_RESOLUTION_FAILED",
                 guild.getIdLong(), mode.configured(), mode.effective(), mode.channelId(), initial.channelId(),
                 interactionChannelId, targetId, mode.reason(), reason, source,
                 resolved.type() == null ? "UNKNOWN" : resolved.type(), resolved.cacheHit(), target != null && !resolved.cacheHit(),
                 thread, target == null ? null : view, target == null ? null : sendAllowed,
-                target == null ? null : embed, target == null ? null : talk, requestId);
+                target == null ? null : embed, target == null ? null : talk, requestId, String.join(",", diagnostic.permissions()));
         if (!"AVAILABLE".equals(reason)) {
             if (target != null) requireUsable(guild, target);
             throw new IllegalStateException(owner.musicText(owner.lang(guild.getIdLong()), "panel_target_unavailable"));
@@ -1077,6 +1087,7 @@ public final class MusicPanelRefreshService {
         playChannels.remove(guildId);
         settingsSyncs.remove(guildId);
         stateStore.forgetGuild(guildId);
+        targetDiagnostics.remove(guildId);
         coordinator.clear(guildId);
     }
 
@@ -1112,6 +1123,7 @@ public final class MusicPanelRefreshService {
         coordinator.close();
         settingsSyncs.clear();
         playChannels.clear();
+        targetDiagnostics.clear();
     }
 
     private Permission missingRefreshPermission(Guild guild, GuildMessageChannel channel) {

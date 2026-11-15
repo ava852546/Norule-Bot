@@ -1,6 +1,9 @@
 package com.norule.musicbot.web.service;
 
 import com.norule.musicbot.domain.music.MusicPanelMode;
+import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver;
+import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelTargetResolver;
+import com.norule.musicbot.discord.bot.gateway.command.music.MusicTextResolver;
 
 import com.norule.musicbot.ModerationService;
 import com.norule.musicbot.config.GuildSettingsService;
@@ -297,8 +300,13 @@ public final class GuildSettingsWebService {
 
     private void handleGuildChannelsGet(HttpExchange exchange, Guild guild) throws IOException {
         DataArray textChannels = DataArray.empty();
-        guild.getTextChannels().forEach(ch -> textChannels.add(DataObject.empty().put("id", ch.getId()).put("name", ch.getName()).put("mention", ch.getAsMention())
-                .put("musicPanelUsable", musicPanelChannelValid(guild, ch.getIdLong()))));
+        guild.getTextChannels().forEach(ch -> {
+            var target = MusicPanelTargetResolver.resolve(guild, ch.getIdLong(), null);
+            textChannels.add(DataObject.empty().put("id", ch.getId()).put("name", ch.getName()).put("mention", ch.getAsMention())
+                    .put("musicPanelUsable", target.available())
+                    .put("musicPanelReasonKey", MusicTextResolver.panelReasonKey(target.reason()))
+                    .put("musicPanelMissingPermissions", target.missingPermissions()));
+        });
         DataArray voiceChannels = DataArray.empty();
         guild.getVoiceChannels().forEach(ch -> voiceChannels.add(DataObject.empty().put("id", ch.getId()).put("name", ch.getName()).put("mention", ch.getAsMention())));
         owner.sendJson(exchange, 200, DataObject.empty().put("textChannels", textChannels).put("voiceChannels", voiceChannels));
@@ -413,21 +421,29 @@ public final class GuildSettingsWebService {
 
     private DataObject buildMusicPayload(Guild guild, GuildSettingsService.GuildSettings settings) {
         var music = settings.getMusic();
+        var status = owner.musicPanelStatus(guild);
+        if (status.configured() != music.getPanelMode() || !Objects.equals(status.channelId(), music.getCommandChannelId())) {
+            status = MusicPanelModeResolver.inspectChannel(guild, music.getPanelMode(), music.getCommandChannelId());
+        }
+        var target = music.getPanelMode() == MusicPanelMode.MODERN ? status
+                : MusicPanelModeResolver.inspectChannel(guild, MusicPanelMode.MODERN, music.getCommandChannelId());
         return DataObject.empty()
                 .put("autoplayEnabled", music.isAutoplayEnabled())
                 .put("defaultRepeatMode", music.getDefaultRepeatMode().name())
                 .put("commandChannelId", owner.toIdText(music.getCommandChannelId()))
                 .put("musicPanelMode", music.getPanelMode().name())
-                .put("musicPanelChannelValid", musicPanelChannelValid(guild, music.getCommandChannelId()))
+                .put("musicPanelChannelValid", target.modern())
+                .put("musicPanelEffectiveMode", status.effective().name())
+                .put("musicPanelStatusChannelId", owner.toIdText(music.getCommandChannelId()))
+                .put("musicPanelReason", target.reason())
+                .put("musicPanelReasonKey", MusicTextResolver.panelReasonKey(target.reason()))
+                .put("musicPanelMissingPermissions", target.missingPermissions())
                 .put("historyLimit", music.getHistoryLimit())
                 .put("statsRetentionDays", music.getStatsRetentionDays());
     }
 
     private boolean musicPanelChannelValid(Guild guild, Long channelId) {
-        var channel = channelId == null ? null : guild.getTextChannelById(channelId);
-        return channel != null && guild.getSelfMember().hasPermission(channel,
-                net.dv8tion.jda.api.Permission.VIEW_CHANNEL, net.dv8tion.jda.api.Permission.MESSAGE_SEND,
-                net.dv8tion.jda.api.Permission.MESSAGE_EMBED_LINKS);
+        return channelId != null && MusicPanelTargetResolver.resolve(guild, channelId, null).available();
     }
 
     private DataObject buildMusicStatsPayload(Guild guild) {
@@ -537,6 +553,29 @@ public final class GuildSettingsWebService {
                 && !java.util.Set.of("MODERN", "LEGACY").contains(String.valueOf(musicInput.get("musicPanelMode")))) {
             owner.sendJson(exchange, 400, DataObject.empty().put("error", "Invalid music panel mode"));
             return;
+        }
+        var currentMusic = owner.settingsService().getMusic(guild.getIdLong());
+        String rawChannel = Objects.toString(musicInput.get("commandChannelId"), "").trim();
+        if (!rawChannel.isEmpty() && (owner.parseLong(rawChannel, -1L) <= 0)) {
+            String language = owner.stringOrDefault(root, "language", owner.settingsService().getLanguage(guild.getIdLong()));
+            owner.sendJson(exchange, 400, DataObject.empty().put("error", owner.i18n().t(language, "general.invalid_channel")));
+            return;
+        }
+        Long requestedChannel = owner.idOrDefault(musicInput, "commandChannelId", currentMusic.getCommandChannelId());
+        boolean changedChannel = !Objects.equals(requestedChannel, currentMusic.getCommandChannelId());
+        boolean enablingModern = "MODERN".equals(musicInput.get("musicPanelMode"))
+                && currentMusic.getPanelMode() != MusicPanelMode.MODERN;
+        if (requestedChannel != null && (changedChannel || enablingModern)) {
+            var check = MusicPanelModeResolver.inspectChannel(guild, MusicPanelMode.MODERN, requestedChannel);
+            if (!check.modern()) {
+                String language = owner.stringOrDefault(root, "language", owner.settingsService().getLanguage(guild.getIdLong()));
+                owner.sendJson(exchange, 400, DataObject.empty()
+                        .put("error", new MusicTextResolver(owner::i18n).panelStatus(language, check))
+                        .put("errorCode", "MUSIC_PANEL_CHANNEL_UNAVAILABLE")
+                        .put("channelId", requestedChannel.toString()).put("reason", check.reason())
+                        .put("missingPermissions", check.missingPermissions()));
+                return;
+            }
         }
         var privateInput = owner.asMap(root.get("privateRoom"));
         var currentPrivate = owner.settingsService().getPrivateRoom(guild.getIdLong());

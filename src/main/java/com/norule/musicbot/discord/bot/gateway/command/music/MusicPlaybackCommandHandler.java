@@ -100,7 +100,7 @@ public final class MusicPlaybackCommandHandler {
     public void handlePlaySlash(SlashCommandInteractionEvent event, String lang) {
         var mode = panelController.panelMode(event.getGuild());
         MusicPlayReply.acknowledge(event, mode,
-                () -> MusicPlayReply.fallbackNotice(key -> owner.musicText(lang, key)), owner.scheduler(),
+                () -> new MusicTextResolver(owner::i18nService).panelStatus(lang, mode), owner.scheduler(),
                 owner.i18nService().t(lang, "music.load_failed_generic"), reply -> {
             var diagnosticRequest = owner.musicService().recordDiagnosticRequest(event.getGuild().getIdLong(), event.getChannel().getIdLong(),
                     event.getUser().getIdLong(), "/play", "RECEIVED");

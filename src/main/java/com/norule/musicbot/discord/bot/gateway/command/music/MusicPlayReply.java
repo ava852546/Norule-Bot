@@ -1,7 +1,6 @@
 package com.norule.musicbot.discord.bot.gateway.command.music;
 
 import com.norule.musicbot.discord.bot.gateway.panel.MusicPanelModeResolver;
-import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
@@ -11,7 +10,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import net.dv8tion.jda.api.interactions.callbacks.IReplyCallback;
 
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.function.Supplier;
 
 /** Owns the /play response target, keeping fallback warnings separate from results. */
@@ -25,24 +23,15 @@ final class MusicPlayReply {
     }
 
     static void acknowledge(IReplyCallback interaction, MusicPanelModeResolver.Selection mode,
-                            Supplier<MessageEmbed> notice, ScheduledExecutorService scheduler, String failureText,
+                            Supplier<String> notice, ScheduledExecutorService scheduler, String failureText,
                             Consumer<MusicPlayReply> continuation) {
         boolean fallback = mode.fallback();
         // The warning is the original response; playback/search remain independent private results.
         DeferredInteractionResponse.acknowledge(interaction,
-                () -> fallback ? interaction.replyEmbeds(notice.get()).setEphemeral(true) : interaction.deferReply(true),
+                () -> fallback ? interaction.reply(notice.get()).setEphemeral(true) : interaction.deferReply(true),
                 "EPHEMERAL", "play", scheduler, Duration.ofSeconds(60),
                 hook -> fallback ? hook.sendMessage(failureText).setEphemeral(true) : hook.editOriginal(failureText),
                 response -> continuation.accept(new MusicPlayReply(response, fallback)));
-    }
-
-    static MessageEmbed fallbackNotice(Function<String, String> text) {
-        return new EmbedBuilder()
-                .setColor(0xF0B232)
-                .setTitle(text.apply("panel_fallback_title"))
-                .setDescription(text.apply("panel_fallback_description"))
-                .setFooter(text.apply("panel_fallback_footer"))
-                .build();
     }
 
     void sendText(String text) {
