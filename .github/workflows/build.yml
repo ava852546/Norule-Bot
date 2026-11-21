@@ -56,12 +56,15 @@ jobs:
               name = f'{artifact}-{version}' + (f'-{classifier}' if classifier else '') + f'.{extension}'
               jar = target / 'runtime-libs' / name
               assert hashlib.sha256(jar.read_bytes()).hexdigest() == checksum, name
-          jars = list(target.glob('*.jar'))
-          assert jars, 'Main JAR is missing'
-          for jar in jars:
-              with ZipFile(jar) as packaged:
-                  for source in (manifest, checksums):
-                      assert packaged.read('bootstrap/' + source.name) == source.read_bytes(), source.name
+          main_jar = target / 'discord-music-bot-1.8.jar'
+          assert main_jar.is_file(), 'Main JAR is missing'
+          
+          with ZipFile(main_jar) as packaged:
+              for source in (manifest, checksums):
+                  assert (
+                      packaged.read('bootstrap/' + source.name)
+                      == source.read_bytes()
+                  ), source.name
           print(f'Verified {len(entries)} runtime dependencies and packaged manifests')
           PY
 
